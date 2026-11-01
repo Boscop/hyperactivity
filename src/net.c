@@ -26,9 +26,10 @@ Cell *cell(int kind, int n) {
         c = malloc(sizeof(Cell) + (size_t)n * sizeof(Port));
         if (!c) { fputs("out of memory\n", stderr); exit(2); }
         __atomic_store_n(&c->lk, 0, __ATOMIC_RELAXED);
+        c->n = (uint16_t)n;   /* never changes: a freed cell is reused only for a cell of the same size */
     }
     memset(c->port, 0, (size_t)n * sizeof(Port));
-    c->kind = (uint16_t)kind; c->n = (uint16_t)n; c->x = 0; c->ty = 0; c->a = 0; c->p = NULL;
+    c->kind = (uint16_t)kind; c->x = 0; c->ty = 0; c->a = 0; c->p = NULL;
     ADD(stat_cells, 1);
     return c;
 }
@@ -1901,33 +1902,40 @@ static int cell_cmp(const void *x, const void *y) {
     uintptr_t a = (uintptr_t)*(Cell *const *)x, b = (uintptr_t)*(Cell *const *)y;
     return a < b ? -1 : a > b;
 }
+/* the cells to lock, sorted and distinct; when they do not fit in cap, minus the number needed (the
+ * stored value read without locks may have been replaced by a larger one since cap was estimated) */
 static int lockset(Cell *o, Cell *v, Cell **S, int cap) {
     int n = 0;
-    S[n++] = o; S[n++] = v;
-    for (int k = 1; k < o->n; k++) { Port p = rd(o, k); if (p) S[n++] = PC(p); }
-    for (int k = 1; k < v->n; k++) { Port p = rd(v, k); if (p) S[n++] = PC(p); }
-    if (v->kind == V_GLOBAL) { Cell *r = global_res((long)v->a); S[n++] = r; Port p = rd(r, 0); if (p) S[n++] = PC(p); }
+#define ADDC(c) do { Cell *c_ = (c); if (n < cap) S[n] = c_; n++; } while (0)
+#define ADDPARTS(w) do { for (int k = 1; k < (w)->n; k++) { Port q = rd((w), k); if (q) ADDC(PC(q)); } } while (0)
+    ADDC(o); ADDC(v);
+    for (int k = 1; k < o->n; k++) { Port p = rd(o, k); if (p) ADDC(PC(p)); }
+    for (int k = 1; k < v->n; k++) { Port p = rd(v, k); if (p) ADDC(PC(p)); }
+    if (v->kind == V_GLOBAL) { Cell *r = global_res((long)v->a); ADDC(r); Port p = rd(r, 0); if (p) ADDC(PC(p)); }
     if (v->kind == V_META || ((o->kind == O_METAREF || o->kind == O_METASET || o->kind == O_METATY || o->kind == O_METASOLVED || o->kind == O_METATYPED) && v->kind == V_WORD && !v->p)) {
         /* a metavariable's solution (or type) is read or set */
         Cell *r = (o->kind == O_METATY || o->kind == O_METATYPED) ? meta_type_root((long)v->a) : meta_root((long)v->a);
-        if (r) { S[n++] = r; Port p = rd(r, 0); if (p) { Cell *w = PC(p); S[n++] = w; for (int k = 1; k < w->n && n < cap - 1; k++) { Port q = rd(w, k); if (q) S[n++] = PC(q); } } }
+        if (r) { ADDC(r); Port p = rd(r, 0); if (p) { Cell *w = PC(p); ADDC(w); ADDPARTS(w); } }
     }
     if (o->kind == O_WOP2 || o->kind == O_CLOS2) {
         /* the first operand's value, held at port 1: its parts are moved */
         Port p = rd(o, 1);
-        if (p) { Cell *w = PC(p); for (int k = 1; k < w->n && n < cap - 1; k++) { Port q = rd(w, k); if (q) S[n++] = PC(q); } }
+        if (p) { Cell *w = PC(p); ADDPARTS(w); }
     }
     if (v->kind == V_REF || v->kind == V_GLOBAL) {
         /* the stored value and its parts' neighbours: reading it may wrap a part in a box */
         Cell *r = v->kind == V_REF ? ((Box *)v->p)->root : global_res((long)v->a);
-        if (v->kind == V_REF) S[n++] = r;
+        if (v->kind == V_REF) ADDC(r);
         Port p = rd(r, 0);
         if (p) {
             Cell *w = PC(p);
-            if (v->kind == V_REF) S[n++] = w;
-            for (int k = 1; k < w->n && n < cap - 1; k++) { Port q = rd(w, k); if (q) S[n++] = PC(q); }
+            if (v->kind == V_REF) ADDC(w);
+            ADDPARTS(w);
         }
     }
+#undef ADDPARTS
+#undef ADDC
+    if (n > cap) return -n;
     qsort(S, (size_t)n, sizeof(Cell *), cell_cmp);
     int m = 0;
     for (int i = 0; i < n; i++) if (m == 0 || S[m - 1] != S[i]) S[m++] = S[i];
@@ -1953,9 +1961,17 @@ static void rewrite(Redex r) {
     int n;
     for (;;) {
         n = lockset(o, v, S, cap);
+        if (n < 0) {
+            /* more cells than estimated: room for them, and the set read again */
+            if (cap > 64) { free(S); free(T); }
+            cap = -n;
+            S = cap <= 64 ? buf1 : malloc((size_t)cap * sizeof(Cell *));
+            T = cap <= 64 ? buf2 : malloc((size_t)cap * sizeof(Cell *));
+            continue;
+        }
         for (int i = 0; i < n; i++) lock(S[i]);
         int m = lockset(o, v, T, cap), j = 0;
-        bool ok = true;
+        bool ok = m >= 0;
         for (int i = 0; i < m && ok; i++) { while (j < n && S[j] < T[i]) j++; if (j == n || S[j] != T[i]) ok = false; }
         if (ok) break;
         for (int i = n - 1; i >= 0; i--) unlock(S[i]);
