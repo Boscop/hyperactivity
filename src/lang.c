@@ -1806,9 +1806,15 @@ static void rb_one(FILE *o, Port prov) {
         return;
     case V_PAIR: push_fields(o, "pair", c, 1); return;
     case V_U: {
-        Cell *lc = PC(c->port[1]);
+        /* U at lzero reads as U: the level is observed (through references to it) before it is
+         * compared, so the reading does not depend on how the level is held */
+        extern Port ref_copy(Cell *c);
+        Cell *lc = observe(c->port[1]);
+        while (lc && lc->kind == V_REF) lc = observe(ref_copy(lc));
         if (lc && lc->kind == V_CON && !strcmp(CON[lc->a].name, "lzero")) { fputs("U", o); return; }
-        fputs("(U ", o); push_str(")"); push_field(c, 1); return;
+        fputs("(U ", o); push_str(")");
+        if (lc) push_port(P(lc, 0)); else push_str("<pending>");
+        return;
     }
     case V_PATHP: push_fields(o, "PathP", c, 1); return;
     case V_PLAM: {
@@ -2010,14 +2016,13 @@ static Port typed_answer(Node *T, Node *t) {
  * (5.13 concerns a normal form): pending pairs are reduced before and after,
  * so the counts do not depend on the schedule. */
 static char *readback(Node *t, long *steps) {
-    bool reading = steps != NULL;
-    if (reading) net_drain();
+    net_drain();
     long s0 = stat_steps;
     Port v = (t->list && t->n == 3 && is(t->it[0], "the")) ? typed_answer(t->it[1], t->it[2]) : as_answer(build_top(t));
     rb_sub = answer_subst();
     char *buf = read_port(v);
     subst_release(rb_sub); rb_sub = NULL;
-    if (reading) net_drain();
+    net_drain();
     if (steps) *steps = stat_steps - s0;
     return buf;
 }

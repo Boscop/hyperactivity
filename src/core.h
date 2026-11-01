@@ -216,6 +216,11 @@ enum {
     O_BRANCHC,  /* p=CaseTab, a=count; 0=constructor (Num) 1=parameters, then the environment, out */
     O_BRANCHL,  /* p=CaseTab, a=constructor, x=parameters read; 0=the rest of the list, then the
                  * environment, then the parameters read, out: branch a at the parameters */
+    O_FWD,      /* 0=the value 1=where it is held 2=a reader: a read waiting for a held value that has
+                 * not arrived; when it arrives the reader gets its one-level copy and the value goes
+                 * on to be held. Not counted as a step: it delivers a read already counted */
+    O_SHARE,    /* 0=value 1=out 2=out: a part of a read value that had not arrived when it was read;
+                 * shared as the read would have shared it (as O_DUP). Not counted as a step */
     O_ROOT,     /* 0: an observation; never interacts */
     K_END
 };

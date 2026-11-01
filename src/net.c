@@ -14,7 +14,7 @@ long stat_steps, stat_kind[K_END], stat_cells;
  * Freed cells go to the freeing thread's list after its locks are released. */
 #define MAXFREE 4096
 typedef struct { Cell *op, *v; } Redex;
-typedef struct { Cell *free[MAXFREE + 1]; Cell *defer; Redex *made; size_t nmade, capmade; } Local;
+typedef struct { Cell *free[MAXFREE + 1]; Cell *defer; Redex *made; size_t nmade, capmade; struct Box **dead; size_t ndead, capdead; } Local;
 static __thread Local *L;
 static Local *local(void) { if (!L) L = calloc(1, sizeof(Local)); return L; }
 
@@ -153,6 +153,7 @@ Port thunk_build(Cell *v);
 Port unbuilt_build(Cell *v);
 static bool unbuilt(int k);
 static Port sub(Port prov, Subst *s);
+static Port copy_top(Cell *v);
 Port lazy_copy(Cell *root) {
     Port p = root->port[0];
     Cell *v = p ? PC(p) : NULL;
@@ -162,10 +163,18 @@ Port lazy_copy(Cell *root) {
         p = root->port[0]; v = PC(p);
     }
     if (!v || PI(p) != 0 || !is_value(v->kind)) {
-        Cell *d = cell(O_DUP, 3);
+        /* the value is not there yet: the reader waits on the wire for it (O_FWD), and is served
+         * the same one-level copy when it arrives. Waiting costs no step, so what a read costs does
+         * not depend on whether the value had arrived */
+        Cell *d = cell(O_FWD, 3);
         link(root->port[0], P(d, 0)); link(P(d, 1), P(root, 0));
         return P(d, 2);
     }
+    return copy_top(v);
+}
+/* one level of a stored value: its top cell copied, each part with parts of its own a reference to a
+ * box around the stored part (the stored value's port then refers to that box too) */
+static Port copy_top(Cell *v) {
     Cell *c = clone(v);
     for (int k = 1; k < v->n; k++) {
         Port q = v->port[k];
@@ -174,6 +183,14 @@ Port lazy_copy(Cell *root) {
             /* a part with no parts of its own (a reference, a word, a constant): itself */
             Cell *q2 = clone(qc);
             link(P(q2, 0), P(c, k));
+            continue;
+        }
+        if (q && !(PI(q) == 0 && is_value(qc->kind))) {
+            /* a part not there yet: shared as it will be when it arrives (O_SHARE) — copied if it
+             * has no parts, else held once with a reference on each side — so the copy does not
+             * depend on whether it had arrived */
+            Cell *d = cell(O_SHARE, 3);
+            link(q, P(d, 0)); link(P(d, 1), P(v, k)); link(P(d, 2), P(c, k));
             continue;
         }
         Box *b = box_new(q);
@@ -227,12 +244,36 @@ Port wsusp_force(Cell *c) {
 }
 static Port ref_of(Port val) { Cell *c = cell(V_REF, 1); c->p = box_new(val); return P(c, 0); }
 static void era(Port prov);
+/* The last reference to a box gone: what it holds is erased. Not here: the release can happen where
+ * the box's root and the cell its value comes from are not locked (a substitution holding the box
+ * freed by an unrelated rule), and erasing rewires that cell. So the box is retired after the
+ * rewrite's locks are released (retire_boxes), under the locks of exactly the two cells involved. */
 static void box_release(Box *b) {
     if (__atomic_sub_fetch(&b->rc, 1, __ATOMIC_ACQ_REL)) return;
-    Port p = b->root->port[0];
-    if (p) era(p);
-    cell_free(b->root);
-    free(b);
+    Local *l = local();
+    if (l->ndead == l->capdead) { l->capdead = l->capdead ? l->capdead * 2 : 16; l->dead = realloc(l->dead, l->capdead * sizeof(Box *)); }
+    l->dead[l->ndead++] = b;
+}
+static void lock(Cell *c);
+static void unlock(Cell *c);
+static void retire_boxes(void) {
+    Local *l = local();
+    while (l->ndead) {
+        Box *b = l->dead[--l->ndead];
+        Cell *r = b->root, *w;
+        Port p;
+        for (;;) {
+            p = __atomic_load_n(&r->port[0], __ATOMIC_ACQUIRE);
+            w = p ? PC(p) : NULL;
+            if (w && w < r) { lock(w); lock(r); } else { lock(r); if (w) lock(w); }
+            if (__atomic_load_n(&r->port[0], __ATOMIC_ACQUIRE) == p) break;
+            unlock(r); if (w) unlock(w);
+        }
+        if (p) era(p);
+        unlock(r); if (w) unlock(w);
+        cell_free(r);
+        free(b);
+    }
 }
 static void era(Port prov) { Cell *e = cell(O_ERA, 1); e->a = (uint64_t)dup_origin; link(prov, P(e, 0)); }
 static Port sub(Port prov, Subst *s) { Cell *c = cell(O_SUBST, 2); c->p = subst_retain(s); link(prov, P(c, 0)); return P(c, 1); }  /* borrows s */
@@ -359,11 +400,9 @@ static void rule_subst(Cell *o, Cell *v) {
         link(sub(v->port[1], s), P(v, 1));
         link(P(v, 0), out); cell_free(o); return;
     }
-    case V_META: {
-        Cell *root = meta_root((long)v->a);
-        if (root && root->port[0]) { link(sub(lazy_copy(root), s), out); cell_free(o); cell_free(v); return; }
+    case V_META:
+        /* unsolved (a solved one is delivered before any rule: interact) */
         link(P(v, 0), out); cell_free(o); return;
-    }
     case V_TABS: {
         /* the bound variable is not substituted inside */
         Subst *t = s;
@@ -906,6 +945,8 @@ static const char *const KIND_NAME[K_END] = {
     [O_BRANCH] = "BRANCH",
     [O_BRANCHC] = "BRANCHC",
     [O_BRANCHL] = "BRANCHL",
+    [O_FWD] = "FWD",
+    [O_SHARE] = "SHARE",
     [O_ROOT] = "ROOT",
 };
 
@@ -928,6 +969,30 @@ static void trace_step(Cell *o, Cell *v) {
 }
 /* ---------------- the rules ---------------- */
 static void interact(Cell *o, Cell *v) {
+    if (o->kind == O_FWD) {
+        /* a read waiting for its value (lazy_copy): not a step of its own. An unbuilt value is
+         * built, as the reader would have built it in place; a value is passed on to where it is
+         * held, and the waiting reader gets its one-level copy */
+        if (unbuilt(v->kind)) { link(unbuilt_build(v), P(o, 0)); return; }
+        Port c = copy_top(v);
+        link(c, o->port[2]);
+        link(P(v, 0), o->port[1]);
+        cell_free(o);
+        return;
+    }
+    if (o->kind == O_SHARE) {
+        /* a part of a read value that arrived after the read (copy_top): shared exactly as the
+         * read would have shared it had it been there; not a step of its own */
+        rule_dup(o, v);
+        return;
+    }
+    if (v->kind == V_META && o->kind != O_VIEW && o->kind != O_ERA && o->kind != O_DUP && o->kind != O_MKPLAM) {
+        /* a metavariable read before it was solved, met after: its solution is delivered to the
+         * operation, as the read would have delivered it had the solution been there; not a step.
+         * (Erasing, sharing or abstracting it does not read it.) */
+        Cell *root = meta_root((long)v->a);
+        if (root && root->port[0]) { link(lazy_copy(root), P(o, 0)); cell_free(v); return; }
+    }
     ADD(stat_steps, 1); ADD(stat_kind[o->kind], 1);
     if (trace_out) trace_step(o, v);
     if (prof_on) {
@@ -977,11 +1042,6 @@ static void interact(Cell *o, Cell *v) {
     }
 /* IDENTITIES (declared L = R makes every call of L run R): retarded non-core feature with no bearing on intended design. */
     if (v->kind == V_DEFER) { defer_force(o, v); return; }
-    if (v->kind == V_META && o->kind != O_VIEW) {
-        /* a solved metavariable is its solution */
-        Cell *root = meta_root((long)v->a);
-        if (root && root->port[0]) { link(lazy_copy(root), P(o, 0)); cell_free(v); return; }
-    }
     /* an unbuilt subterm meeting an operation is built (an explicit force of a hypothesis too) */
     if (unbuilt(v->kind)) { link(unbuilt_build(v), P(o, 0)); return; }
     if (v->kind == V_REF) {
@@ -1919,6 +1979,7 @@ static void rewrite(Redex r) {
     }
     interact(o, v);
     for (int i = n - 1; i >= 0; i--) unlock(S[i]);
+    retire_boxes();
     flush_frees();
     publish();
     if (cap > 64) { free(S); free(T); }
@@ -1967,6 +2028,7 @@ static bool observed(Cell *root) {
 /* an observation: reduce, every worker taking pairs in arrival order, until
  * the observed port holds a value; the rest of the net stands */
 bool net_observe(Cell *root, long limit) {
+    retire_boxes(); flush_frees();
     publish();
     if (nworkers) { pthread_mutex_lock(&wmu); __atomic_store_n(&running, 1, __ATOMIC_RELEASE); pthread_cond_broadcast(&wcv); pthread_mutex_unlock(&wmu); }
     long n = 0;

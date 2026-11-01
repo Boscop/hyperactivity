@@ -22,9 +22,12 @@ Each cell has one principal port; a step rewrites two cells whose principal port
 consults an environment or context. Being under a face such as `i = 0` is a substitution of the
 dimension by the endpoint. Applying a dimension binder puts a substitution cell on its body, and
 that substitution re-activates exactly the stuck values it unblocks: `p @ i` under `i := 0` becomes
-the left endpoint of `p`. The step count is fixed by the term: identical with 0, 2, 8 and 16
-worker threads. A worker locks the active pair and the cells it rewires, in address order, and
-revalidates before rewriting.
+the left endpoint of `p`. The step count is fixed by the term: identical with any number of worker
+threads (`make test` compares every suite's output at 0, 1, 2, 4, 8 and 16). Reading a stored value
+costs the same whether or not the value has arrived: a read that arrives first waits on the wire
+and is served the same one-level copy, and waiting is not a step. Every reading is taken over the
+complete normalization of what was posed. A worker locks the active pair and the cells it rewires,
+in address order, and revalidates before rewriting.
 
 ## 2. Values include equality
 
@@ -121,4 +124,4 @@ answers flow at once and the evidence arrives later.
 
 ## Measurements
 
-Every reading reports the steps taken. The sorted list of 9.15 reads in 1.5k steps. The library plus the paper's terms check in 1.6M steps.
+Every reading reports the steps taken. The sorted list of 9.15 reads in 1.4k steps. The library plus the paper's terms check in 1.5M steps.

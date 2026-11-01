@@ -26,12 +26,13 @@ test: build/cubical build/cubical-asan
 	rm -rf build/cache-test
 	env -u CUBICAL_NOCACHE CUBICAL_CACHE=build/cache-test ./build/cubical lib/prelude.ctt lib/code.ctt lib/check.ctt lib/std.ctt tests/mod/main.ctt | tail -1
 	env -u CUBICAL_NOCACHE CUBICAL_CACHE=build/cache-test ./build/cubical lib/prelude.ctt lib/code.ctt lib/check.ctt lib/std.ctt tests/mod/main.ctt | grep -c "^cached: " | grep -qx 6
-	CUBICAL_WORKERS=4 ./build/cubical lib/prelude.ctt tests/identity.ctt > /dev/null
-	CUBICAL_WORKERS=4 ./build/cubical lib/prelude.ctt lib/code.ctt lib/check.ctt lib/std.ctt tests/implicit.ctt > /dev/null
-	CUBICAL_WORKERS=4 ./build/cubical lib/prelude.ctt tests/hit.ctt > /dev/null
-	CUBICAL_WORKERS=4 ./build/cubical lib/prelude.ctt lib/code.ctt lib/check.ctt tests/check.ctt > /dev/null
-	CUBICAL_WORKERS=4 ./build/cubical lib/prelude.ctt tests/cubical.ctt > /dev/null
-	CUBICAL_WORKERS=4 ./build/cubical lib/prelude.ctt lib/code.ctt tests/code.ctt > /dev/null
+	# the step counts (every reading's, and the totals) and the answers do not depend on the number of workers
+	set -e; for s in "tests/cubical.ctt" "lib/code.ctt tests/code.ctt" "tests/identity.ctt" "tests/hit.ctt" \
+	    "lib/code.ctt lib/check.ctt tests/check.ctt" "lib/code.ctt lib/check.ctt lib/std.ctt tests/reject.ctt tests/implicit.ctt"; do \
+	  CUBICAL_WORKERS=0 ./build/cubical lib/prelude.ctt $$s > build/workers-0.out; \
+	  for w in 1 2 4 8 16; do CUBICAL_WORKERS=$$w ./build/cubical lib/prelude.ctt $$s > build/workers-$$w.out; \
+	    cmp -s build/workers-0.out build/workers-$$w.out || { echo "differs with $$w workers: $$s"; diff build/workers-0.out build/workers-$$w.out | head; exit 1; }; done; \
+	done; echo "every suite: identical output with 0, 1, 2, 4, 8, 16 workers"
 	ASAN_OPTIONS=detect_leaks=0 ./build/cubical-asan lib/prelude.ctt tests/cubical.ctt > /dev/null
 	ASAN_OPTIONS=detect_leaks=0 ./build/cubical-asan lib/prelude.ctt lib/code.ctt tests/code.ctt > /dev/null
 	ASAN_OPTIONS=detect_leaks=0 ./build/cubical-asan lib/prelude.ctt tests/identity.ctt > /dev/null
