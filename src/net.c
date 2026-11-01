@@ -28,7 +28,9 @@ Cell *cell(int kind, int n) {
         __atomic_store_n(&c->lk, 0, __ATOMIC_RELAXED);
         c->n = (uint16_t)n;   /* never changes: a freed cell is reused only for a cell of the same size */
     }
-    memset(c->port, 0, (size_t)n * sizeof(Port));
+    /* other workers read ports without locks (a lock set is read, then read again under the
+     * locks), and a cell they read may be reused here: its ports are cleared atomically */
+    for (int k = 0; k < n; k++) __atomic_store_n(&c->port[k], 0, __ATOMIC_RELAXED);
     c->kind = (uint16_t)kind; c->x = 0; c->ty = 0; c->a = 0; c->p = NULL;
     ADD(stat_cells, 1);
     return c;
@@ -143,8 +145,8 @@ static Box *box_new(Port val) {
 }
 /* reading a stored value (held by root): its top cell is copied, each part a reference to the
  * stored part (wrapped in a box when first read), so a part is copied only when an operation
- * reads it, one level per interaction. A value not yet there is copied by a duplicator when it
- * arrives. The rewrite holds the stored value and its neighbours (lockset). */
+ * reads it, one level per interaction. A reader of a value not yet there waits for it (O_FWD)
+ * and gets the same copy when it arrives. The rewrite holds the stored value and its neighbours (lockset). */
 static void box_hold(Box *b) { __atomic_add_fetch(&b->rc, 1, __ATOMIC_RELAXED); }
 Port thunk_build(Cell *v);
 Port unbuilt_build(Cell *v);
