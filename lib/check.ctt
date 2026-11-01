@@ -455,7 +455,7 @@
 (def E-tubeface #11) (def E-notface #12) (def E-notsys #13) (def E-params #14) (def E-ctor #15)
 (def E-nbranch #16) (def E-boundary #17) (def E-glueface #18) (def E-gluebr #19) (def E-notdata #20)
 (def E-motive #21) (def E-notline #22) (def E-omega #23) (def E-positive #24) (def E-later #25)
-(def E-openlevel #26) (def E-identity #27) (def E-notglue #28)
+(def E-openlevel #26) (def E-notglue #27)
 
 (declare infer check-con check-sys check-tele motive-level check-branches check-hcomp infer-binder case-type)
 ; a type's universe level (not ω), and a type's sort (a universe, U ω for types over levels)
@@ -767,20 +767,3 @@
   (then (chk (lvl-closed (lvl-of lv)) (no lv E-openlevel opq opq))
   (then (check-ptys tel)
       (let pc (params-fresh tel lnil) (check-ctors d (fst pc) (snd pc) #0)))))))))
-
-; an identity L = R with evidence p (paper 5.27): L and R checked definitions of one type,
-; p : Π g1..gn. PathP (λ_. B) (L g) (R g), n the arguments the identity takes
-(def id-tele (lam T VL VR n (if (%weq n #0) (PathP (plam i T) VL VR)
-  (case (%view T) ((wpi A B) (Pi x A (id-tele (B x) (VL x) (VR x) (%wsub n #1)))) (_ opq)))))
-(def id-type (lam gL gR n (if (conv-ty (%gty gL) (%gty gR)) (yes (id-tele (%gty gL) (%gval gL) (%gval gR) n))
-  (no (%gval gL) E-identity (%gty gL) (%gty gR)))))
-(def id-type-ok (lam gL gR n (case (id-type gL gR n) ((yes T) ok) (r r))))
-; evidence a checked definition: its type is the identity's
-(def chk-identity-def (lam gL gR n gp (case (id-type gL gR n)
-  ((yes T) (chk (conv-ty (%gty gp) T) (no (%gval gp) E-mismatch T (%gty gp))))
-  (r r))))
-; evidence supplied later: its code checked at the identity's type
-(def chk-identity (lam gL gR n ct (case (id-type gL gR n) ((yes T) (check ct T)) (r r))))
-; an optimizer (5.26) is a term producing an identity: e : Σ (R : T_L). Π g. L g = R g
-(def chk-optimizer (lam gL n ge (let T (Sigma R (%gty gL) (id-tele (%gty gL) (%gval gL) R n))
-  (chk (conv-ty (%gty ge) T) (no (%gval ge) E-mismatch T (%gty ge))))))

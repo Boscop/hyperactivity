@@ -464,9 +464,6 @@ static const char **cscope; static size_t capcscope; static int ncscope;
 static char **CHECKED; static size_t capchecked; static int nchecked;
 static int *CHKDATA; static size_t capchkdata; static int nchkdata;   /* checked data types, in signature order */
 static int checked_index(const char *s) { for (int i = nchecked - 1; i >= 0; i--) if (!strcmp(CHECKED[i], s)) return i; return -1; }
-/* inputs that are the evidence of a checked identity: their supply is checked */
-typedef struct { long g; int iL, iR, n; } ChkId;
-static ChkId *CHKID; static size_t capchkid; static int nchkid;
 static int chk_index(int d) { for (int i = 0; i < nchkdata; i++) if (CHKDATA[i] == d) return i; return -1; }
 int data_checked_index(int d) { return chk_index(d); }
 /* the checker's tables: entry i of each is a global, so a lookup is a reference */
@@ -1080,124 +1077,13 @@ void global_park(long g, Cell *op, Cell *glob) {
     pthread_mutex_unlock(&park_mu);
 }
 
-/* IDENTITIES (declared L = R makes every call of L run R): retarded non-core feature with no bearing on intended design. */
-/* ---------------- identities on running computations ----------------
- * (identity L R p [n]): p g1..gn is a path L g1..gn = R g1..gn, at the
- * identity's own dimension i (fixed when declared). Following it is
- * transport along that path: an application of L to its n arguments
- * becomes the line (p g @ i) with its endpoints annotated, L g at 0 and
- * R g at 1. The line is a neutral path application, so nothing waits on
- * the evidence p: by the endpoint rule the 1-end is R g, the answer, and the
- * 0-end is L g, what was posed; only the witness (the interior) needs p.
- * All three are deferred: each is built when it is eliminated. The 0-end is
- * L's own run and does not follow L's identities again; the 1-end does, so
- * identities chain (and a declared cycle has no normal form).
- *
- * Applications of L collect their n arguments first (a curried application
- * is a value V_SITEF until saturated). */
-typedef struct { long L, R, p; int n; Dim dim; } Ident;
-static Ident *ID; static int nID, capID;
-static int identities_on = 1;    /* off only while a defect reading runs the declaration without them */
-
-static int arity_of(long L) { for (int i = 0; i < nID; i++) if (ID[i].L == L) return ID[i].n; return 0; }
-static int pick(long L) { for (int i = 0; i < nID; i++) if (ID[i].L == L && ID[i].R != L) return i; return -1; }
-bool global_sited(long g) { return identities_on && pick(g) >= 0; }
 Record *global_nary(long g) { return g >= 0 && g < nG && G[g].kind == G_DEF ? G[g].nary : NULL; }
-static Port global_cell(long g) { Cell *c = cell(V_GLOBAL, 1); c->a = (uint64_t)g; return P(c, 0); }
-static Port app_chain(Port f, const Port *args, int n, uint32_t x) {
-    for (int k = 0; k < n; k++) { Cell *a = cell(O_APP, 3); a->x = x; link(f, P(a, 0)); link(args[k], P(a, 1)); f = P(a, 2); }
-    return f;
-}
-static void split_n(Port prov, int m, Port *out) {
-    for (int k = 0; k < m - 1; k++) { Cell *d = cell(O_DUP, 3); link(prov, P(d, 0)); out[k] = P(d, 1); prov = P(d, 2); }
-    out[m - 1] = prov;
-}
-static Port defer_cell(long g, const Port *args, int n, uint32_t x) {
-    Cell *d = cell(V_DEFER, n + 1); d->a = (uint64_t)g; d->x = x;
-    for (int k = 0; k < n; k++) link(args[k], P(d, k + 1));
-    return P(d, 0);
-}
-/* the application a deferred cell stands for, under its substitution */
-static Port defer_build(Cell *v) {
-    Port r = app_chain(global_cell((long)v->a), &v->port[1], v->n - 1, v->x);
-    if (v->p) { Cell *c = cell(O_SUBST, 2); c->p = subst_retain(v->p); link(r, P(c, 0)); r = P(c, 1); }
-    return r;
-}
-void defer_force(Cell *o, Cell *v) { link(defer_build(v), P(o, 0)); cell_free(v); }
-/* identity id applied to all n arguments, at consumer */
-static void follow(int id, const Port *args, int n, Port consumer) {
-    Port *c = malloc((size_t)3 * n * sizeof(Port));
-    for (int k = 0; k < n; k++) { Port three[3]; split_n(args[k], 3, three); c[k] = three[0]; c[n + k] = three[1]; c[2 * n + k] = three[2]; }
-    Cell *l = cell(V_NPAPP, 5); l->x = 1; l->p = iv_atom(ID[id].dim);
-    link(defer_cell(ID[id].p, c, n, X_SITED), P(l, 1));
-    link(defer_cell(ID[id].L, c + n, n, X_SITED), P(l, 2));
-    link(defer_cell(ID[id].R, c + 2 * n, n, 0), P(l, 3));
-    Cell *u = cell(V_UNK, 1); link(P(u, 0), P(l, 4));
-    link(P(l, 0), consumer);
-    free(c);
-}
-bool site_open(Cell *o, Cell *v) {
-    if (!identities_on || (o->x & X_SITED)) return false;
-    long L = (long)v->a;
-    int id = pick(L);
-    if (id < 0) return false;
-    int n = arity_of(L);
-    if (n <= 1) { Port a = o->port[1]; follow(id, &a, 1, o->port[2]); }
-    else {
-        /* the first argument of a curried application: collect */
-        Cell *sf = cell(V_SITEF, 2); sf->a = (uint64_t)L; sf->x = 1;
-        link(o->port[1], P(sf, 1));
-        link(P(sf, 0), o->port[2]);
-    }
-    cell_free(o); cell_free(v);
-    return true;
-}
-void site_apply(Cell *o, Cell *v) {
-    long L = (long)v->a;
-    int k = (int)v->x, n = arity_of(L);
-    Port arg = o->port[1], consumer = o->port[2];
-    if (k + 1 < n) {
-        Cell *sf = cell(V_SITEF, k + 2); sf->a = v->a; sf->x = (uint32_t)(k + 1);
-        for (int j = 0; j < k; j++) link(v->port[1 + j], P(sf, 1 + j));
-        link(arg, P(sf, 1 + k));
-        link(P(sf, 0), consumer);
-    } else {
-        Port *args = malloc((size_t)n * sizeof(Port));
-        for (int j = 0; j < k; j++) args[j] = v->port[1 + j];
-        args[k] = arg;
-        follow(pick(L), args, n, consumer);
-        free(args);
-    }
-    cell_free(o); cell_free(v);
-}
 /* a copy of the value held by an observation cell */
 static Port held_copy(Cell *r) {
     if (!r->port[0]) return 0;
     Cell *d = cell(O_DUP, 3);
     link(r->port[0], P(d, 0)); link(P(d, 1), P(r, 0));
     return P(d, 2);
-}
-/* IDENTITIES (declared L = R makes every call of L run R): retarded non-core feature with no bearing on intended design. */
-/* the answer: every identity followed taken to its 1-end */
-/* every identity's dimension sent to r (owned result; NULL when none) */
-static Subst *identity_subst(const Dnf *r) {
-    Subst *s = NULL;
-    for (int i = 0; i < nID; i++) if (ID[i].dim) {
-        Subst *t = s ? subst_with(s, ID[i].dim, r) : subst_single(ID[i].dim, r);
-        subst_release(s); s = t;
-    }
-    return s;
-}
-static Subst *answer_subst(void) { Dnf *one = dnf_one(); Subst *s = identity_subst(one); dnf_release(one); return s; }
-/* the empty substitution re-dispatches every neutral: a witness read after
- * its evidence arrived is read in normal form */
-static Port reactivate(Port prov) { Cell *c = cell(O_SUBST, 2); c->p = subst_id(); link(prov, P(c, 0)); return P(c, 1); }
-static Port as_answer(Port prov) {
-    Subst *s = answer_subst();
-    if (!s || !prov) return prov;
-    Cell *c = cell(O_SUBST, 2); c->p = s;
-    link(prov, P(c, 0));
-    return P(c, 1);
 }
 
 /* ---------------- compiling: binder levels and lifting ---------------- */
@@ -1695,7 +1581,6 @@ static Port build_top(Node *t) { int ns; int *u; Syn *s = compile_top(t, &ns, &u
 
 /* ---------------- reading back ---------------- */
 typedef struct { Dim d; char name[16]; } DimShow;
-static bool saw_identity;         /* readback named an identity's dimension */
 static DimShow *dshow; static size_t capdshow; static int ndshow, dcount; static long vcount;
 static char dimbuf[8][24]; static int dimbuf_i;
 /* metavariables: a hole in a checked term, solved by the checker's unification; the solution is held
@@ -1737,7 +1622,6 @@ static int dim_name_index(Dim d) {
 static const char *dim_name(Dim d) {
     for (int i = ndshow - 1; i >= 0; i--) if (dshow[i].d == d) return dshow[i].name;
     { int k = dim_name_index(d); if (k >= 0) return srcname_of(k); }
-    for (int i = 0; i < nID; i++) if (ID[i].dim == d) { saw_identity = true; char *b = dimbuf[dimbuf_i++ & 7]; snprintf(b, 24, "i:%s", name_of(ID[i].p)); return b; }
     char *b = dimbuf[dimbuf_i++ & 7]; snprintf(b, 24, "#%llu", (unsigned long long)d); return b;
 }
 static Cell *observe(Port prov) {
@@ -1748,22 +1632,13 @@ static Cell *observe(Port prov) {
 }
 static long *unfolding; static size_t capunfold; static int nunfold;
 static void rb(FILE *o, Port prov);
-/* the substitution a reading is taken under (every identity's dimension at the answer's end, or
- * at the posed end): a body the reading builds (a λ applied to a fresh variable, a neutral case's
- * branch, a definition's value) is built after that substitution passed, so it is applied there */
-static Subst *rb_sub;
-static Port rb_under(Port p) {
-    if (!rb_sub) return p;
-    Cell *c = cell(O_SUBST, 2); c->p = subst_retain(rb_sub); link(p, P(c, 0));
-    return P(c, 1);
-}
 static Port apply_fresh(Port f, long *name) {
     *name = fresh_var("x", vcount++);
     Cell *v = cell(V_NVAR, 2); v->a = (uint64_t)*name;
     Cell *u = cell(V_UNK, 1); link(P(u, 0), P(v, 1));
     Cell *a = cell(O_APP, 3);
     link(f, P(a, 0)); link(P(v, 0), P(a, 1));
-    return rb_under(P(a, 2));
+    return P(a, 2);
 }
 /* Reading a value back runs on an explicit stack of tasks, so the depth of a
  * value is bounded by memory, not by the native stack. */
@@ -1794,7 +1669,7 @@ static void rb_one(FILE *o, Port prov) {
     if (!c) { fputs("<pending>", o); return; }
     long nm;
     switch (c->kind) {
-    case V_LAM: case V_SITEF: case V_TABS: {
+    case V_LAM: case V_TABS: {
         Port b = apply_fresh(P(c, 0), &nm);
         fprintf(o, "(lam %s ", name_of(nm));
         push_str(")"); push_port(b);
@@ -1856,7 +1731,6 @@ static void rb_one(FILE *o, Port prov) {
     }
     case V_NCOMP: push_fields_to(o, "comp", c, 1, 4); return;
     case V_NUNGLUE: push_fields_to(o, "unglue", c, 1, 3); return;
-    case V_DEFER: push_port(defer_build(c)); return;
     case V_META: {
         Cell *root = meta_root((long)c->a);
         extern Port lazy_copy(Cell *root);
@@ -1923,7 +1797,7 @@ static void rb_one(FILE *o, Port prov) {
             for (int e = 0; e < ne; e++) env[e] = ec[e][k];
             /* held until its turn: earlier readings run the net, and an operation's result must have
              * a wire to arrive on */
-            Cell *hold = cell(O_ROOT, 1); link(rb_under(record_build_n(tb->br[k], prm, env)), P(hold, 0));
+            Cell *hold = cell(O_ROOT, 1); link(record_build_n(tb->br[k], prm, env), P(hold, 0));
             push_str(")"); push_field(hold, 0); push_str(pat);
         }
         push_field(c, 1);
@@ -1945,7 +1819,7 @@ static void rb_one(FILE *o, Port prov) {
         if (!v) { fputs(name_of(g), o); return; }
         GROW(unfolding, capunfold, (size_t)nunfold + 1);
         unfolding[nunfold++] = g;
-        push_task(TK_POPUNFOLD, 0, NULL); push_port(rb_under(v));
+        push_task(TK_POPUNFOLD, 0, NULL); push_port(v);
         return;
     }
     }
@@ -1980,48 +1854,13 @@ static char *read_port(Port prov) {
     fclose(o);
     return buf;
 }
-/* IDENTITIES (declared L = R makes every call of L run R): retarded non-core feature with no bearing on intended design. */
-/* does a value mention an identity's dimension? (read back a copy) */
-static bool mentions_identity(Cell *holder) {
-    saw_identity = false;
-    free(read_port(held_copy(holder)));
-    return saw_identity;
-}
-/* (the T t): t observed at its declared type T. When T itself moved along
- * identities' lines, the answer (at the lines' 1-end) is transported back
- * along T to T at the 0-end, so it inhabits the declaration. */
-static Port typed_answer(Node *T, Node *t) {
-    Cell *hT = cell(O_ROOT, 1);
-    link(build_top(T), P(hT, 0));
-    /* held at once: an unattached output port is rewritten by the rules */
-    Cell *ht = cell(O_ROOT, 1);
-    link(build_top(t), P(ht, 0));
-    Subst *as = answer_subst();
-    bool moved = as && mentions_identity(hT);
-    subst_release(as);
-    if (!moved) return as_answer(held_copy(ht));
-    Port v = held_copy(ht);
-    Dim j = fresh_dim();
-    Dnf *aj = iv_atom(j), *nj = iv_neg(aj);
-    Subst *back = identity_subst(nj);
-    dnf_release(aj); dnf_release(nj);
-    Cell *sb = cell(O_SUBST, 2); sb->p = back; link(held_copy(hT), P(sb, 0));
-    Cell *mk = cell(O_MKPLAM, 2); mk->a = j; link(P(sb, 1), P(mk, 0));
-    Cell *cp = cell(O_COMP, 4);
-    Cell *s0 = cell(V_SYS, 1); s0->p = NULL;
-    link(P(s0, 0), P(cp, 0)); link(P(mk, 1), P(cp, 1)); link(as_answer(v), P(cp, 2));
-    return P(cp, 3);
-}
 /* A reading is taken over the complete normalization of what was posed
  * (5.13 concerns a normal form): pending pairs are reduced before and after,
  * so the counts do not depend on the schedule. */
 static char *readback(Node *t, long *steps) {
     net_drain();
     long s0 = stat_steps;
-    Port v = (t->list && t->n == 3 && is(t->it[0], "the")) ? typed_answer(t->it[1], t->it[2]) : as_answer(build_top(t));
-    rb_sub = answer_subst();
-    char *buf = read_port(v);
-    subst_release(rb_sub); rb_sub = NULL;
+    char *buf = read_port(build_top(t));
     net_drain();
     if (steps) *steps = stat_steps - s0;
     return buf;
@@ -2063,7 +1902,6 @@ static void explain(const char *r) {
         { "the field type is not strictly positive (the type itself at its own parameters, or not mentioning it)", NULL, NULL },
         { "the boundary uses a constructor not declared before this one", NULL, NULL },
         { "the data type's universe level depends on a parameter", NULL, NULL },
-        { "an identity relates definitions of different types", "left", "right" },
         { "ungluded, but not of a Glue type", "its type", NULL } };
     const char *saved = src; src = r;
     Node *n = read_node();
@@ -2108,10 +1946,8 @@ static void toplevel(Node *f) {
         return;
     }
     /* a module whose checks are cached: its definitions are made, its judgments and tests not rerun */
-    if (trusted && (!strcmp(h, "check") || !strcmp(h, "check-fail") || !strcmp(h, "checked-identity-fail")
-        || !strcmp(h, "checked-data-fail") || !strcmp(h, "checked-identity-from-fail") || !strcmp(h, "supply-fail")
-        || !strcmp(h, "same") || !strcmp(h, "show") || !strcmp(h, "same-watch") || !strcmp(h, "witness")
-        || !strcmp(h, "witness-watch") || !strcmp(h, "defect"))) return;
+    if (trusted && (!strcmp(h, "check") || !strcmp(h, "check-fail") || !strcmp(h, "checked-data-fail")
+        || !strcmp(h, "same") || !strcmp(h, "show") || !strcmp(h, "same-watch"))) return;
     if (!strcmp(h, "def")) {
         if (f->n != 3) die("(def name term)", NULL);
         /* a name declared earlier (forward reference, mutual recursion) is filled */
@@ -2206,72 +2042,6 @@ static void toplevel(Node *f) {
             GROW(CHECKED, capchecked, (size_t)nchecked + 1);
             CHECKED[nchecked++] = strdup(f->it[1]->s);
         }
-/* IDENTITIES (declared L = R makes every call of L run R): retarded non-core feature with no bearing on intended design. */
-    } else if (!strcmp(h, "checked-identity") || !strcmp(h, "checked-identity-fail")) {
-        /* (checked-identity L R p [n]): L and R checked definitions of one type, p a checked
-         * definition of type Π g. L g = R g, or an input whose supply is checked at that type */
-        bool expect = !strcmp(h, "checked-identity");
-        if (f->n != 4 && f->n != 5) die("(checked-identity L R p [n])", NULL);
-        int iL = checked_index(f->it[1]->s), iR = checked_index(f->it[2]->s), ip = checked_index(f->it[3]->s);
-        if (iL < 0 || iR < 0) die("checked-identity: L and R must be checked definitions", NULL);
-        long gL = global_lookup(f->it[1]->s), gp = global_lookup(f->it[3]->s);
-        int n = 0;
-        if (f->n == 5) n = atoi(f->it[4]->s);
-        else for (Syn *b = G[gL].body; b && b->tag == S_LAM && b->rec->nparam == 1; b = b->rec->body) n++;
-        if (n < 1) n = 1;
-        bool input = ip < 0 && gp >= 0 && G[gp].kind == G_INPUT && !G[gp].res->port[0];
-        if (ip < 0 && !input) die("checked-identity: the evidence must be a checked definition or an unsupplied input:", f->it[3]->s);
-        Node *q = nlist(input ? 4 : 5);
-        q->it[0] = nsym(input ? "%%id-type-ok" : "%%chk-identity-def");
-        q->it[1] = word(iL); q->it[2] = word(iR); q->it[3] = word(n);
-        if (!input) q->it[4] = word(ip);
-        long steps;
-        char *r = trusted ? strdup("ok") : readback(q, &steps), *tr = strdup("ok");
-        bool accepted = !strcmp(r, tr), ok = accepted == expect;
-        if (ok) passes++; else failures++;
-        if (!trusted) printf("%s: %s identity %s = %s by %s   [%ld steps]\n", ok ? "ok" : "FAIL", expect ? "checks" : "rejected", f->it[1]->s, f->it[2]->s, f->it[3]->s, steps);
-        if (!accepted && (expect || getenv("CUBICAL_WHY"))) explain(r);
-        free(r); free(tr);
-        if (accepted && expect) {
-            if (input) { GROW(CHKID, capchkid, (size_t)nchkid + 1); CHKID[nchkid++] = (ChkId){ gp, iL, iR, n }; }
-            char nb[16]; snprintf(nb, sizeof nb, "%d", n);
-            Node *d = nlist(5); d->it[0] = nsym("identity"); d->it[1] = f->it[1]; d->it[2] = f->it[2]; d->it[3] = f->it[3]; d->it[4] = nsym(nb);
-            toplevel(d);
-        }
-/* IDENTITIES (declared L = R makes every call of L run R): retarded non-core feature with no bearing on intended design. */
-    } else if (!strcmp(h, "identity-from") || !strcmp(h, "checked-identity-from") || !strcmp(h, "checked-identity-from-fail")) {
-        /* (identity-from L e [n]): the identity a term produces, e = (R, p) with
-         * p : Π g. L g = R g; the optimizer as a term (5.26). The checked forms check e's
-         * type against Σ (R : T_L). Π g. PathP (λ_. B) (L g) (R g) first. */
-        bool chk = strcmp(h, "identity-from") != 0, expect = strcmp(h, "checked-identity-from-fail") != 0;
-        if (f->n != 3 && f->n != 4) die("(identity-from L e [n])", NULL);
-        long gL = global_lookup(f->it[1]->s), ge = global_lookup(f->it[2]->s);
-        if (gL < 0 || ge < 0) die("identity-from: L and e must be definitions", NULL);
-        int n = 0;
-        if (f->n == 4) n = atoi(f->it[3]->s);
-        else for (Syn *b = G[gL].body; b && b->tag == S_LAM && b->rec->nparam == 1; b = b->rec->body) n++;
-        if (n < 1) n = 1;
-        if (chk) {
-            int iL = checked_index(f->it[1]->s), ie = checked_index(f->it[2]->s);
-            if (iL < 0 || ie < 0) die("checked-identity-from: L and e must be checked definitions", NULL);
-            Node *q = nlist(4); q->it[0] = nsym("%%chk-optimizer"); q->it[1] = word(iL); q->it[2] = word(n); q->it[3] = word(ie);
-            long steps;
-            char *r = trusted ? strdup("ok") : readback(q, &steps), *tr = strdup("ok");
-            bool accepted = !strcmp(r, tr), ok = accepted == expect;
-            if (ok) passes++; else failures++;
-            if (!trusted) printf("%s: %s identity of %s from %s   [%ld steps]\n", ok ? "ok" : "FAIL", expect ? "checks" : "rejected", f->it[1]->s, f->it[2]->s, steps);
-            if (!accepted && (expect || getenv("CUBICAL_WHY"))) explain(r);
-        free(r); free(tr);
-            if (!accepted || !expect) return;
-        }
-        static int nopt;
-        char rn[48], pn[48], nb[16];
-        snprintf(rn, sizeof rn, "%%opt-R%d", nopt); snprintf(pn, sizeof pn, "%%opt-p%d", nopt); snprintf(nb, sizeof nb, "%d", n);
-        nopt++;
-        Node *d = nlist(3); d->it[0] = nsym("def"); d->it[1] = nsym(rn); d->it[2] = nl2("fst", f->it[2]); toplevel(d);
-        d = nlist(3); d->it[0] = nsym("def"); d->it[1] = nsym(pn); d->it[2] = nl2("snd", f->it[2]); toplevel(d);
-        Node *id = nlist(5); id->it[0] = nsym("identity"); id->it[1] = f->it[1]; id->it[2] = nsym(rn); id->it[3] = nsym(pn); id->it[4] = nsym(nb);
-        toplevel(id);
     } else if (!strcmp(h, "checked-data") || !strcmp(h, "checked-data-fail") || !strcmp(h, "check-data")) {
         bool expect = strcmp(h, "checked-data-fail") != 0;
         /* (checked-data (data ...)): declare the data type and check it with the
@@ -2548,42 +2318,13 @@ static void toplevel(Node *f) {
         }
     } else if (!strcmp(h, "input")) {
         for (int i = 1; i < f->n; i++) add_global(f->it[i]->s, G_INPUT);
-    } else if (!strcmp(h, "supply") || !strcmp(h, "supply-fail")) {
+    } else if (!strcmp(h, "supply")) {
         if (f->n != 3) die("(supply name term)", NULL);
         long g = global_lookup(f->it[1]->s);
         if (g < 0 || G[g].kind != G_INPUT || G[g].res->port[0]) die("not an unsupplied input:", f->it[1]->s);
-        bool expect = !strcmp(h, "supply");
-        for (int i = 0; i < nchkid; i++) if (CHKID[i].g == g) {
-            /* the evidence of a checked identity: checked at the identity's type first */
-            Node *q = nlist(5); q->it[0] = nsym("%%chk-identity");
-            q->it[1] = word(CHKID[i].iL); q->it[2] = word(CHKID[i].iR); q->it[3] = word(CHKID[i].n); q->it[4] = nl2("%raw", aclosed(ds(f->it[2])));
-            long steps;
-            char *r = trusted ? strdup("ok") : readback(q, &steps), *tr = strdup("ok");
-            bool accepted = !strcmp(r, tr), ok = accepted == expect;
-            if (ok) passes++; else failures++;
-            if (!trusted) printf("%s: %s evidence %s   [%ld steps]\n", ok ? "ok" : "FAIL", expect ? "checks" : "rejected", f->it[1]->s, steps);
-            if (!accepted && (expect || getenv("CUBICAL_WHY"))) explain(r);
-        free(r); free(tr);
-            if (!accepted) return;
-            break;
-        }
-        if (!expect) die("supply-fail of an input that is not a checked identity's evidence:", f->it[1]->s);
         link(build_top(f->it[2]), P(G[g].res, 0));
         for (int i = 0; i < G[g].npark; i++) net_push(G[g].park_o[i], G[g].park_v[i]);
         G[g].npark = 0;
-/* IDENTITIES (declared L = R makes every call of L run R): retarded non-core feature with no bearing on intended design. */
-    } else if (!strcmp(h, "identity")) {
-        if (f->n != 4 && f->n != 5) die("(identity L R p [n])", NULL);
-        long L = global_lookup(f->it[1]->s), R = global_lookup(f->it[2]->s), pp = global_lookup(f->it[3]->s);
-        if (L < 0 || R < 0 || pp < 0) die("identity names must be definitions or inputs", NULL);
-        int n = 0;
-        if (f->n == 5) n = atoi(f->it[4]->s);
-        else for (Syn *b = G[L].body; b && b->tag == S_LAM && b->rec->nparam == 1; b = b->rec->body) n++;
-        if (n < 1) n = 1;
-        for (int i = 0; i < nID; i++) if (ID[i].L == L && ID[i].n != n) die("identities of one definition take the same number of arguments:", f->it[1]->s);
-        if (nID == capID) { capID = capID ? capID * 2 : 8; ID = realloc(ID, (size_t)capID * sizeof(Ident)); }
-        ID[nID] = (Ident){ L, R, pp, n, fresh_dim() };
-        nID++;
     } else if (!strcmp(h, "watch")) {
         if (f->n != 3) die("(watch name term)", NULL);
         GROW(watch_name, capwn, (size_t)nwatch + 1); GROW(watch_root, capwr, (size_t)nwatch + 1);
@@ -2592,59 +2333,20 @@ static void toplevel(Node *f) {
         link(build_top(f->it[2]), P(watch_root[nwatch], 0));
         nwatch++;
     } else if (!strcmp(h, "same-watch")) {
-        if (f->n != 3 && f->n != 4) die("(same-watch name term [0|1])", NULL);
-        int at0 = f->n == 4 && is(f->it[3], "0");
+        if (f->n != 3) die("(same-watch name term)", NULL);
         int w = -1;
         for (int i = 0; i < nwatch; i++) if (!strcmp(watch_name[i], f->it[1]->s)) w = i;
         if (w < 0) die("no such watch", f->it[1]->s);
         char *buf; size_t len;
         FILE *o = open_memstream(&buf, &len);
         ndshow = 0; dcount = 0; vcount = 0;
-        /* the watch keeps its value; read at the identities' 1-end (the answer)
-         * or their 0-end (what was posed) */
-        Port hv = held_copy(watch_root[w]);
-        if (at0) {
-            Dnf *zero = dnf_zero();
-            Subst *z = identity_subst(zero);
-            dnf_release(zero);
-            if (z) { Cell *c = cell(O_SUBST, 2); c->p = z; link(hv, P(c, 0)); hv = P(c, 1); rb_sub = subst_retain(z); }
-        } else { hv = as_answer(hv); rb_sub = answer_subst(); }
-        rb(o, hv);
-        subst_release(rb_sub); rb_sub = NULL;
+        /* the watch keeps its value */
+        rb(o, held_copy(watch_root[w]));
         fclose(o);
         char *b = readback(f->it[2], NULL);
         if (strcmp(buf, b)) { failures++; printf("FAIL: watch %s\n  left:  %s\n  right: %s\n", f->it[1]->s, buf, b); }
         else { passes++; printf("ok: watch %s\n", f->it[1]->s); }
         free(buf); free(b);
-/* IDENTITIES (declared L = R makes every call of L run R): retarded non-core feature with no bearing on intended design. */
-    } else if (!strcmp(h, "witness") || !strcmp(h, "witness-watch")) {
-        /* the value itself: a line (or cube) in the identities' dimensions,
-         * from what was posed (0) to the answer (1) */
-        Port v;
-        if (!strcmp(h, "witness")) v = build_top(f->it[1]);
-        else {
-            int w = -1;
-            for (int i = 0; i < nwatch; i++) if (!strcmp(watch_name[i], f->it[1]->s)) w = i;
-            if (w < 0) die("no such watch", f->it[1]->s);
-            v = held_copy(watch_root[w]);
-        }
-        char *r = read_port(reactivate(v));
-        print_node(stdout, f->it[1]); printf("\n  witness: %s\n", r);
-        free(r);
-    /* IDENTITIES (declared L = R makes every call of L run R): retarded non-core feature with no bearing on intended design. */
-    } else if (!strcmp(h, "defect")) {
-        /* the same declaration from the same (warm) state without and with its
-         * identities: the difference in length */
-        identities_on = 0;
-        free(readback(f->it[1], NULL));
-        long s0, s1;
-        char *a0 = readback(f->it[1], &s0);
-        identities_on = 1;
-        char *a1 = readback(f->it[1], &s1);
-        print_node(stdout, f->it[1]);
-        printf("\n  without identities: %s   [%ld steps]\n  with identities:    %s   [%ld steps]\n  defect: %+ld steps\n",
-               a0, s0, a1, s1, s1 - s0);
-        free(a0); free(a1);
     } else if (!strcmp(h, "show")) {
         long steps;
         const char *tp = getenv("CUBICAL_TRACE");
@@ -2731,7 +2433,7 @@ int main(int argc, char **argv) {
     /* the machine's build is part of every module's key */
     { const char *b = __DATE__ " " __TIME__; key_mix(b, strlen(b)); }
     for (int i = 1; i < argc; i++) load_file(argv[i], true);
-    /* steps performed so far: a reading only when the workload has normalized (show, defect) */
+    /* steps performed so far: a reading only when the workload has normalized (show) */
     printf("%d passed, %d failed; %ld interaction steps performed; %ld cells live; %ld payloads live\n", passes, failures, stat_steps, stat_cells, stat_payloads);
     prof_print();
     return failures ? 1 : 0;

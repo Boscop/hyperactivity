@@ -121,10 +121,6 @@ enum {
     V_NCASE,    /* p=CaseTab, x=has motive; 1=scrutinee [2=motive] environment, type */
     V_NTRANS,   /* a=data type, p=Dnf ψ; 1=x 2..k+1=parameter lines, type */
     V_GLOBAL,   /* a=global id */
-/* IDENTITIES (declared L = R makes every call of L run R): retarded non-core feature with no bearing on intended design. */
-    V_SITEF,    /* a=L, x=arguments so far; 1..x=the arguments */
-    V_DEFER,    /* a=g, x=flags, p=Subst or NULL; 1..n=arguments: g applied to them
-                 * (then substituted by p), built when eliminated */
     V_UNK,      /* an unknown type */
     V_DATA,     /* a=data type; 1..k=parameters */
     V_CON,      /* a=constructor; 1..f=fields, then the dimensions (interval values) */
@@ -249,14 +245,6 @@ void net_push(Cell *op, Cell *v);  /* enqueue an active pair */
 bool net_observe(Cell *root, long limit); /* reduce until root's port holds a value (root NULL: until no pair is pending); workers then pause */
 void net_drain(void);
 Cell *global_res(long g);          /* the cell holding a definition's value */
-/* an application of a definition with declared identities: true when the
- * application was rewired (it follows an identity, or collects arguments) */
-/* IDENTITIES (declared L = R makes every call of L run R): retarded non-core feature with no bearing on intended design. */
-bool site_open(Cell *app, Cell *glob);
-void site_apply(Cell *app, Cell *sitef);
-void defer_force(Cell *op, Cell *deferred);
-/* IDENTITIES (declared L = R makes every call of L run R): retarded non-core feature with no bearing on intended design. */
-#define X_SITED 0x80000000u       /* an application that does not follow identities */
 
 /* data types (higher inductive types, Coquand–Huber–Mörtberg): declared by
  * (data ...); the net's rules are generic over these tables */
@@ -275,10 +263,8 @@ int data_checked_index(int d);     /* a data type's index in the checker's signa
 int con_index(const char *name);   /* a constructor by name, or -1 */
 enum { TB_VAL, TB_TY, TB_DTAB, TB_DENT, TB_N };
 long table_global(int table, long i);  /* the global holding entry i of a checker table, or -1 */
-/* a definition's body as one record taking all its parameters (NULL when it is not a λ), and
- * whether applications of it follow declared identities */
+/* a definition's body as one record taking all its parameters (NULL when it is not a λ) */
 struct Record *global_nary(long g);
-bool global_sited(long g);
 typedef struct Box { struct Cell *root; long rc; } Box;
 /* motive: the elimination's motive as a record over the same environment, or NULL. It is not a port:
  * only the two rules that read it (a formal hcomp met, and a stuck elimination typing its neutral)

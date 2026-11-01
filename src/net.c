@@ -34,7 +34,7 @@ Cell *cell(int kind, int n) {
 }
 /* the payload a cell owns */
 static bool owns_dnf(int k) { return k == O_PEND || k == V_IV || k == V_FACE || k == V_SYS || k == V_NPAPP || k == O_PAPPP || k == O_BIN2 || k == O_SYSCONS2 || k == V_NTRANS || k == O_TRANSD2 || k == O_IEQB || k == O_FEQLB || k == O_DSUBB; }
-static bool owns_subst(int k) { return k == O_SUBST || k == V_DEFER; }
+static bool owns_subst(int k) { return k == O_SUBST; }
 static void box_release(Box *b);
 static void box_hold(Box *b);
 static void hook_retain(void *b) { box_hold(b); }
@@ -215,8 +215,7 @@ Port unbuilt_build(Cell *v) {
 Port thunk_build(Cell *v) {
     if (prof_on) ADD(prof_count[((Record *)v->p)->where], 1);
     Port r = record_build(v->p, 0, &v->port[1]);
-    /* a substitution that reached it waits for its value (an identity's site inside the body
-     * names a dimension no environment holds) */
+    /* a substitution that reached it applies to its value */
     if (v->a) r = sub(r, (Subst *)(uintptr_t)v->a);
     cell_free(v);
     return r;
@@ -408,13 +407,6 @@ static void rule_subst(Cell *o, Cell *v) {
         Subst *t = s;
         if (subst_term_get(s, v->a)) t = subst_minus_term(s, v->a); else subst_retain(t);
         link(sub(v->port[1], t), P(v, 1)); subst_release(t);
-        link(P(v, 0), out); cell_free(o); return;
-    }
-/* IDENTITIES (declared L = R makes every call of L run R): retarded non-core feature with no bearing on intended design. */
-    case V_DEFER: {
-        /* (g args)[p][s] = (g args)[p;s]: the substitution waits for the value */
-        Subst *t = v->p ? subst_compose(v->p, s) : subst_retain(s);
-        subst_release(v->p); v->p = t;
         link(P(v, 0), out); cell_free(o); return;
     }
     case V_IV: { Dnf *n2 = iv_subst(v->p, s); dnf_release(v->p); v->p = n2; link(P(v, 0), out); cell_free(o); return; }
@@ -700,7 +692,7 @@ static void rule_view(Cell *o, Cell *v) {
     }
     bool keep = false;   /* the value itself is the field */
     switch (vk) {
-    case V_LAM: case V_SITEF: case V_CASEF: case V_TABS: r = mk(WC[W_LAM], P(v, 0), 0, 0, 0); keep = true; break;
+    case V_LAM: case V_CASEF: case V_TABS: r = mk(WC[W_LAM], P(v, 0), 0, 0, 0); keep = true; break;
     case V_META: r = mk(WC[W_META], word_of(v->a), list_of(NULL, 0), 0, 0); break;
     case V_PLAM: r = mk(WC[W_PLAM], P(v, 0), 0, 0, 0); keep = true; break;
     case V_IV: r = mk(WC[W_IV], P(v, 0), 0, 0, 0); keep = true; break;
@@ -860,8 +852,6 @@ static const char *const KIND_NAME[K_END] = {
     [V_NCASE] = "NCASE",
     [V_NTRANS] = "NTRANS",
     [V_GLOBAL] = "GLOBAL",
-    [V_SITEF] = "SITEF",
-    [V_DEFER] = "DEFER",
     [V_UNK] = "UNK",
     [V_DATA] = "DATA",
     [V_CON] = "CON",
@@ -1014,7 +1004,7 @@ static void interact(Cell *o, Cell *v) {
         long g = (long)v->a;
         Record *r = global_nary(g);
         int na = o->n - 2;
-        if (r && !global_sited(g) && r->nparam <= na) {
+        if (r && r->nparam <= na) {
             /* all the parameters: the body at once; any further arguments applied to it */
             if (prof_on) ADD(prof_count[r->where], 1);
             Port res = record_build_n(r, &o->port[1], NULL);
@@ -1023,7 +1013,7 @@ static void interact(Cell *o, Cell *v) {
             cell_free(o); cell_free(v);
             return;
         }
-        /* otherwise applications, one argument at a time (an identity sees them) */
+        /* otherwise applications, one argument at a time */
         Port f = P(v, 0);
         for (int k = 0; k < na; k++) f = app2(f, o->port[1 + k]);
         link(f, o->port[o->n - 1]);
@@ -1031,8 +1021,6 @@ static void interact(Cell *o, Cell *v) {
         return;
     }
     if (v->kind == V_GLOBAL) {
-/* IDENTITIES (declared L = R makes every call of L run R): retarded non-core feature with no bearing on intended design. */
-        if (o->kind == O_APP && site_open(o, v)) return;
         /* a definition is used: its value is copied in */
         Port r = global_copy((long)v->a);
         if (!r) { global_park((long)v->a, o, v); return; }
@@ -1040,8 +1028,6 @@ static void interact(Cell *o, Cell *v) {
         cell_free(v);
         return;
     }
-/* IDENTITIES (declared L = R makes every call of L run R): retarded non-core feature with no bearing on intended design. */
-    if (v->kind == V_DEFER) { defer_force(o, v); return; }
     /* an unbuilt subterm meeting an operation is built (an explicit force of a hypothesis too) */
     if (unbuilt(v->kind)) { link(unbuilt_build(v), P(o, 0)); return; }
     if (v->kind == V_REF) {
@@ -1060,8 +1046,6 @@ static void interact(Cell *o, Cell *v) {
     }
     switch (o->kind) {
     case O_APP:
-/* IDENTITIES (declared L = R makes every call of L run R): retarded non-core feature with no bearing on intended design. */
-        if (vk == V_SITEF) { site_apply(o, v); return; }
         if (vk == V_CASEF) {
             /* the elimination as a function, applied: the case on the argument */
             Cell *c = cell(O_CASE, v->n + 1); c->x = v->x; c->p = v->p;
@@ -1686,8 +1670,7 @@ static void interact(Cell *o, Cell *v) {
         long g = table_global((int)o->x, (long)o->a);
         if (g < 0) { fprintf(stderr, "checker table %u has no entry %llu\n", o->x, (unsigned long long)o->a); exit(2); }
         if (o->x == TB_VAL) {
-            /* a checked definition's own value: the checker does not follow the identities
-             * declared on it (they are what it checks) */
+            /* a checked definition's own value */
             Port val = global_copy(g);
             if (!val) { fprintf(stderr, "a checked definition without a value\n"); exit(2); }
             link(val, o->port[1]);

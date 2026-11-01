@@ -5,7 +5,7 @@ by local rewrites. Programs, proofs, the type checker, data structures and the r
 all run on that one mechanism.
 
 ```
-make test       # all suites; again with 4 workers; again under ASan/UBSan
+make test       # all suites; the same output with 0, 1, 2, 4, 8, 16 workers; again under ASan/UBSan
 make library    # tests/boxes.ctt and tests/sort.ctt
 ./build/cubical lib/prelude.ctt lib/code.ctt lib/check.ctt lib/std.ctt FILE.ctt
 ```
@@ -62,28 +62,7 @@ depends on what kind of type `A(i)` is; each case is a term in `lib/prelude.ctt`
   analysis meeting such a value applies itself to the pieces and composes the results in the
   result type.
 
-## 3. Identities: implemented behavior is a misinterpretation (undesired)
-
-What is implemented: after `(checked-identity L R p)` with `p` checked, every saturated call of `L`
-evaluates `R` instead, globally, in the direction the declaration was written. That is a
-proof-guarded rewrite rule `L ↦ R` (like Agda's REWRITE or GHC's RULES). It is not the intended
-meaning of proven equality. Intended: a proven equality between functions is a value in the system
-that can be used to prove behavioral consistency and mathematical identities, which then bear on
-what behavior is valid. It is not a silent global redirection of one function to another. The
-description below records the current mechanism only.
-
-`(checked-identity L R p)`: `L` and `R` are definitions of one type, and `p g : L g = R g` is
-checked. An application of `L` to all its arguments then answers `R g`. Its result is the path
-`p g` taken at the identity's own dimension, with `L g` and `R g` as its endpoints. The answer is
-the `R g` end, so nothing waits on `p`. `L g` is not run, and `p` is built only if something reads
-the path's interior. Everything downstream computes along that path, so every answer genuinely
-inhabits what was asked. Applications of definitions that have no identity are unchanged: no extra
-cells or steps (one C-side table check). Identities chain. `(checked-identity-from L e)` takes the
-identity from a term `e = (R, p)` (an optimizer written in the language; `tests/check.ctt` proves
-map fusion and the runtime then runs one map). Unary naturals run on machine integers through the
-proved `Word ≡ Nat` identities. `(defect t)` reports the work an identity saves.
-
-## 4. Work is done once, and only where it is read
+## 3. Work is done once, and only where it is read
 
 A shared subterm is held by a duplicating cell that copies lazily, one level at a time as it is
 read. A stored value lives once, and readers copy its top cell. A substitution of dimensions is
@@ -92,7 +71,7 @@ is held unbuilt until an operation meets it: `(fst (pair a b))` never computes `
 diverges. A λ's subterms that do not mention its variable are computed once, however often the λ is
 applied. A case is one cell, and selecting a branch is one step.
 
-## 5. Open terms normalize, with types
+## 4. Open terms normalize, with types
 
 A stuck computation is one with no rule to fire because the thing it inspects is unknown: `f x`
 with `f` a variable, `case n ...` with `n` a variable, `p @ i` with `p` a path variable and `i` a
@@ -102,7 +81,7 @@ supplies the unknown, it fires. A neutral's type is computed from the variable a
 the operations applied to it, and a stuck path's endpoints are read from that type. So the runtime
 returns full normal forms under binders, not just evaluation results.
 
-## 6. Reflection: `%view`
+## 5. Reflection: `%view`
 
 `(%view v)` turns the outermost form of a computed value into an ordinary data constructor in one
 step, whose fields are the value's own parts: a Π type gives `(wpi A B)` with `A` the domain and
@@ -113,15 +92,14 @@ computed value, not the source text that produced it; a function shows only as `
 these and runs on this runtime, over the values the runtime already computed for each subterm:
 there is no second evaluator, and checking a definition is running that program on it.
 
-## 7. Inputs
+## 6. Inputs
 
 `(input x)` declares a definition without a value. An operation that needs `x`'s value (applying
 it, a case on it, a projection) is held at exactly that point. Everything that does not depend on
 `x` reduces fully, and the parts of a result that do not need `x` are produced. `(supply x t)`
 connects the value, and the held operations proceed. Unlike a variable, an input is not computed
-with symbolically: what depends on it waits for it. An identity's proof can be an input, so
-answers flow at once and the evidence arrives later.
+with symbolically: what depends on it waits for it.
 
 ## Measurements
 
-Every reading reports the steps taken. The sorted list of 9.15 reads in 1.4k steps. The library plus the paper's terms check in 1.5M steps.
+Every reading reports the steps taken. The sorted list of 9.15 reads in 1.3k steps. The library plus the paper's terms check in 1.5M steps.
