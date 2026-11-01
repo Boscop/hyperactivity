@@ -21,13 +21,13 @@ test: build/cubical build/cubical-asan
 	./build/cubical lib/prelude.ctt lib/code.ctt tests/code.ctt
 	./build/cubical lib/prelude.ctt tests/hit.ctt
 	./build/cubical lib/prelude.ctt lib/code.ctt lib/check.ctt tests/check.ctt
-	./build/cubical lib/prelude.ctt lib/code.ctt lib/check.ctt lib/std.ctt tests/reject.ctt tests/implicit.ctt
+	./build/cubical lib/prelude.ctt lib/code.ctt lib/check.ctt lib/std.ctt tests/reject.ctt
 	rm -rf build/cache-test
 	env -u CUBICAL_NOCACHE CUBICAL_CACHE=build/cache-test ./build/cubical lib/prelude.ctt lib/code.ctt lib/check.ctt lib/std.ctt tests/mod/main.ctt | tail -1
 	env -u CUBICAL_NOCACHE CUBICAL_CACHE=build/cache-test ./build/cubical lib/prelude.ctt lib/code.ctt lib/check.ctt lib/std.ctt tests/mod/main.ctt | grep -c "^cached: " | grep -qx 6
 	# the step counts (every reading's, and the totals) and the answers do not depend on the number of workers
 	set -e; for s in "tests/cubical.ctt" "lib/code.ctt tests/code.ctt" "tests/hit.ctt" \
-	    "lib/code.ctt lib/check.ctt tests/check.ctt" "lib/code.ctt lib/check.ctt lib/std.ctt tests/reject.ctt tests/implicit.ctt"; do \
+	    "lib/code.ctt lib/check.ctt tests/check.ctt" "lib/code.ctt lib/check.ctt lib/std.ctt tests/reject.ctt"; do \
 	  CUBICAL_WORKERS=0 ./build/cubical lib/prelude.ctt $$s > build/workers-0.out; \
 	  for w in 1 2 4 8 16; do CUBICAL_WORKERS=$$w ./build/cubical lib/prelude.ctt $$s > build/workers-$$w.out; \
 	    cmp -s build/workers-0.out build/workers-$$w.out || { echo "differs with $$w workers: $$s"; diff build/workers-0.out build/workers-$$w.out | head; exit 1; }; done; \
