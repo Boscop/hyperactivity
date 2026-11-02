@@ -88,12 +88,16 @@ So `(lam p (@ p 0))` at `Π p : Path Nat zero zero. Nat` reads `(lam x0 zero)`, 
 a Σ type reads `(pair (fst x0) (snd x0))`. Typed readings give full normal forms, except inside an
 elimination written without a motive that is the head of a stuck term (applied, projected, or
 eliminated), whose type is not known there; reached at a known type, its branches are read at that
-type. A stuck word elimination carries no motive, so its branches are read without types. The
+type. A stuck word elimination carries no motive, so its branches are read without types: the
+type `T = P w` it is quoted at does not determine an arbitrary motive `P`, so reading them at `T`
+would be unsound (a motiveless case can be read at `T` because its motive is constant). The
 code satisfies two laws, checked in `tests/quote.ctt`: evaluating it (`eval-g`) gives a value
 convertible with the original, and quoting that value gives the same code. A failure report
 prints its types (expected and actual, a type that was eliminated) the same way.
 
-Other readings (`show` and `same` of any other term) are taken without a type: under a binder,
+`same` of two terms, either of them a checked definition or `(the T t)`, reads both at that
+one type, so equal values compare equal however they are written. Other readings (`show` and
+`same` of any other terms) are taken without a type: under a binder,
 a variable's type is not known, so a path variable stays stuck at an endpoint and nothing is
 η-expanded. `same` compares two readings as text: on well-typed terms equal texts are equal
 values; two readings can differ while their values are equal.
