@@ -164,6 +164,12 @@
 (checked plus-assoc (Pi ((a Nat) (b Nat) (c Nat)) (PathP (plam i Nat) (plus (plus a b) c) (plus a (plus b c))))
   (lam a b c (elim (lam y (PathP (plam i Nat) (plus (plus y b) c) (plus y (plus b c)))) a
     ((zero) (plam i (plus b c))) ((suc k) (plam i (suc (@ (rec k) i)))))))
+(checked plus-comm-mid (Pi ((a Nat) (b Nat) (c Nat)) (PathP (plam i Nat) (plus a (plus b c)) (plus b (plus a c))))
+  (lam a b c (transN (plus a (plus b c)) (plus (plus a b) c) (plus b (plus a c))
+    (symN (plus (plus a b) c) (plus a (plus b c)) (plus-assoc a b c))
+    (transN (plus (plus a b) c) (plus (plus b a) c) (plus b (plus a c))
+      (congN (lam z (plus z c)) (plus a b) (plus b a) (plus-comm a b))
+      (plus-assoc b a c)))))
 (checked times-zero (Pi n Nat (PathP (plam i Nat) (times n zero) zero))
   (lam n (elim (lam y (PathP (plam i Nat) (times y zero) zero)) n ((zero) (plam i zero)) ((suc k) (rec k)))))
 (checked times-suc (Pi ((m Nat) (n Nat)) (PathP (plam i Nat) (times m (suc n)) (plus m (times m n))))
@@ -212,6 +218,57 @@
 (checked true≢false (Pi p (PathP (plam i Bool) true false) Empty)
   (lam p (comp (plam i (isTrue (@ p i))) (plam i (sys)) unit)))
 (checked negZ (Pi z Int Int) (lam z (case z ((pos n) (case n ((zero) (pos zero)) ((suc k) (negsuc k)))) ((negsuc n) (pos (suc n))))))
+; a boolean as a proposition: isTrue b is a proposition, inhabited exactly when b = true
+(checked isProp-isTrue (Pi b Bool (isProp lzero (isTrue b)))
+  (lam b (elim (lam y (isProp lzero (isTrue y))) b
+    ((true) (lam u v (elim (lam w (PathP (plam i Unit) w v)) u ((unit) (elim (lam w (PathP (plam i Unit) unit w)) v ((unit) (plam i unit)))))))
+    ((false) (lam u v (Empty-rec lzero (PathP (plam i Empty) u v) u))))))
+(checked isTrue→eq (Pi ((b Bool) (h (isTrue b))) (PathP (plam i Bool) b true))
+  (lam b (elim (lam y (Pi h (isTrue y) (PathP (plam i Bool) y true))) b
+    ((true) (lam h (plam i true)))
+    ((false) (lam h (Empty-rec lzero (PathP (plam i Bool) false true) h))))))
+(checked eq→isTrue (Pi ((b Bool) (e (PathP (plam i Bool) b true))) (isTrue b))
+  (lam b e (subst lzero lzero Bool isTrue true b (sym lzero Bool b true e) unit)))
+; case on a boolean, each branch given the equation that selected it
+(checked ifP (Pi ((P (Pi b Bool U)) (b Bool)
+                  (t (Pi e (PathP (plam i Bool) b true) (P true)))
+                  (f (Pi e (PathP (plam i Bool) b false) (P false)))) (P b))
+  (lam P b t f ((elim (lam bb (Pi e (PathP (plam i Bool) b bb) (P bb))) b ((true) t) ((false) f)) (plam i b))))
+(checked andB (Pi ((a Bool) (b Bool)) Bool) (lam a b (if a b false)))
+(checked and-fst (Pi ((a Bool) (b Bool) (h (isTrue (andB a b)))) (isTrue a))
+  (lam a b (elim (lam y (Pi h (isTrue (andB y b)) (isTrue y))) a ((true) (lam h unit)) ((false) (lam h (Empty-rec lzero (isTrue false) h))))))
+(checked and-snd (Pi ((a Bool) (b Bool) (h (isTrue (andB a b)))) (isTrue b))
+  (lam a b (elim (lam y (Pi h (isTrue (andB y b)) (isTrue b))) a ((true) (lam h h)) ((false) (lam h (Empty-rec lzero (isTrue b) h))))))
+(checked and-intro (Pi ((a Bool) (b Bool) (p (isTrue a)) (q (isTrue b))) (isTrue (andB a b)))
+  (lam a b (elim (lam y (Pi ((p (isTrue y)) (q (isTrue b))) (isTrue (andB y b)))) a ((true) (lam p q q)) ((false) (lam p q (Empty-rec lzero (isTrue (andB false b)) p))))))
+; propositions are closed under × and Π
+(checked isProp× (Pi ((A U) (B U) (pa (isProp lzero A)) (pb (isProp lzero B))) (isProp lzero (Sigma a A B)))
+  (lam A B pa pb u v (plam i (pair (@ (pa (fst u) (fst v)) i) (@ (pb (snd u) (snd v)) i)))))
+(checked isPropPi (Pi ((A U) (B (Pi a A U)) (h (Pi a A (isProp lzero (B a))))) (isProp lzero (Pi a A (B a))))
+  (lam A B h f g (plam i (lam a (@ (h a (f a) (g a)) i)))))
+; decidable equality on Nat, and cancellation
+(checked eqb (Pi ((m Nat) (n Nat)) Bool)
+  (lam m (elim (lam y (Pi n Nat Bool)) m
+    ((zero) (lam n (case n ((zero) true) ((suc k) false))))
+    ((suc m1) (lam n (case n ((zero) false) ((suc n1) ((rec m1) n1))))))))
+(checked eqb-sound (Pi ((m Nat) (n Nat) (e (isTrue (eqb m n)))) (PathP (plam i Nat) m n))
+  (lam m (elim (lam y (Pi ((n Nat) (e (isTrue (eqb y n)))) (PathP (plam i Nat) y n))) m
+    ((zero) (lam n (elim (lam z (Pi e (isTrue (eqb zero z)) (PathP (plam i Nat) zero z))) n
+       ((zero) (lam e (plam i zero)))
+       ((suc k) (lam e (Empty-rec lzero (PathP (plam i Nat) zero (suc k)) e))))))
+    ((suc m1) (lam n (elim (lam z (Pi e (isTrue (eqb (suc m1) z)) (PathP (plam i Nat) (suc m1) z))) n
+       ((zero) (lam e (Empty-rec lzero (PathP (plam i Nat) (suc m1) zero) e)))
+       ((suc n1) (lam e (plam i (suc (@ ((rec m1) n1 e) i)))))))))))
+(checked eqb-refl (Pi n Nat (isTrue (eqb n n)))
+  (lam n (elim (lam y (isTrue (eqb y y))) n ((zero) unit) ((suc k) (rec k)))))
+(checked eqb-complete (Pi ((m Nat) (n Nat) (p (PathP (plam i Nat) m n))) (isTrue (eqb m n)))
+  (lam m n p (subst lzero lzero Nat (lam z (isTrue (eqb m z))) m n p (eqb-refl m))))
+(checked suc-inj (Pi ((m Nat) (n Nat) (p (PathP (plam i Nat) (suc m) (suc n)))) (PathP (plam i Nat) m n))
+  (lam m n p (congN predN (suc m) (suc n) p)))
+(checked plus-cancel (Pi ((k Nat) (m Nat) (n Nat) (p (PathP (plam i Nat) (plus k m) (plus k n)))) (PathP (plam i Nat) m n))
+  (lam k (elim (lam w (Pi ((m Nat) (n Nat) (p (PathP (plam i Nat) (plus w m) (plus w n)))) (PathP (plam i Nat) m n))) k
+    ((zero) (lam m n p p))
+    ((suc k1) (lam m n p ((rec k1) m n (suc-inj (plus k1 m) (plus k1 n) p)))))))
 
 ; ---------------------------------------------------------------- words
 ; A word is a natural number held in one cell: #n, the successor (%wsucc w), and the elimination

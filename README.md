@@ -14,7 +14,8 @@ Code: `src/net.c` (cells, rewrite rules, parallel scheduler), `src/dnf.c` (inter
 substitutions), `src/big.c` (exact naturals), `src/lang.c` (reader, compiler to cells, readback,
 top-level forms, modules). Language files: `lib/prelude.ctt` (core data types, composition
 clauses), `lib/code.ctt` (codes, `View`), `lib/check.ctt` (the type checker), `lib/std.ctt`
-(checked library). Earlier plans and specs: `archive/`.
+(checked library), `lib/sort.ctt` (9.15 over any ordered type; `tests/sort.ctt` instantiates and
+runs it). Earlier plans and specs: `archive/`.
 
 ## 1. Rewrites see only the two cells involved
 
@@ -124,4 +125,4 @@ with symbolically: what depends on it waits for it.
 
 ## Measurements
 
-Every reading reports the steps taken. The sorted list of 9.15 reads in 1.3k steps. The library plus the paper's terms check in 1.5M steps.
+Every reading reports the steps taken. The sorted list of 9.15 reads in 1.2k steps (eight words). The library plus the paper's terms check in 1.5M steps.
