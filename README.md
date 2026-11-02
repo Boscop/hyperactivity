@@ -78,8 +78,25 @@ with `f` a variable, `case n ...` with `n` a variable, `p @ i` with `p` a path v
 dimension variable. It is kept as a value (a neutral) holding its parts; reduction continues
 everywhere else, including inside the branches of a stuck case. When a substitution later
 supplies the unknown, it fires. A neutral's type is computed from the variable at its head along
-the operations applied to it, and a stuck path's endpoints are read from that type. So the runtime
-returns full normal forms under binders, not just evaluation results.
+the operations applied to it, and a stuck path's endpoints are read from that type.
+
+A reading of a checked definition, or of `(the T t)`, is taken at its type: `quote` in
+`lib/check.ctt` reads the value as a code (`lib/code.ctt`), applying a function to a fresh
+variable of its domain, reading a pair by its projections and a path at a fresh dimension, and a
+stuck elimination's branches at fresh fields typed by the constructor's telescope, at the motive.
+So `(lam p (@ p 0))` at `Π p : Path Nat zero zero. Nat` reads `(lam x0 zero)`, and a variable of
+a Σ type reads `(pair (fst x0) (snd x0))`. Typed readings give full normal forms, except inside an
+elimination written without a motive that is the head of a stuck term (applied, projected, or
+eliminated), whose type is not known there; reached at a known type, its branches are read at that
+type. A stuck word elimination carries no motive, so its branches are read without types. The
+code satisfies two laws, checked in `tests/quote.ctt`: evaluating it (`eval-g`) gives a value
+convertible with the original, and quoting that value gives the same code. A failure report
+prints its types (expected and actual, a type that was eliminated) the same way.
+
+Other readings (`show` and `same` of any other term) are taken without a type: under a binder,
+a variable's type is not known, so a path variable stays stuck at an endpoint and nothing is
+η-expanded. `same` compares two readings as text: on well-typed terms equal texts are equal
+values; two readings can differ while their values are equal.
 
 ## 5. Reflection: `%view`
 
@@ -88,7 +105,8 @@ step, whose fields are the value's own parts: a Π type gives `(wpi A B)` with `
 `B` the codomain as a function, a stuck application gives `(wapp f a T)`. A program cases on this
 like any data, so a program in the language can examine a value's structure. What it sees is the
 computed value, not the source text that produced it; a function shows only as `(wlam f)`.
-`(%var T)` and `(%dim)` make fresh variables. The type checker (`lib/check.ctt`) is written with
+`(%var T)` and `(%dim)` make fresh variables, `(%dnf r)` gives an interval's or a face's clauses
+as lists of literals, and `(%motive f)` an elimination's motive. The type checker (`lib/check.ctt`) is written with
 these and runs on this runtime, over the values the runtime already computed for each subterm:
 there is no second evaluator, and checking a definition is running that program on it.
 

@@ -21,7 +21,15 @@
   ; a forced term: an induction hypothesis is a suspended elimination, forced where used
   (cforce t)
   ; universe levels: the type Level, zero, successor, max; (cuniv l) takes a level
-  (clevel) (clzero) (clsuc l) (clmax a b))
+  (clevel) (clzero) (clsuc l) (clmax a b)
+  ; words: the type, a literal (a word), the successor, an operation (0 = 1 < 2 + 3 max 4 -),
+  ; the elimination of a word (its motive is the checker's and is not run)
+  (cword) (cwlit n) (cwsucc a) (cwop k a b) (cwelim w z s)
+  ; transport in a data type: its index, the face where it is constant, the lines of its
+  ; parameters, the element
+  (ctrans d psi ls x)
+  ; a free variable or dimension: the value itself (a variable of a context the code is quoted in)
+  (cfree x))
 ; a value's head as data (%view, src/net.c): its parts are the value's own parts, values;
 ; data types, constructors and variables by words
 (data View
@@ -42,7 +50,8 @@
 (def cl-map (lam f l (case l ((lnil) lnil) ((lcons x xs) (lcons (f x) (cl-map f xs))))))
 (def cl-app (lam l m (case l ((lnil) m) ((lcons x xs) (lcons x (cl-app xs m))))))
 (def app-all (lam f xs (case xs ((lnil) f) ((lcons x r) (app-all (f x) r)))))
-; the machine's data types, for the evaluator: (dtab former constructors elim case)
+; the machine's data types, for the evaluator: (dtab former constructors elim case); a data
+; type's transport as a function is the table %dtrans
 (data DTab (dtab former cons el cs))
 (def dt-former (lam t (case t ((dtab f c e s) f))))
 (def dt-cons (lam t (case t ((dtab f c e s) c))))
@@ -94,5 +103,13 @@
   ((clevel) Level)
   ((clzero) lzero)
   ((clsuc l) (lsuc (eval-g e l)))
-  ((clmax a b) (lmax (eval-g e a) (eval-g e b))))))
+  ((clmax a b) (lmax (eval-g e a) (eval-g e b)))
+  ((cword) Word)
+  ((cwlit n) n)
+  ((cwsucc a) (%wsucc (eval-g e a)))
+  ((cwop k a b) (let x (eval-g e a) (let y (eval-g e b)
+     (if (%weq k #0) (%weq x y) (if (%weq k #1) (%wlt x y) (if (%weq k #2) (%wadd x y) (if (%weq k #3) (%wmax x y) (%wsub x y))))))))
+  ((cwelim w z s) (%welim (eval-g e w) (eval-g e z) (eval-g e s)))
+  ((ctrans d psi ls x) (app-all (%dtrans d) (lcons (eval-g e psi) (cl-app (cl-map (eval-g e) ls) (lcons (eval-g e x) lnil)))))
+  ((cfree x) x))))
 (def eval eval-g)

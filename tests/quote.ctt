@@ -1,0 +1,69 @@
+; tests/quote.ctt — typed readings: a value's normal form at its type, as a code (quote in
+; lib/check.ctt). Loaded after lib/std.ctt.
+; Each normal form is compared with the code (code t) writes for the expected term (the C code
+; writer, independent of quote), and two laws are checked: evaluating the code gives a value
+; convertible with the original (conv), and quoting that value gives the same code again.
+(def qe (lam T v (eval-g lnil (fromopt (quote-top T v) cword))))
+(def law-conv (lam T v (conv T v (qe T v))))
+
+; a path applied at an endpoint under a binder: the endpoint (an untyped reading leaves it stuck)
+(checked f (Pi (p (PathP (plam i Nat) zero zero)) Nat) (lam p (@ p 0)))
+(same (fromopt (quote-top (Pi (p (PathP (plam i Nat) zero zero)) Nat) f) cword) (code (lam p zero)))
+(same f (lam p zero))
+(same (law-conv (Pi (p (PathP (plam i Nat) zero zero)) Nat) f) true)
+; η at Σ and at Π
+(checked g (Pi (s (Sigma (a Nat) Nat)) (Sigma (a Nat) Nat)) (lam s s))
+(same (fromopt (quote-top (Pi (s (Sigma (a Nat) Nat)) (Sigma (a Nat) Nat)) g) cword) (code (lam s (pair (fst s) (snd s)))))
+(same (law-conv (Pi (s (Sigma (a Nat) Nat)) (Sigma (a Nat) Nat)) g) true)
+(checked ap1 (Pi (F (Pi (n Nat) Nat)) (Pi (n Nat) Nat)) (lam F F))
+(same (fromopt (quote-top (Pi (F (Pi (n Nat) Nat)) (Pi (n Nat) Nat)) ap1) cword) (code (lam F n (F n))))
+(same (law-conv (Pi (F (Pi (n Nat) Nat)) (Pi (n Nat) Nat)) ap1) true)
+; a path variable read at its line: η at path types
+(checked sq (Pi ((A U) (x A) (y A) (p (PathP (plam i A) x y))) (PathP (plam i A) x y)) (lam A x y p p))
+(same (fromopt (quote-top (Pi ((A U) (x A) (y A) (p (PathP (plam i A) x y))) (PathP (plam i A) x y)) sq) cword)
+  (code (lam A x y p (plam i (@ p i)))))
+; Glue
+(checked gl (Pi (A U) U) (lam A (Glue A (sys))))
+(same (fromopt (quote-top (Pi (A U) U) gl) cword) (code (lam A (Glue A (sys)))))
+; a constructor of a data type with parameters
+(checked c1 (Pi ((A U) (a A)) (List A)) (lam A a (cons a nil)))
+(same (fromopt (quote-top (Pi ((A U) (a A)) (List A)) c1) cword) (code (lam A a (cons a nil))))
+(same (law-conv (Pi ((A U) (a A)) (List A)) c1) true)
+; a stuck elimination with a motive: its branches at the motive, a hypothesis as (rec k)
+(checked h (Pi (n Nat) Nat) (lam n (elim (lam y Nat) n ((zero) zero) ((suc k) (suc (rec k))))))
+(same (fromopt (quote-top (Pi (n Nat) Nat) h) cword) (code (lam n (elim (lam y Nat) n ((zero) zero) ((suc k) (suc (rec k)))))))
+(same (law-conv (Pi (n Nat) Nat) h) true)
+; a stuck elimination with a motive whose branches are functions: η inside the branches
+(checked hf (Pi (n Nat) (Pi (m Nat) Nat)) (lam n (elim (lam y (Pi (m Nat) Nat)) n ((zero) (lam m m)) ((suc k) (rec k)))))
+(same (fromopt (quote-top (Pi (n Nat) (Pi (m Nat) Nat)) hf) cword)
+  (code (lam n m ((elim (lam y (Pi (m Nat) Nat)) n ((zero) (lam m2 m2)) ((suc k) (lam m2 ((rec k) m2)))) m))))
+(same (law-conv (Pi (n Nat) (Pi (m Nat) Nat)) hf) true)
+; an elimination without a motive, reached at a known type: its branches at that type
+(checked h2 (Pi (n Nat) (Pi (m Nat) Nat)) (lam n (case n ((zero) (lam m m)) ((suc k) (lam m k)))))
+(same (fromopt (quote-top (Pi (n Nat) (Pi (m Nat) Nat)) h2) cword)
+  (code (lam n m ((case n ((zero) (lam m2 m2)) ((suc k) (lam m2 k))) m))))
+; the endpoint rule under a motiveless case reached at its type
+(checked h3 (Pi (b Bool) (Pi (p (PathP (plam i Nat) zero zero)) Nat)) (lam b p (if b (@ p 0) zero)))
+(same (fromopt (quote-top (Pi (b Bool) (Pi (p (PathP (plam i Nat) zero zero)) Nat)) h3) cword)
+  (code (lam b p (if b zero zero))))
+; words: a stuck word elimination and a stuck operation
+(same (law-conv (Pi ((a Word) (b Word)) Word) plusw) true)
+(checked w1 (Pi (a Word) Bool) (lam a (%wlt a #3)))
+(same (law-conv (Pi (a Word) Bool) w1) true)
+; a stuck transport in a data type
+(checked tl (Pi ((A U) (B U) (p (PathP (plam i U) A B)) (l (List A))) (List B)) (lam A B p l (transport lzero (List A) (List B) (plam i (List (@ p i))) l)))
+(same (law-conv (Pi ((A U) (B U) (p (PathP (plam i U) A B)) (l (List A))) (List B)) tl) true)
+; quoting the value of a code gives the code again
+(same (quote-top (Pi (p (PathP (plam i Nat) zero zero)) Nat) (qe (Pi (p (PathP (plam i Nat) zero zero)) Nat) f))
+  (quote-top (Pi (p (PathP (plam i Nat) zero zero)) Nat) f))
+(same (quote-top (Pi (s (Sigma (a Nat) Nat)) (Sigma (a Nat) Nat)) (qe (Pi (s (Sigma (a Nat) Nat)) (Sigma (a Nat) Nat)) g))
+  (quote-top (Pi (s (Sigma (a Nat) Nat)) (Sigma (a Nat) Nat)) g))
+(same (quote-top (Pi (n Nat) (Pi (m Nat) Nat)) (qe (Pi (n Nat) (Pi (m Nat) Nat)) hf)) (quote-top (Pi (n Nat) (Pi (m Nat) Nat)) hf))
+(same (quote-top (Pi (n Nat) (Pi (m Nat) Nat)) (qe (Pi (n Nat) (Pi (m Nat) Nat)) h2)) (quote-top (Pi (n Nat) (Pi (m Nat) Nat)) h2))
+(same (quote-top (Pi ((a Word) (b Word)) Word) (qe (Pi ((a Word) (b Word)) Word) plusw)) (quote-top (Pi ((a Word) (b Word)) Word) plusw))
+(same (quote-top (Pi ((A U) (B U) (p (PathP (plam i U) A B)) (l (List A))) (List B)) (qe (Pi ((A U) (B U) (p (PathP (plam i U) A B)) (l (List A))) (List B)) tl))
+  (quote-top (Pi ((A U) (B U) (p (PathP (plam i U) A B)) (l (List A))) (List B)) tl))
+; a typed reading of a checked definition is its normal form at its type
+(show f)
+(show hf)
+(show tl)

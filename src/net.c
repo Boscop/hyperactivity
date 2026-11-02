@@ -604,7 +604,7 @@ enum { W_LAM, W_PAIR, W_PI, W_SIGMA, W_U, W_PATH, W_PLAM, W_IV, W_FACE, W_SYS, W
 static const char *WNAME[W_N] = { "wlam", "wpair", "wpi", "wsigma", "wu", "wpath", "wplam", "wiv", "wface", "wsys", "wglue",
     "wgluev", "wdata", "wcon", "whcomp", "wvar", "wapp", "wfst", "wsnd", "wpapp", "wcomp", "wunglue", "welim", "wtrans",
     "wlevel", "wother", "wword", "wwlit", "wwplus", "wwop", "wwelim" };
-static int WC[W_N], C_LNIL = -1, C_LCONS, C_TRUE, C_FALSE;
+static int WC[W_N], C_LNIL = -1, C_LCONS, C_TRUE, C_FALSE, C_NONE, C_SOME;
 static int B_TRUE = -1, B_FALSE;
 static void need_bool(void) {
     if (B_TRUE >= 0) return;
@@ -618,8 +618,9 @@ static void need_cons(void) {
     for (int w = 0; w < W_N; w++) if ((WC[w] = con_index(WNAME[w])) < 0) { fprintf(stderr, "%%view needs the data type View (lib/code.ctt)\n"); exit(2); }
     C_LCONS = con_index("lcons");
     C_TRUE = con_index("true"); C_FALSE = con_index("false");
+    C_NONE = con_index("none"); C_SOME = con_index("some");
     int nil = con_index("lnil");
-    if (nil < 0 || C_LCONS < 0 || C_TRUE < 0 || C_FALSE < 0) { fprintf(stderr, "the checker's data types are missing\n"); exit(2); }
+    if (nil < 0 || C_LCONS < 0 || C_TRUE < 0 || C_FALSE < 0 || C_NONE < 0 || C_SOME < 0) { fprintf(stderr, "the checker's data types are missing\n"); exit(2); }
     __atomic_store_n(&C_LNIL, nil, __ATOMIC_RELEASE);
 }
 static Port mk(int c, Port a, Port b, Port d, Port e) {
@@ -696,7 +697,8 @@ static void rule_view(Cell *o, Cell *v) {
     case V_NCOMP: r = mk(WC[W_COMP], v->port[1], v->port[2], v->port[3], v->port[4]); break;
     case V_NUNGLUE: r = mk(WC[W_UNGLUE], v->port[1], v->port[2], v->port[3], 0); break;
     case V_NCASE: {
-        /* the elimination as a function of its scrutinee: its table, motive and environment */
+        /* the elimination as a function of its scrutinee: its table and environment (its motive,
+         * when it has one, is the table's over that environment: %motive) */
         CaseTab *tb = v->p;
         if (data_checked_index(tb->d) < 0) { for (int q = 1; q < v->n; q++) era(v->port[q]); r = con_build(WC[W_OTHER], NULL, NULL); break; }
         int mb = v->x ? 1 : 0, ne = v->n - 3 - mb;
@@ -851,6 +853,8 @@ static const char *const KIND_NAME[K_END] = {
     [O_FEQL] = "FEQL",
     [O_FEQLB] = "FEQLB",
     [O_CLAUSES] = "CLAUSES",
+    [O_DNF] = "DNF",
+    [O_MOTIVE] = "MOTIVE",
     [O_RESTRICT] = "RESTRICT",
     [O_GLOB] = "GLOB",
     [O_ABS] = "ABS",
@@ -1711,6 +1715,42 @@ static void interact(Cell *o, Cell *v) {
         Dnf *d = v->p; int n = d ? (int)d->n : 0;
         Port *cs = malloc((size_t)(n + 1) * sizeof(Port));
         for (int k = 0; k < n; k++) cs[k] = face_cell(face_of_clause(d->c[k]));
+        link(list_of(cs, n), o->port[1]);
+        free(cs);
+        cell_free(o); cell_free(v);
+        return;
+    }
+    case O_MOTIVE: {
+        /* an elimination as a function (V_CASEF): its motive built over its environment, (some P),
+         * or none when it was written without one */
+        need_cons();
+        if (vk != V_CASEF || v->x) { fprintf(stderr, "%%motive: not an elimination\n"); exit(2); }
+        CaseTab *tb = v->p; int ne = v->n - 1;
+        Port r;
+        if (tb->motive) { Port me[ne + 1]; for (int e = 0; e < ne; e++) me[e] = v->port[1 + e]; r = mk(C_SOME, record_build_n(tb->motive, NULL, me), 0, 0, 0); }
+        else { for (int e = 0; e < ne; e++) era(v->port[1 + e]); r = con_build(C_NONE, NULL, NULL); }
+        link(r, o->port[1]);
+        cell_free(o); cell_free(v);
+        return;
+    }
+    case O_DNF: {
+        /* an interval or a face as data: its clauses (a list), each a list of its literals
+         * (pair atom b), atom the dimension as an interval; b: negated (an interval), or the
+         * endpoint 1 (a face). No clauses: 0, ff; a clause without literals: 1, tt */
+        need_cons(); need_bool();
+        if (vk != V_IV && vk != V_FACE) { fprintf(stderr, "%%dnf: not an interval or a face\n"); exit(2); }
+        Dnf *d = v->p; int n = d ? (int)d->n : 0;
+        Port *cs = malloc((size_t)(n + 1) * sizeof(Port));
+        for (int k = 0; k < n; k++) {
+            Clause *cl = d->c[k]; int m = (int)cl->n;
+            Port *ls = malloc((size_t)(m + 1) * sizeof(Port));
+            for (int j = 0; j < m; j++) {
+                Cell *a = cell(V_IV, 1); a->p = iv_atom((Dim)(cl->l[j] >> 1));
+                ls[j] = pair_of(P(a, 0), con_build((cl->l[j] & 1) ? B_TRUE : B_FALSE, NULL, NULL));
+            }
+            cs[k] = list_of(ls, m);
+            free(ls);
+        }
         link(list_of(cs, n), o->port[1]);
         free(cs);
         cell_free(o); cell_free(v);

@@ -75,7 +75,7 @@ static bool node_eq(Node *a, Node *b) {
 /* ---------------- desugaring to the core forms ---------------- */
 static const char *KW[] = { "%raw", "%welimP", "lam", "thunk", "delay", "force", "case", "elim", "if", "rec", "the", "code", "%data", "%con", "hcompD", "%transD", "%case", "%branches", "plam", "forall", "let", "app", "pair", "fst", "snd", "Pi", "Sigma", "U",
     "PathP", "@", "~", "/\\", "\\/", "=", "&", "|", "faceof", "sys", "sys0", "sys+", "sysmap", "comp", "Glue", "glue",
-    "unglue", "%view", "%var", "%dim", "%ieq", "%feq", "%clauses", "%restrict", "%gval", "%gty", "%dtab", "%dent", "%abs", "%branch", "%clos", "%box", "%wsucc", "%weq", "%wlt", "%wadd", "%wmax", "%wsub", "%welim", NULL };
+    "unglue", "%view", "%var", "%dim", "%ieq", "%feq", "%clauses", "%dnf", "%motive", "%restrict", "%gval", "%gty", "%dtab", "%dent", "%dtrans", "%abs", "%branch", "%clos", "%box", "%wsucc", "%weq", "%wlt", "%wadd", "%wmax", "%wsub", "%welim", NULL };
 static bool keyword(const char *s) { for (int i = 0; KW[i]; i++) if (!strcmp(KW[i], s)) return true; return false; }
 static Node *param_name(Node *p) { return p->list ? p->it[0] : p; }
 
@@ -402,12 +402,14 @@ static void table_set(int t, long i, long g) {
 }
 long table_global(int t, long i) { return t >= 0 && t < TB_N && i >= 0 && i < TABN[t] ? TABLE[t][i] : -1; }
 static Node *word(long n) { char b[32]; snprintf(b, sizeof b, "#%ld", n); return nsym(b); }
-static Node *capp1(const char *c, Node *a) { return nl3("app", nsym(c), a); }
-static Node *capp2(const char *c, Node *a, Node *b) { return nl3("app", nl3("app", nsym(c), a), b); }
+/* the code's constructors are named %%c (the first declared), so a program's names cannot capture them */
+static Node *K(const char *c) { char b[64]; snprintf(b, sizeof b, "%%%%%s", c); return nsym(b); }
+static Node *capp1(const char *c, Node *a) { return nl3("app", K(c), a); }
+static Node *capp2(const char *c, Node *a, Node *b) { return nl3("app", nl3("app", K(c), a), b); }
 static Node *capp3(const char *c, Node *a, Node *b, Node *d) { return nl3("app", capp2(c, a, b), d); }
 static Node *capp4(const char *c, Node *a, Node *b, Node *d, Node *e) { return nl3("app", capp3(c, a, b, d), e); }
 /* a list of codes as data */
-static Node *code_list(Node **xs, int n) { Node *l = nsym("lnil"); for (int i = n - 1; i >= 0; i--) l = capp2("lcons", xs[i], l); return l; }
+static Node *code_list(Node **xs, int n) { Node *l = K("lnil"); for (int i = n - 1; i >= 0; i--) l = capp2("lcons", xs[i], l); return l; }
 static bool bound_name(const char *s) { for (int i = ncscope - 1; i >= 0; i--) if (!strcmp(cscope[i], s)) return true; return false; }
 static int checked_data_of(const char *s, const char *what) {
     int d = data_lookup(s), di = d < 0 ? -1 : chk_index(d);
@@ -446,8 +448,8 @@ static Node *code_bound(const char *x, Node *body) {
 }
 static Node *to_code(Node *t) {
     /* universe levels: Level, lzero, (lsuc l), (lmax a b) */
-    if (is(t, "Level") && !bound_name("Level")) return nsym("clevel");
-    if (is(t, "lzero") && !bound_name("lzero")) return nsym("clzero");
+    if (is(t, "Level") && !bound_name("Level")) return K("clevel");
+    if (is(t, "lzero") && !bound_name("lzero")) return K("clzero");
     if (t->list && t->n == 3 && is(t->it[0], "app")) {
         Node *f = t->it[1];
         if (is(f, "lsuc") && !bound_name("lsuc")) return capp1("clsuc", to_code(t->it[2]));
@@ -492,11 +494,11 @@ static Node *to_code(Node *t) {
     }
     if (!t->list) {
         const char *s = t->s;
-        if (!strcmp(s, "0")) return nsym("ci0");
-        if (!strcmp(s, "1")) return nsym("ci1");
-        if (!strcmp(s, "tt")) return nsym("cftt");
-        if (!strcmp(s, "ff")) return nsym("cfff");
-        if (!strcmp(s, "U")) return capp1("cuniv", nsym("clzero"));
+        if (!strcmp(s, "0")) return K("ci0");
+        if (!strcmp(s, "1")) return K("ci1");
+        if (!strcmp(s, "tt")) return K("cftt");
+        if (!strcmp(s, "ff")) return K("cfff");
+        if (!strcmp(s, "U")) return capp1("cuniv", K("clzero"));
         for (int i = ncscope - 1; i >= 0; i--) if (!strcmp(cscope[i], s)) return capp1("cvar", word(ncscope - 1 - i));
         for (int i = 0; i < nchecked; i++) if (!strcmp(CHECKED[i], s)) return capp1("cglob", word(i));
         die("code: not a bound variable or checked definition:", s);
@@ -516,11 +518,11 @@ static Node *to_code(Node *t) {
     }
     if (!strcmp(h, "U")) {
         if (t->n == 2 && !t->it[1]->list && t->it[1]->s[0] >= '0' && t->it[1]->s[0] <= '9') {
-            Node *l = nsym("clzero");
+            Node *l = K("clzero");
             for (int q = atoi(t->it[1]->s); q > 0; q--) l = capp1("clsuc", l);
             return capp1("cuniv", l);
         }
-        return capp1("cuniv", t->n == 2 ? to_code(t->it[1]) : nsym("clzero"));
+        return capp1("cuniv", t->n == 2 ? to_code(t->it[1]) : K("clzero"));
     }
     if (!strcmp(h, "PathP")) return capp3("cpathp", to_code(t->it[1]), to_code(t->it[2]), to_code(t->it[3]));
     if (!strcmp(h, "@")) return capp2("cpapp", to_code(t->it[1]), to_code(t->it[2]));
@@ -530,7 +532,7 @@ static Node *to_code(Node *t) {
     if (!strcmp(h, "=")) return capp1(is(t->it[2], "0") ? "ceq0" : "ceq1", to_code(t->it[1]));
     if (!strcmp(h, "&")) return capp2("cfand", to_code(t->it[1]), to_code(t->it[2]));
     if (!strcmp(h, "|")) return capp2("cfor", to_code(t->it[1]), to_code(t->it[2]));
-    if (!strcmp(h, "sys0")) return nsym("csys0");
+    if (!strcmp(h, "sys0")) return K("csys0");
     if (!strcmp(h, "sys+")) return capp3("csysc", to_code(t->it[1]), to_code(t->it[2]->it[1]), to_code(t->it[3]));
     if (!strcmp(h, "comp")) return capp3("ccomp", to_code(t->it[1]), to_code(t->it[2]), to_code(t->it[3]));
     if (!strcmp(h, "Glue")) return capp2("cgluet", to_code(t->it[1]), to_code(t->it[2]));
@@ -582,7 +584,6 @@ static int srcname(const char *s) {
 }
 const char *srcname_of(int i) { return i >= 0 && i < nsrcname ? SRCNAME[i] : "?"; }
 typedef struct { Node **x, **e; int n, cap; } Chain;
-static Node *K(const char *c) { char b[64]; snprintf(b, sizeof b, "%%%%%s", c); return nsym(b); }
 static Node *kapp(const char *c, Node *a, Node *b) { Node *x = nl3("app", K(c), a); return b ? nl3("app", x, b) : x; }
 typedef struct { const char *name; Node *ty; } AScope;   /* ty NULL: a dimension */
 static AScope *asc; static size_t capasc; static int nasc;
@@ -1374,7 +1375,7 @@ static Syn *compile(Node *t) {
         Syn *s = syn(S_U, 1); s->k[0] = compile(l); return s;
     }
     {
-        static const struct { const char *name; int kind, n; } PR[] = { { "%view", O_VIEW, 1 }, { "%ieq", O_IEQ, 2 }, { "%feq", O_FEQL, 2 }, { "%clauses", O_CLAUSES, 1 },
+        static const struct { const char *name; int kind, n; } PR[] = { { "%view", O_VIEW, 1 }, { "%ieq", O_IEQ, 2 }, { "%feq", O_FEQL, 2 }, { "%clauses", O_CLAUSES, 1 }, { "%dnf", O_DNF, 1 }, { "%motive", O_MOTIVE, 1 },
             { "%restrict", O_RESTRICT, 2 }, { "%abs", O_ABS, 2 }, { "%branch", O_BRANCH, 3 }, { "%clos", O_CLOS, 2 }, { "%wsucc", O_WSUCC, 1 }, { "%weq", O_WEQ, 2 }, { "%wlt", O_WLT, 2 },
             { "%wadd", O_WADD, 2 }, { "%wmax", O_WMAX, 2 }, { "%wsub", O_WSUB, 2 }, { "%welim", O_WELIM, 3 }, { NULL, 0, 0 } };
         if (!strcmp(h, "%welimP")) {
@@ -1399,7 +1400,7 @@ static Syn *compile(Node *t) {
             Syn *s = compile_n(S_PRIM, t, 1, PR[q].n); s->x = (uint32_t)PR[q].kind; return s;
         }
         if (!strcmp(h, "%box")) { if (t->n != 2) die("(%box v)", NULL); Syn *s = syn(S_BOX, 1); s->k[0] = compile(t->it[1]); return s; }
-        static const char *TBN[TB_N] = { "%gval", "%gty", "%dtab", "%dent" };
+        static const char *TBN[TB_N] = { "%gval", "%gty", "%dtab", "%dent", "%dtrans" };
         for (int q = 0; q < TB_N; q++) if (!strcmp(h, TBN[q])) {
             if (t->n != 2) die("wrong number of operands in", h);
             Syn *s = syn(S_GLOBTAB, 1); s->x = (uint32_t)q; s->k[0] = compile(t->it[1]); return s;
@@ -1720,6 +1721,194 @@ static char *read_port(Port prov) {
     fclose(o);
     return buf;
 }
+/* ---------------- printing a code ----------------
+ * A typed reading (quote in lib/check.ctt) is a code of lib/code.ctt: first-order data, with
+ * bound variables and dimensions as de Bruijn indices. It is printed with names made in the
+ * order the binders are printed, x0 x1 ... for variables (ih for an elimination's hypotheses)
+ * and i0 i1 ... for dimensions, as a reading names them. */
+extern Port ref_copy(Cell *c);
+extern Port thunk_build(Cell *v);
+static Cell *obs_val(Port p) {
+    for (;;) {
+        Cell *c = observe(p);
+        if (!c) return NULL;
+        if (c->kind == V_REF) { p = ref_copy(c); continue; }
+        if (c->kind == V_THUNK) { p = thunk_build(c); continue; }
+        if (c->kind == V_GLOBAL) { Port v = global_copy((long)c->a); if (!v) return c; p = v; continue; }
+        return c;
+    }
+}
+static const char *con_of(Cell *c) { return c && c->kind == V_CON ? CON[c->a].name : ""; }
+static long word_val(Port p) { Cell *c = obs_val(p); return c && c->kind == V_WORD && !c->p ? (long)c->a : -1; }
+static char **cnm; static size_t capcnm; static int ncnm, cvc, cdc;
+static void cnm_push(const char *pfx, int k) { GROW(cnm, capcnm, (size_t)ncnm + 1); char b[32]; snprintf(b, sizeof b, "%s%d", pfx, k); cnm[ncnm++] = strdup(b); }
+static void cnm_pop(int k) { while (k-- > 0) free(cnm[--ncnm]); }
+/* the elements of a list (Lst) */
+static int list_ports(Port p, Port **out) {
+    int n = 0, cap = 8; Port *xs = malloc((size_t)cap * sizeof(Port));
+    for (;;) {
+        Cell *c = obs_val(p);
+        if (!c || strcmp(con_of(c), "lcons")) break;
+        if (n == cap) { cap *= 2; xs = realloc(xs, (size_t)cap * sizeof(Port)); }
+        xs[n++] = c->port[1]; p = c->port[2];
+    }
+    *out = xs; return n;
+}
+static void pcode(FILE *o, Port p);
+/* a right-nested chain of one binary constructor, printed n-ary */
+static void pchain(FILE *o, const char *h, const char *op, Cell *c) {
+    fprintf(o, "(%s", op);
+    for (;;) {
+        fputc(' ', o); pcode(o, c->port[1]);
+        Cell *r = obs_val(c->port[2]);
+        if (r && !strcmp(con_of(r), h)) { c = r; continue; }
+        fputc(' ', o); pcode(o, P(r, 0));
+        break;
+    }
+    fputc(')', o);
+}
+static void pfields(FILE *o, Port *xs, int n) { for (int k = 0; k < n; k++) { fputc(' ', o); pcode(o, xs[k]); } }
+static void pbranches(FILE *o, int d, Port bs) {
+    Port *br; int nb = list_ports(bs, &br);
+    int D = d >= 0 && d < nchkdata ? CHKDATA[d] : -1;
+    for (int k = 0; k < nb; k++) {
+        ConInfo *ci = D >= 0 && k < DATA[D].ncons ? &CON[DATA[D].cons[k]] : NULL;
+        int nf = ci ? ci->nfields : 0, nr = ci ? ci->nrec : 0, nd = ci ? ci->ndims : 0, pushed = 0;
+        fprintf(o, " ((%s", ci ? ci->name : "?");
+        Port b = br[k];
+        int recf[64], nrf = 0;   /* the recursive fields' positions in the name stack */
+        for (int j = 0; j < nf + nr + nd; j++) {
+            Cell *c = obs_val(b);
+            if (j < nf) { cnm_push("x", cvc++); fprintf(o, " %s", cnm[ncnm - 1]); if (ci && (ci->recmask >> j & 1) && nrf < 64) recf[nrf++] = ncnm - 1; }
+            else if (j < nf + nr) {
+                /* a hypothesis: the elimination of its recursive field, written (rec x) */
+                int q = j - nf; char b2[64]; snprintf(b2, sizeof b2, "(rec %s)", q < nrf ? cnm[recf[q]] : "?");
+                GROW(cnm, capcnm, (size_t)ncnm + 1); cnm[ncnm++] = strdup(b2); cvc++;
+            }
+            else { cnm_push("i", cdc++); fprintf(o, " %s", cnm[ncnm - 1]); }
+            pushed++;
+            b = c->port[1];
+        }
+        fputs(") ", o); pcode(o, b); fputc(')', o);
+        cnm_pop(pushed);
+    }
+    free(br);
+}
+static void pcode(FILE *o, Port p) {
+    Cell *c = obs_val(p);
+    const char *h = con_of(c);
+    if (!*h) { fputs("<?>", o); return; }
+    Port *xs; int n;
+    if (!strcmp(h, "cvar")) { long k = word_val(c->port[1]); fputs(k >= 0 && k < ncnm ? cnm[ncnm - 1 - k] : "<unbound>", o); }
+    else if (!strcmp(h, "cfree")) rb(o, c->port[1]);
+    else if (!strcmp(h, "cforce")) {
+        /* a hypothesis used is named (rec x) */
+        Cell *v = obs_val(c->port[1]);
+        if (!strcmp(con_of(v), "cvar")) { long k = word_val(v->port[1]); fputs(k >= 0 && k < ncnm ? cnm[ncnm - 1 - k] : "<unbound>", o); }
+        else { fputs("(force ", o); pcode(o, P(v, 0)); fputc(')', o); }
+    }
+    else if (!strcmp(h, "cglob")) { long k = word_val(c->port[1]); fputs(k >= 0 && k < nchecked ? CHECKED[k] : "<global>", o); }
+    else if (!strcmp(h, "clam") || !strcmp(h, "cdlam")) {
+        bool dim = h[1] == 'd'; cnm_push(dim ? "i" : "x", dim ? cdc++ : cvc++);
+        fprintf(o, "(lam %s ", cnm[ncnm - 1]); pcode(o, c->port[1]); fputc(')', o); cnm_pop(1);
+    }
+    else if (!strcmp(h, "cplam") || !strcmp(h, "cforall")) {
+        cnm_push("i", cdc++);
+        fprintf(o, "(%s %s ", h[1] == 'p' ? "plam" : "forall", cnm[ncnm - 1]); pcode(o, c->port[1]); fputc(')', o); cnm_pop(1);
+    }
+    else if (!strcmp(h, "cpi") || !strcmp(h, "csigma")) {
+        fprintf(o, "(%s ", h[1] == 'p' ? "Pi" : "Sigma"); pcode(o, c->port[1]);
+        cnm_push("x", cvc++); fprintf(o, " %s ", cnm[ncnm - 1]); pcode(o, c->port[2]); fputc(')', o); cnm_pop(1);
+    }
+    else if (!strcmp(h, "clet")) {
+        fputs("(let ", o); cnm_push("x", cvc++); fprintf(o, "%s ", cnm[ncnm - 1]); cnm_pop(1);
+        pcode(o, c->port[1]); cnm_push("x", cvc - 1); fputc(' ', o); pcode(o, c->port[2]); fputc(')', o); cnm_pop(1);
+    }
+    else if (!strcmp(h, "capp")) { fputc('(', o); pcode(o, c->port[1]); fputc(' ', o); pcode(o, c->port[2]); fputc(')', o); }
+    else if (!strcmp(h, "cuniv")) {
+        Cell *l = obs_val(c->port[1]);
+        if (!strcmp(con_of(l), "clzero")) fputs("U", o); else { fputs("(U ", o); pcode(o, P(l, 0)); fputc(')', o); }
+    }
+    else if (!strcmp(h, "cmeet")) pchain(o, h, "/\\", c);
+    else if (!strcmp(h, "cjoin")) pchain(o, h, "\\/", c);
+    else if (!strcmp(h, "cfand")) pchain(o, h, "&", c);
+    else if (!strcmp(h, "cfor")) pchain(o, h, "|", c);
+    else if (!strcmp(h, "ceq0") || !strcmp(h, "ceq1")) { fputs("(= ", o); pcode(o, c->port[1]); fprintf(o, " %c)", h[3]); }
+    else if (!strcmp(h, "csys0") || !strcmp(h, "csysc")) {
+        fputs("(sys", o);
+        while (!strcmp(con_of(c), "csysc")) {
+            fputs(" (", o); pcode(o, c->port[1]); fputc(' ', o); pcode(o, c->port[2]); fputc(')', o);
+            c = obs_val(c->port[3]);
+        }
+        fputc(')', o);
+    }
+    else if (!strcmp(h, "cdata")) {
+        long d = word_val(c->port[1]); int D = d >= 0 && d < nchkdata ? CHKDATA[d] : -1;
+        n = list_ports(c->port[2], &xs);
+        if (n) fputc('(', o);
+        fputs(D >= 0 ? DATA[D].name : "?", o); pfields(o, xs, n); if (n) fputc(')', o); free(xs);
+    }
+    else if (!strcmp(h, "ccon")) {
+        long d = word_val(c->port[1]), k = word_val(c->port[2]); int D = d >= 0 && d < nchkdata ? CHKDATA[d] : -1;
+        Port *ds; n = list_ports(c->port[3], &xs); int m = list_ports(c->port[4], &ds);
+        if (n + m) fputc('(', o);
+        fputs(D >= 0 && k >= 0 && k < DATA[D].ncons ? CON[DATA[D].cons[k]].name : "?", o);
+        pfields(o, xs, n); pfields(o, ds, m); if (n + m) fputc(')', o); free(xs); free(ds);
+    }
+    else if (!strcmp(h, "celim")) {
+        long d = word_val(c->port[1]);
+        fputs("(elim ", o); pcode(o, c->port[2]); fputc(' ', o); pcode(o, c->port[4]); pbranches(o, (int)d, c->port[3]); fputc(')', o);
+    }
+    else if (!strcmp(h, "ccase")) {
+        long d = word_val(c->port[1]);
+        fputs("(case ", o); pcode(o, c->port[3]); pbranches(o, (int)d, c->port[2]); fputc(')', o);
+    }
+    else if (!strcmp(h, "ctrans")) {
+        long d = word_val(c->port[1]); int D = d >= 0 && d < nchkdata ? CHKDATA[d] : -1;
+        fprintf(o, "(%%transD %s ", D >= 0 ? DATA[D].name : "?"); pcode(o, c->port[2]);
+        n = list_ports(c->port[3], &xs); pfields(o, xs, n); free(xs);
+        fputc(' ', o); pcode(o, c->port[4]); fputc(')', o);
+    }
+    else if (!strcmp(h, "cwlit")) { Cell *w = obs_val(c->port[1]); if (w && w->kind == V_WORD) { WN x = { w->a, w->p }; fputc('#', o); wn_print(o, &x); } else fputs("<?>", o); }
+    else if (!strcmp(h, "cwop")) {
+        static const char *op[] = { "%weq", "%wlt", "%wadd", "%wmax", "%wsub" };
+        long k = word_val(c->port[1]);
+        fprintf(o, "(%s ", k >= 0 && k < 5 ? op[k] : "?"); pcode(o, c->port[2]); fputc(' ', o); pcode(o, c->port[3]); fputc(')', o);
+    }
+    else {
+        /* the rest print as their head and fields */
+        static const struct { const char *c, *s; } F[] = {
+            { "cpair", "pair" }, { "cfst", "fst" }, { "csnd", "snd" }, { "cpathp", "PathP" }, { "cpapp", "@" },
+            { "cneg", "~" }, { "ccomp", "comp" }, { "cgluet", "Glue" }, { "cglue", "glue" }, { "cunglue", "unglue" },
+            { "cann", "the" }, { "chcomp", "hcompD" }, { "cforce", "force" }, { "clsuc", "lsuc" }, { "clmax", "lmax" },
+            { "cwsucc", "%wsucc" }, { "cwelim", "%welim" },
+            { "ci0", "0" }, { "ci1", "1" }, { "cftt", "tt" }, { "cfff", "ff" }, { "clevel", "Level" }, { "clzero", "lzero" },
+            { "cword", "Word" }, { NULL, NULL } };
+        int f = 0; while (F[f].c && strcmp(F[f].c, h)) f++;
+        if (!F[f].c) { fprintf(o, "<%s>", h); return; }
+        if (c->n == 1) { fputs(F[f].s, o); return; }
+        fprintf(o, "(%s", F[f].s);
+        if (!strcmp(h, "cann")) { fputc(' ', o); pcode(o, c->port[2]); fputc(' ', o); pcode(o, c->port[1]); }
+        else for (int k = 1; k < c->n; k++) { fputc(' ', o); pcode(o, c->port[k]); }
+        fputc(')', o);
+    }
+}
+/* an (Opt Code): the printed code, or NULL for none */
+static char *read_code(Port prov) {
+    Cell *c = obs_val(prov);
+    if (!c || strcmp(con_of(c), "some")) return NULL;
+    char *buf; size_t len; FILE *o = open_memstream(&buf, &len);
+    ndshow = 0; dcount = 0; vcount = 0; ncnm = 0; cvc = 0; cdc = 0;
+    pcode(o, c->port[1]);
+    fclose(o);
+    return buf;
+}
+/* the type a reading is taken at: a checked definition's, or the declared type of (the T t) */
+static Node *reading_type(Node *t) {
+    if (!t->list) { int i = checked_index(t->s); return i >= 0 && global_lookup(t->s) == table_global(TB_VAL, i) ? nl2("%gty", word(i)) : NULL; }
+    if (t->n == 3 && is(t->it[0], "the")) return t->it[1];
+    return NULL;
+}
 /* A reading is taken over the complete normalization of what was posed
  * (5.13 concerns a normal form): pending pairs are reduced before and after,
  * so the counts do not depend on the schedule. */
@@ -1731,6 +1920,18 @@ static char *readback(Node *t, long *steps) {
     if (steps) *steps = stat_steps - s0;
     return buf;
 }
+/* a reading at a type T: the normal form at T (quote), whose length includes the quoting; a value
+ * with no code is read without its type */
+static char *readback_at(Node *T, Node *t, long *steps) {
+    net_drain();
+    long s0 = stat_steps;
+    char *buf = read_code(build_top(nl3("%%quote-top", T, t)));
+    net_drain();
+    if (!buf) buf = read_port(build_top(t));
+    net_drain();
+    if (steps) *steps = stat_steps - s0;
+    return buf;
+}
 
 /* modules: a file is loaded once; a running key hashes the machine's build and every file loaded so
  * far, in order; a file whose key has a marker in the cache directory passed all its checks
@@ -1738,7 +1939,20 @@ static char *readback(Node *t, long *steps) {
 static bool trusted;
 static const char *cur_dir;
 /* why a judgment failed: its normal form (no v why A B), lib/check.ctt Res */
-static void explain(const char *r) {
+/* the slots of a failure that are types (read at their universe); the others are values whose
+ * type the failure does not carry, read without one */
+static bool slot_is_type(int why, int k) {
+    switch (why) {
+    case 0: case 21: return true;
+    case 1: case 2: case 3: case 4: case 20: case 23: case 27: return k == 0;
+    default: return false;
+    }
+}
+static char *read_code(Port prov);
+static Cell *obs_val(Port p);
+static const char *con_of(Cell *c);
+/* q: the judgment that failed, run again to read its type slots at their universe */
+static void explain(const char *r, Node *q) {
     /* reason, then what its two values are */
     static const char *M[][3] = {
         /* 0 */ { "type mismatch", "expected", "actual" },
@@ -1776,10 +1990,24 @@ static void explain(const char *r) {
     int why = n->it[2]->list ? -1 : atoi(n->it[2]->s + 1);
     bool known = why >= 0 && why < (int)(sizeof M / sizeof *M);
     printf("   at: "); print_node(stdout, n->it[1]); printf("\n   reason: %s\n", known ? M[why][0] : "rejected");
+    char *typed[2] = { NULL, NULL };
+    if (q && known && (slot_is_type(why, 0) || slot_is_type(why, 1))) {
+        net_drain();
+        Cell *c = obs_val(build_top(q));
+        if (c && !strcmp(con_of(c), "no"))
+            for (int k = 0; k < 2; k++) if (slot_is_type(why, k)) {
+                Cell *a = cell(O_APP, 3);
+                link(build_top(nsym("%%quote-ty")), P(a, 0)); link(c->port[3 + k], P(a, 1));
+                typed[k] = read_code(P(a, 2));
+            }
+        net_drain();
+    }
     for (int k = 0; k < 2; k++) {
         Node *v = n->it[3 + k];
-        if (is(v, "opq")) continue;
-        printf("   %s: ", known && M[why][1 + k] ? M[why][1 + k] : (k ? "B" : "A")); print_node(stdout, v); printf("\n");
+        if (is(v, "opq")) { free(typed[k]); continue; }
+        printf("   %s: ", known && M[why][1 + k] ? M[why][1 + k] : (k ? "B" : "A"));
+        if (typed[k]) { fputs(typed[k], stdout); free(typed[k]); } else print_node(stdout, v);
+        printf("\n");
     }
 }
 
@@ -1875,7 +2103,7 @@ static void toplevel(Node *f) {
             if (define) printf("%s", f->it[1]->s); else print_node(stdout, t);
             printf("   [%ld steps]\n", steps);
         }
-        if (!accepted && (expect || getenv("CUBICAL_WHY"))) explain(r);
+        if (!accepted && (expect || getenv("CUBICAL_WHY"))) explain(r, nl3("%%chk-def", cT, ct));
         free(r); free(tr);
         if (define && ok) {
             Node *d = nlist(3); d->it[0] = nsym("def"); d->it[1] = f->it[1]; d->it[2] = t;
@@ -1920,19 +2148,21 @@ static void toplevel(Node *f) {
         toplevel(pd);
         Node **cs = calloc((size_t)DATA[d].ncons + 1, sizeof(Node *));
         for (int ci = 0; ci < DATA[d].ncons; ci++) cs[ci] = nsym(CON[DATA[d].cons[ci]].name);
-        char en[256], cn[256]; snprintf(en, sizeof en, "%%elim-%s", DATA[d].name); snprintf(cn, sizeof cn, "%%case-%s", DATA[d].name);
+        char en[256], cn[256], trn[256]; snprintf(en, sizeof en, "%%elim-%s", DATA[d].name); snprintf(cn, sizeof cn, "%%case-%s", DATA[d].name);
+        snprintf(trn, sizeof trn, "%%transf-%s", DATA[d].name);
         Node *td = nlist(3); td->it[0] = nsym("def"); td->it[1] = nsym(dtn);
         { Node *l = K("lnil"); for (int i = DATA[d].ncons - 1; i >= 0; i--) l = kapp("lcons", cs[i], l); td->it[2] = nl3("app", nl3("app", kapp("dtab", nsym(DATA[d].name), l), nsym(en)), nsym(cn)); }
         free(cs);
         toplevel(td);
         table_set(TB_DENT, di, global_lookup(den));
         table_set(TB_DTAB, di, global_lookup(dtn));
+        table_set(TB_TRANS, di, global_lookup(trn));
         long steps;
         char *r = trusted ? strdup("ok") : readback(nl3("%%chk-data", word(di), ent), &steps), *tr = strdup("ok");
         bool accepted = !strcmp(r, tr), ok = accepted == expect;
         if (ok) passes++; else failures++;
         if (!trusted) printf("%s: %s data %s   [%ld steps]\n", ok ? "ok" : "FAIL", expect ? "checks" : "rejected", DATA[d].name, steps);
-        if (!accepted && (expect || getenv("CUBICAL_WHY"))) explain(r);
+        if (!accepted && (expect || getenv("CUBICAL_WHY"))) explain(r, nl3("%%chk-data", word(di), ent));
         free(r); free(tr);
         if (!accepted) { nchkdata--; return; }
         char dent[32]; snprintf(dent, sizeof dent, "%%dent%d", di);
@@ -2045,6 +2275,14 @@ static void toplevel(Node *f) {
         fprintf(m, " %%x (%%case (%%branches %s %llu 0", D, (unsigned long long)allih);
         for (int k = 0; k < nc; k++) fprintf(m, " %%b%d", k);
         fprintf(m, ") (lam %%g %%g) %%x)))");
+        EMIT();
+        /* transport as a function (used by the evaluator over codes) */
+        OPEN();
+        fprintf(m, "(def %%transf-%s (lam %%psi", D);
+        for (int k = 0; k < np; k++) fprintf(m, " %%z%d", k);
+        fprintf(m, " %%x (%%transD %s %%psi", D);
+        for (int k = 0; k < np; k++) fprintf(m, " %%z%d", k);
+        fprintf(m, " %%x)))");
         EMIT();
         /* composition: hcomp after transport (CHM); a closed type transports as the identity */
         OPEN();
@@ -2199,14 +2437,18 @@ static void toplevel(Node *f) {
         long steps;
         const char *tp = getenv("CUBICAL_TRACE");
         if (tp) { net_drain(); trace_out = fopen(tp, "a"); }
-        char *r = readback(f->it[1], &steps);
+        Node *T = reading_type(f->it[1]);
+        char *r = T ? readback_at(T, f->it[1], &steps) : readback(f->it[1], &steps);
         if (trace_out) { fprintf(trace_out, "-- %ld steps\n", steps); fclose(trace_out); trace_out = NULL; }
         /* length: every interaction */
         print_node(stdout, f->it[1]); printf("\n  = %s   [%ld steps]\n", r, steps);
         free(r);
     } else if (!strcmp(h, "same")) {
         if (f->n != 3) die("(same t u)", NULL);
-        char *a = readback(f->it[1], NULL), *b = readback(f->it[2], NULL);
+        /* at a type when either side has one: both at it */
+        Node *T = reading_type(f->it[1]); if (!T) T = reading_type(f->it[2]);
+        char *a = T ? readback_at(T, f->it[1], NULL) : readback(f->it[1], NULL);
+        char *b = T ? readback_at(T, f->it[2], NULL) : readback(f->it[2], NULL);
         if (strcmp(a, b)) {
             failures++;
             printf("FAIL: "); print_node(stdout, f->it[1]); printf("\n  left:  %s\n  right: %s\n", a, b);

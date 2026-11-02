@@ -609,3 +609,172 @@
   (then (chk (lvl-closed (lvl-of lv)) (no lv E-openlevel opq opq))
   (then (check-ptys tel)
       (let pc (params-fresh tel lnil) (check-ctors d (fst pc) (snd pc) #0)))))))))
+
+; ---------------------------------------------------------------- quoting values into codes
+; quote bs T v: the code (lib/code.ctt) of v's normal form at type T. At Π it is applied to a
+; fresh variable of the domain, at Σ read by its projections, at a path type at a fresh
+; dimension, at a data type by its constructors along the telescope; a type by its former. A
+; stuck elimination's branches are read at fresh fields, hypotheses and dimensions: at its motive,
+; or, written without one, at the type it is quoted at when that is known (not as the head of a
+; stuck term, where its type is not known). Variables and dimensions bound inside are de Bruijn
+; indices over one list of the binders entered, innermost first; one of an outer context is
+; (cfree x). An induction hypothesis is a suspended elimination, so its uses are forced (cforce),
+; as (code t) writes them. A value with no code (of a data type that was not checked) gives none.
+(data QB (qv l) (qh l) (qd i))
+(def obind (lam o k (case o ((none) none) ((some x) (k x)))))
+(def omap (lam f o (case o ((none) none) ((some x) (some (f x))))))
+(def oseq (lam l (case l ((lnil) (some lnil)) ((lcons o r) (obind o (lam x (omap (lam xs (lcons x xs)) (oseq r))))))))
+(def var-level (lam x (case (%view x) ((wvar l T) l) (_ #0))))
+(def q-var-at (lam bs x l n (case bs
+  ((lnil) (cfree x))
+  ((lcons b r) (case b
+    ((qv m) (if (%weq l m) (cvar n) (q-var-at r x l (%wsucc n))))
+    ((qh m) (if (%weq l m) (cforce (cvar n)) (q-var-at r x l (%wsucc n))))
+    ((qd j) (q-var-at r x l (%wsucc n))))))))
+(def q-dim-at (lam bs a n (case bs
+  ((lnil) (cfree a))
+  ((lcons b r) (case b ((qd j) (if (%ieq j a) (cvar n) (q-dim-at r a (%wsucc n)))) (_ (q-dim-at r a (%wsucc n))))))))
+; intervals and faces, from their clauses (%dnf)
+(def q-ivlit (lam bs p (let a (q-dim-at bs (fst p) #0) (if (snd p) (cneg a) a))))
+(def q-ivand (lam bs ls (case ls ((lnil) ci1) ((lcons p r) (case r ((lnil) (q-ivlit bs p)) (_ (cmeet (q-ivlit bs p) (q-ivand bs r))))))))
+(def q-ivor (lam bs cs (case cs ((lnil) ci0) ((lcons c r) (case r ((lnil) (q-ivand bs c)) (_ (cjoin (q-ivand bs c) (q-ivor bs r))))))))
+(def q-iv (lam bs r (q-ivor bs (%dnf r))))
+(def q-flit (lam bs p (let a (q-dim-at bs (fst p) #0) (if (snd p) (ceq1 a) (ceq0 a)))))
+(def q-fand (lam bs ls (case ls ((lnil) cftt) ((lcons p r) (case r ((lnil) (q-flit bs p)) (_ (cfand (q-flit bs p) (q-fand bs r))))))))
+(def q-for (lam bs cs (case cs ((lnil) cfff) ((lcons c r) (case r ((lnil) (q-fand bs c)) (_ (cfor (q-fand bs c) (q-for bs r))))))))
+(def q-face (lam bs f (q-for bs (%dnf f))))
+(declare quote qv-un qty qneu q-lvl)
+; at a type when one is given (some T), else without
+(def q-at (lam bs oT v (case oT ((none) (qv-un bs v)) ((some T) (quote bs T v)))))
+; a system: each branch under its clause, at the type tf gives for that clause
+(def q-sys (lam bs tf b (case b
+  ((lnil) (some csys0))
+  ((lcons p r) (let d (fst p) (obind (q-at bs (tf d) (snd p)) (lam t (omap (lam rc (csysc (q-face bs d) t rc)) (q-sys bs tf r)))))))))
+(def is-neu (lam w (case w
+  ((wvar l T) true) ((wapp f a T) true) ((wfst p T) true) ((wsnd p T) true) ((wpapp p r T) true)
+  ((wcomp A u a T) true) ((wunglue S b T) true) ((welim d x f T) true) ((wtrans d psi ls x T) true)
+  ((wwplus k x) true) ((wwop k a b) true) ((wwelim x z s) true) (_ false))))
+(def q-fst (lam p (fst p)))
+; fields along a telescope (past its end, without types)
+(def q-fields (lam bs tel fs (case fs
+  ((lnil) (some lnil))
+  ((lcons f r) (case tel
+    ((tx A nm k) (let Av (tval A) (obind (quote bs Av f) (lam c (omap (lcons c) (q-fields bs (k f Av) r))))))
+    (_ (oseq (lmap (qv-un bs) fs))))))))
+; a line in a constant type T; a line of types; a line in the line of types L
+(def q-line (lam bs T u (let i (%dim) (omap cplam (quote (lcons (qd i) bs) T (@ u i))))))
+(def q-tyline (lam bs L (let i (%dim) (omap cplam (qty (lcons (qd i) bs) (@ L i))))))
+(def q-linein (lam bs L u (let i (%dim) (omap cplam (quote (lcons (qd i) bs) (@ L i) (@ u i))))))
+; a Glue type's system, over A: each branch a type with an equivalence to A
+(def q-gsys (lam bs A b (q-sys bs (lam d (some (Sigma X Uw (Equiv X (%restrict d A))))) b)))
+(def quote (lam bs T v (case (%view T)
+  ((wpi A B) (let x (%var A) (omap clam (quote (lcons (qv (var-level x)) bs) (B x) (v x)))))
+  ((wsigma A B) (obind (quote bs A (fst v)) (lam a (omap (cpair a) (quote bs (B (fst v)) (snd v))))))
+  ((wpath L a b) (let i (%dim) (omap cplam (quote (lcons (qd i) bs) (@ L i) (@ v i)))))
+  ((wu l) (qty bs v))
+  (WT (let wv (%view v) (case wv
+    ((wsys b) (q-sys bs (lam d (some (%restrict d T))) b))
+    ((wcon d c fs ds) (case WT
+      ((wdata d2 ps) (omap (lam fc (ccon d c fc (lmap (q-iv bs) ds))) (q-fields bs (centry d c ps) fs)))
+      ((wlevel) (q-lvl bs v))
+      (_ (qv-un bs v))))
+    ((whcomp u a) (case WT
+      ((wdata d2 ps) (obind (q-line bs T u) (lam cu (omap (chcomp cu) (quote bs T a)))))
+      (_ (qv-un bs v))))
+    ((wgluev S a) (case WT
+      ((wglue A SG) (case (%view S)
+         ((wsys b) (obind (q-sys bs (lam d (some (fst (%restrict d SG)))) b) (lam cs (omap (cglue cs) (quote bs A a)))))
+         (_ (qv-un bs v))))
+      (_ (qv-un bs v))))
+    (_ (if (is-neu wv) (omap q-fst (qneu bs (some T) v wv)) (qv-un bs v)))))))))
+; a type, by its former
+(def qty (lam bs A (let wa (%view A) (case wa
+  ((wpi D B) (let x (%var D) (obind (qty bs D) (lam cd (omap (cpi cd) (qty (lcons (qv (var-level x)) bs) (B x)))))))
+  ((wsigma D B) (let x (%var D) (obind (qty bs D) (lam cd (omap (csigma cd) (qty (lcons (qv (var-level x)) bs) (B x)))))))
+  ((wu l) (omap cuniv (q-lvl bs l)))
+  ((wpath L a b) (obind (q-tyline bs L) (lam cl (obind (quote bs (@ L 0) a) (lam ca (omap (cpathp cl ca) (quote bs (@ L 1) b)))))))
+  ((wglue D S) (obind (qty bs D) (lam cd (case (%view S)
+     ((wsys b) (omap (cgluet cd) (q-gsys bs D b)))
+     (_ (omap (cgluet cd) (qv-un bs S)))))))
+  ((wdata d ps) (omap (cdata d) (q-fields bs (dtel (%dent d)) ps)))
+  ((wlevel) (some clevel))
+  ((wword) (some cword))
+  ((wsys b) (q-sys bs (lam d (some Uw)) b))
+  (_ (if (is-neu wa) (omap q-fst (qneu bs (some Uw) A wa)) none))))))
+; a level, by Level's constructors lzero lsuc lmax (lomega has no code)
+(def q-lvl (lam bs l (let w (%view l) (case w
+  ((wcon d c fs ds) (if (%weq c #0) (some clzero) (if (%weq c #1) (omap clsuc (q-lvl bs (lhead fs)))
+     (if (%weq c #2) (obind (q-lvl bs (lhead fs)) (lam a (omap (clmax a) (q-lvl bs (lhead (ltail fs)))))) none))))
+  (_ (if (is-neu w) (omap q-fst (qneu bs (some Level) l w)) none))))))
+; without a type: a λ at a fresh variable, a path at a fresh dimension, a type by its former
+(def qv-un (lam bs v (let w (%view v) (case w
+  ((wlam f) (let x (%var Uw) (omap clam (qv-un (lcons (qv (var-level x)) bs) (f x)))))
+  ((wpair a b) (obind (qv-un bs a) (lam ca (omap (cpair ca) (qv-un bs b)))))
+  ((wplam p) (let i (%dim) (omap cplam (qv-un (lcons (qd i) bs) (@ p i)))))
+  ((wiv r) (some (q-iv bs r)))
+  ((wface a) (some (q-face bs a)))
+  ((wsys b) (q-sys bs (lam d none) b))
+  ((wgluev S a) (obind (qv-un bs S) (lam cs (omap (cglue cs) (qv-un bs a)))))
+  ((wcon d c fs ds) (omap (lam fc (ccon d c fc (lmap (q-iv bs) ds))) (oseq (lmap (qv-un bs) fs))))
+  ((whcomp u a) (let i (%dim) (obind (qv-un (lcons (qd i) bs) (@ u i)) (lam cu (omap (chcomp (cplam cu)) (qv-un bs a))))))
+  ((wwlit n) (some (cwlit v)))
+  ((wother) none)
+  (_ (if (is-neu w) (omap q-fst (qneu bs none v w)) (qty bs v)))))))
+; a neutral: its code and its type, computed along the spine from the head (opq when not known);
+; E: the type it is quoted at, when known
+(def qn (lam c T (some (pair c T))))
+(def q-wstep (lam bs s (let n (%var Word) (let h (%var Uw)
+  (omap (lam c (clam (clam c))) (qv-un (lcons (qv (var-level h)) (lcons (qv (var-level n)) bs)) (s n h)))))))
+(declare q-elim q-trans)
+(def qneu (lam bs E v w (case w
+  ((wvar l T) (qn (q-var-at bs v l #0) T))
+  ((wapp f a T) (obind (qneu bs none f (%view f)) (lam p (let cf (fst p) (case (%view (snd p))
+     ((wpi A B) (omap (lam ca (pair (capp cf ca) (B a))) (quote bs A a)))
+     (_ (omap (lam ca (pair (capp cf ca) opq)) (qv-un bs a))))))))
+  ((wfst p T) (obind (qneu bs none p (%view p)) (lam q (qn (cfst (fst q)) (case (%view (snd q)) ((wsigma A B) A) (_ opq))))))
+  ((wsnd p T) (obind (qneu bs none p (%view p)) (lam q (qn (csnd (fst q)) (case (%view (snd q)) ((wsigma A B) (B (fst p))) (_ opq))))))
+  ((wpapp p r T) (obind (qneu bs none p (%view p)) (lam q (qn (cpapp (fst q) (q-iv bs r)) (case (%view (snd q)) ((wpath L a b) (@ L r)) (_ opq))))))
+  ((wcomp A u a0 T) (obind (q-tyline bs A) (lam cA (obind (q-linein bs A u) (lam cu (obind (quote bs (@ A 0) a0) (lam ca (qn (ccomp cA cu ca) (@ A 1)))))))))
+  ((wunglue S b T) (obind (qneu bs none b (%view b)) (lam q (case (%view (snd q))
+     ((wglue A SG) (case (%view S)
+        ((wsys sb) (omap (lam cs (pair (cunglue cs (fst q)) A)) (q-gsys bs A sb)))
+        (_ (omap (lam cs (pair (cunglue cs (fst q)) A)) (qv-un bs S)))))
+     (_ (omap (lam cs (pair (cunglue cs (fst q)) opq)) (qv-un bs S)))))))
+  ((welim d x f T) (q-elim bs E d x f))
+  ((wtrans d psi ls x T) (q-trans bs d psi ls x))
+  ((wwplus k x) (omap (lam cx (pair (if (%weq k #1) (cwsucc cx) (cwop #2 cx (cwlit k))) Word)) (quote bs Word x)))
+  ((wwop k a b) (obind (quote bs Word a) (lam ca (omap (lam cb (pair (cwop k ca cb) (if (%wlt k #2) Bool Word))) (quote bs Word b)))))
+  ((wwelim x z s) (obind (quote bs Word x) (lam cx (obind (qv-un bs z) (lam cz (omap (lam cs (pair (cwelim cx cz cs) opq)) (q-wstep bs s)))))))
+  (_ (omap (lam c (pair c opq)) (qv-un bs v))))))
+; a stuck elimination: each branch at fresh fields (typed by the constructor's telescope at the
+; scrutinee's parameters), a hypothesis per recursive field (at the motive at that field; without
+; a motive, at the type E the elimination is quoted at), its dimensions
+(declare q-hyps q-dims)
+(def q-br (lam bs E d f mo c tel prm recs (case tel
+  ((tx A nm r) (let Av (tval A) (let x (%var nm Av)
+     (omap clam (q-br (lcons (qv (var-level x)) bs) E d f mo c (r x Av) (lsnoc prm x) (if (is-data-d d A) (lsnoc recs x) recs))))))
+  (_ (q-hyps bs E d f mo c tel prm recs prm)))))
+(def q-hyps (lam bs E d f mo c tel prm recs fs (case recs
+  ((lnil) (q-dims bs E d f mo c tel prm fs lnil))
+  ((lcons y rest) (let h (%var (case mo ((some P) (P y)) ((none) (fromopt E Uw))))
+     (omap clam (q-hyps (lcons (qh (var-level h)) bs) E d f mo c tel (lsnoc prm h) rest fs)))))))
+(def q-dims (lam bs E d f mo c tel prm fs ds (case tel
+  ((ty nm r) (let i (%dim nm) (omap cdlam (q-dims (lcons (qd i) bs) E d f mo c (r i) (lsnoc prm i) fs (lsnoc ds i)))))
+  (_ (let body (%branch f c prm) (case mo
+     ((some P) (quote bs (P (mkcon d c fs ds)) body))
+     ((none) (q-at bs E body))))))))
+(def q-brs (lam bs E d f mo tels c (case tels
+  ((lnil) (some lnil))
+  ((lcons tel rest) (obind (q-br bs E d f mo c tel lnil lnil) (lam b (omap (lcons b) (q-brs bs E d f mo rest (%wsucc c)))))))))
+(def q-elim (lam bs E d x f (obind (qneu bs none x (%view x)) (lam px (let X (snd px) (let mo (%motive f)
+  (obind (q-brs bs E d f mo (ctors-of d X) #0) (lam brs (case mo
+    ((some P) (omap (lam cP (pair (celim d cP brs (fst px)) (P x))) (quote bs (Pi y X Uw) P)))
+    ((none) (some (pair (ccase d brs (fst px)) (fromopt E opq)))))))))))))
+; a stuck transport in a data type: the lines of its parameters along the telescope, its element
+(def q-trans (lam bs d psi ls x (let i (%dim) (let bs2 (lcons (qd i) bs)
+  (obind (q-fields bs2 (dtel (%dent d)) (lmap (lam l (@ l i)) ls)) (lam cls
+  (obind (quote bs (mkdata d (lmap (lam l (@ l 0)) ls)) x) (lam cx
+  (some (pair (ctrans d (q-face bs psi) (lmap cplam cls) cx) (mkdata d (lmap (lam l (@ l 1)) ls))))))))))))
+; the entry points: a value at its type, and a type
+(def quote-top (lam T v (quote lnil T v)))
+(def quote-ty (lam A (qty lnil A)))

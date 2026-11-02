@@ -169,6 +169,8 @@ enum {
     O_FEQL,     /* 0=a 1=b 2=out */
     O_FEQLB,    /* p=Dnf a; 0=b 1=out: a = b as faces, a Bool */
     O_CLAUSES,  /* 0=face 1=out: its clauses, each a face, as a list */
+    O_DNF,      /* 0=an interval or a face 1=out: its clauses as lists of literals (%dnf) */
+    O_MOTIVE,   /* 0=an elimination as a function (V_CASEF) 1=out: (some motive), or none (%motive) */
     O_RESTRICT, /* 0=a clause (a face) 1=value 2=out: the value under the clause */
     O_GLOB,     /* x=table, a=count; 0=index (Num) 1=out: an entry of the checker's tables, a reference */
     O_ABS,      /* 0=a dimension 1=value 2=out: the line binding that dimension */
@@ -238,7 +240,7 @@ extern long case_hcomp_global;
 #define LVL_TAG (1ull << 62)
 int data_checked_index(int d);     /* a data type's index in the checker's signature, or -1 */
 int con_index(const char *name);   /* a constructor by name, or -1 */
-enum { TB_VAL, TB_TY, TB_DTAB, TB_DENT, TB_N };
+enum { TB_VAL, TB_TY, TB_DTAB, TB_DENT, TB_TRANS, TB_N };   /* TB_TRANS: a data type's transport as a function */
 long table_global(int table, long i);  /* the global holding entry i of a checker table, or -1 */
 /* a definition's body as one record taking all its parameters (NULL when it is not a λ) */
 struct Record *global_nary(long g);
