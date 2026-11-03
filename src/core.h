@@ -107,6 +107,7 @@ enum {
     V_NUNGLUE,  /* 1=S 2=b 3=type */
     V_NCASE,    /* p=CaseTab, x=has motive; 1=scrutinee [2=motive] environment, type */
     V_NTRANS,   /* a=data type, p=Dnf ψ; 1=x 2..k+1=parameter lines, type */
+    V_NPROJ,    /* a=field; 1=x 2=type: a field of a neutral of a codata type */
     V_GLOBAL,   /* a=global id */
     V_UNK,      /* an unknown type */
     V_DATA,     /* a=data type; 1..k=parameters */
@@ -125,6 +126,8 @@ enum {
     V_NWELIM,   /* 1=w 2=z 3=s: the elimination of a neutral word */
     V_SUSP,     /* p=CaseTab, x=has motive; 1=field [2=motive] environment: an induction hypothesis, the
                  * elimination of a recursive field, computed when forced */
+    V_REC,      /* a=codata type; 1..n=fields (held unbuilt): a copattern definition's body, met only by
+                 * the projection that unfolded it (and by the checker, at its own definition) */
     V_END,
     /* operations: negative principal port; the last port is the result */
     O_APP,      /* 0=f 1=arg 2=out */
@@ -197,6 +200,11 @@ enum {
     O_SHARE,    /* 0=value 1=out 2=out: a part of a read value that had not arrived when it was read;
                  * shared as the read would have shared it (as O_DUP). Not counted as a step */
     O_ROOT,     /* 0: an observation; never interacts */
+    O_PROJ,     /* a=field; 0=value 1=out: a field of a codata value. Meeting a stuck call of a copattern
+                 * definition it unfolds the call (O_UNFOLD) and takes the field of the body */
+    O_UNFOLD,   /* 0=a stuck call of a copattern definition (its head, applications and path
+                 * applications) 1=out: the definition's body applied to the same arguments */
+    O_DAPPLY,   /* 0=a data type 1=f 2=out: f applied to the data type's parameters */
     K_END
 };
 enum { B_MEET, B_JOIN, B_FAND, B_FOR };
@@ -218,7 +226,7 @@ typedef struct Key {
     struct Key *c[];
 } Key;
 enum { K_WORD = 1, K_IV, K_FACE, K_VAR, K_GLOBAL, K_CON, K_DATA, K_LAM, K_PAIR, K_PI, K_SIGMA, K_PATHP, K_U,
-       K_APP, K_FST, K_SND, K_PAPP, K_CASE, K_FORCE, K_SUB, K_SUBST, K_DIM, K_TERM, K_WTY };
+       K_APP, K_FST, K_SND, K_PAPP, K_CASE, K_FORCE, K_SUB, K_SUBST, K_DIM, K_TERM, K_WTY, K_UNFOLD };
 Key *key_retain(Key *k);
 Key *key_global(long g);
 Key *key_con0(int c);              /* a constructor with no fields */
@@ -228,7 +236,8 @@ extern long stat_hits, stat_keys;  /* readings: memo hits; keys with a shared va
 typedef struct Cell {
     uint16_t kind, n;             /* n = number of ports */
     uint32_t x;
-    uint32_t lk, ty;              /* lk: the cell's lock (HANDOFF §20), never reset; ty: a neutral's type is known */
+    uint32_t lk, ty;              /* lk: the cell's lock (HANDOFF §20), never reset; ty: TY_KNOWN a neutral's type is
+                                   * known, TY_COFIX its head is a copattern definition (it unfolds under projection) */
     uint64_t a;
     void *p;
     Key *key;                     /* the term this cell is (a value) or will produce (a thunk, a call, an
@@ -237,6 +246,7 @@ typedef struct Cell {
     Port port[];
 } Cell;
 
+enum { TY_KNOWN = 1, TY_COFIX = 2 };
 static inline Port P(Cell *c, int k) { return ((uint64_t)(uintptr_t)c << 16) | (uint64_t)k; }
 static inline Cell *PC(Port p) { return (Cell *)(uintptr_t)(p >> 16); }
 static inline int PI(Port p) { return (int)(p & 0xffff); }
@@ -255,7 +265,11 @@ Cell *global_res(long g);          /* the cell holding a definition's value */
  * (data ...); the net's rules are generic over these tables */
 typedef struct { char *name; int data, index, nfields, ndims; long bdy, trans; int nrec; uint64_t recmask; } ConInfo;
 /* bdy, trans: globals or -1; recmask: the fields of type the data type itself (recursive), nrec of them */
-typedef struct { char *name; int nparams, ncons; int *cons; long comp, transh; void *decl; } DataInfo;   /* decl: the (data ...) form */
+typedef struct { char *name; int nparams, ncons; int *cons; long comp, transh; void *decl; int co, nflds; int *flds; } DataInfo;
+/* decl: the (data ...) form. co: a codata type (no constructors): its fields flds (indices into FLD);
+ * comp its composition, a copattern definition */
+typedef struct { char *name; int data, index; long fty; } FldInfo;   /* fty: λ params x. the field's type at x */
+extern FldInfo *FLD;
 extern ConInfo *CON;
 extern DataInfo *DATA;
 extern long case_hcomp_global;
@@ -268,6 +282,10 @@ int data_checked_index(int d);     /* a data type's index in the checker's signa
 int con_index(const char *name);   /* a constructor by name, or -1 */
 enum { TB_VAL, TB_TY, TB_DTAB, TB_DENT, TB_TRANS, TB_N };   /* TB_TRANS: a data type's transport as a function */
 long table_global(int table, long i);  /* the global holding entry i of a checker table, or -1 */
+/* copattern definitions: the body a head unfolds to; a global's index in the checker's signature (or -1) */
+long global_unfold(long g);
+int global_checked(long g);
+Port cofix_head(long g, long tyg);   /* the stuck head of copattern definition g, of type global tyg (or -1) */
 /* a definition's body as one record taking all its parameters (NULL when it is not a λ) */
 struct Record *global_nary(long g);
 /* key: the name of what the box holds (a reference's identity). e: the memo entry whose value this is */
@@ -296,7 +314,9 @@ enum {
     S_WORD,     /* id: a word literal #n */
     S_WORDTY,   /* the type Word */
     S_THUNK,    /* rec: a subterm held unbuilt (V_THUNK), its environment k[0..n-1] */
-    S_CALL      /* id: the definition; k: its arguments */
+    S_CALL,     /* id: the definition; k: its arguments */
+    S_PROJ,     /* id: the field; k[0]: the value */
+    S_REC       /* id: the codata type; k: the fields */
 };
 struct Record;
 typedef struct Syn {

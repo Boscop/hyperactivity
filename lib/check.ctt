@@ -27,7 +27,9 @@
   (tlevel) (tlzero) (tlsuc l V) (tlmax a b V)
   ; words: the type, a literal, the successor, an operation (0 = 1 < 2 + 3 max 4 -), the
   ; elimination with its motive
-  (tword) (tlit V) (twsucc a V) (twop k a b V) (twelim P w z s V))
+  (tword) (tlit V) (twsucc a V) (twop k a b V) (twelim P w z s V)
+  ; codata: field k of x; a record (only as a copattern definition's body)
+  (tproj d k x V) (trec d fs V))
 ; a branch of an elimination: binders for its fields, hypotheses, dimensions, then the body
 (data Br (bx nm b) (bi nm b) (be t))
 ; a telescope: a term binder over a type, a dimension binder, the end
@@ -42,7 +44,8 @@
   ((tlet t nm b V) V) ((tann t T V) V)
   ((tdata d ps V) V) ((tcon d c fs ds V) V) ((telim d P B x F V) V) ((tcase d B x F V) V) ((thcomp u a V) V) ((tforce t V) V)
   ((tlevel) Level) ((tlzero) lzero) ((tlsuc l V) V) ((tlmax a b V) V)
-  ((tword) Word) ((tlit V) V) ((twsucc a V) V) ((twop k a b V) V) ((twelim P w z s V) V))))
+  ((tword) Word) ((tlit V) V) ((twsucc a V) V) ((twop k a b V) V) ((twelim P w z s V) V)
+  ((tproj d k x V) V) ((trec d fs V) V))))
 
 ; ---------------------------------------------------------------- basics
 ; Lst, Opt, View, CloCmp and DTab are declared in code.ctt
@@ -90,9 +93,11 @@
 ; ---------------------------------------------------------------- data types
 ; (dent telescope level): the parameters' telescope ending in the constructors' telescopes, each
 ; its fields, its dimensions, ending in its boundary (the code of a system)
-(data DEnt (dent tel lvl))
-(def dtel (lam de (case de ((dent t l) t))))
-(def dlvl (lam de (case de ((dent t l) l))))
+(data DEnt (dent tel lvl) (dcoent tel lvl))
+(def dtel (lam de (case de ((dent t l) t) ((dcoent t l) t))))
+(def dlvl (lam de (case de ((dent t l) l) ((dcoent t l) l))))
+; a codata type (dcoent telescope level): the parameters' telescope ending in its fields' telescope
+(def is-codata (lam d (case (%dent d) ((dcoent t l) true) (_ false))))
 ; a telescope instantiated at values (a term binder's type is its type's value)
 (def tel-inst (lam tel xs (case xs
   ((lnil) tel)
@@ -113,6 +118,14 @@
 ; the machine's data type and constructor, from the table
 (def mkdata (lam d ps (app-all (dt-former (%dtab d)) ps)))
 (def mkcon (lam d c fs ds (app-all (cl-at (dt-cons (%dtab d)) c) (lapp fs ds))))
+; codata: the fields' telescope at the parameters; field j of a value (the machine's projection);
+; the type of field k of v, the earlier fields v's own
+(def cofields-at (lam d ps (tel-end (tel-inst (dtel (%dent d)) ps) (tz lnil))))
+(def cproj-v (lam d j v ((cl-at (dt-cons (%dtab d)) j) v)))
+(def cofield-at (lam d tel v k j (case tel
+  ((tx A nm r) (if (%weq j k) (tval A) (cofield-at d (r (cproj-v d j v) (tval A)) v k (%wsucc j))))
+  (_ opq))))
+(def cofield-ty (lam d ps v k (cofield-at d (cofields-at d ps) v k #0)))
 
 ; ---------------------------------------------------------------- levels
 ; max(c, a1+o1, ...) over level variables a (their names); lvw: the level of types over levels
@@ -147,7 +160,7 @@
 ; its type; at a universe as types; at Glue by unglue and on the face the fibre; at a data type
 ; by constructors; otherwise without the type. uconv: without a type, types by their former,
 ; neutrals by their spine, each argument at its type.
-(declare conv uconv convneu conv-data)
+(declare conv uconv convneu conv-data conv-recv)
 ; two λs of one record are equal when their environments are: neither is applied
 (def env-pairs (lam ps (lall (lam p (uconv (fst p) (snd p))) ps)))
 (def conv-ty (lam X Y (uconv X Y)))
@@ -174,6 +187,7 @@
   (_ true))))
 (def conv-data-ww (lam d ps u wu wv (case wv
   ((wsys bs) (sys-vs (mkdata d ps) bs u))
+  ((wrec d2 fs) (conv-recv d (cofields-at d ps) fs u #0))
   (_ (case wu
     ((wcon d1 c fs ds) (case wv
        ((wcon d2 c2 fs2 ds2) (if (%weq c c2) (if (lall2 (lam r s (%ieq r s)) ds ds2)
@@ -183,9 +197,22 @@
        ((whcomp w2 a2) (let T (mkdata d ps) (if (conv T a a2) (let i (%dim) (conv T (@ w i) (@ w2 i))) false)))
        (_ false)))
     (_ (case (convneu wu wv) ((some X) true) ((none) false))))))))
+; a codata value is a stuck call, a neutral or a system (as data), or a record: at a copattern
+; definition's own boundary, compared field by field
 (def conv-data (lam d ps u v (case (%view u)
   ((wsys bs) (sys-vs (mkdata d ps) bs v))
+  ((wrec d2 fs) (conv-recv d (cofields-at d ps) fs v #0))
   (wu (conv-data-ww d ps u wu (%view v))))))
+; codata: two stuck calls or neutrals by their spines (no η: a value of a codata type is observed
+; by its fields, and two calls are equal when their definitions and arguments are); a record (only
+; at a copattern definition's own boundary) by its fields fs against the other value's, each at
+; its type
+(def conv-recv (lam d tel fs w j (case tel
+  ((tx A nm r) (case fs
+     ((lcons f fr) (let Av (tval A) (if (conv Av f (cproj-v d j w)) (conv-recv d (r f Av) fr w (%wsucc j)) false)))
+     ((lnil) true)))
+  (_ true))))
+(def uconv-rec (lam d fs v j (case fs ((lnil) true) ((lcons f r) (if (uconv f (cproj-v d j v)) (uconv-rec d r v (%wsucc j)) false)))))
 ; Glue types: the same face, and on it the same types and equivalences
 (def conv-glue-sys (lam A S S2 (if (%feq (faceof S) (faceof S2))
   (lall (lam d (let te (%restrict d S) (let te2 (%restrict d S2)
@@ -219,6 +246,7 @@
   (_ (case (convneu wu wv) ((some X) true) ((none) false))))))
 (def uconv-ww (lam u wu v wv (case wv
   ((wsys bs) (lall (lam b (let d (fst b) (uconv (%restrict d u) (snd b)))) bs))
+  ((wrec d fs) (uconv-rec d fs u #0))
   ((wlam g) (let x (%var Uw) (uconv (u x) (g x))))
   ((wplam q) (let i (%dim) (uconv (@ u i) (@ q i))))
   ((wpair a b) (if (uconv (fst u) a) (uconv (snd u) b) false))
@@ -230,6 +258,7 @@
      ((cdiff f2 v2) (let x (%var Uw) (uconv (f2 x) (v2 x))))))
   ((wplam p) (let i (%dim) (uconv (@ p i) (@ v i))))
   ((wpair a b) (if (uconv a (fst v)) (uconv b (snd v)) false))
+  ((wrec d fs) (uconv-rec d fs v #0))
   (wu (uconv-ww u wu v (%view v))))))
 ; two eliminations are equal when their branches are: each at fresh fields, hypotheses and
 ; dimensions (the hypotheses as variables: comparing them compares the eliminations)
@@ -254,6 +283,11 @@
 (def same-neu (lam p q (case (convneu (%view p) (%view q)) ((some X) (some opq)) ((none) none))))
 (def convneu (lam wu wv (case wu
   ((wvar l T) (case wv ((wvar m T2) (if (%weq l m) (some T) none)) (_ none)))
+  ; the stuck head of a copattern definition: the same definition
+  ((wcofix n T) (case wv ((wcofix m T2) (if (%weq n m) (some T) none)) (_ none)))
+  ((wproj d k x T) (case wv ((wproj d2 k2 y T2) (if (andb (%weq d d2) (%weq k k2)) (case (convneu (%view x) (%view y))
+       ((some X) (case (%view X) ((wdata d3 ps) (some (cofield-ty d ps x k))) (_ (some opq))))
+       ((none) none)) none)) (_ none)))
   ((wapp f a T) (case wv ((wapp g b T2) (case (convneu (%view f) (%view g))
        ((some Tf) (case (%view Tf)
            ((wpi A B) (if (conv A a b) (some (B a)) none))
@@ -305,8 +339,9 @@
 (def E-nbranch #16) (def E-boundary #17) (def E-glueface #18) (def E-gluebr #19) (def E-notdata #20)
 (def E-motive #21) (def E-notline #22) (def E-omega #23) (def E-positive #24) (def E-later #25)
 (def E-openlevel #26) (def E-notglue #27)
+(def E-unguarded #28) (def E-literal #29) (def E-notcodata #30) (def E-copositive #31)
 
-(declare infer check check-sys check-tele motive-level check-branches check-hcomp infer-binder case-type)
+(declare infer check check-sys check-tele motive-level check-branches check-hcomp infer-binder case-type check-recfields)
 ; a type's universe level (not ω), and a type's sort (a universe, U ω for types over levels)
 (def infer-level (lam A (case (infer A)
   ((yes T) (case (%view T) ((wu l) (if (is-w l) (err A E-omega T opq) (yes l))) (_ (err A E-nottype T opq))))
@@ -420,6 +455,13 @@
          (err x E-notdata X opq))) (_ (err x E-notdata X opq))))
      (r r)))
   ((tforce t V) (infer t))
+  ((trec d fs V) (no opq E-literal opq opq))
+  ; a field of a value of a codata type: its type at the type's parameters and the value's fields
+  ((tproj d k x V) (case (infer x)
+     ((yes T) (case (%view T)
+        ((wdata d2 ps) (if (andb (%weq d d2) (is-codata d)) (yes (cofield-ty d ps (tval x) k)) (err x E-notcodata T opq)))
+        (_ (err x E-notcodata T opq))))
+     (r r)))
   ((tword) (yes U))
   ((tlit V) (yes Word))
   ((twsucc a V) (then (check a Word) (yes Word)))
@@ -528,7 +570,12 @@
   ((tcase d B x F V) (case (infer x)
      ((yes X) (case (%view X) ((wdata d2 ps) (if (%weq d d2) (check-branches c d ps (lam y T) F B) (err x E-notdata X opq))) (_ (err x E-notdata X opq))))
      (r r)))
+  ; a record stands only as a copattern definition's body (check-codef)
+  ((trec d fs V) (no opq E-literal opq opq))
   (_ (case (infer c) ((yes T2) (chk (conv-ty T2 T) (err c E-mismatch T T2))) (r r))))))
+(def check-recfields (lam c tel fs (case tel
+  ((tx A nm r) (case fs ((lnil) (err c E-ctor opq opq)) ((lcons f fr) (let Av (tval A) (then (check f Av) (check-recfields c (r (tval f) Av) fr))))))
+  (_ (chk (isnil fs) (err c E-ctor opq opq))))))
 
 ; a definition: its type is a type, its term has that type
 (def chk-def (lam cT ct (case (infer-sort cT)
@@ -568,6 +615,8 @@
   ((twsucc a V) (cany p a))
   ((twop k a b V) (orb (cany p a) (cany p b)))
   ((twelim P w z s V) (orb (cany p P) (orb (cany p w) (orb (cany p z) (cany p s)))))
+  ((tproj d k x V) (cany p x))
+  ((trec d fs V) (lany (cany p) fs))
   (_ false)))))
 ; D at its own parameters: each parameter the parameter variable, in order
 (def var-name (lam v (case (%view v) ((wvar l T) (some l)) (_ none))))
@@ -602,13 +651,97 @@
   (_ lnil))))
 (def lfold-lmax (lam xs (case xs ((lnil) lzero) ((lcons x r) (lmax x (lfold-lmax r))))))
 (def data-level (lam d tel (lfold-lmax (lconcatmap (field-levels d) (snd (params-fresh tel lnil))))))
-(def data-entry (lam d ent (case ent ((dent tel l) (dent tel (data-level d tel))))))
+(def data-entry (lam d ent (case ent ((dent tel l) (dent tel (data-level d tel))) ((dcoent tel l) (dcoent tel l)))))
 ; a data type's level is closed: no field's universe depends on a parameter
 (def chk-data (lam d ent (case ent ((dent tel l)
   (let lv (data-level d tel)
   (then (chk (lvl-closed (lvl-of lv)) (no lv E-openlevel opq opq))
   (then (check-ptys tel)
-      (let pc (params-fresh tel lnil) (check-ctors d (fst pc) (snd pc) #0)))))))))
+      (let pc (params-fresh tel lnil) (check-ctors d (fst pc) (snd pc) #0))))))
+  (_ (no opq E-notdata opq opq)))))
+
+; ---------------------------------------------------------------- codata
+; A codata declaration: parameter types are types; each field type a type, strictly positive in D
+; (D at any parameters not mentioning D, under Π codomains and Σ components, or not mentioning
+; D); the level closed. The table holds the declaration at level lzero while it is checked.
+(def copositive (lam d A (orb (notb (cany (is-data-d d) A)) (case A
+  ((tdata d2 ps V) (andb (%weq d2 d) (lall (lam q (notb (cany (is-data-d d) q))) ps)))
+  ((tpi B nm b V) (andb (notb (cany (is-data-d d) B)) (copositive d (b (%var Uw) Uw))))
+  ((tsigma B nm b V) (andb (copositive d B) (copositive d (b (%var Uw) Uw))))
+  (_ false)))))
+(def check-cofields (lam d tel (case tel
+  ((tx A nm r) (then (chk (copositive d A) (err A E-copositive opq opq))
+     (case (infer-level A)
+       ((yes l) (let Av (tval A) (check-cofields d (r (%var nm Av) Av))))
+       (r2 r2))))
+  (_ ok))))
+(def codata-level (lam d tel (lfold-lmax (field-levels d (snd (params-fresh tel lnil))))))
+(def codata-entry (lam d ent (case ent ((dcoent tel l) (dcoent tel (codata-level d tel))) ((dent tel l) (dent tel l)))))
+(def chk-codata (lam d ent (case ent
+  ((dcoent tel l)
+    (let lv (codata-level d tel)
+    (then (chk (lvl-closed (lvl-of lv)) (no lv E-openlevel opq opq))
+    (then (check-ptys tel)
+        (let pc (params-fresh tel lnil) (check-cofields d (snd pc)))))))
+  (_ (no opq E-notcodata opq opq)))))
+
+; A copattern definition (alone, or with others of a mutual group grp, a list of signature
+; indices) is λs and lines over a record. Each field's term is guarded: a definition of the group
+; stands only as the head of a call (applied to arguments not mentioning the group, at any
+; dimensions), the whole term or under a λ, a line, a pair, a constructor, a case's or a system's
+; branch, or a let's body; never as an argument or eliminated. Then the definition is checked at
+; its type, its own calls at their declared types: a guarded call is productive, so the value
+; exists at every depth, and its boundary holds at every depth since it holds at each field.
+(def in-grp (lam grp n (lany (lam m (%weq n m)) grp)))
+(def is-grp (lam grp c (case c ((tg n V) (in-grp grp n)) (_ false))))
+(def mentions (lam grp c (cany (is-grp grp) c)))
+(def spine-call (lam grp c (case c
+  ((tg n V) (in-grp grp n))
+  ((tapp f a V) (andb (spine-call grp f) (notb (mentions grp a))))
+  ((tpapp p r V) (spine-call grp p))
+  (_ false))))
+(declare guarded)
+(def guarded-br (lam grp b (case b
+  ((bx nm f) (guarded-br grp (f (%var Uw) Uw)))
+  ((bi nm f) (guarded-br grp (f (%dim))))
+  ((be t) (guarded grp t)))))
+(def guarded (lam grp c (if (notb (mentions grp c)) true (case c
+  ((tlam nm b V) (guarded grp (b (%var Uw) Uw)))
+  ((tplam nm b V) (guarded grp (b (%dim))))
+  ((tpair a b V) (andb (guarded grp a) (guarded grp b)))
+  ((tcon d k fs ds V) (lall (guarded grp) fs))
+  ((tcase d B x F V) (andb (notb (mentions grp x)) (lall (guarded-br grp) B)))
+  ((telim d P B x F V) (andb (notb (mentions grp P)) (andb (notb (mentions grp x)) (lall (guarded-br grp) B))))
+  ((tlet t nm b V) (andb (notb (mentions grp t)) (guarded grp (b (%var Uw) Uw))))
+  ((tsys bs V) (lall (lam b (andb (notb (mentions grp (fst b))) (guarded grp (force (snd b))))) bs))
+  ((tann t T V) (andb (guarded grp t) (notb (mentions grp T))))
+  (_ (spine-call grp c))))))
+; the fields of the record: (no opq E-unguarded d k) names the field k of codata type d
+(def codef-fields (lam grp d fs k (case fs
+  ((lnil) ok)
+  ((lcons f r) (then (chk (guarded grp f) (no opq E-unguarded d k)) (codef-fields grp d r (%wsucc k)))))))
+(def codef-ok (lam grp c (case c
+  ((tlam nm b V) (codef-ok grp (b (%var Uw) Uw)))
+  ((tplam nm b V) (codef-ok grp (b (%dim))))
+  ((trec d fs V) (codef-fields grp d fs #0))
+  (_ (no opq E-literal opq opq)))))
+; the body at its type: λs and lines as check takes them (a line's ends compared with the type's,
+; a record with a value field by field), then the record, each field at its type, the earlier
+; fields the record's own
+(def check-codef (lam c T (case c
+  ((tlam nm b V) (case (%view T) ((wpi A B) (let x (%var nm A) (check-codef (b x A) (B x)))) (_ (err c E-mismatch T opq))))
+  ((tplam nm b V) (case (%view T) ((wpath L a0 a1) (let i (%dim nm)
+       (then (check-codef (b i) (@ L i))
+         (let v0 (@ V 0) (let v1 (@ V 1)
+           (then (chk (conv (@ L 0) v0 a0) (err c E-end0 a0 v0)) (chk (conv (@ L 1) v1 a1) (err c E-end1 a1 v1))))))))
+     (_ (err c E-mismatch T opq))))
+  ((trec d fs V) (case (%view T)
+     ((wdata d2 ps) (if (andb (%weq d d2) (is-codata d)) (check-recfields c (cofields-at d ps) fs) (err c E-mismatch T opq)))
+     (_ (err c E-mismatch T opq))))
+  (_ (no opq E-literal opq opq)))))
+(def chk-codef (lam grp cT ct (case (infer-sort cT)
+  ((yes s) (then (codef-ok grp ct) (check-codef ct (tval cT))))
+  (r r))))
 
 ; ---------------------------------------------------------------- quoting values into codes
 ; quote bs T v: the code (lib/code.ctt) of v's normal form at type T. At Π it is applied to a
@@ -653,7 +786,7 @@
 (def is-neu (lam w (case w
   ((wvar l T) true) ((wapp f a T) true) ((wfst p T) true) ((wsnd p T) true) ((wpapp p r T) true)
   ((wcomp A u a T) true) ((wunglue S b T) true) ((welim d x f T) true) ((wtrans d psi ls x T) true)
-  ((wwplus k x) true) ((wwop k a b) true) ((wwelim x z s) true) (_ false))))
+  ((wwplus k x) true) ((wwop k a b) true) ((wwelim x z s) true) ((wcofix n T) true) ((wproj d k x T) true) (_ false))))
 (def q-fst (lam p (fst p)))
 ; fields along a telescope (past its end, without types)
 (def q-fields (lam bs tel fs (case fs
@@ -718,6 +851,7 @@
   ((wcon d c fs ds) (omap (lam fc (ccon d c fc (lmap (q-iv bs) ds))) (oseq (lmap (qv-un bs) fs))))
   ((whcomp u a) (let i (%dim) (obind (qv-un (lcons (qd i) bs) (@ u i)) (lam cu (omap (chcomp (cplam cu)) (qv-un bs a))))))
   ((wwlit n) (some (cwlit v)))
+  ((wrec d fs) (omap (crec d) (oseq (lmap (qv-un bs) fs))))
   ((wother) none)
   (_ (if (is-neu w) (omap q-fst (qneu bs none v w)) (qty bs v)))))))
 ; a neutral: its code and its type, computed along the spine from the head (opq when not known);
@@ -728,6 +862,11 @@
 (declare q-elim q-trans)
 (def qneu (lam bs E v w (case w
   ((wvar l T) (qn (q-var-at bs v l #0) T))
+  ; a copattern definition, stuck: its name; a field of a neutral: at the field's type
+  ((wcofix n T) (qn (cglob n) T))
+  ((wproj d k x T) (obind (qneu bs none x (%view x)) (lam q (qn (cproj d k (fst q)) (case (%view (snd q))
+     ((wdata d2 ps) (cofield-ty d ps x k))
+     (_ opq))))))
   ((wapp f a T) (obind (qneu bs none f (%view f)) (lam p (let cf (fst p) (case (%view (snd p))
      ((wpi A B) (omap (lam ca (pair (capp cf ca) (B a))) (quote bs A a)))
      (_ (omap (lam ca (pair (capp cf ca) opq)) (qv-un bs a))))))))

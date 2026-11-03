@@ -15,7 +15,7 @@ substitutions), `src/big.c` (exact naturals), `src/lang.c` (reader, compiler to 
 top-level forms, modules). Language files: `lib/prelude.ctt` (core data types, composition
 clauses), `lib/code.ctt` (codes, `View`), `lib/check.ctt` (the type checker), `lib/std.ctt`
 (checked library), `lib/sort.ctt` (9.15 over any ordered type; `tests/sort.ctt` instantiates and
-runs it). Earlier plans and specs: `archive/`.
+runs it). Coinduction: §7, `tests/codata.ctt`. Earlier plans and specs: `archive/`.
 
 ## 1. Rewrites see only the two cells involved
 
@@ -146,6 +146,51 @@ it, a case on it, a projection) is held at exactly that point. Everything that d
 connects the value, and the held operations proceed. Unlike a variable, an input is not computed
 with symbolically: what depends on it waits for it.
 
+## 7. Coinduction
+
+`(codata (Orbit (A U)) (here A) (next (Orbit A)))` declares a coinductive record type by its
+fields. A field's type may mention the parameters, the earlier fields, and the type itself
+strictly positively (at any parameters not mentioning it, under Π codomains and Σ components);
+`checked-codata` checks this. A field applied to a value is its projection: `(here o)`.
+
+A value of a codata type is made by a copattern definition, a definition whose body is λs and
+lines over a record:
+
+```
+(checked unfold (Pi ((A U) (f (Pi a A A)) (a A)) (Orbit A))
+  (lam A f a (record (here a) (next (unfold A f (f a))))))
+```
+
+Such a definition may call itself, and the definitions of a `(mutual ...)` group may call each
+other. Its value is its stuck call: a neutral of its declared type, holding the definition and its
+arguments. A projection unfolds the call once (the body applied to the same arguments, at the same
+dimensions) and takes the field. Nothing else unfolds it: an application, a comparison, a reading,
+and a path application at 0 or 1, which reads the endpoint from the declared type as for any
+neutral path. So a process that never ends is a finite value, an observation of depth n costs n
+unfoldings, and a definition that is its own tail (`zeros`, whose `next` is `zeros`) is held as
+its call. A record stands only as the body of a copattern definition.
+
+The checker (`chk-codef` in `lib/check.ctt`) requires every call of the group in a field's term to
+be guarded: it is the head of the field's term (applied to arguments not mentioning the group, at
+any dimensions), or stands there under a λ, a line, a pair, a constructor, a case or system
+branch, or a let's body; never as an argument or eliminated. Every body of a group is found guarded
+before any is checked, since checking one can unfold another. Each body is then checked at its
+type, the group's calls at their declared types. A guarded call is productive, so the value exists at
+every depth. At a path type the boundary is checked field by field (a record is compared with a
+value by its fields), so it holds at every depth. Two stuck calls are convertible when their
+definitions and arguments are; there is no η for codata, so two definitions whose unfoldings are
+bisimilar are not convertible. Their equality is a path, and a path between orbits is a
+bisimulation: `tests/codata.ctt` proves `(x ≡ y) ≃ (x ≈ y)` by four corecursive definitions
+(`punaragamana/Orbit.agda`), and proves `mapO id o ≡ o` by a corecursive bisimulation.
+
+Composition in a codata type is a copattern definition generated from the declaration (`%comp-D`):
+each field composed along its type, at the parameters' lines and each earlier field's filler. A
+transported process is again a process, unfolded field by field when it is observed.
+
+`(show t)` reads a stuck call as the call. `(observe n t)` reads it unfolded n levels deep, as
+records. An unfolding is named by the call it unfolds, so two unfoldings of one call pending at
+once share the body (§3).
+
 ## Measurements
 
-Every reading reports the steps taken. The sorted list of 9.15 reads in 1.2k steps (eight words). The library plus the paper's terms check in 1.5M steps. Naive `fib` of a computed 20 reads in 36k steps, of 25 in 400k, the same as of the numerals written out; the iterative `fib` reads 21k and 226k (`tests/memo.ctt`; without the memo, naive `fib` takes 294k and 3.8M). `CUBICAL_KEYS=1` traces the keys registered, fired and hit on stderr, and the entries left at the end.
+Every reading reports the steps taken. The sorted list of 9.15 reads in 1.2k steps (eight words). The library plus the paper's terms check in 1.5M steps. Naive `fib` of a computed 20 reads in 36k steps, of 25 in 278k, and of 20 written out in 36k; the iterative `fib` reads 21k and 226k (`tests/memo.ctt`; without the memo, naive `fib` takes 294k and 3.8M). `CUBICAL_KEYS=1` traces the keys registered, fired and hit on stderr, and the entries left at the end. The development of `Orbit.agda` (the codata types, `unfold`, `mapO`, the four corecursive maps between paths and bisimulations, and `(x ≡ y) ≃ (x ≈ y)`) checks in 66k steps, `iso1` (a corecursive square) in 11k.

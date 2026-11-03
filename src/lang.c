@@ -73,7 +73,7 @@ static bool node_eq(Node *a, Node *b) {
 }
 
 /* ---------------- desugaring to the core forms ---------------- */
-static const char *KW[] = { "%raw", "%welimP", "%rebuilt", "lam", "thunk", "delay", "force", "case", "elim", "if", "rec", "the", "code", "%data", "%con", "hcompD", "%transD", "%case", "%branches", "plam", "forall", "let", "app", "pair", "fst", "snd", "Pi", "Sigma", "U",
+static const char *KW[] = { "%raw", "%welimP", "%rebuilt", "lam", "thunk", "delay", "force", "case", "elim", "if", "rec", "the", "code", "%data", "%con", "hcompD", "%transD", "%case", "%branches", "record", "%record", "plam", "forall", "let", "app", "pair", "fst", "snd", "Pi", "Sigma", "U",
     "PathP", "@", "~", "/\\", "\\/", "=", "&", "|", "faceof", "sys", "sys0", "sys+", "sysmap", "comp", "Glue", "glue",
     "unglue", "%view", "%var", "%dim", "%ieq", "%feq", "%clauses", "%dnf", "%motive", "%restrict", "%gval", "%gty", "%dtab", "%dent", "%dtrans", "%abs", "%branch", "%clos", "%box", "%wsucc", "%weq", "%wlt", "%wadd", "%wmax", "%wsub", "%welim", NULL };
 static bool keyword(const char *s) { for (int i = 0; KW[i]; i++) if (!strcmp(KW[i], s)) return true; return false; }
@@ -83,6 +83,9 @@ static Node *param_name(Node *p) { return p->list ? p->it[0] : p; }
  * (data ...) below; constructors are values, eliminated by %case */
 ConInfo *CON; static size_t capcon; static int ncon;
 DataInfo *DATA; static size_t capdata; static int ndata;
+/* codata types' fields: a field applied to a value is its projection */
+FldInfo *FLD; static size_t capfld; static int nfld;
+static int fld_lookup(const char *s) { for (int i = nfld - 1; i >= 0; i--) if (!strcmp(FLD[i].name, s)) return i; return -1; }
 long case_hcomp_global = -1;
 /* "%%c" names the first constructor declared c: the checker's own (lib/check.ctt), referred to by
  * the code the checker is given, whatever the program declares later under the same name */
@@ -134,7 +137,7 @@ static void free_vars(Node *t, Names *bound, Names *out) {
             return;
         }
         int from = 1;
-        if (!strcmp(k, "%con") || !strcmp(k, "%data") || !strcmp(k, "%transD")) from = 2;
+        if (!strcmp(k, "%con") || !strcmp(k, "%data") || !strcmp(k, "%transD") || !strcmp(k, "%record")) from = 2;
         if (!strcmp(k, "%branches")) from = 4;
         if (!strcmp(k, "=")) { free_vars(t->it[1], bound, out); return; }
         for (int i = from; i < t->n; i++) free_vars(t->it[i], bound, out);
@@ -180,6 +183,31 @@ static Node *ds(Node *t) {
         if (!strcmp(k, "%raw")) { arity(t, 1); return t->it[1]; }
         if (!strcmp(k, "force")) { arity(t, 1); return nl2("force", ds(t->it[1])); }
         if (!strcmp(k, "%rebuilt")) { arity(t, 1); return nl2("%rebuilt", ds(t->it[1])); }
+        if (!strcmp(k, "record")) {
+            /* (record [D] (f t)...): a copattern, one term per field of the codata type D, in any
+             * order; desugared to (%record D t...) in the declared order */
+            int from = 1, d = -1;
+            if (t->n >= 2 && !t->it[1]->list) { d = data_lookup(t->it[1]->s); if (d < 0 || !DATA[d].co) die("record: not a codata type:", t->it[1]->s); from = 2; }
+            for (int i = from; i < t->n; i++) {
+                Node *b = t->it[i];
+                if (!b->list || b->n != 2 || b->it[0]->list) die("record: a field is (f t)", NULL);
+                int fl = fld_lookup(b->it[0]->s);
+                if (fl < 0) die("record: not a field:", b->it[0]->s);
+                if (d < 0) d = FLD[fl].data;
+                else if (FLD[fl].data != d) die("record: fields of different codata types:", b->it[0]->s);
+            }
+            if (d < 0) die("record: (record D) for a codata type without fields", NULL);
+            int nf = DATA[d].nflds;
+            Node *r = nlist(nf + 2); r->it[0] = nsym("%record"); r->it[1] = nsym(DATA[d].name);
+            for (int k2 = 0; k2 < nf; k2++) {
+                Node *v = NULL;
+                for (int i = from; i < t->n; i++) if (!strcmp(t->it[i]->it[0]->s, FLD[DATA[d].flds[k2]].name)) { if (v) die("record: a field given twice:", FLD[DATA[d].flds[k2]].name); v = t->it[i]->it[1]; }
+                if (!v) die("record: a field is missing:", FLD[DATA[d].flds[k2]].name);
+                r->it[k2 + 2] = ds(v);
+            }
+            if (t->n - from != nf) die("record: a field given twice", NULL);
+            return r;
+        }
         if (!strcmp(k, "rec")) {
             arity(t, 1);
             if (!t->it[1]->list) for (int i = nrs - 1; i >= 0; i--) if (!strcmp(rs_field[i], t->it[1]->s)) return nl2("force", nsym(rs_ih[i]));
@@ -201,6 +229,8 @@ static Node *ds(Node *t) {
             int first = el ? 3 : 2;
             if (t->n < first + 1) die(el ? "(elim P e branch...)" : "(case e branch...)", NULL);
             int d = -1; Node *dflt = NULL; Node *dname = NULL;
+            if (t->n == first + 1 && !t->it[first]->list && data_lookup(t->it[first]->s) >= 0 && DATA[data_lookup(t->it[first]->s)].co)
+                die("a codata type has no elimination (it is observed by its fields):", t->it[first]->s);
             if (t->n == first + 1 && !t->it[first]->list && data_lookup(t->it[first]->s) >= 0 && DATA[data_lookup(t->it[first]->s)].ncons == 0) {
                 /* a type with no constructors: (case e D), (elim P e D), no branches */
                 int d0 = data_lookup(t->it[first]->s);
@@ -393,7 +423,10 @@ static Node *ds(Node *t) {
 static const char **cscope; static size_t capcscope; static int ncscope;
 static char **CHECKED; static size_t capchecked; static int nchecked;
 static int *CHKDATA; static size_t capchkdata; static int nchkdata;   /* checked data types, in signature order */
-static int checked_index(const char *s) { for (int i = nchecked - 1; i >= 0; i--) if (!strcmp(CHECKED[i], s)) return i; return -1; }
+/* hidden: an entry no source name refers to (a rejected definition, a codata type's generated
+ * composition and record) */
+static bool *CHKHIDE; static size_t capchkhide;
+static int checked_index(const char *s) { for (int i = nchecked - 1; i >= 0; i--) if (!CHKHIDE[i] && !strcmp(CHECKED[i], s)) return i; return -1; }
 static int chk_index(int d) { for (int i = 0; i < nchkdata; i++) if (CHKDATA[i] == d) return i; return -1; }
 int data_checked_index(int d) { return chk_index(d); }
 /* the checker's tables: entry i of each is a global, so a lookup is a reference */
@@ -463,7 +496,16 @@ static Node *to_code(Node *t) {
         Node *h = t; int na = 0;
         while (h->list && h->n == 3 && is(h->it[0], "app")) { h = h->it[1]; na++; }
         if (!h->list && !bound_name(h->s)) {
-            int c = con_lookup(h->s), d = data_lookup(h->s);
+            int c = con_lookup(h->s), d = data_lookup(h->s), fl = c < 0 ? fld_lookup(h->s) : -1;
+            if (fl >= 0 && na == 0) {
+                /* a field alone: the projection as a function */
+                static int nfeta; char nm[32]; snprintf(nm, sizeof nm, "%%feta%d", nfeta++);
+                return to_code(nl3("lam", nsym(nm), nl3("app", t, nsym(nm))));
+            }
+            if (fl >= 0 && na == 1) {
+                int di = checked_data_of(DATA[FLD[fl].data].name, "code: codata type not checked:");
+                return capp3("cproj", word(di), word(FLD[fl].index), to_code(t->it[2]));
+            }
             if (c >= 0 && na < CON[c].nfields && !CON[c].ndims) {
                 /* a constructor short of fields, as a function of the rest */
                 static int neta;
@@ -502,7 +544,7 @@ static Node *to_code(Node *t) {
         if (!strcmp(s, "ff")) return K("cfff");
         if (!strcmp(s, "U")) return capp1("cuniv", K("clzero"));
         for (int i = ncscope - 1; i >= 0; i--) if (!strcmp(cscope[i], s)) return capp1("cvar", word(ncscope - 1 - i));
-        for (int i = 0; i < nchecked; i++) if (!strcmp(CHECKED[i], s)) return capp1("cglob", word(i));
+        for (int i = 0; i < nchecked; i++) if (!CHKHIDE[i] && !strcmp(CHECKED[i], s)) return capp1("cglob", word(i));
         die("code: not a bound variable or checked definition:", s);
     }
     const char *h = t->it[0]->s;
@@ -542,6 +584,14 @@ static Node *to_code(Node *t) {
     if (!strcmp(h, "unglue")) return capp2("cunglue", to_code(t->it[1]), to_code(t->it[2]));
     if (!strcmp(h, "the")) return capp2("cann", to_code(t->it[2]), to_code(t->it[1]));
     if (!strcmp(h, "%rebuilt")) return to_code(t->it[1]);
+    if (!strcmp(h, "%record")) {
+        int di = checked_data_of(t->it[1]->s, "code: codata type not checked:");
+        Node **a = calloc((size_t)t->n, sizeof(Node *));
+        for (int k = 2; k < t->n; k++) a[k - 2] = to_code(t->it[k]);
+        Node *r = capp2("crec", word(di), code_list(a, t->n - 2));
+        free(a);
+        return r;
+    }
     if (!strcmp(h, "hcompD")) return capp2("chcomp", to_code(t->it[1]), to_code(t->it[2]));
     if (!strcmp(h, "force")) return capp1("cforce", to_code(t->it[1]));
     if (!strcmp(h, "%case")) {
@@ -691,7 +741,18 @@ static NV ann(Node *t, Chain *C) {
         Node *h = t; int na = 0;
         while (h->list && h->n == 3 && is(h->it[0], "app")) { h = h->it[1]; na++; }
         if (!h->list && !ascope(h->s)) {
-            int c = con_lookup(h->s), d = data_lookup(h->s);
+            int c = con_lookup(h->s), d = data_lookup(h->s), fl = c < 0 ? fld_lookup(h->s) : -1;
+            if (fl >= 0 && na == 0) {
+                static int nfeta; char nm[32]; snprintf(nm, sizeof nm, "%%afeta%d", nfeta++);
+                return ann(nl3("lam", nsym(nm), nl3("app", t, nsym(nm))), C);
+            }
+            if (fl >= 0 && na == 1) {
+                /* a projection: (tproj d k x V) */
+                int di = checked_data_of(DATA[FLD[fl].data].name, "code: codata type not checked:");
+                NV a = ann(t->it[2], C);
+                p[0] = word(di); p[1] = word(FLD[fl].index); p[2] = a.node;
+                return anode(C, "tproj", p, 3, nl3("app", h, a.val));
+            }
             if (c >= 0 && na < CON[c].nfields && !CON[c].ndims) {
                 static int neta;
                 int rest = CON[c].nfields - na;
@@ -829,6 +890,17 @@ static NV ann(Node *t, Chain *C) {
         return anode(C, "tann", p, 2, a.val);
     }
     if (!strcmp(h, "%rebuilt")) return ann(t->it[1], C);
+    if (!strcmp(h, "%record")) {
+        /* a copattern: (trec d fields V) */
+        int di = checked_data_of(t->it[1]->s, "code: codata type not checked:");
+        int nf = t->n - 2;
+        Node **a = calloc((size_t)nf + 1, sizeof(Node *));
+        Node *v = nlist(t->n); v->it[0] = t->it[0]; v->it[1] = t->it[1];
+        for (int k = 0; k < nf; k++) { NV r = ann(t->it[k + 2], C); a[k] = r.node; v->it[k + 2] = r.val; }
+        p[0] = word(di); p[1] = alist(a, nf);
+        free(a);
+        return anode(C, "trec", p, 2, v);
+    }
     for (int q = 0; F[q].h; q++) if (!strcmp(h, F[q].h)) {
         Node *v = nlist(F[q].n + 1); v->it[0] = t->it[0];
         for (int i = 0; i < F[q].n; i++) { NV r = ann(t->it[i + 1], C); p[i] = r.node; v->it[i + 1] = r.val; }
@@ -883,7 +955,8 @@ static Node *atel_params(Node *dd, int d, int k) {
 static void toplevel(Node *f);
 static size_t name_hash(const char *s);
 /* ---------------- definitions ---------------- */
-enum { G_DEF, G_AXIOM, G_INPUT };
+/* G_COFIX: a copattern definition, whose value is its stuck head; unf the definition holding its body */
+enum { G_DEF, G_AXIOM, G_INPUT, G_COFIX };
 typedef struct {
     char *name; int kind;
     Syn *body; int nslots; int *uses;
@@ -892,6 +965,8 @@ typedef struct {
     Cell *res;                       /* holds the definition's value; a use copies it */
     long tyg;                        /* an axiom's type: the global holding it, or -1 */
     Cell **park_o, **park_v; int npark, parkcap;
+    long unf;                        /* a copattern definition's body (a global), or -1 */
+    int chk;                         /* its index in the checker's signature, or -1 */
 } Global;
 static Global *G; static long nG, capG;
 static char **fresh_names; static long nfresh, capfresh;
@@ -936,7 +1011,7 @@ static long fresh_var(const char *pfx, long k) {
 static long add_global(const char *name, int kind) {
     if (nG == capG) { capG = capG ? capG * 2 : 64; G = realloc(G, (size_t)capG * sizeof(Global)); }
     memset(&G[nG], 0, sizeof(Global));
-    G[nG].name = strdup(name); G[nG].kind = kind; G[nG].tyg = -1;
+    G[nG].name = strdup(name); G[nG].kind = kind; G[nG].tyg = -1; G[nG].unf = -1; G[nG].chk = -1;
     G[nG].res = cell(O_ROOT, 1);
     nG++;
     gh_put(name, nG - 1);
@@ -971,6 +1046,8 @@ void global_park(long g, Cell *op, Cell *glob) {
     pthread_mutex_unlock(&park_mu);
 }
 
+long global_unfold(long g) { return G[g].unf; }
+int global_checked(long g) { return g >= 0 && g < nG ? G[g].chk : -1; }
 Record *global_nary(long g) { return g >= 0 && g < nG && G[g].kind == G_DEF ? G[g].nary : NULL; }
 /* a copy of the value held by an observation cell */
 static Port held_copy(Cell *r) {
@@ -1117,6 +1194,12 @@ static bool reads(Node *t, const char *x) {
         if (!hd->list) {
             if (!strcmp(hd->s, x)) return true;
             if (names_has(&rd_bound, hd->s) || con_lookup(hd->s) >= 0) return false;
+            if (fld_lookup(hd->s) >= 0) {
+                /* a projection reads its value */
+                Node *a = t;
+                while (a->it[1]->list && a->it[1]->n == 3 && is(a->it[1]->it[0], "app")) a = a->it[1];
+                return reads(a->it[2], x);
+            }
             long g = global_lookup(hd->s);
             if (g < 0 || G[g].kind != G_DEF || na < G[g].nparams) return false;
             Node *a = t; Node *args[64]; int k = na;
@@ -1162,7 +1245,7 @@ static bool lazy_trivial(Node *t) {
     if (t->n == 0 || t->it[0]->list) return false;
     const char *h = t->it[0]->s;
     if (!strcmp(h, "lam") || !strcmp(h, "thunk") || !strcmp(h, "pair") || !strcmp(h, "Pi") || !strcmp(h, "Sigma")
-        || !strcmp(h, "PathP") || !strcmp(h, "U")) return true;
+        || !strcmp(h, "PathP") || !strcmp(h, "U") || !strcmp(h, "%record")) return true;
     if (!strcmp(h, "the")) return lazy_trivial(t->it[2]);
     if (!strcmp(h, "%rebuilt")) return lazy_trivial(t->it[1]);
     if (!strcmp(h, "app")) {
@@ -1225,7 +1308,7 @@ static void local_free(Node *t, Names *bound, Names *out) {
     if (!strcmp(h, "the") && t->n == 3) { local_free(t->it[2], bound, out); return; }
     int from = 1;
     if (!strcmp(h, "%branches")) from = 4;
-    else if (!strcmp(h, "%con") || !strcmp(h, "%data") || !strcmp(h, "%transD")) from = 2;
+    else if (!strcmp(h, "%con") || !strcmp(h, "%data") || !strcmp(h, "%transD") || !strcmp(h, "%record")) from = 2;
     for (int i = from; i < t->n; i++) local_free(t->it[i], bound, out);
 }
 /* a branch: a record whose parameters (slots 0..np-1) are the constructor's fields, hypotheses
@@ -1259,6 +1342,7 @@ static Syn *compile_case(Node *t) {
     if (!B->list || B->n < 4 || !is(B->it[0], "%branches")) die("%case without its branches", NULL);
     int d = data_lookup(B->it[1]->s);
     if (d < 0) die("%branches: unknown data type", B->it[1]->s);
+    if (DATA[d].co) die("a codata type has no elimination (it is observed by its fields):", B->it[1]->s);
     uint64_t mask = strtoull(B->it[2]->s, NULL, 10);
     int m = atoi(B->it[3]->s), N = DATA[d].ncons;
     if (B->n - 4 != N) die("%branches: one branch per constructor of", DATA[d].name);
@@ -1358,6 +1442,16 @@ static Syn *compile(Node *t) {
             for (int q = na - 1; q >= 0; q--) { r->k[q] = q < CON[c].nfields ? compile_lazy(a->it[2]) : compile(a->it[2]); a = a->it[1]; }
             return r;
         }
+        /* a field applied to a value: its projection (then any further arguments) */
+        int fl = !hd->list && !lookup(hd->s) && c < 0 ? fld_lookup(hd->s) : -1;
+        if (fl >= 0) {
+            Node **args = calloc((size_t)na + 1, sizeof(Node *)), *a = t;
+            for (int q = na - 1; q >= 0; q--) { args[q] = a->it[2]; a = a->it[1]; }
+            Syn *r = syn(S_PROJ, 1); r->id = fl; r->k[0] = compile(args[0]);
+            for (int q = 1; q < na; q++) { Syn *ap = syn(S_APP, 2); ap->k[0] = r; ap->k[1] = compile_lazy(args[q]); r = ap; }
+            free(args);
+            return r;
+        }
         /* a definition applied to arguments: one call cell (its body built at once when the
          * arguments cover its parameters) */
         long g = !hd->list && !lookup(hd->s) && c < 0 && !constant_sym(hd->s) ? global_lookup(hd->s) : -1;
@@ -1447,6 +1541,12 @@ static Syn *compile(Node *t) {
         Syn *s = compile_n(S_CON, t, 2, t->n - 2); s->id = c; return s;
     }
     if (!strcmp(h, "hcompD")) return compile_n(S_HCOMPD, t, 1, 2);
+    if (!strcmp(h, "%record")) {
+        /* a copattern: its fields held unbuilt, each built when its projection reads it */
+        int d = data_lookup(t->it[1]->s);
+        if (d < 0 || !DATA[d].co || t->n - 2 != DATA[d].nflds) die("bad %record", t->it[1]->s);
+        Syn *s2 = compile_lazy_n(S_REC, t, 2, t->n - 2); s2->id = d; return s2;
+    }
     if (!strcmp(h, "%transD")) {
         int d = data_lookup(t->it[1]->s);
         if (d < 0 || t->n - 2 != DATA[d].nparams + 2) die("bad %transD", t->it[1]->s);
@@ -1527,7 +1627,7 @@ static Port apply_fresh(Port f, long *name) {
  * value is bounded by memory, not by the native stack. */
 /* a field is read from its cell when its turn comes: until then its wire may
  * still be rewritten by the reduction of the fields before it */
-enum { TK_PORT, TK_FIELD, TK_STR, TK_BINDER, TK_POPDIM, TK_POPUNFOLD };
+enum { TK_PORT, TK_FIELD, TK_STR, TK_BINDER, TK_POPDIM, TK_POPUNFOLD, TK_DEPTH };
 typedef struct { int kind; Port p; char *s; } Task;
 static Task *tasks; static size_t captasks; static long ntasks;
 static void push_task(int kind, Port p, char *s) { GROW(tasks, captasks, (size_t)ntasks + 1); tasks[ntasks++] = (Task){ kind, p, s }; }
@@ -1547,10 +1647,20 @@ static char *dnf_string(const Dnf *d, bool face) {
     dnf_print(m, d, face, dim_name); fclose(m);
     return buf;
 }
+static int obs_depth;
 static void rb_one(FILE *o, Port prov) {
     Cell *c = observe(prov);
     if (!c) { fputs("<pending>", o); return; }
     long nm;
+    if (obs_depth > 0 && (c->kind == V_NVAR || c->kind == V_NAPP || c->kind == V_NPAPP) && (c->ty & TY_COFIX)) {
+        /* (observe n t): a stuck call unfolded, its fields read one level less deep */
+        Cell *u = cell(O_UNFOLD, 2);
+        link(P(c, 0), P(u, 0));
+        push_task(TK_DEPTH, (Port)obs_depth, NULL);
+        obs_depth--;
+        push_port(P(u, 1));
+        return;
+    }
     switch (c->kind) {
     case V_LAM: {
         Port b = apply_fresh(P(c, 0), &nm);
@@ -1603,6 +1713,18 @@ static void rb_one(FILE *o, Port prov) {
         push_str(")"); push_field(c, 2); push_str(" "); push_field(c, 1);
         return;
     case V_NFST: push_fields_to(o, "fst", c, 1, 2); return;
+    case V_NPROJ: push_fields_to(o, FLD[c->a].name, c, 1, 2); return;
+    case V_REC: {
+        /* a copattern: (record (f t)...) */
+        DataInfo *D = &DATA[c->a];
+        fputs("(record", o);
+        push_str(")");
+        for (int k = c->n - 2; k >= 0; k--) {
+            char b[256]; snprintf(b, sizeof b, " (%s ", k < D->nflds ? FLD[D->flds[k]].name : "?");
+            push_str(")"); push_field(c, k + 1); push_str(b);
+        }
+        return;
+    }
     case V_NSND: push_fields_to(o, "snd", c, 1, 2); return;
     case V_NPAPP: {
         fputs("(@ ", o);
@@ -1711,6 +1833,7 @@ static void rb(FILE *o, Port prov) {
         case TK_STR: fputs(t.s, o); free(t.s); break;
         case TK_POPDIM: ndshow--; break;
         case TK_POPUNFOLD: nunfold--; break;
+        case TK_DEPTH: obs_depth = (int)t.p; break;
         case TK_FIELD: rb_one(o, PC(t.p)->port[PI(t.p)]); break;
         case TK_BINDER: {
             long nm;
@@ -1873,6 +1996,17 @@ static void pcode(FILE *o, Port p) {
         long d = word_val(c->port[1]);
         fputs("(case ", o); pcode(o, c->port[3]); pbranches(o, (int)d, c->port[2]); fputc(')', o);
     }
+    else if (!strcmp(h, "cproj")) {
+        long d = word_val(c->port[1]), k = word_val(c->port[2]); int D = d >= 0 && d < nchkdata ? CHKDATA[d] : -1;
+        fprintf(o, "(%s ", D >= 0 && k >= 0 && k < DATA[D].nflds ? FLD[DATA[D].flds[k]].name : "?"); pcode(o, c->port[3]); fputc(')', o);
+    }
+    else if (!strcmp(h, "crec")) {
+        long d = word_val(c->port[1]); int D = d >= 0 && d < nchkdata ? CHKDATA[d] : -1;
+        n = list_ports(c->port[2], &xs);
+        fputs("(record", o);
+        for (int k = 0; k < n; k++) { fprintf(o, " (%s ", D >= 0 && k < DATA[D].nflds ? FLD[DATA[D].flds[k]].name : "?"); pcode(o, xs[k]); fputc(')', o); }
+        fputc(')', o); free(xs);
+    }
     else if (!strcmp(h, "ctrans")) {
         long d = word_val(c->port[1]); int D = d >= 0 && d < nchkdata ? CHKDATA[d] : -1;
         fprintf(o, "(%%transD %s ", D >= 0 ? DATA[D].name : "?"); pcode(o, c->port[2]);
@@ -1954,7 +2088,7 @@ static const char *cur_dir;
 static bool slot_is_type(int why, int k) {
     switch (why) {
     case 0: case 21: return true;
-    case 1: case 2: case 3: case 4: case 20: case 23: case 27: return k == 0;
+    case 1: case 2: case 3: case 4: case 20: case 23: case 27: case 30: return k == 0;
     default: return false;
     }
 }
@@ -1992,14 +2126,26 @@ static void explain(const char *r, Node *q) {
         { "the field type is not strictly positive (the type itself at its own parameters, or not mentioning it)", NULL, NULL },
         { "the boundary uses a constructor not declared before this one", NULL, NULL },
         { "the data type's universe level depends on a parameter", NULL, NULL },
-        { "ungluded, but not of a Glue type", "its type", NULL } };
+        { "ungluded, but not of a Glue type", "its type", NULL },
+        /* 28 */ { "a corecursive call is not guarded: a definition of the group may stand only as the head of a field's term (applied to arguments not mentioning the group), or there under a λ, a line, a pair, a constructor, a case or system branch, or a let's body", NULL, NULL },
+        { "a record (copattern) stands only as the body of a definition, after its λs and lines", NULL, NULL },
+        { "projected by a field, but not of that codata type", "its type", NULL },
+        { "the field type is not strictly positive in the codata type (the type itself at any parameters not mentioning it, under Π codomains and Σ components, or not mentioning it)", NULL, NULL } };
     const char *saved = src; src = r;
     Node *n = read_node();
     src = saved;
     if (!n || !n->list || n->n != 5 || !is(n->it[0], "no")) { printf("   reason: %s\n", r); return; }
     int why = n->it[2]->list ? -1 : atoi(n->it[2]->s + 1);
     bool known = why >= 0 && why < (int)(sizeof M / sizeof *M);
-    printf("   at: "); print_node(stdout, n->it[1]); printf("\n   reason: %s\n", known ? M[why][0] : "rejected");
+    if (!is(n->it[1], "opq")) { printf("   at: "); print_node(stdout, n->it[1]); printf("\n"); }
+    printf("   reason: %s\n", known ? M[why][0] : "rejected");
+    if (why == 28) {
+        /* the field whose term is not guarded: (no opq 28 d k), d the codata type, k the field */
+        long d = n->it[3]->list ? -1 : atol(n->it[3]->s + 1), k = n->it[4]->list ? -1 : atol(n->it[4]->s + 1);
+        int D = d >= 0 && d < nchkdata ? CHKDATA[d] : -1;
+        printf("   field: %s\n", D >= 0 && k >= 0 && k < DATA[D].nflds ? FLD[DATA[D].flds[k]].name : "?");
+        return;
+    }
     char *typed[2] = { NULL, NULL };
     if (q && known && (slot_is_type(why, 0) || slot_is_type(why, 1))) {
         net_drain();
@@ -2035,6 +2181,138 @@ static void emit(const char *text) {
 }
 static char **watch_name; static Cell **watch_root; static size_t capwn, capwr; static int nwatch;
 static void load_file(const char *path, bool must);
+/* ---------------- signature entries, copattern definitions ---------------- */
+/* an entry of the checker's signature: its value's global, its type's global */
+static int sig_add(const char *name, long g, long tyg, bool hidden) {
+    table_set(TB_VAL, nchecked, g);
+    table_set(TB_TY, nchecked, tyg);
+    GROW(CHECKED, capchecked, (size_t)nchecked + 1);
+    GROW(CHKHIDE, capchkhide, (size_t)nchecked + 1);
+    CHECKED[nchecked] = strdup(name); CHKHIDE[nchecked] = hidden;
+    if (g >= 0) G[g].chk = nchecked;
+    return nchecked++;
+}
+/* a copattern definition: λs and lines over a record (desugared) */
+static bool copattern_body(Node *b) {
+    while (b->list && b->n == 3 && (is(b->it[0], "lam") || is(b->it[0], "plam"))) b = b->it[2];
+    return b->list && b->n >= 2 && is(b->it[0], "%record");
+}
+static bool plain_def;   /* a copattern definition's body: defined as it is */
+/* a copattern definition's name, before its body (which may refer to it) */
+static long cofix_declare(const char *name, long tyg) {
+    long g = global_lookup(name);
+    if (g >= 0 && G[g].kind == G_INPUT && !G[g].res->port[0]) G[g].kind = G_COFIX;
+    else g = add_global(name, G_COFIX);
+    G[g].tyg = tyg;
+    return g;
+}
+/* its body, a definition of its own, and its value: the stuck head, which projection unfolds */
+static void cofix_body(long g, Node *t) {
+    char *bn = malloc(strlen(G[g].name) + 16); sprintf(bn, "%%cobody-%s", G[g].name);
+    Node *d = nlist(3); d->it[0] = nsym("def"); d->it[1] = nsym(bn); d->it[2] = t;
+    bool saved = plain_def; plain_def = true; toplevel(d); plain_def = saved;
+    G[g].unf = global_lookup(bn); free(bn);
+    link(cofix_head(g, G[g].tyg), P(G[g].res, 0));
+    for (int i = 0; i < G[g].npark; i++) net_push(G[g].park_o[i], G[g].park_v[i]);
+    G[g].npark = 0;
+}
+/* a rejected definition: no name refers to it any more */
+static void cofix_hide(long g, int ix) {
+    CHKHIDE[ix] = true;
+    char *nm = malloc(strlen(G[g].name) + 16); sprintf(nm, "%%rejected-%s", G[g].name);
+    G[g].name = nm;
+}
+/* copattern definitions checked together (one, or a mutual group): each type is checked to be a
+ * type, each body against its type, and every call of the group in the bodies is guarded (the
+ * checker's chk-codef). Each is declared, at its type, before any body is read */
+static void checked_group(Node **fs, int n, bool expect) {
+    long *gs = calloc((size_t)n + 1, sizeof(long)); int *ix = calloc((size_t)n + 1, sizeof(int));
+    Node **cT = calloc((size_t)n + 1, sizeof(Node *));
+    for (int i = 0; i < n; i++) {
+        Node *f = fs[i];
+        if (!f->list || f->n != 4 || f->it[1]->list) die("(checked name T t)", NULL);
+        if (!copattern_body(ds(f->it[3]))) die("a definition of a corecursive group is λs and lines over a record (record (f t)...):", f->it[1]->s);
+        cT[i] = nl2("%raw", aclosed(ds(f->it[2])));
+    }
+    for (int i = 0; i < n; i++) {
+        char ty[32]; snprintf(ty, sizeof ty, "%%sty%d", nchecked);
+        Node *td = nlist(3); td->it[0] = nsym("def"); td->it[1] = nsym(ty); td->it[2] = nl2("%%sig-type", cT[i]);
+        toplevel(td);
+        long tyg = global_lookup(ty);
+        gs[i] = cofix_declare(fs[i]->it[1]->s, tyg);
+        ix[i] = sig_add(fs[i]->it[1]->s, gs[i], tyg, false);
+    }
+    for (int i = 0; i < n; i++) cofix_body(gs[i], fs[i]->it[3]);
+    bool all = true;
+    if (!trusted) {
+        Node **ws = calloc((size_t)n + 1, sizeof(Node *));
+        for (int i = 0; i < n; i++) ws[i] = word(ix[i]);
+        Node *grp = nl2("%raw", alist(ws, n)); free(ws);
+        long total = 0;
+        char **rs = calloc((size_t)n + 1, sizeof(char *)); Node **qs = calloc((size_t)n + 1, sizeof(Node *));
+        /* every body guarded before any is checked: checking one may unfold another */
+        int unguarded = -1; char *ug = NULL; Node *ugq = NULL;
+        for (int i = 0; i < n && unguarded < 0; i++) {
+            Node *q = nl3("%%codef-ok", grp, nl2("%raw", aclosed(ds(fs[i]->it[3]))));
+            long steps = 0;
+            char *r = readback(q, &steps);
+            total += steps;
+            if (strcmp(r, "ok")) { unguarded = i; ug = r; ugq = q; } else free(r);
+        }
+        for (int i = 0; i < n; i++) {
+            if (unguarded >= 0) { rs[i] = strdup(i == unguarded ? ug : "unguarded"); qs[i] = ugq; if (i == unguarded) free(ug); continue; }
+            qs[i] = nl4("%%chk-codef", grp, cT[i], nl2("%raw", aclosed(ds(fs[i]->it[3]))));
+            long steps = 0;
+            rs[i] = readback(qs[i], &steps);
+            bool acc = !strcmp(rs[i], "ok");
+            total += steps;
+            if (!acc) all = false;
+            if (expect) {
+                if (acc) passes++; else failures++;
+                printf("%s: checks %s   [%ld steps]\n", acc ? "ok" : "FAIL", fs[i]->it[1]->s, steps);
+                if (!acc) explain(rs[i], qs[i]);
+            }
+        }
+        if (unguarded >= 0) {
+            all = false;
+            if (expect) { failures++; printf("FAIL: checks %s\n", fs[unguarded]->it[1]->s); explain(rs[unguarded], qs[unguarded]); }
+        }
+        if (!expect) {
+            if (!all) passes++; else failures++;
+            printf("%s: rejected %s   [%ld steps]\n", !all ? "ok" : "FAIL", fs[0]->it[1]->s, total);
+            if (getenv("CUBICAL_WHY")) for (int i = 0; i < n; i++) if (strcmp(rs[i], "ok") && strcmp(rs[i], "unguarded")) explain(rs[i], qs[i]);
+        }
+        for (int i = 0; i < n; i++) free(rs[i]);
+        free(rs); free(qs);
+    } else if (!expect) all = false;
+    if (!all) for (int i = 0; i < n; i++) cofix_hide(gs[i], ix[i]);
+    free(gs); free(ix); free(cT);
+}
+/* a codata declaration as a telescope: its parameters, then its fields' telescope */
+static Node *atel_cofields(Node *dd, int i) {
+    if (i >= dd->n) return kapp("tz", K("lnil"), NULL);
+    Node *fl = dd->it[i];
+    Chain C = { 0 }; NV A = ann(ds(fl->it[1]), &C);
+    Node *ty = afresh("at");
+    apush(fl->it[0]->s, ty);
+    Node *rest = atel_cofields(dd, i + 1);
+    nasc--;
+    return chain_close(&C, nl3("app", kapp("tx", A.node, word(srcname(fl->it[0]->s))), nl3("lam", fl->it[0], nl3("lam", ty, rest))));
+}
+static Node *atel_coparams(Node *dd, int d, int k) {
+    Node *hd = dd->it[1];
+    if (k < DATA[d].nparams) {
+        Node *p = hd->it[k + 1];
+        if (!p->list || p->n != 2) die("a checked codata type needs its parameters' types:", DATA[d].name);
+        Chain C = { 0 }; NV A = ann(ds(p->it[1]), &C);
+        Node *ty = afresh("at");
+        apush(p->it[0]->s, ty);
+        Node *rest = atel_coparams(dd, d, k + 1);
+        nasc--;
+        return chain_close(&C, nl3("app", kapp("tx", A.node, word(srcname(p->it[0]->s))), nl3("lam", p->it[0], nl3("lam", ty, rest))));
+    }
+    return kapp("tz", atel_cofields(dd, 2), NULL);
+}
 static void toplevel(Node *f) {
     if (!f->list || f->n == 0 || f->it[0]->list) die("top-level form expected", NULL);
     const char *h = f->it[0]->s;
@@ -2050,10 +2328,16 @@ static void toplevel(Node *f) {
         return;
     }
     /* a module whose checks are cached: its definitions are made, its judgments and tests not rerun */
-    if (trusted && (!strcmp(h, "check") || !strcmp(h, "check-fail") || !strcmp(h, "checked-data-fail")
-        || !strcmp(h, "same") || !strcmp(h, "show") || !strcmp(h, "same-watch"))) return;
+    if (trusted && (!strcmp(h, "check") || !strcmp(h, "check-fail") || !strcmp(h, "checked-data-fail") || !strcmp(h, "checked-fail")
+        || !strcmp(h, "checked-codata-fail") || !strcmp(h, "mutual-fail") || !strcmp(h, "same") || !strcmp(h, "show") || !strcmp(h, "same-watch") || !strcmp(h, "observe"))) return;
     if (!strcmp(h, "def")) {
         if (f->n != 3) die("(def name term)", NULL);
+        if (!plain_def && copattern_body(ds(f->it[2]))) {
+            /* a copattern definition: its value is its stuck head */
+            long g = cofix_declare(f->it[1]->s, -1);
+            cofix_body(g, f->it[2]);
+            return;
+        }
         /* a name declared earlier (forward reference, mutual recursion) is filled */
         long g = global_lookup(f->it[1]->s);
         bool fill_decl = g >= 0 && G[g].kind == G_INPUT && !G[g].res->port[0];
@@ -2096,12 +2380,15 @@ static void toplevel(Node *f) {
         link(top_build(s, ns, u), P(G[g].res, 0));
         if (!strcmp(G[g].name, "%case-hcomp")) case_hcomp_global = g;
         if (fill_decl) { for (int i = 0; i < G[g].npark; i++) net_push(G[g].park_o[i], G[g].park_v[i]); G[g].npark = 0; }
-    } else if (!strcmp(h, "checked") || !strcmp(h, "check") || !strcmp(h, "check-fail")) {
+    } else if (!strcmp(h, "checked") || !strcmp(h, "checked-fail") || !strcmp(h, "check") || !strcmp(h, "check-fail")) {
         /* the checker (lib/check.ctt), a term, run on the codes of T and t
          * against the signature of the definitions checked so far */
-        bool define = !strcmp(h, "checked"), expect = strcmp(h, "check-fail") != 0;
+        bool define = !strcmp(h, "checked") || !strcmp(h, "checked-fail");
+        bool expect = strcmp(h, "check-fail") != 0 && strcmp(h, "checked-fail") != 0;
         int at = define ? 2 : 1;
         if (f->n != at + 2) die(define ? "(checked name T t)" : "(check T t)", NULL);
+        /* a copattern definition, which may call itself */
+        if (define && copattern_body(ds(f->it[3]))) { checked_group(&f, 1, expect); return; }
         Node *T = f->it[at], *t = f->it[at + 1];
         Node *cT = nl2("%raw", aclosed(ds(T))), *ct = trusted ? NULL : nl2("%raw", aclosed(ds(t)));
         long steps = 0;
@@ -2115,7 +2402,7 @@ static void toplevel(Node *f) {
         }
         if (!accepted && (expect || getenv("CUBICAL_WHY"))) explain(r, nl3("%%chk-def", cT, ct));
         free(r); free(tr);
-        if (define && ok) {
+        if (define && accepted && expect) {
             Node *d = nlist(3); d->it[0] = nsym("def"); d->it[1] = f->it[1]; d->it[2] = t;
             toplevel(d);
             /* the checker's tables: the definition and its type, each a global, so a lookup
@@ -2123,10 +2410,7 @@ static void toplevel(Node *f) {
             char ty[32]; snprintf(ty, sizeof ty, "%%sty%d", nchecked);
             Node *td = nlist(3); td->it[0] = nsym("def"); td->it[1] = nsym(ty); td->it[2] = nl2("%%sig-type", cT);
             toplevel(td);
-            table_set(TB_VAL, nchecked, global_lookup(f->it[1]->s));
-            table_set(TB_TY, nchecked, global_lookup(ty));
-            GROW(CHECKED, capchecked, (size_t)nchecked + 1);
-            CHECKED[nchecked++] = strdup(f->it[1]->s);
+            sig_add(f->it[1]->s, global_lookup(f->it[1]->s), global_lookup(ty), false);
         }
     } else if (!strcmp(h, "checked-data") || !strcmp(h, "checked-data-fail") || !strcmp(h, "check-data")) {
         bool expect = strcmp(h, "checked-data-fail") != 0;
@@ -2179,6 +2463,146 @@ static void toplevel(Node *f) {
         Node *ed = nlist(3); ed->it[0] = nsym("def"); ed->it[1] = nsym(dent); ed->it[2] = nl3("%%data-entry", word(di), ent);
         toplevel(ed);
         table_set(TB_DENT, di, global_lookup(dent));
+    } else if (!strcmp(h, "mutual") || !strcmp(h, "mutual-fail")) {
+        /* (mutual (checked a T t)...): copattern definitions calling each other */
+        if (f->n < 2) die("(mutual (checked name T t)...)", NULL);
+        for (int i = 1; i < f->n; i++) if (!f->it[i]->list || f->it[i]->n < 1 || !is(f->it[i]->it[0], "checked")) die("(mutual (checked name T t)...)", NULL);
+        checked_group(f->it + 1, f->n - 1, !strcmp(h, "mutual"));
+    } else if (!strcmp(h, "observe")) {
+        if (f->n != 3 || f->it[1]->list) die("(observe n t)", NULL);
+        long steps;
+        obs_depth = atoi(f->it[1]->s);
+        char *r = readback(f->it[2], &steps);
+        obs_depth = 0;
+        print_node(stdout, f); printf("\n  = %s   [%ld steps]\n", r, steps);
+        free(r);
+    } else if (!strcmp(h, "checked-codata") || !strcmp(h, "checked-codata-fail")) {
+        /* (checked-codata (codata ...)): declare a codata type and check it: parameter and field
+         * types are types, each field's type strictly positive in the type itself */
+        bool expect = !strcmp(h, "checked-codata");
+        if (f->n != 2 || !f->it[1]->list || !is(f->it[1]->it[0], "codata")) die("(checked-codata[-fail] (codata ...))", NULL);
+        Node *dd = f->it[1];
+        toplevel(dd);
+        int d = ndata - 1;
+        GROW(CHKDATA, capchkdata, (size_t)nchkdata + 1);
+        CHKDATA[nchkdata++] = d;
+        int di = nchkdata - 1;
+        Node *ent = nl2("%raw", kapp("dcoent", atel_coparams(dd, d, 0), K("lzero")));
+        const char *D = DATA[d].name;
+        char den[32], dtn[32], mk[256], cp[256];
+        snprintf(den, sizeof den, "%%dentp%d", di); snprintf(dtn, sizeof dtn, "%%dtab%d", di);
+        snprintf(mk, sizeof mk, "%%mkrec-%s", D); snprintf(cp, sizeof cp, "%%comp-%s", D);
+        Node *pd = nlist(3); pd->it[0] = nsym("def"); pd->it[1] = nsym(den); pd->it[2] = ent;
+        toplevel(pd);
+        /* the evaluator's table: the type former, the projections, the record */
+        Node *td = nlist(3); td->it[0] = nsym("def"); td->it[1] = nsym(dtn);
+        { Node *l = K("lnil"); for (int i = DATA[d].nflds - 1; i >= 0; i--) l = kapp("lcons", nsym(FLD[DATA[d].flds[i]].name), l);
+          td->it[2] = nl3("app", nl3("app", kapp("dtab", nsym(D), l), nsym(mk)), nsym(D)); }
+        toplevel(td);
+        table_set(TB_DENT, di, global_lookup(den));
+        table_set(TB_DTAB, di, global_lookup(dtn));
+        table_set(TB_TRANS, di, global_lookup(cp));
+        long steps;
+        char *r = trusted ? strdup("ok") : readback(nl3("%%chk-codata", word(di), ent), &steps);
+        bool accepted = !strcmp(r, "ok"), ok = accepted == expect;
+        if (ok) passes++; else failures++;
+        if (!trusted) printf("%s: %s codata %s   [%ld steps]\n", ok ? "ok" : "FAIL", expect ? "checks" : "rejected", D, steps);
+        if (!accepted && (expect || getenv("CUBICAL_WHY"))) explain(r, nl3("%%chk-codata", word(di), ent));
+        free(r);
+        if (!accepted) { nchkdata--; return; }
+        char dent[32]; snprintf(dent, sizeof dent, "%%dent%d", di);
+        Node *ed = nlist(3); ed->it[0] = nsym("def"); ed->it[1] = nsym(dent); ed->it[2] = nl3("%%codata-entry", word(di), ent);
+        toplevel(ed);
+        table_set(TB_DENT, di, global_lookup(dent));
+        /* the generated composition and record, in the signature (no name refers to them) so a
+         * stuck call of either is read as a code */
+        sig_add(cp, global_lookup(cp), global_lookup(cp), true);
+        sig_add(mk, global_lookup(mk), global_lookup(mk), true);
+    } else if (!strcmp(h, "codata")) {
+        /* (codata D (f A)...) or (codata (D (z T)...) (f A)...): a coinductive record type. A
+         * field's type may mention the parameters, the earlier fields and D itself. Generates the
+         * type former D, each field's projection f, each field's type as a function of the
+         * parameters and a value (%fty-D-f), the record as a function (%mkrec-D), and the
+         * composition %comp-D: a copattern definition composing field by field, each along its
+         * type at the earlier fields' fillers */
+        if (f->n < 2) die("(codata D (f A)...)", NULL);
+        Node *hd = f->it[1];
+        const char *D = hd->list ? hd->it[0]->s : hd->s;
+        int np = hd->list ? hd->n - 1 : 0, nf = f->n - 2;
+        const char **pn = calloc((size_t)np + 1, sizeof(char *));
+        for (int k = 0; k < np; k++) pn[k] = param_name(hd->it[k + 1])->s;
+        GROW(DATA, capdata, (size_t)ndata + 1);
+        int d = ndata++;
+        DATA[d] = (DataInfo){ strdup(D), np, 0, calloc(1, sizeof(int)), -1, -1, f, 1, nf, calloc((size_t)nf + 1, sizeof(int)) };
+        Node **fn = calloc((size_t)nf + 1, sizeof(Node *)), **ft = calloc((size_t)nf + 1, sizeof(Node *));
+        for (int k = 0; k < nf; k++) {
+            Node *it = f->it[k + 2];
+            if (!it->list || it->n != 2 || it->it[0]->list) die("a field of a codata type is (f A) in", D);
+            fn[k] = it->it[0]; ft[k] = it->it[1];
+            GROW(FLD, capfld, (size_t)nfld + 1);
+            FLD[nfld] = (FldInfo){ strdup(fn[k]->s), d, k, -1 };
+            DATA[d].flds[k] = nfld++;
+        }
+        char *buf; size_t len; FILE *m;
+#define OPEN() (m = open_memstream(&buf, &len))
+#define EMIT() do { fclose(m); emit(buf); free(buf); } while (0)
+        OPEN();
+        if (np) { fprintf(m, "(def %s (lam", D); for (int k = 0; k < np; k++) fprintf(m, " %s", pn[k]); fprintf(m, " (%%data %s", D); for (int k = 0; k < np; k++) fprintf(m, " %s", pn[k]); fprintf(m, ")))"); }
+        else fprintf(m, "(def %s (%%data %s))", D, D);
+        EMIT();
+        for (int k = 0; k < nf; k++) { OPEN(); fprintf(m, "(def %s (lam %%x (%s %%x)))", fn[k]->s, fn[k]->s); EMIT(); }
+        for (int k = 0; k < nf; k++) {
+            OPEN();
+            fprintf(m, "(def %%fty-%s-%s (lam", D, fn[k]->s);
+            for (int q = 0; q < np; q++) fprintf(m, " %s", pn[q]);
+            fputs(" %n ", m);
+            for (int j = 0; j < k; j++) fprintf(m, "(let %s (%s %%n) ", fn[j]->s, fn[j]->s);
+            print_node(m, ft[k]);
+            for (int j = 0; j < k; j++) fputc(')', m);
+            fputs("))", m);
+            EMIT();
+            char nm[256]; snprintf(nm, sizeof nm, "%%fty-%s-%s", D, fn[k]->s);
+            FLD[DATA[d].flds[k]].fty = global_lookup(nm);
+        }
+        OPEN();
+        fprintf(m, "(def %%mkrec-%s ", D);
+        if (nf) { fputs("(lam", m); for (int k = 0; k < nf; k++) fprintf(m, " %%f%d", k); fputc(' ', m); }
+        fprintf(m, "(record %s", D);
+        for (int k = 0; k < nf; k++) fprintf(m, " (%s %%f%d)", fn[k]->s, k);
+        fputs(nf ? ")))" : "))", m);
+        EMIT();
+        /* comp^i D(z i) [φ ↦ u] a0, field by field: field k composed along its type with the
+         * parameters at i and each earlier field j at its filler c_j at i */
+        OPEN();
+        fprintf(m, "(def %%comp-%s (lam", D);
+        for (int q = 0; q < np; q++) fprintf(m, " %%z%d", q);
+        fprintf(m, " %%u %%a0 (record %s", D);
+        for (int k = 0; k < nf; k++) {
+            fprintf(m, " (%s ", fn[k]->s);
+            for (int j = 0; j < k; j++) {
+                /* c_j i = comp^j (type of j at i∧j) [φ ↦ u (i∧j), (i = 0) ↦ a0] a0, at field j */
+                fprintf(m, "(let %%c%d (plam %%i (comp (plam %%j ", j);
+                for (int q = 0; q < np; q++) fprintf(m, "(let %s (@ %%z%d (/\\ %%i %%j)) ", pn[q], q);
+                for (int r = 0; r < j; r++) fprintf(m, "(let %s (@ %%c%d (/\\ %%i %%j)) ", fn[r]->s, r);
+                print_node(m, ft[j]);
+                for (int q = 0; q < np + j; q++) fputc(')', m);
+                fprintf(m, ") (plam %%j (sys+ (= %%i 0) (%s %%a0) (%s (@ %%u (/\\ %%i %%j))))) (%s %%a0))) ", fn[j]->s, fn[j]->s, fn[j]->s);
+            }
+            fputs("(comp (plam %i ", m);
+            for (int q = 0; q < np; q++) fprintf(m, "(let %s (@ %%z%d %%i) ", pn[q], q);
+            for (int r = 0; r < k; r++) fprintf(m, "(let %s (@ %%c%d %%i) ", fn[r]->s, r);
+            print_node(m, ft[k]);
+            for (int q = 0; q < np + k; q++) fputc(')', m);
+            fprintf(m, ") (plam %%i (%s (@ %%u %%i))) (%s %%a0))", fn[k]->s, fn[k]->s);
+            for (int j = 0; j < k; j++) fputc(')', m);
+            fputc(')', m);
+        }
+        fputs(")))", m);
+        EMIT();
+        { char nm[256]; snprintf(nm, sizeof nm, "%%comp-%s", D); DATA[d].comp = global_lookup(nm); }
+#undef OPEN
+#undef EMIT
+        free(fn); free(ft); free(pn);
     } else if (!strcmp(h, "declare")) {
         /* a name already declared and not yet given is declared once */
         for (int i = 1; i < f->n; i++) {
@@ -2201,7 +2625,7 @@ static void toplevel(Node *f) {
         for (int k = 0; k < np; k++) pn[k] = param_name(hd->it[k + 1])->s;
         GROW(DATA, capdata, (size_t)ndata + 1);
         int d = ndata++;
-        DATA[d] = (DataInfo){ strdup(D), np, nc, calloc((size_t)nc + 1, sizeof(int)), -1, -1, f };
+        DATA[d] = (DataInfo){ strdup(D), np, nc, calloc((size_t)nc + 1, sizeof(int)), -1, -1, f, 0, 0, NULL };
         typedef struct { Node *cd; int nf, nd, nb; Node **fn, **ft, **dn, **bf, **be; } CD;
         CD *cs = calloc((size_t)nc + 1, sizeof(CD));
         for (int ci = 0; ci < nc; ci++) {

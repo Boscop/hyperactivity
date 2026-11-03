@@ -144,7 +144,7 @@ static Key **KT; static size_t KTcap, KTn;
 static void key_print_d(FILE *o, const Key *k, int d);
 static void key_print(FILE *o, const Key *k) { key_print_d(o, k, 0); }
 static void key_print_d(FILE *o, const Key *k, int d) {
-    static const char *T[] = { "?", "W", "I", "F", "V", "G", "CON", "DATA", "LAM", "PAIR", "PI", "SIGMA", "PATHP", "U", "APP", "FST", "SND", "PAPP", "CASE", "FORCE", "SUB", "SUBST", "DIM", "TERM", "WTY" };
+    static const char *T[] = { "?", "W", "I", "F", "V", "G", "CON", "DATA", "LAM", "PAIR", "PI", "SIGMA", "PATHP", "U", "APP", "FST", "SND", "PAPP", "CASE", "FORCE", "SUB", "SUBST", "DIM", "TERM", "WTY", "UNFOLD" };
     if (d > 12) { fprintf(o, "…"); return; }
     fprintf(o, "(%s", T[k->tag]);
     if (k->tag == K_GLOBAL) fprintf(o, " %s", name_of((long)k->a));
@@ -184,10 +184,13 @@ static void key_free(Key *k);
 static void key_release_locked(Key *k) {   /* under kmu */
     if (__atomic_sub_fetch(&k->rc, 1, __ATOMIC_ACQ_REL) == 0) key_free(k);
 }
+/* A count that reaches zero is never raised again: interning takes a reference only to a key whose
+ * count is not zero (key() below), and every other retain is by a holder of a reference. So the
+ * last releaser frees the key; until it does, interning passes over it */
 void key_release(Key *k) {
     if (__atomic_sub_fetch(&k->rc, 1, __ATOMIC_ACQ_REL) == 0) {
         pthread_mutex_lock(&kmu);
-        if (__atomic_load_n(&k->rc, __ATOMIC_ACQUIRE) == 0) key_free(k);   /* not re-interned meanwhile */
+        key_free(k);
         pthread_mutex_unlock(&kmu);
     }
 }
@@ -221,7 +224,13 @@ static Key *key(int tag, uint64_t a, void *p, int n, Key *const *c) {
     }
     size_t i = h & (KTcap - 1);
     for (; KT[i]; i = (i + 1) & (KTcap - 1))
-        if (KT[i]->h == h && key_same(KT[i], tag, a, p, n, c)) { Key *k = KT[i]; __atomic_add_fetch(&k->rc, 1, __ATOMIC_RELAXED); pthread_mutex_unlock(&kmu); return k; }
+        if (KT[i]->h == h && key_same(KT[i], tag, a, p, n, c)) {
+            /* a reference to it, unless its last reference is gone (its releaser frees it) */
+            Key *k = KT[i];
+            uint32_t r = __atomic_load_n(&k->rc, __ATOMIC_ACQUIRE);
+            while (r && !__atomic_compare_exchange_n(&k->rc, &r, r + 1, true, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) { }
+            if (r) { pthread_mutex_unlock(&kmu); return k; }
+        }
     Key *k = malloc(sizeof(Key) + (size_t)n * sizeof(Key *));
     k->rc = 1; k->n = (uint32_t)n; k->h = h; k->tag = (uint16_t)tag; k->a = a;
     k->p = (tag == K_IV || tag == K_FACE) ? dnf_retain(p) : tag == K_WORD ? big_retain(p) : p;
@@ -353,8 +362,11 @@ static Port memo_begin(Cell *c, Box **out, bool builder) {
         pthread_mutex_unlock(&kmu);
         return 0;
     }
-    /* others wait for this value: it is held once and read by reference */
+    /* others wait for this value: it is held once and read by reference. Its root is locked until the
+     * value is linked into it (memo_end): a reader locks the root, so none reads the box before its
+     * wire exists (the root is fresh, so taking its lock here never waits) */
     Box *b = malloc(sizeof(Box)); b->rc = 2; b->root = cell(O_ROOT, 1); b->key = key_retain(e->k); b->e = e;
+    lock(b->root);
     e->box = b; e->hold = true;
     pthread_mutex_unlock(&kmu);
     ADD(stat_keys, 1);
@@ -469,7 +481,7 @@ static Port memo_begin(Cell *c, Box **out, bool builder);
 /* a pending producer's result: built into the memo's box when the value is shared */
 static Port memo_end(Port shared, Box *box, Port built) {
     if (!shared) return built;
-    if (box) link(built, P(box->root, 0));
+    if (box) { link(built, P(box->root, 0)); unlock(box->root); }
     return shared;
 }
 Port thunk_build(Cell *v) {
@@ -559,13 +571,21 @@ static void split_restrict(Port prov, const Dnf *cl, int m, Port *out) {
  * is neutral). The type is known when the neutral's head was declared with
  * one (ty = 1); otherwise it is V_UNK. */
 static Port unk(void) { return P(cell(V_UNK, 1), 0); }
-static bool is_neutral(int k) { return k >= V_NVAR && k <= V_NTRANS; }
+static bool is_neutral(int k) { return k >= V_NVAR && k <= V_NPROJ; }
 static Port tpart(Port T, int k) { Cell *c = cell(O_TPART, 2); c->a = (uint64_t)k; link(T, P(c, 0)); return P(c, 1); }
 static Port app2(Port f, Port x) { Cell *a = cell(O_APP, 3); link(f, P(a, 0)); link(x, P(a, 1)); return P(a, 2); }
 static Port ntype_of(Port neu) { Cell *c = cell(O_NTYPE, 2); link(neu, P(c, 0)); return P(c, 1); }
 static Port papp_at(Port line, Dnf *r) { Cell *a = cell(O_PAPPR, 3); link(iv_cell(r), P(a, 0)); link(line, P(a, 1)); return P(a, 2); }  /* takes r */
 static void split2(Port prov, Port *a, Port *b) { Cell *d = cell(O_DUP, 3); d->a = (uint64_t)dup_origin; d->key = key_of_port(prov); link(prov, P(d, 0)); *a = P(d, 1); *b = P(d, 2); }
 
+/* the stuck head of a copattern definition: a neutral of its declared type (when it has one), named
+ * by the definition; projection unfolds it */
+Port cofix_head(long g, long tyg) {
+    Cell *c = cell(V_NVAR, 2); c->a = (uint64_t)g; c->ty = TY_COFIX; c->key = key_global(g);
+    if (tyg >= 0) { Cell *t = cell(V_GLOBAL, 1); t->a = (uint64_t)tyg; t->key = key_global(tyg); link(P(t, 0), P(c, 1)); c->ty |= TY_KNOWN; }
+    else link(unk(), P(c, 1));
+    return P(c, 0);
+}
 Port apply_gid(long g, const Port *args, int n) {
     Cell *gc = cell(V_GLOBAL, 1); gc->a = (uint64_t)g; gc->key = key_global(g);
     Port f = P(gc, 0);
@@ -712,6 +732,7 @@ static void rule_subst(Cell *o, Cell *v) {
     /* neutrals and reducible constructors become their operations again */
     case V_NAPP: { Cell *a = cell(O_APP, 3); link(sub(v->port[1], s), P(a, 0)); link(sub(v->port[2], s), P(a, 1)); link(P(a, 2), out); era(v->port[3]); break; }
     case V_NFST: case V_NSND: { Cell *a = cell(v->kind == V_NFST ? O_FST : O_SND, 2); link(sub(v->port[1], s), P(a, 0)); link(P(a, 1), out); era(v->port[2]); break; }
+    case V_NPROJ: { Cell *a = cell(O_PROJ, 2); a->a = v->a; link(sub(v->port[1], s), P(a, 0)); link(P(a, 1), out); era(v->port[2]); break; }
     case V_NPAPP: {
         Cell *a = cell(O_PAPPR, v->x ? 5 : 3); a->x = v->x;
         link(iv_cell(iv_subst(v->p, s)), P(a, 0));
@@ -808,7 +829,7 @@ static void distribute(Cell *o, Cell *v) {
     Cell *ns = cell(V_SYS, nb + 1); ns->p = dnf_retain(cl);
     Port ex[o->n]; int ne = 0;
     switch (o->kind) {
-    case O_APP: case O_UNGLUE2: case O_SYSMAP: ex[ne++] = o->port[1]; break;
+    case O_APP: case O_UNGLUE2: case O_SYSMAP: case O_DAPPLY: ex[ne++] = o->port[1]; break;
     case O_PAPPP: if (o->x) { ex[ne++] = o->port[1]; ex[ne++] = o->port[2]; } break;
     case O_COMPA: ex[ne++] = o->port[1]; ex[ne++] = o->port[2]; break;
     case O_CASE: for (int k = 1; k < o->n - 1; k++) ex[ne++] = o->port[k]; break;
@@ -824,7 +845,8 @@ static void distribute(Cell *o, Cell *v) {
         switch (o->kind) {
         case O_APP: c = cell(O_APP, 3); link(val, P(c, 0)); link(cp[0][b], P(c, 1)); link(P(c, 2), res); break;
         case O_SYSMAP: c = cell(O_APP, 3); link(cp[0][b], P(c, 0)); link(val, P(c, 1)); link(P(c, 2), res); break;
-        case O_FST: case O_SND: case O_FORCE: case O_TPART: c = cell(o->kind, 2); c->a = o->a; link(val, P(c, 0)); link(P(c, 1), res); break;
+        case O_FST: case O_SND: case O_FORCE: case O_TPART: case O_PROJ: case O_UNFOLD: c = cell(o->kind, 2); c->a = o->a; link(val, P(c, 0)); link(P(c, 1), res); break;
+        case O_DAPPLY: c = cell(O_DAPPLY, 3); link(val, P(c, 0)); link(cp[0][b], P(c, 1)); link(P(c, 2), res); break;
         case O_FACEOF: c = cell(O_FACEOF, 2); link(val, P(c, 0)); link(P(c, 1), res); break;
         case O_PAPPP:
             c = cell(O_PAPPR, o->x ? 5 : 3); c->x = o->x;
@@ -875,10 +897,10 @@ static void neutral_proj(Cell *o, Cell *v) {
  * value's own ports: nothing is copied, and a part is read further only by viewing it. */
 enum { W_LAM, W_PAIR, W_PI, W_SIGMA, W_U, W_PATH, W_PLAM, W_IV, W_FACE, W_SYS, W_GLUE, W_GLUEV, W_DATA, W_CON,
        W_HCOMP, W_VAR, W_APP, W_FST, W_SND, W_PAPP, W_COMP, W_UNGLUE, W_ELIM, W_TRANS, W_LEVEL, W_OTHER,
-       W_WORD, W_WLIT, W_WPLUS, W_WOP, W_WELIM, W_N };
+       W_WORD, W_WLIT, W_WPLUS, W_WOP, W_WELIM, W_COFIX, W_PROJ, W_REC, W_N };
 static const char *WNAME[W_N] = { "wlam", "wpair", "wpi", "wsigma", "wu", "wpath", "wplam", "wiv", "wface", "wsys", "wglue",
     "wgluev", "wdata", "wcon", "whcomp", "wvar", "wapp", "wfst", "wsnd", "wpapp", "wcomp", "wunglue", "welim", "wtrans",
-    "wlevel", "wother", "wword", "wwlit", "wwplus", "wwop", "wwelim" };
+    "wlevel", "wother", "wword", "wwlit", "wwplus", "wwop", "wwelim", "wcofix", "wproj", "wrec" };
 static int WC[W_N], C_LNIL = -1, C_LCONS, C_TRUE, C_FALSE, C_NONE, C_SOME;
 static int B_TRUE = -1, B_FALSE;
 static void need_bool(void) {
@@ -958,8 +980,24 @@ static void rule_view(Cell *o, Cell *v) {
     }
     case V_NVAR:
         if (v->a & LVL_TAG) r = mk(WC[W_VAR], word_of(v->a & ~LVL_TAG), v->port[1], 0, 0);
+        else if ((v->ty & TY_COFIX) && global_checked((long)v->a) >= 0)
+            /* the stuck head of a checked copattern definition: its index in the signature, its type */
+            r = mk(WC[W_COFIX], word_of((uint64_t)global_checked((long)v->a)), v->port[1], 0, 0);
         else { era(v->port[1]); r = con_build(WC[W_OTHER], NULL, NULL); }
         break;
+    case V_NPROJ: {
+        FldInfo *fl = &FLD[v->a];
+        int d = data_checked_index(fl->data);
+        if (d < 0) { for (int q = 1; q < v->n; q++) era(v->port[q]); r = con_build(WC[W_OTHER], NULL, NULL); break; }
+        r = mk(WC[W_PROJ], word_of((uint64_t)d), word_of((uint64_t)fl->index), v->port[1], v->port[2]);
+        break;
+    }
+    case V_REC: {
+        int d = data_checked_index((int)v->a);
+        if (d < 0) { for (int q = 1; q < v->n; q++) era(v->port[q]); r = con_build(WC[W_OTHER], NULL, NULL); break; }
+        r = mk(WC[W_REC], word_of((uint64_t)d), list_of(&v->port[1], v->n - 1), 0, 0);
+        break;
+    }
     case V_NAPP: r = mk(WC[W_APP], v->port[1], v->port[2], v->port[3], 0); break;
     case V_NFST: r = mk(WC[W_FST], v->port[1], v->port[2], 0, 0); break;
     case V_NSND: r = mk(WC[W_SND], v->port[1], v->port[2], 0, 0); break;
@@ -1074,6 +1112,8 @@ static const char *const KIND_NAME[K_END] = {
     [V_NUNGLUE] = "NUNGLUE",
     [V_NCASE] = "NCASE",
     [V_NTRANS] = "NTRANS",
+    [V_NPROJ] = "NPROJ",
+    [V_REC] = "REC",
     [V_GLOBAL] = "GLOBAL",
     [V_UNK] = "UNK",
     [V_DATA] = "DATA",
@@ -1153,6 +1193,9 @@ static const char *const KIND_NAME[K_END] = {
     [O_FWD] = "FWD",
     [O_SHARE] = "SHARE",
     [O_ROOT] = "ROOT",
+    [O_PROJ] = "PROJ",
+    [O_UNFOLD] = "UNFOLD",
+    [O_DAPPLY] = "DAPPLY",
 };
 
 static void trace_side(Cell *c) {
@@ -1274,8 +1317,13 @@ static void interact(Cell *o, Cell *v) {
             cell_free(o); cell_free(v);
         } else if (vk == V_SYS) distribute(o, v);
         else {
-            /* stuck: a neutral application (its type computed from the spine when needed) */
+            /* stuck: a neutral application (its type computed from the spine when needed). A stuck
+             * call of a copattern definition stays one, and is named by its head and argument */
             Cell *n = cell(V_NAPP, 4);
+            if (is_neutral(vk) && (v->ty & TY_COFIX)) {
+                n->ty = TY_COFIX;
+                if (v->key) { Key *ak = key_of_port(o->port[1]); n->key = key2(K_APP, 0, NULL, v->key, ak); if (ak) key_release(ak); }
+            }
             mv(o, 1, P(n, 2)); link(unk(), P(n, 3));
             link(P(v, 0), P(n, 1));
             link(P(n, 0), o->port[2]);
@@ -1337,6 +1385,10 @@ static void interact(Cell *o, Cell *v) {
             }
             /* stuck: a neutral path application */
             Cell *n = cell(V_NPAPP, o->x ? 5 : 3); n->x = o->x; n->p = dnf_retain(r);
+            if (is_neutral(vk) && (v->ty & TY_COFIX)) {
+                n->ty = TY_COFIX;
+                if (v->key) { Key *rk = key0(K_IV, 0, r); n->key = key2(K_PAPP, 0, NULL, v->key, rk); if (rk) key_release(rk); }
+            }
             link(unk(), P(n, n->n - 1));
             link(P(v, 0), P(n, 1));
             if (o->x) { mv(o, 1, P(n, 2)); mv(o, 2, P(n, 3)); }
@@ -1848,7 +1900,17 @@ static void interact(Cell *o, Cell *v) {
     case O_NTYPE: {
         Port out = o->port[1], T;
         switch (vk) {
-        case V_NVAR: T = v->ty ? v->port[1] : (era(v->port[1]), unk()); break;
+        case V_NVAR: T = (v->ty & TY_KNOWN) ? v->port[1] : (era(v->port[1]), unk()); break;
+        case V_NPROJ: {
+            /* the field's type at the parameters of the neutral's type, the earlier fields its own */
+            era(v->port[2]);
+            Port n1, n2; split2(v->port[1], &n1, &n2);
+            Cell *da = cell(O_DAPPLY, 3); link(ntype_of(n1), P(da, 0));
+            Cell *g = cell(V_GLOBAL, 1); g->a = (uint64_t)FLD[v->a].fty; g->key = key_global(FLD[v->a].fty);
+            link(P(g, 0), P(da, 1));
+            T = app2(P(da, 2), n2);
+            break;
+        }
         case V_NAPP: era(v->port[3]); T = app2(tpart(ntype_of(v->port[1]), 2), v->port[2]); break;
         case V_NFST: era(v->port[2]); T = tpart(ntype_of(v->port[1]), 1); break;
         case V_NSND: {
@@ -2058,6 +2120,63 @@ static void interact(Cell *o, Cell *v) {
     case O_SYSMAP:
         if (vk == V_SYS) distribute(o, v);
         else { Cell *a = cell(O_APP, 3); mv(o, 1, P(a, 0)); link(P(v, 0), P(a, 1)); link(P(a, 2), o->port[2]); cell_free(o); }
+        return;
+    case O_PROJ: {
+        /* a field: of a copattern definition's body, the field's term (held unbuilt); of a stuck
+         * call of a copattern definition, the call unfolded and then the field; of any other
+         * neutral, a neutral projection */
+        Port out = o->port[1];
+        int k = FLD[o->a].index;
+        if (vk == V_REC && k + 1 < v->n) {
+            for (int m = 1; m < v->n; m++) if (m != k + 1) era(v->port[m]);
+            link(v->port[k + 1], out);
+            cell_free(o); cell_free(v);
+        } else if (vk == V_SYS) distribute(o, v);
+        else if (is_neutral(vk) && (v->ty & TY_COFIX)) {
+            Cell *u = cell(O_UNFOLD, 2);
+            link(P(v, 0), P(u, 0)); link(P(u, 1), P(o, 0));
+        } else if (is_neutral(vk)) {
+            Cell *n = cell(V_NPROJ, 3); n->a = o->a;
+            link(P(v, 0), P(n, 1)); link(unk(), P(n, 2)); link(P(n, 0), out);
+            cell_free(o);
+        } else stuck(o, v);
+        return;
+    }
+    case O_UNFOLD: {
+        /* a stuck call taken apart from its head: the body of the definition applied to the same
+         * arguments, at the same dimensions. The application is named by the call it unfolds, so two
+         * unfoldings of one call while it is pending share the body */
+        Port out = o->port[1];
+        if (vk == V_NAPP) {
+            Cell *u = cell(O_UNFOLD, 2), *a = cell(O_APP, 3);
+            link(v->port[1], P(u, 0)); link(P(u, 1), P(a, 0)); link(v->port[2], P(a, 1)); link(P(a, 2), out);
+            era(v->port[3]);
+            if (v->key) { a->key = key1(K_UNFOLD, 0, NULL, v->key); if (a->key) memo_register(a); }
+            cell_free(o); cell_free(v);
+        } else if (vk == V_NPAPP) {
+            Cell *u = cell(O_UNFOLD, 2), *pr = cell(O_PAPPR, 3);
+            link(v->port[1], P(u, 0));
+            link(iv_cell(dnf_retain(v->p)), P(pr, 0)); link(P(u, 1), P(pr, 1)); link(P(pr, 2), out);
+            if (v->x) { era(v->port[2]); era(v->port[3]); }
+            era(v->port[v->n - 1]);
+            cell_free(o); cell_free(v);
+        } else if (vk == V_NVAR && (v->ty & TY_COFIX)) {
+            long b = global_unfold((long)v->a);
+            Cell *g = cell(V_GLOBAL, 1); g->a = (uint64_t)b; g->key = key_global(b);
+            link(P(g, 0), out); era(v->port[1]);
+            cell_free(o); cell_free(v);
+        } else if (vk == V_SYS) distribute(o, v);
+        else { link(P(v, 0), out); cell_free(o); }
+        return;
+    }
+    case O_DAPPLY:
+        if (vk == V_DATA) {
+            Port f = o->port[1];
+            for (int k = 1; k < v->n; k++) f = app2(f, v->port[k]);
+            link(f, o->port[2]);
+            cell_free(o); cell_free(v);
+        } else if (vk == V_SYS) distribute(o, v);
+        else stuck(o, v);
         return;
     default:
         stuck(o, v); return;
@@ -2435,6 +2554,11 @@ static Port build(Syn *t, Frame *f) {
         if (PI(r) == 0) PC(r)->key = synkey(t, f);   /* a plain constructor (one with a boundary is checked first) */
         return r;
     }
+    case S_PROJ: c = cell(O_PROJ, 2); c->a = (uint64_t)t->id; link(build(t->k[0], f), P(c, 0)); return P(c, 1);
+    case S_REC:
+        c = cell(V_REC, t->n + 1); c->a = (uint64_t)t->id;
+        for (int k = 0; k < t->n; k++) link(build(t->k[k], f), P(c, k + 1));
+        return P(c, 0);
     case S_HCOMPD: c = cell(O_HCOMP, 3); link(build(t->k[0], f), P(c, 0)); link(build(t->k[1], f), P(c, 1)); return P(c, 2);
     case S_TRANSD:
         c = cell(O_TRANSD1, t->n + 1); c->a = (uint64_t)t->id;

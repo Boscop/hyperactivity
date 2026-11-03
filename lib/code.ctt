@@ -28,6 +28,8 @@
   ; transport in a data type: its index, the face where it is constant, the lines of its
   ; parameters, the element
   (ctrans d psi ls x)
+  ; codata types (cdata d ps as data types): field k of x; a record (a copattern definition's body)
+  (cproj d k x) (crec d fs)
   ; a free variable or dimension: the value itself (a variable of a context the code is quoted in)
   (cfree x))
 ; a value's head as data (%view, src/net.c): its parts are the value's own parts, values;
@@ -41,7 +43,10 @@
   (wlevel) (wother)
   ; words: the type, a literal, k successors of a neutral, an operation (0 = 1 < 2 + 3 max 4 -)
   ; stuck on a neutral, the elimination of a neutral
-  (wword) (wwlit n) (wwplus k x) (wwop k a b) (wwelim x z s))
+  (wword) (wwlit n) (wwplus k x) (wwop k a b) (wwelim x z s)
+  ; codata: the stuck head of a copattern definition (its index in the signature, its type), a
+  ; field of a neutral, a record (only a copattern definition's body)
+  (wcofix n T) (wproj d k x T) (wrec d fs))
 ; two λs of one record (%clos): the pairs of (copies of) their environments, and the λs; else
 ; both, untouched
 (data CloCmp (csame ps f g) (cdiff f g))
@@ -51,7 +56,8 @@
 (def cl-app (lam l m (case l ((lnil) m) ((lcons x xs) (lcons x (cl-app xs m))))))
 (def app-all (lam f xs (case xs ((lnil) f) ((lcons x r) (app-all (f x) r)))))
 ; the machine's data types, for the evaluator: (dtab former constructors elim case); a data
-; type's transport as a function is the table %dtrans
+; type's transport as a function is the table %dtrans. A codata type's entry is (dtab former
+; projections record former): its fields' projections, and the record as a function
 (data DTab (dtab former cons el cs))
 (def dt-former (lam t (case t ((dtab f c e s) f))))
 (def dt-cons (lam t (case t ((dtab f c e s) c))))
@@ -111,5 +117,7 @@
      (if (%weq k #0) (%weq x y) (if (%weq k #1) (%wlt x y) (if (%weq k #2) (%wadd x y) (if (%weq k #3) (%wmax x y) (%wsub x y))))))))
   ((cwelim w z s) (%welim (eval-g e w) (eval-g e z) (eval-g e s)))
   ((ctrans d psi ls x) (app-all (%dtrans d) (lcons (eval-g e psi) (cl-app (cl-map (eval-g e) ls) (lcons (eval-g e x) lnil)))))
+  ((cproj d k x) ((cl-at (dt-cons (%dtab d)) k) (eval-g e x)))
+  ((crec d fs) (app-all (dt-elim (%dtab d)) (cl-map (eval-g e) fs)))
   ((cfree x) x))))
 (def eval eval-g)
