@@ -6,7 +6,7 @@ all run on that one mechanism.
 
 ```
 make test       # all suites; the same output with 0, 1, 2, 4, 8, 16 workers; again under ASan/UBSan
-make library    # tests/boxes.ctt and tests/sort.ctt
+make library    # tests/boxes.ctt, tests/sort.ctt, tests/memo.ctt
 ./build/cubical lib/prelude.ctt lib/code.ctt lib/check.ctt lib/std.ctt FILE.ctt
 ```
 
@@ -72,6 +72,29 @@ is held unbuilt until an operation meets it: `(fst (pair a b))` never computes `
 diverges. A λ's subterms that do not mention its variable are computed once, however often the λ is
 applied. A case is one cell, and selecting a branch is one step.
 
+Equal terms reached by different routes are also computed once. Every cell that will produce a
+value (a thunk, a saturated call, an application of a known λ, a case) carries a key: its compiled
+body over the keys of the values bound in it, interned, so one term is one pointer. A value's key
+is its constructor over its parts' keys; a held value (a box) is named by what was put in it, and a
+copy out of a box, a definition unfolded, and the scrutinee a case branch rebuilds from the fields
+it took all carry that name, so one value has one name by whatever route it is reached. A producer
+is pending on its key from its creation; when one fires while another of the same key is pending,
+its value goes into a box held by the entry, and the other reads the box instead of computing
+(waiting on the wire, uncounted, if the value has not arrived). Retention is reachability: an
+entry lives exactly while a producer is pending or a reader holds the box; the table holds nothing
+on its own, and two boxes with equal values but different origins are not identified (a numeral
+computed by `add` and the same numeral written out are two values). Naive Fibonacci is the test
+(`tests/memo.ctt`): `fib (n+2)` demands `fib (n+1)`, which demands `fib n` while the outer `fib n`
+is pending, so every `fib k` is computed once and the work is linear in the calls (unary addition
+dominates the count), whether the argument is a numeral the machine computed or one written out.
+
+A reading reports its steps, and with them the memo hits (values found instead of computed) and
+the values shared. The steps are the work this reading did, given what earlier readings left held
+and the order the rewrites ran in: a term's second reading can cost less than its first, and with
+workers a reading can find a value shared that it would have computed alone. Without the memo
+(`CUBICAL_NOMEMO=1`) the count is a property of the term; `make test` checks that it does not
+depend on the number of workers, and that with the memo the answers do not.
+
 ## 4. Open terms normalize, with types
 
 A stuck computation is one with no rule to fire because the thing it inspects is unknown: `f x`
@@ -125,4 +148,4 @@ with symbolically: what depends on it waits for it.
 
 ## Measurements
 
-Every reading reports the steps taken. The sorted list of 9.15 reads in 1.2k steps (eight words). The library plus the paper's terms check in 1.5M steps.
+Every reading reports the steps taken. The sorted list of 9.15 reads in 1.2k steps (eight words). The library plus the paper's terms check in 1.5M steps. Naive `fib` of a computed 20 reads in 36k steps, of 25 in 400k, the same as of the numerals written out; the iterative `fib` reads 21k and 226k (`tests/memo.ctt`; without the memo, naive `fib` takes 294k and 3.8M). `CUBICAL_KEYS=1` traces the keys registered, fired and hit on stderr, and the entries left at the end.

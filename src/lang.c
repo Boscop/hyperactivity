@@ -73,7 +73,7 @@ static bool node_eq(Node *a, Node *b) {
 }
 
 /* ---------------- desugaring to the core forms ---------------- */
-static const char *KW[] = { "%raw", "%welimP", "lam", "thunk", "delay", "force", "case", "elim", "if", "rec", "the", "code", "%data", "%con", "hcompD", "%transD", "%case", "%branches", "plam", "forall", "let", "app", "pair", "fst", "snd", "Pi", "Sigma", "U",
+static const char *KW[] = { "%raw", "%welimP", "%rebuilt", "lam", "thunk", "delay", "force", "case", "elim", "if", "rec", "the", "code", "%data", "%con", "hcompD", "%transD", "%case", "%branches", "plam", "forall", "let", "app", "pair", "fst", "snd", "Pi", "Sigma", "U",
     "PathP", "@", "~", "/\\", "\\/", "=", "&", "|", "faceof", "sys", "sys0", "sys+", "sysmap", "comp", "Glue", "glue",
     "unglue", "%view", "%var", "%dim", "%ieq", "%feq", "%clauses", "%dnf", "%motive", "%restrict", "%gval", "%gty", "%dtab", "%dent", "%dtrans", "%abs", "%branch", "%clos", "%box", "%wsucc", "%weq", "%wlt", "%wadd", "%wmax", "%wsub", "%welim", NULL };
 static bool keyword(const char *s) { for (int i = 0; KW[i]; i++) if (!strcmp(KW[i], s)) return true; return false; }
@@ -179,6 +179,7 @@ static Node *ds(Node *t) {
         /* a term already desugared (an annotated code) */
         if (!strcmp(k, "%raw")) { arity(t, 1); return t->it[1]; }
         if (!strcmp(k, "force")) { arity(t, 1); return nl2("force", ds(t->it[1])); }
+        if (!strcmp(k, "%rebuilt")) { arity(t, 1); return nl2("%rebuilt", ds(t->it[1])); }
         if (!strcmp(k, "rec")) {
             arity(t, 1);
             if (!t->it[1]->list) for (int i = nrs - 1; i >= 0; i--) if (!strcmp(rs_field[i], t->it[1]->s)) return nl2("force", nsym(rs_ih[i]));
@@ -257,7 +258,8 @@ static Node *ds(Node *t) {
                         }
                         (void)pre;
                         pat = np2;
-                        Node *lb = nlist(4); lb->it[0] = nsym("let"); lb->it[1] = scr; lb->it[2] = rebuilt; lb->it[3] = body; body = lb;
+                        /* (%rebuilt (C x...)): the value is the scrutinee, and is named by it */
+                        Node *lb = nlist(4); lb->it[0] = nsym("let"); lb->it[1] = scr; lb->it[2] = nl2("%rebuilt", rebuilt); lb->it[3] = body; body = lb;
                     }
                 }
                 if (!body) {
@@ -269,7 +271,7 @@ static Node *ds(Node *t) {
                         pat = nlist(na + 1); pat->it[0] = nsym(c->name);
                         Node *rebuilt = nsym(c->name);
                         for (int q = 0; q < na; q++) { char nm[32]; snprintf(nm, sizeof nm, "%%df%d", ndf++); pat->it[q + 1] = nsym(nm); rebuilt = nl3("app", rebuilt, nsym(nm)); }
-                        body = nlist(4); body->it[0] = nsym("let"); body->it[1] = dname; body->it[2] = rebuilt; body->it[3] = dflt;
+                        body = nlist(4); body->it[0] = nsym("let"); body->it[1] = dname; body->it[2] = nl2("%rebuilt", rebuilt); body->it[3] = dflt;
                     }
                 }
                 /* a branch takes the induction hypotheses of its recursive fields when its body
@@ -539,6 +541,7 @@ static Node *to_code(Node *t) {
     if (!strcmp(h, "glue")) return capp2("cglue", to_code(t->it[1]), to_code(t->it[2]));
     if (!strcmp(h, "unglue")) return capp2("cunglue", to_code(t->it[1]), to_code(t->it[2]));
     if (!strcmp(h, "the")) return capp2("cann", to_code(t->it[2]), to_code(t->it[1]));
+    if (!strcmp(h, "%rebuilt")) return to_code(t->it[1]);
     if (!strcmp(h, "hcompD")) return capp2("chcomp", to_code(t->it[1]), to_code(t->it[2]));
     if (!strcmp(h, "force")) return capp1("cforce", to_code(t->it[1]));
     if (!strcmp(h, "%case")) {
@@ -825,6 +828,7 @@ static NV ann(Node *t, Chain *C) {
         NV T = ann(t->it[1], C), a = ann(t->it[2], C); p[0] = a.node; p[1] = T.node;
         return anode(C, "tann", p, 2, a.val);
     }
+    if (!strcmp(h, "%rebuilt")) return ann(t->it[1], C);
     for (int q = 0; F[q].h; q++) if (!strcmp(h, F[q].h)) {
         Node *v = nlist(F[q].n + 1); v->it[0] = t->it[0];
         for (int i = 0; i < F[q].n; i++) { NV r = ann(t->it[i + 1], C); p[i] = r.node; v->it[i + 1] = r.val; }
@@ -938,17 +942,20 @@ static long add_global(const char *name, int kind) {
     gh_put(name, nG - 1);
     return nG - 1;
 }
-Port global_copy(long g) {
+Port global_copy(long g, Key *as) {
     Cell *r = G[g].res;
     if (!r->port[0]) return 0;
     /* a definition whose value is a closed λ or a constant constructor is built from its
      * syntax: unfolding it is the one interaction that meets it */
     Syn *b = G[g].kind == G_DEF ? G[g].body : NULL;
-    if (b && b->tag == S_LAM && b->n == 0) { Cell *c = cell(V_LAM, 1); c->p = b->rec; return P(c, 0); }
-    if (b && b->tag == S_CON && b->n == 0) return con_build((int)b->id, NULL, NULL);
+    if (b && b->tag == S_LAM && b->n == 0) { Cell *c = cell(V_LAM, 1); c->p = b->rec; c->key = as ? key_retain(as) : key_global(g); return P(c, 0); }
+    if (b && b->tag == S_CON && b->n == 0) { Port c = con_build((int)b->id, NULL, NULL); if (PI(c) == 0) { if (PC(c)->key) key_release(PC(c)->key); PC(c)->key = as ? key_retain(as) : key_con0((int)b->id); } return c; }
     if (b && b->tag == S_DATA && b->n == 0) { Cell *c = cell(V_DATA, 1); c->a = (uint64_t)b->id; return P(c, 0); }
-    extern Port lazy_copy(Cell *root);
-    return lazy_copy(r);
+    extern Port lazy_copy(Key *as, Cell *root);
+    Key *k = as ? key_retain(as) : key_global(g);   /* a copy of the definition's value is named by the definition, or by what referred to it */
+    Port p = lazy_copy(k, r);
+    key_release(k);
+    return p;
 }
 Cell *global_res(long g) { return G[g].res; }
 static pthread_mutex_t park_mu = PTHREAD_MUTEX_INITIALIZER;
@@ -1136,6 +1143,7 @@ static bool reads(Node *t, const char *x) {
         rd_bound.n = save; return r;
     }
     if (!strcmp(h, "the")) return reads(t->it[2], x);
+    if (!strcmp(h, "%rebuilt")) return reads(t->it[1], x);
     if (!strcmp(h, "fst") || !strcmp(h, "snd") || !strcmp(h, "force") || !strcmp(h, "@") || !strcmp(h, "%view")
         || !strcmp(h, "%wsucc") || !strcmp(h, "%welim") || !strcmp(h, "%clauses") || !strcmp(h, "faceof"))
         return reads(t->it[1], x);
@@ -1156,6 +1164,7 @@ static bool lazy_trivial(Node *t) {
     if (!strcmp(h, "lam") || !strcmp(h, "thunk") || !strcmp(h, "pair") || !strcmp(h, "Pi") || !strcmp(h, "Sigma")
         || !strcmp(h, "PathP") || !strcmp(h, "U")) return true;
     if (!strcmp(h, "the")) return lazy_trivial(t->it[2]);
+    if (!strcmp(h, "%rebuilt")) return lazy_trivial(t->it[1]);
     if (!strcmp(h, "app")) {
         Node *hd = t; int na = 0;
         while (hd->list && hd->n == 3 && is(hd->it[0], "app")) { hd = hd->it[1]; na++; }
@@ -1329,6 +1338,7 @@ static Syn *compile(Node *t) {
     if (!strcmp(h, "thunk")) return compile_record(NULL, t->it[1], true);
     if (!strcmp(h, "force")) return compile_n(S_FORCE, t, 1, 1);
     if (!strcmp(h, "the")) return compile(t->it[2]);
+    if (!strcmp(h, "%rebuilt")) { Syn *r = compile(t->it[1]); if (r->tag == S_CON) r->x = 1; return r; }   /* x: the scrutinee rebuilt: named by it */
     if (!strcmp(h, "plam")) return compile_bound(S_PLAM, t->it[1], t->it[2]);
     if (!strcmp(h, "forall")) return compile_bound(S_FORALL, t->it[1], t->it[2]);
     if (!strcmp(h, "let")) {
@@ -1682,7 +1692,7 @@ static void rb_one(FILE *o, Port prov) {
         /* a definition reads back as its value; within its own value it is its name */
         long g = (long)c->a;
         for (int i = 0; i < nunfold; i++) if (unfolding[i] == g) { fputs(name_of(g), o); return; }
-        Port v = global_copy(g);
+        Port v = global_copy(g, NULL);
         if (!v) { fputs(name_of(g), o); return; }
         GROW(unfolding, capunfold, (size_t)nunfold + 1);
         unfolding[nunfold++] = g;
@@ -1734,7 +1744,7 @@ static Cell *obs_val(Port p) {
         if (!c) return NULL;
         if (c->kind == V_REF) { p = ref_copy(c); continue; }
         if (c->kind == V_THUNK) { p = thunk_build(c); continue; }
-        if (c->kind == V_GLOBAL) { Port v = global_copy((long)c->a); if (!v) return c; p = v; continue; }
+        if (c->kind == V_GLOBAL) { Port v = global_copy((long)c->a, c->key); if (!v) return c; p = v; continue; }
         return c;
     }
 }
@@ -2434,14 +2444,16 @@ static void toplevel(Node *f) {
         else { passes++; printf("ok: watch %s\n", f->it[1]->s); }
         free(buf); free(b);
     } else if (!strcmp(h, "show")) {
-        long steps;
+        long steps, h0 = stat_hits, k0 = stat_keys;
         const char *tp = getenv("CUBICAL_TRACE");
         if (tp) { net_drain(); trace_out = fopen(tp, "a"); }
         Node *T = reading_type(f->it[1]);
         char *r = T ? readback_at(T, f->it[1], &steps) : readback(f->it[1], &steps);
         if (trace_out) { fprintf(trace_out, "-- %ld steps\n", steps); fclose(trace_out); trace_out = NULL; }
-        /* length: every interaction */
-        print_node(stdout, f->it[1]); printf("\n  = %s   [%ld steps]\n", r, steps);
+        /* length: every interaction; and the values found already shared (memo hits), the values shared */
+        print_node(stdout, f->it[1]); printf("\n  = %s   [%ld steps", r, steps);
+        if (stat_hits > h0 || stat_keys > k0) printf(", %ld hits, %ld shared", stat_hits - h0, stat_keys - k0);
+        printf("]\n");
         free(r);
     } else if (!strcmp(h, "same")) {
         if (f->n != 3) die("(same t u)", NULL);
@@ -2524,8 +2536,9 @@ int main(int argc, char **argv) {
     { const char *b = __DATE__ " " __TIME__; key_mix(b, strlen(b)); }
     for (int i = 1; i < argc; i++) load_file(argv[i], true);
     /* steps performed so far: a reading only when the workload has normalized (show) */
-    printf("%d passed, %d failed; %ld interaction steps performed; %ld cells live; %ld payloads live\n", passes, failures, stat_steps, stat_cells, stat_payloads);
+    printf("%d passed, %d failed; %ld interaction steps performed; %ld memo hits, %ld shared keys; %ld cells live; %ld payloads live\n", passes, failures, stat_steps, stat_hits, stat_keys, stat_cells, stat_payloads);
     prof_print();
+    extern void memo_dump(void); memo_dump();
     return failures ? 1 : 0;
 }
 static void prof_print(void) {

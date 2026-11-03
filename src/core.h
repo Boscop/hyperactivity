@@ -202,12 +202,38 @@ enum {
 enum { B_MEET, B_JOIN, B_FAND, B_FOR };
 
 typedef uint64_t Port;            /* cell pointer << 16 | port index; 0 = none */
+/* ---------------- keys: terms as names ----------------
+ * A key names a term: a compiled body with each free position replaced by the key of the value
+ * bound there; a value by its constructor over its parts' keys; a held value (a box) by the key of
+ * what was put in it, which a copy out of it, and a value rebuilt from the fields a case took from
+ * it, carry too. Keys are interned, so one term is one pointer (compared structurally when made).
+ * A cell whose parts all have keys has one; a cell with an unkeyed part has none, and nothing
+ * built on it is keyed. */
+typedef struct Key {
+    uint32_t rc, n;               /* n = children */
+    uint64_t h;                   /* hash */
+    uint16_t tag;                 /* K_* */
+    uint64_t a;                   /* a number, global, constructor, variable name, ... */
+    void *p;                      /* a payload: Dnf, Big, Record, CaseTab (by pointer) */
+    struct Key *c[];
+} Key;
+enum { K_WORD = 1, K_IV, K_FACE, K_VAR, K_GLOBAL, K_CON, K_DATA, K_LAM, K_PAIR, K_PI, K_SIGMA, K_PATHP, K_U,
+       K_APP, K_FST, K_SND, K_PAPP, K_CASE, K_FORCE, K_SUB, K_SUBST, K_DIM, K_TERM, K_WTY };
+Key *key_retain(Key *k);
+Key *key_global(long g);
+Key *key_con0(int c);              /* a constructor with no fields */
+void key_release(Key *k);
+extern long stat_hits, stat_keys;  /* readings: memo hits; keys with a shared value made */
+
 typedef struct Cell {
     uint16_t kind, n;             /* n = number of ports */
     uint32_t x;
     uint32_t lk, ty;              /* lk: the cell's lock (HANDOFF §20), never reset; ty: a neutral's type is known */
     uint64_t a;
     void *p;
+    Key *key;                     /* the term this cell is (a value) or will produce (a thunk, a call, an
+                                   * application, a case, a duplicator's outputs), or NULL */
+    struct Entry *e;              /* a producer registered as pending on its key (memo), or NULL */
     Port port[];
 } Cell;
 
@@ -244,7 +270,8 @@ enum { TB_VAL, TB_TY, TB_DTAB, TB_DENT, TB_TRANS, TB_N };   /* TB_TRANS: a data 
 long table_global(int table, long i);  /* the global holding entry i of a checker table, or -1 */
 /* a definition's body as one record taking all its parameters (NULL when it is not a λ) */
 struct Record *global_nary(long g);
-typedef struct Box { struct Cell *root; long rc; } Box;
+/* key: the name of what the box holds (a reference's identity). e: the memo entry whose value this is */
+typedef struct Box { struct Cell *root; long rc; Key *key; struct Entry *e; } Box;
 /* motive: the elimination's motive as a record over the same environment, or NULL. It is not a port:
  * only the two rules that read it (a formal hcomp met, and a stuck elimination typing its neutral)
  * build it, from the environment */
@@ -302,7 +329,7 @@ void port_split(Port prov, int m, Port *out);
 Port top_build(Syn *body, int nslots, const int *uses);
 
 /* globals: each definition's net is built once; a use copies its value */
-Port global_copy(long g);          /* 0 when the global is an unsupplied input */
+Port global_copy(long g, Key *as); /* 0 when the global is an unsupplied input; as: the key the copy carries (the name of the cell that referred to it; NULL: the definition's) */
 void global_park(long g, Cell *op, Cell *glob);
 long global_lookup(const char *name);
 const char *name_of(long id);
