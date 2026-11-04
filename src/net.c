@@ -756,7 +756,12 @@ static void rule_subst(Cell *o, Cell *v) {
     case V_WPLUS: { Cell *a = cell(O_WADD, 3); link(sub(v->port[1], s), P(a, 0)); link(word_wn(cell_wn(v)), P(a, 1)); link(P(a, 2), out); break; }
     case V_NWOP: { Cell *a = cell((int)v->x, 3); link(sub(v->port[1], s), P(a, 0)); link(sub(v->port[2], s), P(a, 1)); link(P(a, 2), out); break; }
     case V_NWELIM: { Cell *a = cell(O_WELIM, 4); for (int k = 1; k <= 3; k++) link(sub(v->port[k], s), P(a, k - 1)); link(P(a, 3), out); break; }
-    case V_HCOMP: { Cell *a = cell(O_HCOMP, 3); link(sub(v->port[1], s), P(a, 0)); link(sub(v->port[2], s), P(a, 1)); link(P(a, 2), out); break; }
+    case V_HCOMP: {
+        /* rebuilt, so that a tube emptied by the substitution composes fieldwise again */
+        Cell *a = cell(O_HCOMP, v->n); link(sub(v->port[1], s), P(a, 0)); link(sub(v->port[2], s), P(a, 1));
+        if (v->n == 4) link(sub(v->port[3], s), P(a, 2));
+        link(P(a, a->n - 1), out); break;
+    }
     case V_NCASE: {
         /* 1=scrutinee [2=motive] then the environment, type → 0=scrutinee then the environment, out:
          * the motive is the table's, rebuilt where it is read */
@@ -954,7 +959,7 @@ static void rule_view(Cell *o, Cell *v) {
     case V_PATHP: r = mk(WC[W_PATH], v->port[1], v->port[2], v->port[3], 0); break;
     case V_GLUE: r = mk(WC[W_GLUE], v->port[1], v->port[2], 0, 0); break;
     case V_GLUEV: r = mk(WC[W_GLUEV], v->port[1], v->port[2], 0, 0); break;
-    case V_HCOMP: r = mk(WC[W_HCOMP], v->port[1], v->port[2], 0, 0); break;
+    case V_HCOMP: if (v->n == 4) era(v->port[3]); r = mk(WC[W_HCOMP], v->port[1], v->port[2], 0, 0); break;
     case V_SYS: {
         int nb = v->n - 1; Dnf *cl = v->p;
         Port *bs = malloc((size_t)(nb + 1) * sizeof(Port));
@@ -1164,6 +1169,7 @@ static const char *const KIND_NAME[K_END] = {
     [O_TPART] = "TPART",
     [O_CONCHK] = "CONCHK",
     [O_HCOMP] = "HCOMP",
+    [O_HCOMPE] = "HCOMPE",
     [O_TRANSD1] = "TRANSD1",
     [O_TRANSD2] = "TRANSD2",
     [O_CASE] = "CASE",
@@ -1402,6 +1408,9 @@ static void interact(Cell *o, Cell *v) {
             Cell *n = cell(V_NPAPP, o->x ? 5 : 3); n->x = o->x; n->p = dnf_retain(r);
             if (is_neutral(vk) && (v->ty & TY_COFIX)) {
                 n->ty = TY_COFIX;
+                /* a tick-unfolding definition may take an interval before its tick (pfix) */
+                long ta = (v->ty & TY_TICK) ? (vk == V_NVAR ? global_tickar((long)v->a) : (long)v->a) : 0;
+                if (ta > 1) { n->ty |= TY_TICK; n->a = (uint64_t)(ta - 1); }
                 if (v->key) { Key *rk = key0(K_IV, 0, r); n->key = key2(K_PAPP, 0, NULL, v->key, rk); if (rk) key_release(rk); }
             }
             link(unk(), P(n, n->n - 1));
@@ -1645,15 +1654,37 @@ static void interact(Cell *o, Cell *v) {
         cell_free(o); cell_free(v);
         return;
     }
-    case O_HCOMP:
-        if (vk == V_SYS) {
+    case O_HCOMP: {
+        /* 0=tube 1=cap [2=the composition with an empty tube, for a data type without path
+         * constructors: fieldwise] out */
+        Port out = o->port[o->n - 1];
+        bool empty = false;
+        if (vk == V_SYS && o->n == 4) { Dnf *fc = face_of_clauses(v->p); empty = dnf_is_zero(fc); dnf_release(fc); }
+        if (empty) {
+            /* fieldwise, once the cap is a constructor; on a neutral cap it stays formal */
+            era(P(v, 0));
+            Cell *e = cell(O_HCOMPE, 3);
+            link(o->port[1], P(e, 0)); link(o->port[2], P(e, 1)); link(P(e, 2), out);
+        } else if (vk == V_SYS) {
             /* a partial tube: a formal hcomp, a value of the data type */
-            Cell *h = cell(V_HCOMP, 3);
-            link(P(v, 0), P(h, 1)); mv(o, 1, P(h, 2)); link(P(h, 0), o->port[2]);
+            Cell *h = cell(V_HCOMP, o->n);
+            link(P(v, 0), P(h, 1)); mv(o, 1, P(h, 2));
+            if (o->n == 4) mv(o, 2, P(h, 3));
+            link(P(h, 0), out);
         } else {
             Cell *pr = cell(O_PAPPR, 3);
-            link(iv_cell(dnf_one()), P(pr, 0)); link(P(v, 0), P(pr, 1)); link(P(pr, 2), o->port[2]);
+            link(iv_cell(dnf_one()), P(pr, 0)); link(P(v, 0), P(pr, 1)); link(P(pr, 2), out);
             era(o->port[1]);
+            if (o->n == 4) era(o->port[2]);
+        }
+        cell_free(o);
+        return;
+    }
+    case O_HCOMPE:
+        if (vk == V_CON) link(app2(o->port[1], P(v, 0)), o->port[2]);
+        else {
+            Cell *h = cell(V_HCOMP, 4), *z = cell(V_SYS, 1); z->p = NULL;
+            link(P(z, 0), P(h, 1)); link(P(v, 0), P(h, 2)); mv(o, 1, P(h, 3)); link(P(h, 0), o->port[2]);
         }
         cell_free(o);
         return;
@@ -1690,6 +1721,7 @@ static void interact(Cell *o, Cell *v) {
             Port *a = malloc((size_t)(np + 4) * sizeof(Port));
             for (int j = 0; j < np; j++) a[j] = o->port[1 + j];
             a[np] = face_cell(dnf_retain(o->p)); a[np + 1] = v->port[1]; a[np + 2] = v->port[2];
+            if (v->n == 4) era(v->port[3]);
             link(apply_gid(DATA[o->a].transh, a, np + 3), out);
             free(a);
             cell_free(o); cell_free(v);
@@ -1760,6 +1792,7 @@ static void interact(Cell *o, Cell *v) {
             Cell *f = cell(V_CASEF, ne + 1); f->x = 0; f->p = tb;
             for (int e = 0; e < ne; e++) { Port a1, a2; split2(o->port[e0 + e], &a1, &a2); me[e] = a1; link(a2, P(f, 1 + e)); }
             Port a[4] = { record_build_n(tb->motive, NULL, me), P(f, 0), v->port[1], v->port[2] };
+            if (v->n == 4) era(v->port[3]);
             link(apply_gid(case_hcomp_global, a, 4), o->port[o->n - 1]);
             cell_free(o); cell_free(v);
         } else if (vk == V_SYS) distribute(o, v);
@@ -2071,9 +2104,9 @@ static void interact(Cell *o, Cell *v) {
         return;
     }
     case O_IEQB: case O_FEQLB: {
-        need_cons();
+        need_bool();
         if (vk != (o->kind == O_IEQB ? V_IV : V_FACE)) { fprintf(stderr, "%%ieq/%%feq: not an interval or face\n"); exit(2); }
-        link(con_build(dnf_equal(o->p, v->p) ? C_TRUE : C_FALSE, NULL, NULL), o->port[1]);
+        link(con_build(dnf_equal(o->p, v->p) ? B_TRUE : B_FALSE, NULL, NULL), o->port[1]);
         cell_free(o); cell_free(v);
         return;
     }
@@ -2593,7 +2626,10 @@ static Port build(Syn *t, Frame *f) {
         c = cell(V_REC, t->n + 1); c->a = (uint64_t)t->id;
         for (int k = 0; k < t->n; k++) link(build(t->k[k], f), P(c, k + 1));
         return P(c, 0);
-    case S_HCOMPD: c = cell(O_HCOMP, 3); link(build(t->k[0], f), P(c, 0)); link(build(t->k[1], f), P(c, 1)); return P(c, 2);
+    case S_HCOMPD:
+        c = cell(O_HCOMP, t->n + 1); link(build(t->k[0], f), P(c, 0)); link(build(t->k[1], f), P(c, 1));
+        if (t->n == 3) link(build(t->k[2], f), P(c, 2));
+        return P(c, t->n);
     case S_TRANSD:
         c = cell(O_TRANSD1, t->n + 1); c->a = (uint64_t)t->id;
         for (int k = 0; k < t->n; k++) link(build(t->k[k], f), P(c, k));

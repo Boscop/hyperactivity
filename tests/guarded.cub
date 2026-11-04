@@ -33,15 +33,15 @@ ones = fix (λ r → 1 ∷ λ α → r α)
 #same nth 4 (λ κ → ones {κ}) = 1
 -- next and ⊛: later values as an applicative
 #check λ κ (f : ▸ κ (Nat → Nat)) (x : ▸ κ Nat) → f ⊛ x : (κ : Clock) → ▸ κ (Nat → Nat) → ▸ κ Nat → ▸ κ Nat
-#check λ κ (x : Nat) → next {κ} {Nat} x : (κ : Clock) → Nat → ▸ κ Nat
+#check λ κ (x : Nat) → next {lzero} {κ} {Nat} x : (κ : Clock) → Nat → ▸ κ Nat
 -- the fixed point's unfolding is a path one tick later
-#check λ κ (f : ▸ κ Nat → Nat) → pfix {κ} {Nat} f : (κ : Clock) → (f : ▸ κ Nat → Nat) → dfix {κ} {Nat} f ≡ next {κ} {Nat} (fix {κ} {Nat} f)
+#check λ κ (f : ▸ κ Nat → Nat) → pfix {lzero} {κ} {Nat} f : (κ : Clock) → (f : ▸ κ Nat → Nat) → dfix {lzero} {κ} {Nat} f ≡ next {lzero} {κ} {Nat} (fix {lzero} {κ} {Nat} f)
 -- a later value is not a value now
 #fail
 #check λ κ (x : ▸ κ Nat) → x : (κ : Clock) → ▸ κ Nat → Nat
 -- the fixed point of a function that needs its argument now does not exist
 #fail
-#check λ κ → fix {κ} {Nat} (λ r → r) : (κ : Clock) → Nat
+#check λ κ → fix {lzero} {κ} {Nat} (λ r → r) : (κ : Clock) → Nat
 -- timelessness: one tick is not two
 #fail
 #check λ κ (x : ▸ κ (▸ κ Nat)) → λ α → x α α : (κ : Clock) → ▸ κ (▸ κ Nat) → ▸ κ Nat
@@ -68,9 +68,47 @@ bad = smap suc bad
 stuck : Stream κ Nat
 stuck = shead stuck ∷ next stuck
 -- transport along a line of stream types moves each later tail pointwise (a tick does not vary);
--- the elements read are the transported numerals
+-- the elements read are numerals again (an empty composition in Nat goes field by field)
 nats-tr : Str Nat
 nats-tr κ = transport (λ i → Stream κ Nat) (nats {κ})
-#show nth 3 nats-tr
+#same nth 3 nats-tr = 3
 -- a typed reading of a later value: a function of a fresh tick
 #show the (▸ κ0 Nat) (next 1)
+-- ---------------------------------------------------------------- ticks written out
+-- a recursive call under a tick λ written by hand is the fixed point's later self at that tick
+ones' : Stream κ Nat
+ones' = 1 ∷ λ α → ones'
+#same nth 4 (λ κ → ones' {κ}) = 1
+fromS : Nat → Stream κ Nat
+fromS n = n ∷ λ α → fromS (suc n)
+#same nth 4 (λ κ → fromS {κ} 2) = 6
+-- an interval variable bound after a tick may stand in what is applied to it: the interval does
+-- not vary in time (a path of later values is a later path, and back)
+#check λ κ (x y : ▸ κ Nat) (p : x ≡ y) → λ α (i : I) → p i α : (κ : Clock) → (x y : ▸ κ Nat) → x ≡ y → (α : Tick κ) → x α ≡ y α
+#check λ κ (x y : ▸ κ Nat) (p : (α : Tick κ) → x α ≡ y α) → λ (i : I) α → p α i : (κ : Clock) → (x y : ▸ κ Nat) → ((α : Tick κ) → x α ≡ y α) → x ≡ y
+-- ---------------------------------------------------------------- pfix computes at ⋄
+-- at ⋄ both ends of pfix f are fix f, and so is every point between
+#same (λ (i : I) → pfix {lzero} {κ0} {Nat} (λ r → 1) i ⋄) = λ (i : I) → 1
+-- a guarded recursive type: a fixed point in the universe (level polymorphism: fix at Type), unfolded
+-- and folded by transport along pfix
+GF : ▸ κ Type → Type
+GF X = Nat × ((α : Tick κ) → X α)
+G : Clock → Type
+G κ = fix {lsuc lzero} {κ} {Type} (GF {κ})
+unfoldG : G κ → Nat × ▸ κ (G κ)
+unfoldG {κ} g = transport (λ i → GF {κ} (pfix {lsuc lzero} {κ} {Type} (GF {κ}) i)) g
+foldG : Nat × ▸ κ (G κ) → G κ
+foldG {κ} p = transport (λ i → GF {κ} (pfix {lsuc lzero} {κ} {Type} (GF {κ}) (~ i))) p
+-- its elements by guarded recursion (the later component of the pair gets its tick)
+fromG : Nat → G κ
+fromG n = foldG (n , fromG (suc n))
+hdG : ((κ : Clock) → G κ) → Nat
+hdG g = fst (unfoldG {κ0} (g κ0))
+tlG : ((κ : Clock) → G κ) → (κ : Clock) → G κ
+tlG g = forceκ {lzero} {G} (λ κ → snd (unfoldG {κ} (g κ)))
+-- read through forceκ: the transports along pfix at ⋄ are along constant lines, and the numerals
+-- come back canonical
+#same hdG (λ κ → fromG {κ} 5) = 5
+#same hdG (tlG (tlG (λ κ → fromG {κ} 5))) = 7
+-- a stream of types: the guarded type's later part at a tick is a type
+#check λ κ (g : G κ) → snd (unfoldG {κ} g) : (κ : Clock) → G κ → ▸ κ (G κ)

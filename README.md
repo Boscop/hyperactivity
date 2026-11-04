@@ -150,6 +150,11 @@ depends on what kind of type `A(i)` is; each case is a term in `lib/prelude.cub`
   fields along its field type; this is derived from the declaration;
 - a path constructor such as `loop i` must still meet its declared endpoints after moving, so the
   result is corrected by a composition that glues those endpoints back on;
+- in a data type without path constructors, a composition with an empty tube goes into the
+  fields (`c a.. ↦ c (comp a)..`), so a closed value moved along a line reads as a constructor
+  again: transport along `ua not` of `true` is `false`, not a formal composition. The rule waits
+  for the value to be a constructor; on a variable the composition stays formal, and a
+  substitution that empties a tube decides again;
 - a composition in a data type that cannot be computed further is kept as a value, `hcompD`; a case
   analysis meeting such a value applies itself to the pieces and composes the results in the
   result type.
@@ -300,9 +305,14 @@ by λ and given by application, and nothing else: `Clock` and `Tick κ` are the 
 only, in no universe, so a tick cannot be stored, returned, or let-bound. The checker's
 timelessness rule makes "later" mean later: in the body of a tick λ, a function applied to the
 tick α may use no variable bound at or after α. So `λ α → x α α` is rejected (one tick spent
-twice) and `λ α β → x α β` accepted.
+twice) and `λ α β → x α β` accepted. Interval variables are exempt: `λ α (i : I) → p i α` turns a
+path of later values into a later path, and `λ (i : I) α → p α i` turns it back. This is sound
+because the interval does not vary in time: the "earlier" of a context extended by an interval
+is the earlier context extended by the interval, ◁(Γ × I) ≅ ◁Γ × I, as in the cubical models of
+guarded type theory.
 
-`dfix : (▸ κ A → A) → ▸ κ A` is a stuck call of the kind copattern definitions make (§7), with one
+`dfix : (▸ κ A → A) → ▸ κ A` (at every level: `next`, `⊛`, `dfix`, `fix`, `pfix` and `forceκ`
+take `{l : Level}` first) is a stuck call of the kind copattern definitions make (§7), with one
 difference: it unfolds, `dfix f ⋄ = f (dfix f)`, only when applied to the tick constant `⋄`, and at
 a tick variable it stays stuck. `fix f = f (dfix f)` is then the guarded fixed point, and every
 recursion whose recursive use is under `▸` is well typed, whatever functions it passes through.
@@ -310,21 +320,31 @@ recursion whose recursive use is under `▸` is well typed, whatever functions i
 → (κ : Clock) → A κ`, a later value at every clock being a value now at every clock (the clock is
 fresh, so its tick constant may be given). A total stream is a stream at every clock,
 `Str A = (κ : Clock) → Stream κ A`, observed through `forceκ` (`tl`, `nth`); `κ0` is the closed
-clock. `pfix : dfix f ≡ next (fix f)` is the unfolding at a tick variable, a constant path.
+clock. `pfix : dfix f ≡ next (fix f)` is the unfolding at a tick variable. It is a stuck call
+too: at `⋄` both its ends are `fix f`, and it computes there, `pfix f i ⋄ = fix f` for every `i`
+(the tick-unfolding definitions count path parameters among theirs). So transport along `pfix`
+computes once `forceκ` gives the tick, and a guarded recursive type, a fixed point in the universe
+such as `G κ = fix (λ X → Nat × ((α : Tick κ) → X α))`, can be unfolded and folded by transport
+along `pfix` and still read canonical numerals (`tests/guarded.cub`). `pfix` being a path rather
+than a judgmental equality is a property of the theory (`dfix f` at a tick variable must not
+unfold, or normalization fails); the path computes wherever the equality would.
 Normalization terminates because the only unfolding fires on `⋄`, which only `forceκ` gives.
 
 Guarded types are ordinary data whose recursive fields are later:
 `data Stream (κ : Clock) A = _∷_ (head : A) (tail : ▸ κ (Stream κ A))`. Such a field is not a
 recursive field (an elimination takes no hypothesis for it). Composition in `▸ κ A` is pointwise
 (the composition of ticks and clocks is the identity), so transport along a line of stream types
-moves each tail at its own tick.
+moves each tail at its own tick, and the heads read are numerals again (composition with an empty
+tube in a data type without path constructors goes into the fields, §2).
 
 The elaborator writes the ticks. A clock named in a signature (an argument of `Tick` or of a
 data type's `Clock` parameter) is an implicit parameter. A definition with a clock whose
 recursion is not structural is the guarded fixed point over its explicit parameters after the
 clock. A term given where `▸ κ X` is expected and not itself later is a λ over a fresh tick, inside
 which a later subterm standing where a present value is due is applied to that tick, and a
-recursive call is the fixed point's self at the outermost such tick. A clock argument nothing
+recursive call is the fixed point's self at the outermost such tick. A tick λ written by hand
+(`1 ∷ λ α → ones`) is treated the same way, and so is the later component of a pair. A clock
+given to a defined family (`G κ` with `G : Clock → Type`) is bound as well. A clock argument nothing
 determines is the one clock in scope. A recursive call needed now is reported where it stands:
 `bad = smap suc bad` is rejected with "a recursive call needed now, not under ▸".
 

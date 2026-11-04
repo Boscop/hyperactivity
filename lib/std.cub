@@ -435,22 +435,24 @@ subw≡wsub a b =
 -- application; a function applied to a tick α uses nothing bound after α (the checker's
 -- timelessness rule), so a later value is never used now. Clocks are quantified by Π over Clock;
 -- κ0 is the closed clock.
-next : {κ : Clock} {A : Type} → A → ▸ κ A
+next : {l : Level} {κ : Clock} {A : Type l} → A → ▸ κ A
 next a = λ α → a
 infixl 4 ⊛
-_⊛_ : {κ : Clock} {A B : Type} → ▸ κ (A → B) → ▸ κ A → ▸ κ B
+_⊛_ : {l m : Level} {κ : Clock} {A : Type l} {B : Type m} → ▸ κ (A → B) → ▸ κ A → ▸ κ B
 f ⊛ a = λ α → f α (a α)
 -- the delayed fixed point: a stuck call, unfolded only by the tick constant ⋄ that forceκ gives
-primitive tick dfix : {κ : Clock} {A : Type} → (▸ κ A → A) → ▸ κ A = λ κ A f α → f (dfix κ A f)
-fix : {κ : Clock} {A : Type} → (▸ κ A → A) → A
+primitive tick dfix : {l : Level} {κ : Clock} {A : Type l} → (▸ κ A → A) → ▸ κ A = λ l κ A f α → f (dfix l κ A f)
+fix : {l : Level} {κ : Clock} {A : Type l} → (▸ κ A → A) → A
 fix f = f (dfix f)
 -- the fixed point unfolds one step later: the path from the delayed fixed point to the next of
--- the fixed point (a constant: at a tick variable dfix does not unfold)
-primitive pfix : {κ : Clock} {A : Type} → (f : ▸ κ A → A) →
-                 _≡_ {lzero} {▸ κ A} (dfix {κ} {A} f) (next {κ} {A} (fix {κ} {A} f))
+-- the fixed point. At a tick variable dfix does not unfold, so the path is a stuck call; at ⋄ both
+-- ends are fix f, and so is every point between
+primitive tick pfix : {l : Level} {κ : Clock} {A : Type l} → (f : ▸ κ A → A) →
+                      _≡_ {l} {▸ κ A} (dfix {l} {κ} {A} f) (next {l} {κ} {A} (fix {l} {κ} {A} f))
+                    = λ l κ A f (i : I) α → fix l κ A f
 -- a later value at every clock is a value now at every clock (forceκ): the clock is fresh, so its tick
 -- constant may be given
-primitive forceκ : {A : Clock → Type} → ((κ : Clock) → ▸ κ (A κ)) → (κ : Clock) → A κ = λ A f κ → f κ ⋄
+primitive forceκ : {l : Level} {A : Clock → Type l} → ((κ : Clock) → ▸ κ (A κ)) → (κ : Clock) → A κ = λ l A f κ → f κ ⋄
 -- streams: a head now and a tail one tick later. A definition at a type with a clock calls itself
 -- only where a later value is expected; the elaborator makes it a guarded fixed point, a term
 -- given at a later position a λ over a fresh tick, and later values standing where a present one
@@ -469,7 +471,7 @@ Str A = (κ : Clock) → Stream κ A
 hd : {A : Type} → Str A → A
 hd s = shead (s κ0)
 tl : {A : Type} → Str A → Str A
-tl {A} s = forceκ {λ κ → Stream κ A} (λ κ → stail (s κ))
+tl {A} s = forceκ {lzero} {λ κ → Stream κ A} (λ κ → stail (s κ))
 nth : {A : Type} → Nat → Str A → A
 nth zero s = hd s
 nth (suc n) s = nth n (tl s)

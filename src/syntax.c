@@ -2610,6 +2610,8 @@ static int head_params(Node *h, Node **ty, bool *imp, int cap) {
  * the outermost (the fixed point's self is then a stream from that step on, usable at every later
  * one, and its later parts can be given the inner ticks) */
 static const char *wtick[64]; static int nwtick;
+static bool guard_on; static int guard_q = -1;
+static bool tick_pos;   /* the term about to be elaborated stands at a later position */   /* a guarded fixed point being compiled; its clock parameter */
 static Node *tick_lift(Node *e, Node *al) {
     if (!e->list || e->n == 0) return e;
     Node *h = e->it[0];
@@ -2692,6 +2694,13 @@ static Node *tick_wrap(Node *a) {
     GROW(TW, captw, (size_t)ntw + 1); TW[ntw++] = (TWrap){ a, w };
     return w;
 }
+/* the body of a tick λ written out, its guarded calls lifted to the tick (made once per λ) */
+static Node *tick_body(Node *lam, Node *al) {
+    for (int i = 0; i < ntw; i++) if (TW[i].a == lam) return TW[i].w;
+    Node *w = tick_lift(lam->it[2], al);
+    GROW(TW, captw, (size_t)ntw + 1); TW[ntw++] = (TWrap){ lam, w };
+    return w;
+}
 /* a clock argument nothing determines: the one clock in scope, when there is one */
 static Node *the_clock(void) {
     Node *k = NULL;
@@ -2760,7 +2769,9 @@ static Node *el_app(Node *t, Node *h, Node **args, int n) {
             if (args[i]->list && args[i]->n == 2 && is(args[i]->it[0], "%imp")) die("an implicit argument {..} applied to something without implicit arguments", NULL);
             Node *ai = args[i];
             if (i < nft && is_later(fty[i]) && wants_tick(ai)) ai = tick_wrap(ai);   /* a constructor's later field */
+            if (i < nft && is_later(fty[i])) tick_pos = true;   /* (a tick λ written out there binds a tick) */
             orig[no] = ai; out[no++] = !ai->list && !strcmp(ai->s, "%hole") ? hole_or_sol(ai, 0, &pend) : el(ai);
+            tick_pos = false;
         }
     }
     bool is_con = !h->list && !e_find(h->s) && con_lookup(h->s) >= 0;
@@ -2830,6 +2841,7 @@ static Node *el_alts(Node *t, int from) {
 static bool rt_is_path(Node *R);
 static Node *el(Node *t) {
     Node *ex = syn_expect; syn_expect = NULL;
+    bool tickpos = tick_pos || (ex && is_later(ex)); tick_pos = false;
     if (t->list && t->n > 0 && (t->it[0]->list || !e_head_kw(t->it[0]->s))) { app_expect = ex; return el_app(t, t->it[0], t->it + 1, t->n - 1); }
     if (!t->list) {
         if (!strcmp(t->s, "%hole")) { bool p = false; Node *h = hole_or_sol(t, 0, &p); return p ? sym2("%spine", h) : h; }
@@ -2863,11 +2875,31 @@ static Node *el(Node *t) {
         bool dim = certain || (g >= 0 && EG[g].kind == 1);
         int save = nesc; if (!dim && exA) e_pusht(t->it[1]->s, exA); else e_push(t->it[1]->s, dim);
         bool wt = !strncmp(t->it[1]->s, "%α", strlen("%α")) && nwtick < 64;   /* an inserted tick λ */
-        if (wt) wtick[nwtick++] = t->it[1]->s;
-        syn_expect = dim ? NULL : exB; Node *b = el(t->it[2]); nesc = save;
+        /* a tick λ written out, with a guarded recursive call under it: the call is the fixed
+         * point's later self at the (outermost) tick, as under an inserted one */
+        Node *body = t->it[2];
+        if (!wt && !dim && nwtick < 64 && tickpos && has_gcall(body)) {
+            wt = true; wtick[nwtick++] = t->it[1]->s;
+            body = tick_body(t, t->it[1]);
+        } else if (wt) wtick[nwtick++] = t->it[1]->s;
+        syn_expect = dim ? NULL : exB; Node *b = el(body); nesc = save;
         if (wt) nwtick--;
         Node *r = sym3(dim ? "plam" : "lam", t->it[1], b);
         return g >= 0 ? sym4("%guess", wordn(g), wordn(EG[g].kind), r) : r;
+    }
+    if (!strcmp(k, "pair") && t->n == 3 && ex) {
+        /* a pair where a Σ is expected: each component at its type (a later one given a tick) */
+        Node *S = ex; while (S->list && S->n == 2 && is(S->it[0], "%impPi")) S = S->it[1];
+        if (S->list && S->n == 4 && is(S->it[0], "Sigma") && !S->it[1]->list) {
+            Node *A = S->it[2], *B = mentions_name(S->it[3], S->it[1]->s) ? NULL : S->it[3];
+            Node *c[2] = { t->it[1], t->it[2] }, *T[2] = { A, B }, *o[2];
+            for (int q = 0; q < 2; q++) {
+                if (T[q] && mentions_unknown(T[q])) T[q] = NULL;
+                if (T[q] && is_later(T[q]) && wants_tick(c[q])) c[q] = tick_wrap(c[q]);
+                syn_expect = T[q]; o[q] = el(c[q]); syn_expect = NULL;
+            }
+            return sym3("pair", o[0], o[1]);
+        }
     }
     if ((!strcmp(k, "plam") || !strcmp(k, "forall")) && t->n == 3) { int save = nesc; e_push(t->it[1]->s, true); Node *b = el(t->it[2]); nesc = save; return sym3(k, t->it[1], b); }
     if ((!strcmp(k, "Pi") || !strcmp(k, "Sigma")) && t->n == 4) {
@@ -2977,7 +3009,7 @@ static bool cov_on, cov_armed; static jmp_buf cov_jb;
 /* guarded recursion: a definition with a clock parameter (the first, guard_q) whose recursion is not
  * structural is a guarded fixed point: each call is (%gcall the arguments after the clock), made a
  * call of the fixed point's own later self where it stands under ▸ (a later position) */
-static bool guard_on; static int guard_q = -1;
+
 static Deep *deep_of(const char *w) { for (int i = ndeeps - 1; i >= 0; i--) if (!strcmp(deeps[i].w, w)) return &deeps[i]; return NULL; }
 static Node *rec_xform(Node *e);
 static Node *rec_call(Node *e, Node **args, int n) {
@@ -3284,6 +3316,17 @@ static void clock_args(Node *t, Names *bound) {
     if (!strcmp(h, "Tick") && t->n == 2 && !t->it[1]->list && !names_has(bound, t->it[1]->s)) { names_add(clk_names, t->it[1]->s); return; }
     int d = data_lookup(h);
     Node *dd = d >= 0 ? (Node *)DATA[d].decl : NULL;
+    if (d < 0 && !names_has(bound, h) && sig_of(h)) {
+        /* a defined family (G κ): its explicit Clock parameters */
+        int q = 1;
+        for (Node *x = sig_of(h); x && q < t->n; ) {
+            if (x->list && x->n == 2 && is(x->it[0], "%impPi")) { x = x->it[1]; if (x->list && x->n == 4) x = x->it[3]; continue; }
+            if (!(x->list && x->n == 4 && is(x->it[0], "Pi"))) break;
+            if (!x->it[2]->list && is(x->it[2], "Clock") && !t->it[q]->list && !names_has(bound, t->it[q]->s)) names_add(clk_names, t->it[q]->s);
+            q++; x = x->it[3];
+        }
+        return;
+    }
     if (!dd || !dd->list || dd->n < 2 || !dd->it[1]->list) return;
     Node *hd = dd->it[1];
     for (int q = 1; q < t->n && q < hd->n; q++) {
@@ -3432,7 +3475,7 @@ static Node *clauses_typed(const char *f, Lhs *ls, Node **rhs, int n) {
         Node *Bty = tsig.R, *inner = body;
         int nl = 0;
         for (int q = tsig.np - 1; q > q0; q--) if (!tsig.imp[q]) { Bty = sym4("Pi", tsig.pn[q], tsig.pty[q], Bty); inner = lam_t(tsig.pn[q], tsig.pty[q], inner); nl++; }
-        Node *fx = lst(4, nsym("fix"), sym2("%imp", tsig.pn[q0]), sym2("%imp", Bty), sym3("lam", nsym("%self"), inner));
+        Node *fx = lst(5, nsym("fix"), sym2("%imp", nsym("%hole")), sym2("%imp", tsig.pn[q0]), sym2("%imp", Bty), sym3("lam", nsym("%self"), inner));
         if (nl) { Node *a = nlist(nl + 1); a->it[0] = fx; int k = 1; for (int q = q0 + 1; q < tsig.np; q++) if (!tsig.imp[q]) a->it[k++] = tsig.pn[q]; fx = a; }
         body = fx;
     }

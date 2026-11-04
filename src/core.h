@@ -158,6 +158,7 @@ enum {
     O_TPART,    /* a=k; 0=a type 1=out: the type's k-th component */
     O_CONCHK,   /* a=constructor; 0=its boundary's face 1=the boundary 2..=fields, dims; out */
     O_HCOMP,    /* 0=tube 1=cap 2=out: a formal hcomp unless the tube is total */
+    O_HCOMPE,   /* 0=cap 1=fieldwise composition 2=out: an empty tube, applied once the cap is a constructor */
     O_TRANSD1,  /* a=data type; 0=ψ 1..k=parameter lines k+1=x out */
     O_TRANSD2,  /* a=data type, p=Dnf ψ; 0=x 1..k=parameter lines out */
     O_CASE,     /* p=CaseTab, x=has motive; 0=scrutinee [1=motive] environment, out. Meeting a
