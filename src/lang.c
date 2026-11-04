@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <limits.h>
 #include <stdarg.h>
+extern int dup(int); extern int dup2(int, int); extern int close(int);
 
 /* grow an array to hold at least n elements */
 #define GROW(arr, cap, n) do { if ((size_t)(n) > (size_t)(cap)) { size_t nc_ = (cap) ? (size_t)(cap) * 2 : 16; while (nc_ < (size_t)(n)) nc_ *= 2; (arr) = realloc((arr), nc_ * sizeof *(arr)); (cap) = nc_; } } while (0)

@@ -665,6 +665,12 @@ tube-ok i Wi L0 Li av =
 -- a at 0 agreeing with u at 0; the result is at A 1
 check-comp c A u a =
   case A of
+    tguess k g t V → if %weq g #0 then redo k else check-comp c t u a
+    _ → case u of
+          tguess k g t V → if %weq g #0 then redo k else check-comp c A t a
+          _ → check-comp1 c A u a
+check-comp1 c A u a =
+  case A of
     tplam nX X LV → 
       let i = %dim nX
       in case infer-level (X i) of
@@ -841,6 +847,7 @@ check-tele c tel ps =
     _ → err c E-params opq opq
 motive-level T P =
   case P of
+    tguess k g t V → if %weq g #1 then redo k else motive-level T t
     tlam nm b V → infer-sort (b (%var nm T) T)
     _ → 
       case infer P of
@@ -904,6 +911,7 @@ check-branch e d Pv F c tel b = branch-fields e d Pv F c tel b lnil lnil
 -- a formal hcomp: a tube of lines in the type, agreeing with the cap at 0
 check-hcomp T u a =
   case u of
+    tguess k g t V → if %weq g #0 then redo k else check-hcomp T t a
     tplam nW W UV → let i = %dim nW in tube-ok i (W i) T T (tval a)
     _ → err u E-notline opq opq
 -- a constructor's fields and dimensions along its telescope
@@ -997,6 +1005,11 @@ check-recfields c tel fs =
     _ → chk (isnil fs) (err c E-ctor opq opq)
 -- a definition: its type is a type, its term has that type
 chk-def cT ct = case infer-sort cT of yes s → check ct (tval cT); r → r
+-- a term's type inferred (the elaborator's run over a term to read: its implicit arguments found)
+infer-ok ct = case infer ct of yes T → ok; r → r
+-- a copattern definition's body against its type, its own calls a variable of that type (the
+-- elaborator's dry run: its implicit arguments and kinds settled before it is declared)
+chk-codef-dry cT ct = case infer-sort cT of yes s → check-codef ct (tval cT); r → r
 -- the type of a checked definition, as the table holds it
 sig-type cT = tval cT
 -- a data declaration: parameter types are types; each field type a type, strictly positive (D
@@ -1009,6 +1022,8 @@ cany-br p b =
 cany p c =
   orb (p c)
     (case c of
+       tguess k g t V → cany p t
+       tspine t V → cany p t
        tlam nm b V → cany-b p b
        tplam nm b V → cany p (b (%dim))
        tforall nm b V → cany p (b (%dim))
@@ -1163,6 +1178,8 @@ guarded grp c =
   if notb (mentions grp c)
     then true
     else case c of
+           tguess k g t V → guarded grp t
+           tspine t V → guarded grp t
            tlam nm b V → guarded grp (b (%var Uw) Uw)
            tplam nm b V → guarded grp (b (%dim))
            tpair a b V → andb (guarded grp a) (guarded grp b)
@@ -1181,6 +1198,7 @@ codef-fields grp d (lcons f r) k =
   and-then (chk (guarded grp f) (no opq E-unguarded d k)) (codef-fields grp d r (%wsucc k))
 codef-ok grp c =
   case c of
+    tguess k g t V → codef-ok grp t
     tlam nm b V → codef-ok grp (b (%var Uw) Uw)
     tplam nm b V → codef-ok grp (b (%dim))
     trec d fs V → codef-fields grp d fs #0
@@ -1190,6 +1208,10 @@ codef-ok grp c =
 -- fields the record's own
 check-codef c T =
   case c of
+    tguess k g t V →
+      if %weq g #0 then (case %view T of wpath L a b → redo k; _ → check-codef t T)
+      else if %weq g #1 then (case %view T of wpi A B → redo k; _ → check-codef t T)
+      else check-codef t T
     tlam nm b V → 
       case %view T of
         wpi A B → let x = %var nm A in check-codef (b x A) (B x)
@@ -1500,7 +1522,9 @@ guess-check k g t T =
   else if %weq g #1 then (case %view T of wpi A B → redo k; _ → check t T)
   else check-by-infer (tguess k g t (tval t)) T
 guess-infer k g t =
-  if %weq g #2 then
+  -- a λ guessed a function's has no inferable type: a line's may
+  if %weq g #0 then redo k
+  else if %weq g #2 then
     (case t of
        tapp f a V → (case infer f of yes T → (case %view T of wpath L a0 a1 → redo k; _ → infer t); r → r)
        _ → infer t)
@@ -1522,6 +1546,7 @@ solved sg k = lany (λ s → %weq (fst s) k) sg
 sol-of sg k = case sg of lnil → none; lcons s r → (if %weq (fst s) k then some (snd s) else sol-of r k)
 inferable a =
   case a of
+    tguess k g t V → notb (%wlt g #2)
     tlam nm b V → false
     tplam nm b V → false
     tpair a b V → false
@@ -1610,7 +1635,11 @@ quote-sol hs s =
   case quote lnil (hole-type hs (fst s)) (snd s) of
     some q → some q
     none → qv-un lnil (snd s)
+-- a level nothing determines is the least
+level-hole hs = case hs of lnil → none; lcons h r → (case %view (snd (snd h)) of wlevel → some (fst h); _ → level-hole r)
 spine-done c hs sg =
   if isnil sg
-  then (case hs of lcons h r → no (tval c) E-implicit (snd (snd h)) opq; lnil → err c E-implicit opq opq)
+  then (case level-hole hs of
+          some k → elab (lcons (k , some clzero) lnil)
+          none → (case hs of lcons h r → no (tval c) E-implicit (snd (snd h)) opq; lnil → err c E-implicit opq opq))
   else elab (lmap (λ s → (fst s , quote-sol hs s)) sg)
