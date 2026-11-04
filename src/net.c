@@ -581,7 +581,7 @@ static void split2(Port prov, Port *a, Port *b) { Cell *d = cell(O_DUP, 3); d->a
 /* the stuck head of a copattern definition: a neutral of its declared type (when it has one), named
  * by the definition; projection unfolds it */
 Port cofix_head(long g, long tyg) {
-    Cell *c = cell(V_NVAR, 2); c->a = (uint64_t)g; c->ty = TY_COFIX; c->key = key_global(g);
+    Cell *c = cell(V_NVAR, 2); c->a = (uint64_t)g; c->ty = TY_COFIX | (global_tickar(g) ? TY_TICK : 0); c->key = key_global(g);
     if (tyg >= 0) { Cell *t = cell(V_GLOBAL, 1); t->a = (uint64_t)tyg; t->key = key_global(tyg); link(P(t, 0), P(c, 1)); c->ty |= TY_KNOWN; }
     else link(unk(), P(c, 1));
     return P(c, 0);
@@ -897,10 +897,11 @@ static void neutral_proj(Cell *o, Cell *v) {
  * value's own ports: nothing is copied, and a part is read further only by viewing it. */
 enum { W_LAM, W_PAIR, W_PI, W_SIGMA, W_U, W_PATH, W_PLAM, W_IV, W_FACE, W_SYS, W_GLUE, W_GLUEV, W_DATA, W_CON,
        W_HCOMP, W_VAR, W_APP, W_FST, W_SND, W_PAPP, W_COMP, W_UNGLUE, W_ELIM, W_TRANS, W_LEVEL, W_OTHER,
-       W_WORD, W_WLIT, W_WPLUS, W_WOP, W_WELIM, W_COFIX, W_PROJ, W_REC, W_N };
+       W_WORD, W_WLIT, W_WPLUS, W_WOP, W_WELIM, W_COFIX, W_PROJ, W_REC, W_CLOCK, W_TICK, W_CLOCK0, W_TICK0, W_N };
 static const char *WNAME[W_N] = { "wlam", "wpair", "wpi", "wsigma", "wu", "wpath", "wplam", "wiv", "wface", "wsys", "wglue",
     "wgluev", "wdata", "wcon", "whcomp", "wvar", "wapp", "wfst", "wsnd", "wpapp", "wcomp", "wunglue", "welim", "wtrans",
-    "wlevel", "wother", "wword", "wwlit", "wwplus", "wwop", "wwelim", "wcofix", "wproj", "wrec" };
+    "wlevel", "wother", "wword", "wwlit", "wwplus", "wwop", "wwelim", "wcofix", "wproj", "wrec", "wclock", "wtick",
+    "wclock0", "wtick0" };
 static int WC[W_N], C_LNIL = -1, C_LCONS, C_TRUE, C_FALSE, C_NONE, C_SOME;
 static int B_TRUE = -1, B_FALSE;
 static void need_bool(void) {
@@ -965,6 +966,9 @@ static void rule_view(Cell *o, Cell *v) {
     case V_DATA: {
         int d = data_checked_index((int)v->a);
         if (!strcmp(DATA[v->a].name, "Level")) { r = con_build(WC[W_LEVEL], NULL, NULL); break; }
+        /* clocks and the ticks of a clock: read by their own constructors */
+        if (!strcmp(DATA[v->a].name, "Clock") && v->n == 1) { r = con_build(WC[W_CLOCK], NULL, NULL); break; }
+        if (!strcmp(DATA[v->a].name, "Tick") && v->n == 2) { r = mk(WC[W_TICK], v->port[1], 0, 0, 0); break; }
         if (d < 0) { for (int k = 1; k < v->n; k++) era(v->port[k]); r = con_build(WC[W_OTHER], NULL, NULL); break; }
         r = mk(WC[W_DATA], word_of((uint64_t)d), list_of(&v->port[1], v->n - 1), 0, 0);
         break;
@@ -973,6 +977,8 @@ static void rule_view(Cell *o, Cell *v) {
         /* a constructor of a checked data type, or of Level (as data type 0: levels are read by
          * their constructors only); of any other, nothing the checker reads */
         ConInfo *k = &CON[v->a];
+        if (!strcmp(DATA[k->data].name, "Clock")) { r = con_build(WC[W_CLOCK0], NULL, NULL); break; }
+        if (!strcmp(DATA[k->data].name, "Tick")) { r = con_build(WC[W_TICK0], NULL, NULL); break; }
         int d = data_checked_index(k->data);
         if (d < 0 && strcmp(DATA[k->data].name, "Level")) { for (int q = 1; q < v->n; q++) era(v->port[q]); r = con_build(WC[W_OTHER], NULL, NULL); break; }
         r = mk(WC[W_CON], word_of((uint64_t)(d < 0 ? 0 : d)), word_of((uint64_t)k->index), list_of(&v->port[1], k->nfields), list_of(&v->port[1 + k->nfields], k->ndims));
@@ -1195,6 +1201,7 @@ static const char *const KIND_NAME[K_END] = {
     [O_ROOT] = "ROOT",
     [O_PROJ] = "PROJ",
     [O_UNFOLD] = "UNFOLD",
+    [O_TICKAPP] = "TICKAPP",
     [O_DAPPLY] = "DAPPLY",
 };
 
@@ -1319,9 +1326,17 @@ static void interact(Cell *o, Cell *v) {
         else {
             /* stuck: a neutral application (its type computed from the spine when needed). A stuck
              * call of a copattern definition stays one, and is named by its head and argument */
+            if (is_neutral(vk) && (v->ty & TY_TICK) && (vk == V_NVAR ? global_tickar((long)v->a) : (long)v->a) == 1) {
+                /* the argument a tick-unfolding definition unfolds at: its value decides */
+                Cell *t = cell(O_TICKAPP, 3);
+                mv(o, 1, P(t, 0)); link(P(v, 0), P(t, 1)); link(P(t, 2), o->port[2]);
+                cell_free(o);
+                return;
+            }
             Cell *n = cell(V_NAPP, 4);
             if (is_neutral(vk) && (v->ty & TY_COFIX)) {
                 n->ty = TY_COFIX;
+                if (v->ty & TY_TICK) { n->ty |= TY_TICK; n->a = (uint64_t)((vk == V_NVAR ? global_tickar((long)v->a) : (long)v->a) - 1); }
                 if (v->key) { Key *ak = key_of_port(o->port[1]); n->key = key2(K_APP, 0, NULL, v->key, ak); if (ak) key_release(ak); }
             }
             mv(o, 1, P(n, 2)); link(unk(), P(n, 3));
@@ -2167,6 +2182,25 @@ static void interact(Cell *o, Cell *v) {
             cell_free(o); cell_free(v);
         } else if (vk == V_SYS) distribute(o, v);
         else { link(P(v, 0), out); cell_free(o); }
+        return;
+    }
+    case O_TICKAPP: {
+        /* the tick a stuck call of a tick-unfolding definition is applied to: ⋄ unfolds it (the
+         * body applied to the same arguments and ⋄); a tick variable leaves a stuck application,
+         * no longer a call that unfolds */
+        static int diamond = -2;
+        if (diamond == -2) diamond = con_index("⋄");
+        Port out = o->port[2];
+        if (vk == V_CON && (int)v->a == diamond) {
+            Cell *u = cell(O_UNFOLD, 2), *a = cell(O_APP, 3);
+            link(o->port[1], P(u, 0)); link(P(u, 1), P(a, 0)); link(P(v, 0), P(a, 1)); link(P(a, 2), out);
+            cell_free(o);
+        } else {
+            Cell *n = cell(V_NAPP, 4);
+            mv(o, 1, P(n, 1)); link(P(v, 0), P(n, 2)); link(unk(), P(n, 3));
+            link(P(n, 0), out);
+            cell_free(o);
+        }
         return;
     }
     case O_DAPPLY:

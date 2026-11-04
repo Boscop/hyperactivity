@@ -205,6 +205,9 @@ enum {
     O_UNFOLD,   /* 0=a stuck call of a copattern definition (its head, applications and path
                  * applications) 1=out: the definition's body applied to the same arguments */
     O_DAPPLY,   /* 0=a data type 1=f 2=out: f applied to the data type's parameters */
+    O_TICKAPP,  /* 0=an argument 1=a stuck call of a tick-unfolding definition, short of that argument
+                 * 2=out: given the tick constant ⋄ the call unfolds (the body applied to its
+                 * arguments and ⋄); given anything else it stays a stuck application */
     K_END
 };
 enum { B_MEET, B_JOIN, B_FAND, B_FOR };
@@ -246,7 +249,8 @@ typedef struct Cell {
     Port port[];
 } Cell;
 
-enum { TY_KNOWN = 1, TY_COFIX = 2 };
+enum { TY_KNOWN = 1, TY_COFIX = 2, TY_TICK = 4 };   /* TY_TICK: a stuck call of a definition that unfolds at ⋄;
+                                                    * its a counts the arguments still before the tick */
 static inline Port P(Cell *c, int k) { return ((uint64_t)(uintptr_t)c << 16) | (uint64_t)k; }
 static inline Cell *PC(Port p) { return (Cell *)(uintptr_t)(p >> 16); }
 static inline int PI(Port p) { return (int)(p & 0xffff); }
@@ -284,6 +288,7 @@ enum { TB_VAL, TB_TY, TB_DTAB, TB_DENT, TB_TRANS, TB_N };   /* TB_TRANS: a data 
 long table_global(int table, long i);  /* the global holding entry i of a checker table, or -1 */
 /* copattern definitions: the body a head unfolds to; a global's index in the checker's signature (or -1) */
 long global_unfold(long g);
+int global_tickar(long g);         /* a tick-unfolding definition's number of parameters (the last the tick), or 0 */
 int global_checked(long g);
 Port cofix_head(long g, long tyg);   /* the stuck head of copattern definition g, of type global tyg (or -1) */
 /* a definition's body as one record taking all its parameters (NULL when it is not a λ) */

@@ -16,7 +16,8 @@ readback, top-level forms, modules), `src/syntax.c` (the surface language: layou
 elaboration, clause compilation, printing). Language files: `lib/prelude.cub` (core data types,
 composition clauses), `lib/code.cub` (codes, `View`), `lib/check.cub` (the type checker),
 `lib/std.cub` (checked library), `lib/sort.cub` (9.15 over any ordered type; `tests/sort.cub`
-instantiates and runs it). Coinduction: §7, `tests/codata.cub`. Earlier plans and specs: `archive/`.
+instantiates and runs it). Coinduction: §7, `tests/codata.cub`; guarded recursion: §8,
+`tests/guarded.cub`. Earlier plans and specs: `archive/`.
 
 ## 0. The language
 
@@ -68,7 +69,8 @@ tail : Stream A`), and a value of it is defined by copatterns: `(smap f s).head 
 `(a , b)` a value of it; `x.f` projects. `mutual` groups definitions that call each other;
 `postulate x y` declares names without values.
 
-**Recursion.** A call on a field of the matched argument is structural. A call on a field's field,
+**Recursion.** A call on a field of the matched argument is structural; a definition at a type with
+a clock recurses through any functions where a later value is expected (§8). A call on a field's field,
 at any depth (`fib (suc (suc n)) = plus (fib n) (fib (suc n))`), is course-of-values: the split
 computes each value together with the values below it (a Σ of the value and `Below v`, `Below`
 itself an elimination into types), and a split of a variable below reverts that pair, so that in
@@ -280,6 +282,51 @@ transported process is again a process, unfolded field by field when it is obser
 `#show t` reads a stuck call as the call. `#observe n t` reads it unfolded n levels deep, as
 records. An unfolding is named by the call it unfolds, so two unfoldings of one call pending at
 once share the body (§3).
+
+## 8. Guarded recursion
+
+```
+nats : Stream κ Nat
+nats = 0 ∷ smap suc nats
+
+fibs : Stream κ Nat
+fibs = 0 ∷ 1 ∷ zipWith plus fibs (stail fibs)
+
+#same nth 10 (λ κ → fibs {κ}) = 55
+```
+
+`▸ κ A` is an `A` one tick of the clock `κ` later: the Π type `(α : Tick κ) → A`. A tick is bound
+by λ and given by application, and nothing else: `Clock` and `Tick κ` are the domains of Π types
+only, in no universe, so a tick cannot be stored, returned, or let-bound. The checker's
+timelessness rule makes "later" mean later: in the body of a tick λ, a function applied to the
+tick α may use no variable bound at or after α. So `λ α → x α α` is rejected (one tick spent
+twice) and `λ α β → x α β` accepted.
+
+`dfix : (▸ κ A → A) → ▸ κ A` is a stuck call of the kind copattern definitions make (§7), with one
+difference: it unfolds, `dfix f ⋄ = f (dfix f)`, only when applied to the tick constant `⋄`, and at
+a tick variable it stays stuck. `fix f = f (dfix f)` is then the guarded fixed point, and every
+recursion whose recursive use is under `▸` is well typed, whatever functions it passes through.
+`⋄` is not written in a checked term; it is the computation of `forceκ : ((κ : Clock) → ▸ κ (A κ))
+→ (κ : Clock) → A κ`, a later value at every clock being a value now at every clock (the clock is
+fresh, so its tick constant may be given). A total stream is a stream at every clock,
+`Str A = (κ : Clock) → Stream κ A`, observed through `forceκ` (`tl`, `nth`); `κ0` is the closed
+clock. `pfix : dfix f ≡ next (fix f)` is the unfolding at a tick variable, a constant path.
+Normalization terminates because the only unfolding fires on `⋄`, which only `forceκ` gives.
+
+Guarded types are ordinary data whose recursive fields are later:
+`data Stream (κ : Clock) A = _∷_ (head : A) (tail : ▸ κ (Stream κ A))`. Such a field is not a
+recursive field (an elimination takes no hypothesis for it). Composition in `▸ κ A` is pointwise
+(the composition of ticks and clocks is the identity), so transport along a line of stream types
+moves each tail at its own tick.
+
+The elaborator writes the ticks. A clock named in a signature (an argument of `Tick` or of a
+data type's `Clock` parameter) is an implicit parameter. A definition with a clock whose
+recursion is not structural is the guarded fixed point over its explicit parameters after the
+clock. A term given where `▸ κ X` is expected and not itself later is a λ over a fresh tick, inside
+which a later subterm standing where a present value is due is applied to that tick, and a
+recursive call is the fixed point's self at the outermost such tick. A clock argument nothing
+determines is the one clock in scope. A recursive call needed now is reported where it stands:
+`bad = smap suc bad` is rejected with "a recursive call needed now, not under ▸".
 
 ## Measurements
 

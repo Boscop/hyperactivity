@@ -70,6 +70,11 @@ data Tm
   | tguess k g t V
   -- an application with holes among its arguments
   | tspine t V
+  -- guarded recursion: the type of clocks, the type of the ticks of a clock, the closed clock
+  | tclock
+  | ttick k V
+  | tclock0
+  | ttick0
 -- a branch of an elimination: binders for its fields, hypotheses, dimensions, then the body
 data Br = bx nm b | bi nm b | be t
 -- a telescope: a term binder over a type, a dimension binder, the end
@@ -129,6 +134,10 @@ tval c =
     thole k V → V
     tguess k g t V → V
     tspine t V → V
+    tclock → Clock
+    ttick k V → V
+    tclock0 → κ0
+    ttick0 → ⋄
 -- ---------------------------------------------------------------- basics
 -- Lst, Opt, View, CloCmp and DTab are declared in code.cub
 andb a b = if a then b else false
@@ -207,6 +216,12 @@ params-fresh tel pvs =
     tz e → (pvs , e)
     _ → (pvs , lnil)
 is-data-d d c = case c of tdata d2 ps V → %weq d d2; _ → false
+-- D itself, or D some ticks later (a guarded field): at level lzero in D's own level
+later-rec d c =
+  case c of
+    tdata d2 ps V → %weq d d2
+    tpi B nm b V → (case B of ttick k V2 → later-rec d (b (%var Uw) Uw); _ → false)
+    _ → false
 -- the machine's data type and constructor, from the table
 mkdata d ps = app-all (dt-former (%dtab d)) ps
 mkcon d c fs ds = app-all (cl-at (dt-cons (%dtab d)) c) (lapp fs ds)
@@ -396,6 +411,10 @@ uconv-head wu v wv =
     wiv r → (case wv of wiv s → %ieq r s; _ → false)
     wface a → (case wv of wface b → %feq a b; _ → false)
     wword → (case wv of wword → true; _ → false)
+    wclock → (case wv of wclock → true; _ → false)
+    wtick k → (case wv of wtick k2 → uconv k k2; _ → false)
+    wclock0 → (case wv of wclock0 → true; _ → false)
+    wtick0 → (case wv of wtick0 → true; _ → false)
     wwlit n → (case wv of wwlit m → %weq n m; _ → false)
     wwplus k x → (case wv of wwplus j y → if %weq k j then uconv x y else false; _ → false)
     wother → false
@@ -601,6 +620,9 @@ E-literal = #29
 E-notcodata = #30
 E-copositive = #31
 E-implicit = #32
+E-tick = #33
+E-tickarg = #34
+E-clocktype = #35
 -- a type's universe level (not ω), and a type's sort (a universe, U ω for types over levels)
 infer-level A =
   case infer A of
@@ -694,9 +716,13 @@ infer c =
       case infer f of
         yes T → 
           case %view T of
-            wpi A B → and-then (check a A) (yes (B (tval a)))
+            wpi A B → and-then (tick-arg A a) (and-then (check a A) (yes (B (tval a))))
             _ → err f E-notfun T opq
         r → r
+    tclock → err c E-clocktype opq opq
+    ttick k V → err c E-clocktype opq opq
+    tclock0 → yes Clock
+    ttick0 → err c E-tickarg opq opq
     tfst p V → 
       case infer p of
         yes T → (case %view T of wsigma A B → yes A; _ → err p E-notpair T opq)
@@ -717,7 +743,7 @@ infer c =
     tlzero → yes Level
     tlsuc l V → and-then (check l Level) (yes Level)
     tlmax a b V → and-then (check a Level) (and-then (check b Level) (yes Level))
-    tpi A nm b V → infer-binder A nm b
+    tpi A nm b V → infer-pi A nm b
     tsigma A nm b V → infer-binder A nm b
     tpathp A a b V → 
       case A of
@@ -751,7 +777,10 @@ infer c =
         yes T → (case %view T of wglue A S2 → yes A; _ → err b E-notglue T opq)
         r → r
     tcomp A u a V → check-comp c A u a
-    tlet t nm b V → (case infer t of yes T → infer (b (tval t) T); r → r)
+    tlet t nm b V → 
+      case infer t of
+        yes T → (case %view T of wtick k → err t E-tickarg T opq; _ → infer (b (tval t) T))
+        r → r
     tann t T V → 
       case infer-sort T of yes s → let Tv = tval T in and-then (check t Tv) (yes Tv); r → r
     tdata d ps V → let de = %dent d in and-then (check-tele c (dtel de) ps) (yes (Type (dlvl de)))
@@ -936,13 +965,98 @@ infer-binder A nm b =
       let Av = tval A
       in case infer-sort (b (%var nm Av) Av) of yes s2 → yes (sort-max s1 s2); r → r
     r → r
+-- a Π type's domain may also be the clocks or the ticks of a clock (no universe holds them)
+infer-dom A =
+  case A of
+    tclock → yes (Type lzero)
+    ttick k V → and-then (check k Clock) (yes (Type lzero))
+    _ → infer-sort A
+infer-pi A nm b =
+  case infer-dom A of
+    yes s1 → 
+      let Av = tval A
+      in case infer-sort (b (%var nm Av) Av) of yes s2 → yes (sort-max s1 s2); r → r
+    r → r
+-- an argument of a tick type is a tick variable (a tick is only bound, never computed)
+tick-arg A a =
+  case %view A of
+    wtick k → (case a of tv x T → ok; _ → err a E-tickarg A opq)
+    _ → ok
+-- the timelessness of a tick α: in the body of its λ, a function applied to α uses no variable
+-- bound after α (inside the body). Binders are walked with fresh variables, collected in ctx
+tick-bad α ctx c =
+  orb
+    (case c of
+       tapp t a V → 
+         case a of
+           tv x T → andb (same-var x α) (cany (λ e → case e of tv y Ty → lany (same-var y) (lcons α ctx); _ → false) t)
+           _ → false
+       _ → false)
+    (tick-sub α ctx c)
+tick-b α ctx b = let x = %var Uw in tick-bad α (lcons x ctx) (b x Uw)
+tick-br α ctx b =
+  case b of
+    bx nm f → let x = %var Uw in tick-br α (lcons x ctx) (f x Uw)
+    bi nm f → tick-br α ctx (f (%dim))
+    be t → tick-bad α ctx t
+tick-sub α ctx c =
+  let r = tick-bad α ctx
+  in case c of
+       tguess k g t V → r t
+       tspine t V → r t
+       tlam nm b V → tick-b α ctx b
+       tplam nm b V → r (b (%dim))
+       tforall nm b V → r (b (%dim))
+       tfst a V → r a
+       tsnd a V → r a
+       tforce a V → r a
+       tneg a V → r a
+       teq0 a V → r a
+       teq1 a V → r a
+       tlsuc a V → r a
+       tuniv a V → r a
+       tapp a b V → orb (r a) (r b)
+       tpair a b V → orb (r a) (r b)
+       tpi a nm b V → orb (r a) (tick-b α ctx b)
+       tsigma a nm b V → orb (r a) (tick-b α ctx b)
+       tlet a nm b V → orb (r a) (tick-b α ctx b)
+       tpapp a b V → orb (r a) (r b)
+       tmeet a b V → orb (r a) (r b)
+       tjoin a b V → orb (r a) (r b)
+       tfand a b V → orb (r a) (r b)
+       tfor a b V → orb (r a) (r b)
+       tlmax a b V → orb (r a) (r b)
+       tgluet a b V → orb (r a) (r b)
+       tglue a b V → orb (r a) (r b)
+       tunglue a b V → orb (r a) (r b)
+       tann a b V → orb (r a) (r b)
+       thcomp a b V → orb (r a) (r b)
+       tpathp a b x V → orb (r a) (orb (r b) (r x))
+       tcomp a b x V → orb (r a) (orb (r b) (r x))
+       tsys bs V → lany (λ b → orb (r (fst b)) (r (force (snd b)))) bs
+       tdata d ps V → lany r ps
+       tcon d c2 fs ds V → orb (lany r fs) (lany r ds)
+       telim d P B x F V → orb (r P) (orb (lany (tick-br α ctx) B) (r x))
+       tcase d B x F V → orb (lany (tick-br α ctx) B) (r x)
+       twsucc a V → r a
+       twop k a b V → orb (r a) (r b)
+       twelim P w z s V → orb (r P) (orb (r w) (orb (r z) (r s)))
+       tproj d k x V → r x
+       trec d fs V → lany r fs
+       ttick k V → r k
+       _ → false
 check c T =
   case c of
     tguess k g t V → guess-check k g t T
     tspine t V → solve-spine t (some T)
     tlam nm b V → 
       case %view T of
-        wpi A B → let x = %var nm A in check (b x A) (B x)
+        wpi A B → 
+          let x = %var nm A
+          in and-then (check (b x A) (B x))
+               (case %view A of
+                  wtick k → chk (notb (tick-bad x lnil (b x A))) (err c E-tick opq opq)
+                  _ → ok)
         _ → err c E-mismatch T opq
     tpair a b V → 
       case %view T of
@@ -974,7 +1088,10 @@ check c T =
                                 in chk (conv (%restrict d A) w x) (err c E-gluebr x w))
                              (%clauses (tval (fst b)))) (sys-bs S))))
         _ → err c E-mismatch T opq
-    tlet t nm b V → (case infer t of yes Ty → check (b (tval t) Ty) T; r → r)
+    tlet t nm b V → 
+      case infer t of
+        yes Ty → (case %view Ty of wtick k → err t E-tickarg Ty opq; _ → check (b (tval t) Ty) T)
+        r → r
     tcon d c2 fs ds V → 
       case %view T of
         wdata d2 ps → 
@@ -1005,6 +1122,8 @@ check-recfields c tel fs =
     _ → chk (isnil fs) (err c E-ctor opq opq)
 -- a definition: its type is a type, its term has that type
 chk-def cT ct = case infer-sort cT of yes s → check ct (tval cT); r → r
+-- a primitive: its type is a type
+chk-type cT = case infer-sort cT of yes s → ok; r → r
 -- a term's type inferred (the elaborator's run over a term to read: its implicit arguments found)
 infer-ok ct = case infer ct of yes T → ok; r → r
 -- a copattern definition's body against its type, its own calls a variable of that type (the
@@ -1074,6 +1193,8 @@ positive d pvs A =
     (case A of
        tdata d2 ps V → 
          andb (%weq d2 d) (andb (lall (λ q → notb (cany (is-data-d d) q)) ps) (uniform-at ps pvs))
+       -- a later D (guarded recursion): a field, not a recursive one (no hypothesis is taken)
+       tpi B nm b V → (case B of ttick k V2 → positive d pvs (b (%var Uw) Uw); _ → false)
        _ → false)
 earlier-only d c bdy =
   notb
@@ -1081,7 +1202,7 @@ earlier-only d c bdy =
 check-ptys tel =
   case tel of
     tx A nm r → 
-      case infer-sort A of yes s → let Av = tval A in check-ptys (r (%var nm Av) Av); r2 → r2
+      case infer-dom A of yes s → let Av = tval A in check-ptys (r (%var nm Av) Av); r2 → r2
     _ → ok
 check-ctor-dims d pvs c tel =
   case tel of
@@ -1107,7 +1228,7 @@ field-levels d tel =
   case tel of
     tx A nm r → 
       let Av = tval A
-      in lcons (if is-data-d d A then lzero else level-of (infer-level A))
+      in lcons (if later-rec d A then lzero else level-of (infer-level A))
            (field-levels d (r (%var nm Av) Av))
     _ → lnil
 lfold-lmax lnil = lzero
@@ -1370,6 +1491,8 @@ qty bs A =
        wdata d ps → omap (cdata d) (q-fields bs (dtel (%dent d)) ps)
        wlevel → some clevel
        wword → some cword
+       wclock → some cclock
+       wtick k → omap ctick (qv-un bs k)
        wsys b → q-sys bs (λ d → some Uw) b
        _ → if is-neu wa then omap q-fst (qneu bs (some Uw) A wa) else none
 -- a level, by Level's constructors lzero lsuc lmax (lomega has no code)
@@ -1403,6 +1526,8 @@ qv-un bs v =
          in obind (qv-un (lcons (qd i) bs) (u @ i)) (λ cu → omap (chcomp (cplam cu)) (qv-un bs a))
        wwlit n → some (cwlit v)
        wrec d fs → omap (crec d) (oseq (lmap (qv-un bs) fs))
+       wclock0 → some cclock0
+       wtick0 → some ctick0
        wother → none
        _ → if is-neu w then omap q-fst (qneu bs none v w) else qty bs v
 -- a neutral: its code and its type, computed along the spine from the head (opq when not known);

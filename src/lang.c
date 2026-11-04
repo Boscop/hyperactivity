@@ -16,8 +16,9 @@ extern int dup(int); extern int dup2(int, int); extern int close(int); extern FI
 
 /* a failure where the caller has a way out (printing a result in the surface syntax): back to it */
 static jmp_buf *die_jb;
+static char die_msg[512];
 static void die(const char *m, const char *x) {
-    if (die_jb) { jmp_buf *j = die_jb; die_jb = NULL; longjmp(*j, 1); }
+    if (die_jb) { snprintf(die_msg, sizeof die_msg, "%s%s%s", m, x ? " " : "", x ? x : ""); jmp_buf *j = die_jb; die_jb = NULL; longjmp(*j, 1); }
     fprintf(stderr, "error: %s%s%s\n", m, x ? " " : "", x ? x : ""); exit(1);
 }
 
@@ -527,6 +528,11 @@ static Node *to_code(Node *t) {
         while (h->list && h->n == 3 && is(h->it[0], "app")) { h = h->it[1]; na++; }
         if (!h->list && !bound_name(h->s)) {
             int c = con_lookup(h->s), d = data_lookup(h->s), fl = c < 0 ? fld_lookup(h->s) : -1;
+            /* clocks and ticks: their own codes */
+            if (d >= 0 && !strcmp(h->s, "Clock") && na == 0) return K("cclock");
+            if (d >= 0 && !strcmp(h->s, "Tick") && na == 1) return capp1("ctick", to_code(t->it[2]));
+            if (c >= 0 && !strcmp(DATA[CON[c].data].name, "Clock") && na == 0) return K("cclock0");
+            if (c >= 0 && !strcmp(DATA[CON[c].data].name, "Tick") && na == 0) return K("ctick0");
             if (fl >= 0 && na == 0) {
                 /* a field alone: the projection as a function */
                 static int nfeta; char nm[32]; snprintf(nm, sizeof nm, "%%feta%d", nfeta++);
@@ -691,6 +697,8 @@ static void apush(const char *s, Node *ty) { GROW(asc, capasc, (size_t)nasc + 1)
 static Node *vsrc(Node *t, Names *bound) {
     if (!t->list) {
         if (names_has(bound, t->s) || ascope(t->s)) return t;
+        /* a field or a constructor of the name: as the compiler reads it */
+        if (fld_lookup(t->s) >= 0 || con_lookup(t->s) >= 0) return t;
         int i = checked_index(t->s);
         return i >= 0 ? nl2("%gval", word(i)) : t;
     }
@@ -777,6 +785,14 @@ static NV ann(Node *t, Chain *C) {
         while (h->list && h->n == 3 && is(h->it[0], "app")) { h = h->it[1]; na++; }
         if (!h->list && !ascope(h->s)) {
             int c = con_lookup(h->s), d = data_lookup(h->s), fl = c < 0 ? fld_lookup(h->s) : -1;
+            /* clocks and ticks */
+            if (d >= 0 && !strcmp(h->s, "Clock") && na == 0) return aconst("tclock", "Clock");
+            if (d >= 0 && !strcmp(h->s, "Tick") && na == 1) {
+                NV k = ann(t->it[2], C); p[0] = k.node;
+                return anode(C, "ttick", p, 1, nl3("app", h, k.val));
+            }
+            if (c >= 0 && !strcmp(DATA[CON[c].data].name, "Clock") && na == 0) return aconst("tclock0", h->s);
+            if (c >= 0 && !strcmp(DATA[CON[c].data].name, "Tick") && na == 0) return aconst("ttick0", h->s);   /* rejected by the checker */
             if (fl >= 0 && na == 0) {
                 static int nfeta; char nm[32]; snprintf(nm, sizeof nm, "%%afeta%d", nfeta++);
                 return ann(nl3("lam", nsym(nm), nl3("app", t, nsym(nm))), C);
@@ -1009,6 +1025,7 @@ typedef struct {
     Cell **park_o, **park_v; int npark, parkcap;
     long unf;                        /* a copattern definition's body (a global), or -1 */
     int chk;                         /* its index in the checker's signature, or -1 */
+    int tickar;                      /* a stuck call unfolding when its last parameter is ⋄: its parameters, else 0 */
 } Global;
 static Global *G; static long nG, capG;
 static char **fresh_names; static long nfresh, capfresh;
@@ -1053,7 +1070,7 @@ static long fresh_var(const char *pfx, long k) {
 static long add_global(const char *name, int kind) {
     if (nG == capG) { capG = capG ? capG * 2 : 64; G = realloc(G, (size_t)capG * sizeof(Global)); }
     memset(&G[nG], 0, sizeof(Global));
-    G[nG].name = strdup(name); G[nG].kind = kind; G[nG].tyg = -1; G[nG].unf = -1; G[nG].chk = -1;
+    G[nG].name = strdup(name); G[nG].kind = kind; G[nG].tyg = -1; G[nG].unf = -1; G[nG].chk = -1; G[nG].tickar = 0;
     G[nG].res = cell(O_ROOT, 1);
     nG++;
     gh_put(name, nG - 1);
@@ -1089,6 +1106,7 @@ void global_park(long g, Cell *op, Cell *glob) {
 }
 
 long global_unfold(long g) { return G[g].unf; }
+int global_tickar(long g) { return G[g].tickar; }
 int global_checked(long g) { return g >= 0 && g < nG ? G[g].chk : -1; }
 Record *global_nary(long g) { return g >= 0 && g < nG && G[g].kind == G_DEF ? G[g].nary : NULL; }
 /* a copy of the value held by an observation cell */
@@ -2072,7 +2090,7 @@ static void pcode(FILE *o, Port p) {
             { "cann", "the" }, { "chcomp", "hcompD" }, { "cforce", "force" }, { "clsuc", "lsuc" }, { "clmax", "lmax" },
             { "cwsucc", "%wsucc" }, { "cwelim", "%welim" },
             { "ci0", "0" }, { "ci1", "1" }, { "cftt", "tt" }, { "cfff", "ff" }, { "clevel", "Level" }, { "clzero", "lzero" },
-            { "cword", "Word" }, { NULL, NULL } };
+            { "cword", "Word" }, { "cclock", "Clock" }, { "ctick", "Tick" }, { "cclock0", "κ0" }, { "ctick0", "⋄" }, { NULL, NULL } };
         int f = 0; while (F[f].c && strcmp(F[f].c, h)) f++;
         if (!F[f].c) { fprintf(o, "<%s>", h); return; }
         if (c->n == 1) { fputs(F[f].s, o); return; }
@@ -2135,7 +2153,7 @@ static const char *forced_result; static long forced_steps;
 static bool slot_is_type(int why, int k) {
     switch (why) {
     case 0: case 21: return true;
-    case 1: case 2: case 3: case 4: case 20: case 23: case 27: case 30: case 32: return k == 0;
+    case 1: case 2: case 3: case 4: case 20: case 23: case 27: case 30: case 32: case 34: return k == 0;
     default: return false;
     }
 }
@@ -2149,6 +2167,14 @@ static void out_term(Node *t) {
     if (!out_surface) { print_node(stdout, t); return; }
     char *s = surface_str(t); fputs(s, stdout); free(s);
 }
+/* a read-back term as a source term: the readback writes Π and Σ as (Pi A x B) */
+static Node *rb_src(Node *t) {
+    if (!t->list || t->n == 0) return t;
+    Node *r = nlist(t->n);
+    for (int i = 0; i < t->n; i++) r->it[i] = rb_src(t->it[i]);
+    if (t->n == 4 && !t->it[0]->list && (is(t->it[0], "Pi") || is(t->it[0], "Sigma")) && !t->it[2]->list) { Node *a = r->it[1]; r->it[1] = r->it[2]; r->it[2] = a; }
+    return r;
+}
 /* a read-back term (text) */
 static void out_str(const char *r) {
     if (!out_surface) { fputs(r, stdout); return; }
@@ -2156,7 +2182,7 @@ static void out_str(const char *r) {
     Node *n = read_node();
     src = saved;
     if (!n) { fputs(r, stdout); return; }
-    out_term(n);
+    out_term(rb_src(n));
 }
 /* q: the judgment that failed, run again to read its type slots at their universe */
 static void explain(const char *r, Node *q) {
@@ -2194,14 +2220,17 @@ static void explain(const char *r, Node *q) {
         { "a record (copattern) stands only as the body of a definition, after its λs and lines", NULL, NULL },
         { "projected by a field, but not of that codata type", "its type", NULL },
         { "the field type is not strictly positive in the codata type (the type itself at any parameters not mentioning it, under Π codomains and Σ components, or not mentioning it)", NULL, NULL },
-        /* 32 */ { "an implicit argument is not determined by the other arguments' types or the type expected", "its type", NULL } };
+        /* 32 */ { "an implicit argument is not determined by the other arguments' types or the type expected", "its type", NULL },
+        /* 33 */ { "applied to a tick, but it uses a variable bound after the tick (a later value used now)", NULL, NULL },
+        /* 34 */ { "a tick here is not a tick variable (ticks are bound by λ only)", "its type", NULL },
+        /* 35 */ { "clocks and ticks are not types in a universe (only the domain of a Π)", NULL, NULL } };
     const char *saved = src; src = r;
     Node *n = read_node();
     src = saved;
     if (!n || !n->list || n->n != 5 || !is(n->it[0], "no")) { printf("   reason: %s\n", r); return; }
     int why = n->it[2]->list ? -1 : atoi(n->it[2]->s + 1);
     bool known = why >= 0 && why < (int)(sizeof M / sizeof *M);
-    if (!is(n->it[1], "opq")) { printf("   at: "); out_term(n->it[1]); printf("\n"); }
+    if (!is(n->it[1], "opq")) { printf("   at: "); out_term(rb_src(n->it[1])); printf("\n"); }
     printf("   reason: %s\n", known ? M[why][0] : "rejected");
     if (why == 28) {
         /* the field whose term is not guarded: (no opq 28 d k), d the codata type, k the field */
@@ -2226,7 +2255,7 @@ static void explain(const char *r, Node *q) {
         Node *v = n->it[3 + k];
         if (is(v, "opq")) { free(typed[k]); continue; }
         printf("   %s: ", known && M[why][1 + k] ? M[why][1 + k] : (k ? "B" : "A"));
-        if (typed[k]) { out_str(typed[k]); free(typed[k]); } else out_term(v);
+        if (typed[k]) { out_str(typed[k]); free(typed[k]); } else out_term(rb_src(v));
         printf("\n");
     }
 }
@@ -2481,6 +2510,42 @@ static void toplevel(Node *f) {
             toplevel(td);
             sig_add(f->it[1]->s, global_lookup(f->it[1]->s), global_lookup(ty), false);
         }
+    } else if (!strcmp(h, "primitive") || !strcmp(h, "primitive-tick")) {
+        /* (primitive name T t): a rule of the type theory as a constant: T is checked to be a type,
+         * t (its computation) is trusted. (primitive-tick name T t): its value is its stuck call,
+         * which unfolds (t applied to the arguments) only when its last parameter is given ⋄ */
+        if ((f->n != 4 && !(f->n == 3 && !strcmp(h, "primitive"))) || f->it[1]->list) die("(primitive name T [t])", NULL);
+        const char *nm = f->it[1]->s;
+        Node *cT = nl2("%raw", aclosed(ds(f->it[2])));
+        if (!trusted) {
+            long steps = 0;
+            char *r = readback(nl2("%%chk-type", cT), &steps);
+            bool acc = !strcmp(r, "ok");
+            if (acc) passes++; else failures++;
+            printf("%s: checks %s   [%ld steps]\n", acc ? "ok" : "FAIL", nm, steps);
+            if (!acc) { explain(r, nl2("%%chk-type", cT)); free(r); return; }
+            free(r);
+        }
+        char ty[32]; snprintf(ty, sizeof ty, "%%sty%d", nchecked);
+        Node *td = nlist(3); td->it[0] = nsym("def"); td->it[1] = nsym(ty); td->it[2] = nl2("%%sig-type", cT);
+        toplevel(td);
+        long tyg = global_lookup(ty), g;
+        if (f->n == 3) {
+            /* no computation: a constant of its type, its neutral carrying the type */
+            g = add_global(nm, G_AXIOM);
+            G[g].tyg = tyg;
+        } else if (!strcmp(h, "primitive-tick")) {
+            g = cofix_declare(nm, tyg);
+            int np = 0; for (Node *b = ds(f->it[3]); b->list && b->n == 3 && is(b->it[0], "lam"); b = b->it[2]) np++;
+            if (np < 1) die("primitive-tick: its computation takes its parameters, the last the tick:", nm);
+            G[g].tickar = np;
+            cofix_body(g, f->it[3]);
+        } else {
+            Node *d = nlist(3); d->it[0] = nsym("def"); d->it[1] = f->it[1]; d->it[2] = f->it[3];
+            toplevel(d);
+            g = global_lookup(nm);
+        }
+        sig_add(nm, g, tyg, false);
     } else if (!strcmp(h, "checked-data") || !strcmp(h, "checked-data-fail") || !strcmp(h, "check-data")) {
         bool expect = strcmp(h, "checked-data-fail") != 0;
         /* (checked-data (data ...)): declare the data type and check it with the
@@ -2789,7 +2854,14 @@ static void toplevel(Node *f) {
         EMIT();
         /* composition: hcomp after transport (CHM); a closed type transports as the identity */
         OPEN();
-        if (!np) fprintf(m, "(def %%comp-%s (lam %%u %%a0 (hcompD %%u %%a0)))", D);
+        if (!strcmp(D, "Tick") || !strcmp(D, "Clock")) {
+            /* a tick or a clock does not vary along a line: composition is the identity (a later
+             * value is composed pointwise, at the same tick) */
+            fprintf(m, "(def %%comp-%s (lam", D);
+            for (int k = 0; k < np; k++) fprintf(m, " %%z%d", k);
+            fprintf(m, " %%u %%a0 %%a0))");
+        }
+        else if (!np) fprintf(m, "(def %%comp-%s (lam %%u %%a0 (hcompD %%u %%a0)))", D);
         else {
             fprintf(m, "(def %%comp-%s (lam", D);
             for (int k = 0; k < np; k++) fprintf(m, " %%z%d", k);

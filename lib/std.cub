@@ -430,3 +430,46 @@ subw≡wsub a b =
 #same wadd (wadd #9223372036854775807 #9223372036854775807) #2 = #18446744073709551616
 #same weq (wadd #18446744073709551615 #1) #0 = false
 #same wsub #340282366920938463463374607431768211456 #1 = #340282366920938463463374607431768211455
+-- ---------------------------------------------------------------- guarded recursion
+-- ▸ κ A is an A one tick of the clock κ later: (α : Tick κ) → A. A tick is bound by λ and given by
+-- application; a function applied to a tick α uses nothing bound after α (the checker's
+-- timelessness rule), so a later value is never used now. Clocks are quantified by Π over Clock;
+-- κ0 is the closed clock.
+next : {κ : Clock} {A : Type} → A → ▸ κ A
+next a = λ α → a
+infixl 4 ⊛
+_⊛_ : {κ : Clock} {A B : Type} → ▸ κ (A → B) → ▸ κ A → ▸ κ B
+f ⊛ a = λ α → f α (a α)
+-- the delayed fixed point: a stuck call, unfolded only by the tick constant ⋄ that forceκ gives
+primitive tick dfix : {κ : Clock} {A : Type} → (▸ κ A → A) → ▸ κ A = λ κ A f α → f (dfix κ A f)
+fix : {κ : Clock} {A : Type} → (▸ κ A → A) → A
+fix f = f (dfix f)
+-- the fixed point unfolds one step later: the path from the delayed fixed point to the next of
+-- the fixed point (a constant: at a tick variable dfix does not unfold)
+primitive pfix : {κ : Clock} {A : Type} → (f : ▸ κ A → A) →
+                 _≡_ {lzero} {▸ κ A} (dfix {κ} {A} f) (next {κ} {A} (fix {κ} {A} f))
+-- a later value at every clock is a value now at every clock (forceκ): the clock is fresh, so its tick
+-- constant may be given
+primitive forceκ : {A : Clock → Type} → ((κ : Clock) → ▸ κ (A κ)) → (κ : Clock) → A κ = λ A f κ → f κ ⋄
+-- streams: a head now and a tail one tick later. A definition at a type with a clock calls itself
+-- only where a later value is expected; the elaborator makes it a guarded fixed point, a term
+-- given at a later position a λ over a fresh tick, and later values standing where a present one
+-- is due applied to that tick
+infixr 5 ∷
+data Stream (κ : Clock) (A : Type) = _∷_ (head : A) (tail : ▸ κ (Stream κ A))
+shead : Stream κ A → A
+shead (h ∷ t) = h
+stail : Stream κ A → ▸ κ (Stream κ A)
+stail (h ∷ t) = t
+smap : (A → B) → Stream κ A → Stream κ B
+smap f (h ∷ t) = f h ∷ smap f t
+-- total streams: a stream at every clock; observed by forcing the tail
+Str : Type → Type
+Str A = (κ : Clock) → Stream κ A
+hd : {A : Type} → Str A → A
+hd s = shead (s κ0)
+tl : {A : Type} → Str A → Str A
+tl {A} s = forceκ {λ κ → Stream κ A} (λ κ → stail (s κ))
+nth : {A : Type} → Nat → Str A → A
+nth zero s = hd s
+nth (suc n) s = nth n (tl s)

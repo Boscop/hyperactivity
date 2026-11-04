@@ -24,6 +24,7 @@ test: build/cubical build/cubical-asan
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/reject.cub tests/quote.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/codata.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/recursion.cub
+	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/guarded.cub
 	rm -rf build/cache-test
 	env -u CUBICAL_NOCACHE CUBICAL_CACHE=build/cache-test ./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/mod/main.cub | tail -1
 	env -u CUBICAL_NOCACHE CUBICAL_CACHE=build/cache-test ./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/mod/main.cub | grep -c "^cached: " | grep -qx 6
@@ -32,7 +33,7 @@ test: build/cubical build/cubical-asan
 	# depends on the order of the rewrites, so its count can)
 	set -e; for s in "tests/cubical.cub" "lib/code.cub tests/code.cub" "tests/hit.cub" "tests/memo.cub" \
 	    "lib/code.cub lib/check.cub tests/check.cub" "lib/code.cub lib/check.cub lib/std.cub tests/reject.cub tests/quote.cub" \
-	    "lib/code.cub lib/check.cub lib/std.cub tests/codata.cub"; do \
+	    "lib/code.cub lib/check.cub lib/std.cub tests/codata.cub" "lib/code.cub lib/check.cub lib/std.cub tests/guarded.cub"; do \
 	  CUBICAL_NOMEMO=1 CUBICAL_WORKERS=0 ./build/cubical lib/prelude.cub $$s > build/workers-0.out; \
 	  for w in 1 2 4 8 16; do CUBICAL_NOMEMO=1 CUBICAL_WORKERS=$$w ./build/cubical lib/prelude.cub $$s > build/workers-$$w.out; \
 	    cmp -s build/workers-0.out build/workers-$$w.out || { echo "differs with $$w workers: $$s"; diff build/workers-0.out build/workers-$$w.out | head; exit 1; }; done; \
@@ -46,6 +47,7 @@ test: build/cubical build/cubical-asan
 	ASAN_OPTIONS=detect_leaks=0 ./build/cubical-asan lib/prelude.cub lib/code.cub lib/check.cub tests/check.cub > /dev/null
 	ASAN_OPTIONS=detect_leaks=0 ./build/cubical-asan lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/quote.cub > /dev/null
 	ASAN_OPTIONS=detect_leaks=0 CUBICAL_WORKERS=4 ./build/cubical-asan lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/codata.cub > /dev/null
+	ASAN_OPTIONS=detect_leaks=0 CUBICAL_WORKERS=4 ./build/cubical-asan lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/guarded.cub > /dev/null
 
 # the checked library and the acceptance tests (the paper's terms, 9.15's sorting): long, run once
 library: export CUBICAL_NOCACHE = 1

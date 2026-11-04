@@ -1,0 +1,76 @@
+-- tests/guarded.cub — guarded recursion: later types ▸ κ A (functions from the ticks of a clock),
+-- the delayed fixed point, total streams by clock quantification and forceκ. Loaded after
+-- lib/std.cub, which has Stream, smap, Str, hd, tl, nth.
+-- ---------------------------------------------------------------- recursion through functions
+-- each definition calls itself only where a later value is expected; the elaborator makes it a
+-- guarded fixed point and inserts the ticks
+nats : Stream κ Nat
+nats = 0 ∷ smap suc nats
+zipWith : (A → B → C) → Stream κ A → Stream κ B → Stream κ C
+zipWith f (a ∷ s) (b ∷ t) = f a b ∷ zipWith f s t
+fibs : Stream κ Nat
+fibs = 0 ∷ 1 ∷ zipWith plus fibs (stail fibs)
+interleave : Stream κ A → ▸ κ (Stream κ A) → Stream κ A
+interleave (h ∷ t) u = h ∷ interleave u t
+evens-odds : Stream κ Nat
+evens-odds = interleave (smap double nats) (smap (λ n → suc (double n)) nats)
+  where
+    double : Nat → Nat
+    double n = plus n n
+-- a stream from a seed
+iterate : (A → A) → A → Stream κ A
+iterate f a = a ∷ iterate f (f a)
+-- ---------------------------------------------------------------- observing total streams
+#same nth 5 (λ κ → nats {κ}) = 5
+#same nth 10 (λ κ → fibs {κ}) = 55
+#same nth 6 (λ κ → evens-odds {κ}) = 6
+#same nth 3 (λ κ → iterate {κ} {Nat} (λ n → plus n n) 1) = 8
+#same hd (tl (tl (λ κ → nats {κ}))) = 2
+-- ---------------------------------------------------------------- the rules
+-- written directly: the fixed point and the ticks
+ones : Stream κ Nat
+ones = fix (λ r → 1 ∷ λ α → r α)
+#same nth 4 (λ κ → ones {κ}) = 1
+-- next and ⊛: later values as an applicative
+#check λ κ (f : ▸ κ (Nat → Nat)) (x : ▸ κ Nat) → f ⊛ x : (κ : Clock) → ▸ κ (Nat → Nat) → ▸ κ Nat → ▸ κ Nat
+#check λ κ (x : Nat) → next {κ} {Nat} x : (κ : Clock) → Nat → ▸ κ Nat
+-- the fixed point's unfolding is a path one tick later
+#check λ κ (f : ▸ κ Nat → Nat) → pfix {κ} {Nat} f : (κ : Clock) → (f : ▸ κ Nat → Nat) → dfix {κ} {Nat} f ≡ next {κ} {Nat} (fix {κ} {Nat} f)
+-- a later value is not a value now
+#fail
+#check λ κ (x : ▸ κ Nat) → x : (κ : Clock) → ▸ κ Nat → Nat
+-- the fixed point of a function that needs its argument now does not exist
+#fail
+#check λ κ → fix {κ} {Nat} (λ r → r) : (κ : Clock) → Nat
+-- timelessness: one tick is not two
+#fail
+#check λ κ (x : ▸ κ (▸ κ Nat)) → λ α → x α α : (κ : Clock) → ▸ κ (▸ κ Nat) → ▸ κ Nat
+#check λ κ (x : ▸ κ (▸ κ Nat)) → λ α β → x α β : (κ : Clock) → ▸ κ (▸ κ Nat) → ▸ κ (▸ κ Nat)
+-- a variable bound after the tick is not applied to it
+#fail
+#check λ κ → λ α (y : ▸ κ Nat) → y α : (κ : Clock) → ▸ κ (▸ κ Nat → Nat)
+-- ticks are bound, never stored, returned, named by let, or written as ⋄
+#fail
+#check λ κ (α : Tick κ) → α : (κ : Clock) → Tick κ → Tick κ
+#fail
+#check λ κ (x : ▸ κ Nat) → λ α → let β = α in x β : (κ : Clock) → ▸ κ Nat → ▸ κ Nat
+#fail
+#check λ κ (x : ▸ κ Nat) → x ⋄ : (κ : Clock) → ▸ κ Nat → Nat
+#fail
+#check Tick κ0 : Type
+#fail
+#check Clock : Type
+-- a definition that needs its own value now is not productive: rejected where the call stands
+#fail
+bad : Stream κ Nat
+bad = smap suc bad
+#fail
+stuck : Stream κ Nat
+stuck = shead stuck ∷ next stuck
+-- transport along a line of stream types moves each later tail pointwise (a tick does not vary);
+-- the elements read are the transported numerals
+nats-tr : Str Nat
+nats-tr κ = transport (λ i → Stream κ Nat) (nats {κ})
+#show nth 3 nats-tr
+-- a typed reading of a later value: a function of a fresh tick
+#show the (▸ κ0 Nat) (next 1)
