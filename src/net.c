@@ -893,7 +893,7 @@ static void neutral_proj(Cell *o, Cell *v) {
 }
 
 /* ---------------- values as data ----------------
- * %view gives a value's head as a constructor of View (lib/code.ctt) whose fields are the
+ * %view gives a value's head as a constructor of View (lib/code.cub) whose fields are the
  * value's own ports: nothing is copied, and a part is read further only by viewing it. */
 enum { W_LAM, W_PAIR, W_PI, W_SIGMA, W_U, W_PATH, W_PLAM, W_IV, W_FACE, W_SYS, W_GLUE, W_GLUEV, W_DATA, W_CON,
        W_HCOMP, W_VAR, W_APP, W_FST, W_SND, W_PAPP, W_COMP, W_UNGLUE, W_ELIM, W_TRANS, W_LEVEL, W_OTHER,
@@ -907,12 +907,12 @@ static void need_bool(void) {
     if (B_TRUE >= 0) return;
     B_FALSE = con_index("false");
     int t = con_index("true");
-    if (t < 0 || B_FALSE < 0) { fprintf(stderr, "Bool is missing (lib/prelude.ctt)\n"); exit(2); }
+    if (t < 0 || B_FALSE < 0) { fprintf(stderr, "Bool is missing (lib/prelude.cub)\n"); exit(2); }
     __atomic_store_n(&B_TRUE, t, __ATOMIC_RELEASE);
 }
 static void need_cons(void) {
     if (C_LNIL >= 0) return;
-    for (int w = 0; w < W_N; w++) if ((WC[w] = con_index(WNAME[w])) < 0) { fprintf(stderr, "%%view needs the data type View (lib/code.ctt)\n"); exit(2); }
+    for (int w = 0; w < W_N; w++) if ((WC[w] = con_index(WNAME[w])) < 0) { fprintf(stderr, "%%view needs the data type View (lib/code.cub)\n"); exit(2); }
     C_LCONS = con_index("lcons");
     C_TRUE = con_index("true"); C_FALSE = con_index("false");
     C_NONE = con_index("none"); C_SOME = con_index("some");
@@ -1970,7 +1970,7 @@ static void interact(Cell *o, Cell *v) {
         need_cons();
         static int C_SAME = -1, C_DIFF;
         if (C_SAME < 0) { C_DIFF = con_index("cdiff"); __atomic_store_n(&C_SAME, con_index("csame"), __ATOMIC_RELEASE); }
-        if (C_SAME < 0 || C_DIFF < 0) { fprintf(stderr, "%%clos needs CloCmp (lib/code.ctt)\n"); exit(2); }
+        if (C_SAME < 0 || C_DIFF < 0) { fprintf(stderr, "%%clos needs CloCmp (lib/code.cub)\n"); exit(2); }
         Cell *f = PC(o->port[1]);
         /* two λs of one record, or two eliminations of one table */
         bool fl = PI(o->port[1]) == 0 && (f->kind == V_LAM || f->kind == V_CASEF);
@@ -2476,7 +2476,7 @@ static Port build(Syn *t, Frame *f) {
         /* U at its level: lzero when none is written */
         c = cell(V_U, 2);
         if (t->n) link(build(t->k[0], f), P(c, 1));
-        else { int z = con_index("lzero"); if (z < 0) { fprintf(stderr, "U needs Level (lib/prelude.ctt)\n"); exit(2); } link(con_build(z, NULL, NULL), P(c, 1)); }
+        else { int z = con_index("lzero"); if (z < 0) { fprintf(stderr, "U needs Level (lib/prelude.cub)\n"); exit(2); } link(con_build(z, NULL, NULL), P(c, 1)); }
         return P(c, 0);
     }
     case S_BOX: return ref_of(build(t->k[0], f));

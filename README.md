@@ -6,16 +6,105 @@ all run on that one mechanism.
 
 ```
 make test       # all suites; the same output with 0, 1, 2, 4, 8, 16 workers; again under ASan/UBSan
-make library    # tests/boxes.ctt, tests/sort.ctt, tests/memo.ctt
-./build/cubical lib/prelude.ctt lib/code.ctt lib/check.ctt lib/std.ctt FILE.ctt
+make library    # tests/boxes.cub, tests/sort.cub, tests/memo.cub
+./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub FILE.cub
 ```
 
 Code: `src/net.c` (cells, rewrite rules, parallel scheduler), `src/dnf.c` (intervals, faces,
-substitutions), `src/big.c` (exact naturals), `src/lang.c` (reader, compiler to cells, readback,
-top-level forms, modules). Language files: `lib/prelude.ctt` (core data types, composition
-clauses), `lib/code.ctt` (codes, `View`), `lib/check.ctt` (the type checker), `lib/std.ctt`
-(checked library), `lib/sort.ctt` (9.15 over any ordered type; `tests/sort.ctt` instantiates and
-runs it). Coinduction: §7, `tests/codata.ctt`. Earlier plans and specs: `archive/`.
+substitutions), `src/big.c` (exact naturals), `src/lang.c` (core forms, compiler to cells,
+readback, top-level forms, modules), `src/syntax.c` (the surface language: layout, parsing,
+elaboration, clause compilation, printing). Language files: `lib/prelude.cub` (core data types,
+composition clauses), `lib/code.cub` (codes, `View`), `lib/check.cub` (the type checker),
+`lib/std.cub` (checked library), `lib/sort.cub` (9.15 over any ordered type; `tests/sort.cub`
+instantiates and runs it). Coinduction: §7, `tests/codata.cub`. Earlier plans and specs: `archive/`.
+
+## 0. The language
+
+```
+data List (A : Type) = nil | cons (x : A) (xs : List A)
+data S¹ = base | loop : base ≡ base
+
+length : {A : Type} → List A → Nat
+length nil = 0
+length (cons x xs) = suc (length xs)
+
+twist : S¹ → S¹
+twist base = base
+twist (loop i) = loop (~ i)
+
+plus-zero : (n : Nat) → plus n zero ≡ n
+plus-zero zero = λ i → zero
+plus-zero (suc k) = λ i → suc (plus-zero k i)
+
+#same length (cons 1 (cons 2 nil)) = 2
+```
+
+Application is juxtaposition; structure is indentation (a block opens after `where`, `of`, `let`,
+`mutual`, `postulate`; `;` separates items on one line). `(x : A) → B`, `{x : A} → B` (implicit),
+`(x : A) × B`, `A → B`, `A × B`, `λ x y → e`, `(a , b)`, `let x = e in b`, `if b then t else e`,
+`case e of c x → t; d → u`, `case e return P of ...`, `e where` a block of definitions, `Type`,
+`Type l` (`Level`, `lzero`, `lsuc`, `lmax`, or a numeral). Numerals are natural numbers. Every
+Unicode symbol has an ASCII spelling: `->` `\` `|->` `==` `/\` `\/` `**` `forall`, `Nat` for `ℕ`,
+`S1` for `S¹`, `Empty` for `⊥`, `Unit` for `⊤`. Operators are declared: `infix 4 ≡`, `infixr 5 ∙`,
+and defined as `_≡_` or by an equation `x ≡ y = ...`. A name used in a signature and bound nowhere
+is an implicit parameter (a type, or a level when it stands as a universe's level).
+
+**Paths are equality.** `a ≡ b` is the type of paths between `a` and `b` (in a type found from
+them; `Path A a b` names the type), `a ≡[ i ↦ A ] b` a path over a line of types. A path is
+`λ i → e`, applied as `p i`; the interval has `0`, `1`, `~ r`, `r ∧ s`, `r ∨ s`. A partial value is
+`[ i = 0 ↦ a , i = 1 ↦ b ]`, composition `comp (λ i → A) (λ j → [ ... ]) a0`, transport
+`transp (λ i → A) a`. Whether a λ or an application is a path's or a function's is decided by the
+checker (below), so it is written the same way. `lib/std.cub` has `refl`, `sym`, `_∙_`, `cong`,
+`subst`, `transport`, `funExt`, equivalences and `ua`, with `calc` chains:
+`calc a ≡ b by p ≡ c by q` (each step on its own indented line if long), composed by `_∙_`.
+
+**Declarations.** A data type lists its constructors by fields (`cons (x : A) (xs : List A)`) or by
+type (`cons : A → List A → List A`); a constructor whose type ends in `a ≡ b` is a path
+constructor of a higher inductive type. A definition is a signature and equations; its equations
+may match constructors at any depth, path constructors with their dimensions (`twist (loop i)`),
+and implicit arguments as `{p}`. A codata type lists its fields (`codata Stream A where head : A;
+tail : Stream A`), and a value of it is defined by copatterns: `(smap f s).head = f s.head`.
+`record R A = { f : A ; g : B }` is a Σ with named projections, and `record { f = a ; g = b }` or
+`(a , b)` a value of it; `x.f` projects. `mutual` groups definitions that call each other;
+`postulate x y` declares names without values.
+
+**Recursion.** A call on a field of the matched argument is structural. A call on a field's field,
+at any depth (`fib (suc (suc n)) = plus (fib n) (fib (suc n))`), is course-of-values: the split
+computes each value together with the values below it (a Σ of the value and `Below v`, `Below`
+itself an elimination into types), and a split of a variable below reverts that pair, so that in
+its branches `Below` unfolds to the pairs of its own recursive fields. Any other terminating
+recursion is written with a measure into `Nat` and, where the obligation does not compute to
+`Unit`, a proof of it:
+
+```
+zig : (a b : Nat) → Nat
+zig zero b = b
+zig (suc a) b = suc (zig b a)
+decreasing by plus a b using <-suc-eq (plus b a) (plus a b) (plus-comm b a)
+```
+
+Each call `f as` must satisfy `m as < m ps` (`_<_` of `lib/std.cub`, which computes to `Unit` or
+`Empty` on numerals); the `using` term is checked at that type in the scope of the call's clause.
+The definition becomes recursion on a bound of the measure, whose hypothesis is reverted through
+the clauses' matches. A proof about such a definition does not unfold it by its equations
+definitionally (the recursion's bound is part of the term), only by computation on values.
+
+**Elaboration.** An implicit argument left out is a hole. Holes are solved first syntactically:
+from the arguments' types as their heads' signatures give them, from the type an application is
+expected to have (a λ's binder from the Π expected, a branch's from the motive at its constructor,
+a definition's body from its signature), and from a solved argument's own type. What remains is
+solved by the checker, which is itself a term (`lib/check.cub`): it checks the elaborated term
+with its holes and its guesses (a λ or an application of unknown kind, function or path) and
+answers with solutions or a request to redo; an undetermined level is `lzero`. A case written
+where a type is expected takes that type as its motive, so its stuck values read back with their
+type. `{_}` asks for a hole where an argument must be given positionally.
+
+**Commands.** `#check e : T`, `#same a = b` (equal readings, at a type when either side has one),
+`#show e`, `#observe n e` (a codata value unfolded n levels), `#input x` and `#supply x = e` (§6),
+`#fail` before a declaration or command (it must be rejected). `import "file.cub"` loads a module
+once. Results and failures print in the surface syntax. The core forms the language compiles to
+(`(lam x b)`, `(elim P e ((c x) b))`, …) are still read from files of other extensions, and
+`--print FILE` prints such a file in the surface syntax.
 
 ## 1. Rewrites see only the two cells involved
 
@@ -37,7 +126,7 @@ Besides functions, pairs and data, values are: the interval (`0`, `1`, dimension
 dimensions), partial values (systems), composition, Glue types and their elements, and higher
 inductive types (data types with path constructors).
 
-**Partial values.** `(sys ((= i 0) a) ((= i 1) b))` is a value defined only where its faces hold.
+**Partial values.** `[ i = 0 ↦ a , i = 1 ↦ b ]` is a value defined only where its faces hold.
 Each branch is kept unbuilt, as syntax with its environment, and is built with its face's
 substitution applied (`a` with `i := 0`) only when an operation reads it. If a substitution makes a
 face true (here `i := 0`), the whole partial value becomes that branch.
@@ -45,7 +134,7 @@ face true (here `i := 0`), the whole partial value becomes that branch.
 **Composition.** `comp A u a0` takes a line of types `A(i)`, a starting element `a0 : A(0)` and a
 partial value `u` (where it is given, what the result must be along the line), and produces an
 element of `A(1)` matching `u`. Transport is composition with nothing given. How it is computed
-depends on what kind of type `A(i)` is; each case is a term in `lib/prelude.ctt`, not C:
+depends on what kind of type `A(i)` is; each case is a term in `lib/prelude.cub`, not C:
 - functions (`%comp-pi`): to apply the result to `x : A(1)`, move `x` back to each `A(i)`, apply,
   and compose the results in the codomain;
 - pairs (`%comp-sigma`): compose the first components, then the second components along the line
@@ -68,7 +157,7 @@ depends on what kind of type `A(i)` is; each case is a term in `lib/prelude.ctt`
 A shared subterm is held by a duplicating cell that copies lazily, one level at a time as it is
 read. A stored value lives once, and readers copy its top cell. A substitution of dimensions is
 recorded on the reference, not applied by copying. A subterm in a position that might not be read
-is held unbuilt until an operation meets it: `(fst (pair a b))` never computes `b`, even if `b`
+is held unbuilt until an operation meets it: `fst (a , b)` never computes `b`, even if `b`
 diverges. A λ's subterms that do not mention its variable are computed once, however often the λ is
 applied. A case is one cell, and selecting a branch is one step.
 
@@ -84,7 +173,7 @@ its value goes into a box held by the entry, and the other reads the box instead
 entry lives exactly while a producer is pending or a reader holds the box; the table holds nothing
 on its own, and two boxes with equal values but different origins are not identified (a numeral
 computed by `add` and the same numeral written out are two values). Naive Fibonacci is the test
-(`tests/memo.ctt`): `fib (n+2)` demands `fib (n+1)`, which demands `fib n` while the outer `fib n`
+(`tests/memo.cub`): `fib (n+2)` demands `fib (n+1)`, which demands `fib n` while the outer `fib n`
 is pending, so every `fib k` is computed once and the work is linear in the calls (unary addition
 dominates the count), whether the argument is a numeral the machine computed or one written out.
 
@@ -104,26 +193,26 @@ everywhere else, including inside the branches of a stuck case. When a substitut
 supplies the unknown, it fires. A neutral's type is computed from the variable at its head along
 the operations applied to it, and a stuck path's endpoints are read from that type.
 
-A reading of a checked definition, or of `(the T t)`, is taken at its type: `quote` in
-`lib/check.ctt` reads the value as a code (`lib/code.ctt`), applying a function to a fresh
+A reading of a checked definition, or of `the T t`, is taken at its type: `quote` in
+`lib/check.cub` reads the value as a code (`lib/code.cub`), applying a function to a fresh
 variable of its domain, reading a pair by its projections and a path at a fresh dimension, and a
 stuck elimination's branches at fresh fields typed by the constructor's telescope, at the motive.
-So `(lam p (@ p 0))` at `Π p : Path Nat zero zero. Nat` reads `(lam x0 zero)`, and a variable of
-a Σ type reads `(pair (fst x0) (snd x0))`. Typed readings give full normal forms, except inside an
+So `λ p → p 0` at `Path Nat zero zero → Nat` reads `λ x0 → zero`, and a variable of a Σ type
+reads `(fst x0 , snd x0)`. Typed readings give full normal forms, except inside an
 elimination written without a motive that is the head of a stuck term (applied, projected, or
 eliminated), whose type is not known there; reached at a known type, its branches are read at that
 type. A stuck word elimination carries no motive, so its branches are read without types: the
 type `T = P w` it is quoted at does not determine an arbitrary motive `P`, so reading them at `T`
 would be unsound (a motiveless case can be read at `T` because its motive is constant). The
-code satisfies two laws, checked in `tests/quote.ctt`: evaluating it (`eval-g`) gives a value
+code satisfies two laws, checked in `tests/quote.cub`: evaluating it (`eval-g`) gives a value
 convertible with the original, and quoting that value gives the same code. A failure report
 prints its types (expected and actual, a type that was eliminated) the same way.
 
-`same` of two terms, either of them a checked definition or `(the T t)`, reads both at that
-one type, so equal values compare equal however they are written. Other readings (`show` and
-`same` of any other terms) are taken without a type: under a binder,
+`#same` of two terms, either of them a checked definition or `the T t`, reads both at that
+one type, so equal values compare equal however they are written. Other readings (`#show` and
+`#same` of any other terms) are taken without a type: under a binder,
 a variable's type is not known, so a path variable stays stuck at an endpoint and nothing is
-η-expanded. `same` compares two readings as text: on well-typed terms equal texts are equal
+η-expanded. `#same` compares two readings as text: on well-typed terms equal texts are equal
 values; two readings can differ while their values are equal.
 
 ## 5. Reflection: `%view`
@@ -134,34 +223,35 @@ step, whose fields are the value's own parts: a Π type gives `(wpi A B)` with `
 like any data, so a program in the language can examine a value's structure. What it sees is the
 computed value, not the source text that produced it; a function shows only as `(wlam f)`.
 `(%var T)` and `(%dim)` make fresh variables, `(%dnf r)` gives an interval's or a face's clauses
-as lists of literals, and `(%motive f)` an elimination's motive. The type checker (`lib/check.ctt`) is written with
+as lists of literals, and `(%motive f)` an elimination's motive. The type checker (`lib/check.cub`) is written with
 these and runs on this runtime, over the values the runtime already computed for each subterm:
 there is no second evaluator, and checking a definition is running that program on it.
 
 ## 6. Inputs
 
-`(input x)` declares a definition without a value. An operation that needs `x`'s value (applying
+`#input x` declares a definition without a value. An operation that needs `x`'s value (applying
 it, a case on it, a projection) is held at exactly that point. Everything that does not depend on
-`x` reduces fully, and the parts of a result that do not need `x` are produced. `(supply x t)`
+`x` reduces fully, and the parts of a result that do not need `x` are produced. `#supply x = t`
 connects the value, and the held operations proceed. Unlike a variable, an input is not computed
 with symbolically: what depends on it waits for it.
 
 ## 7. Coinduction
 
-`(codata (Orbit (A U)) (here A) (next (Orbit A)))` declares a coinductive record type by its
-fields. A field's type may mention the parameters, the earlier fields, and the type itself
+`codata Orbit (A : Type) where here : A; next : Orbit A` declares a coinductive record type by
+its fields. A field's type may mention the parameters, the earlier fields, and the type itself
 strictly positively (at any parameters not mentioning it, under Π codomains and Σ components);
-`checked-codata` checks this. A field applied to a value is its projection: `(here o)`.
+the checker checks this. A field applied to a value is its projection: `here o`, or `o.here`.
 
 A value of a codata type is made by a copattern definition, a definition whose body is λs and
 lines over a record:
 
 ```
-(checked unfold (Pi ((A U) (f (Pi a A A)) (a A)) (Orbit A))
-  (lam A f a (record (here a) (next (unfold A f (f a))))))
+unfold : {A : Type} → (A → A) → A → Orbit A
+(unfold f a).here = a
+(unfold f a).next = unfold f (f a)
 ```
 
-Such a definition may call itself, and the definitions of a `(mutual ...)` group may call each
+Such a definition may call itself, and the definitions of a `mutual` group may call each
 other. Its value is its stuck call: a neutral of its declared type, holding the definition and its
 arguments. A projection unfolds the call once (the body applied to the same arguments, at the same
 dimensions) and takes the field. Nothing else unfolds it: an application, a comparison, a reading,
@@ -170,7 +260,7 @@ neutral path. So a process that never ends is a finite value, an observation of 
 unfoldings, and a definition that is its own tail (`zeros`, whose `next` is `zeros`) is held as
 its call. A record stands only as the body of a copattern definition.
 
-The checker (`chk-codef` in `lib/check.ctt`) requires every call of the group in a field's term to
+The checker (`chk-codef` in `lib/check.cub`) requires every call of the group in a field's term to
 be guarded: it is the head of the field's term (applied to arguments not mentioning the group, at
 any dimensions), or stands there under a λ, a line, a pair, a constructor, a case or system
 branch, or a let's body; never as an argument or eliminated. Every body of a group is found guarded
@@ -180,17 +270,25 @@ every depth. At a path type the boundary is checked field by field (a record is 
 value by its fields), so it holds at every depth. Two stuck calls are convertible when their
 definitions and arguments are; there is no η for codata, so two definitions whose unfoldings are
 bisimilar are not convertible. Their equality is a path, and a path between orbits is a
-bisimulation: `tests/codata.ctt` proves `(x ≡ y) ≃ (x ≈ y)` by four corecursive definitions
+bisimulation: `tests/codata.cub` proves `(x ≡ y) ≃ (x ≈ y)` by four corecursive definitions
 (`punaragamana/Orbit.agda`), and proves `mapO id o ≡ o` by a corecursive bisimulation.
 
 Composition in a codata type is a copattern definition generated from the declaration (`%comp-D`):
 each field composed along its type, at the parameters' lines and each earlier field's filler. A
 transported process is again a process, unfolded field by field when it is observed.
 
-`(show t)` reads a stuck call as the call. `(observe n t)` reads it unfolded n levels deep, as
+`#show t` reads a stuck call as the call. `#observe n t` reads it unfolded n levels deep, as
 records. An unfolding is named by the call it unfolds, so two unfoldings of one call pending at
 once share the body (§3).
 
 ## Measurements
 
-Every reading reports the steps taken. The sorted list of 9.15 reads in 1.2k steps (eight words). The library plus the paper's terms check in 1.5M steps. Naive `fib` of a computed 20 reads in 36k steps, of 25 in 278k, and of 20 written out in 36k; the iterative `fib` reads 21k and 226k (`tests/memo.ctt`; without the memo, naive `fib` takes 294k and 3.8M). `CUBICAL_KEYS=1` traces the keys registered, fired and hit on stderr, and the entries left at the end. The development of `Orbit.agda` (the codata types, `unfold`, `mapO`, the four corecursive maps between paths and bisimulations, and `(x ≡ y) ≃ (x ≈ y)`) checks in 66k steps, `iso1` (a corecursive square) in 11k.
+Every reading reports the steps taken. The sorted list of 9.15 reads in 1.6k steps (eight words).
+The library (`lib/std.cub`, elaborated and checked) loads in 1.4M steps, and with the paper's terms
+(`tests/boxes.cub`) in 3.1M; elaboration runs the checker again when it has solved holes, and a
+case given a motive from its expected type carries it at run time. Naive `fib` of a computed 20
+reads in 36k steps, of 25 in 278k, and of 20 written out in 36k; the iterative `fib` reads 21k and
+226k (`tests/memo.cub`; without the memo, naive `fib` takes 294k and 3.8M). `CUBICAL_KEYS=1` traces
+the keys registered, fired and hit on stderr, and the entries left at the end. The development of
+`Orbit.agda` (the codata types, `unfold`, `mapO`, the four corecursive maps between paths and
+bisimulations, and `(x ≡ y) ≃ (x ≈ y)`) checks in 60k steps, `iso1` (a corecursive square) in 13k.

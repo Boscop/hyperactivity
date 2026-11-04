@@ -1202,6 +1202,51 @@ static int vlen(const char *s) { int n = 0; for (; *s; s++) if (((unsigned char)
 static bool has_nl(const char *s) { return strchr(s, '\n') != NULL; }
 static void pr(Buf *o, Node *t, int prec, int col);
 static char *pr_str(Node *t, int prec, int col) { Buf b = { 0 }; bput(&b, ""); pr(&b, t, prec, col); return b.b; }
+static char *pr_flat(Node *t, int prec);
+static bool e_head_kw(const char *s);
+/* ((f a) b) as (f a b), a definition's head applied (nothing else changed) */
+static Node *flat_apps(Node *t) {
+    if (!t->list || t->n == 0) return t;
+    if (!t->it[0]->list && is(t->it[0], "%hole")) return nsym("_");   /* an argument left to be found */
+    if (!t->it[0]->list && (is(t->it[0], "case") || is(t->it[0], "elim") || is(t->it[0], "sys"))) {
+        /* alternatives: their patterns as they are */
+        int from = is(t->it[0], "elim") ? 3 : is(t->it[0], "case") ? 2 : 1;
+        Node *r = nlist(t->n); r->it[0] = t->it[0];
+        for (int i = 1; i < t->n; i++) {
+            Node *a = t->it[i];
+            if (i < from || !a->list || a->n != 2) r->it[i] = i < from ? flat_apps(a) : a;
+            else r->it[i] = lst(2, is(t->it[0], "sys") ? flat_apps(a->it[0]) : a->it[0], flat_apps(a->it[1]));
+        }
+        return r;
+    }
+    Node *r = nlist(t->n);
+    for (int i = 0; i < t->n; i++) r->it[i] = flat_apps(t->it[i]);
+    Node *h = r->it[0];
+    if (r->n >= 2 && h->list && h->n >= 2 && !h->it[0]->list && !e_head_kw(h->it[0]->s)) {
+        Node *r2 = nlist(h->n + r->n - 1);
+        for (int i = 0; i < h->n; i++) r2->it[i] = h->it[i];
+        for (int i = 1; i < r->n; i++) r2->it[h->n + i - 1] = r->it[i];
+        return r2;
+    }
+    return r;
+}
+/* a term (a test's, or a read-back value) in the surface syntax, on one line */
+static char *surface_str(Node *t) {
+    bool pt = pr_typed, pk = pr_keepimp, pn = pr_nodrop;
+    pr_typed = true; pr_keepimp = true;
+    jmp_buf jb; char *s;
+    if (setjmp(jb)) {
+        /* a form the printer does not write: as read */
+        if (getenv("CUB_DBGPR")) { fprintf(stderr, "[surface] could not print: "); print_node(stderr, t); fputc('\n', stderr); }
+        size_t len; FILE *o = open_memstream(&s, &len); print_node(o, t); fclose(o);
+    } else {
+        die_jb = &jb;
+        s = pr_flat(flat_apps(t), 0);
+        die_jb = NULL;
+    }
+    pr_typed = pt; pr_keepimp = pk; pr_nodrop = pn;
+    return s;
+}
 static char *pr_flat(Node *t, int prec) { int w = pr_width; pr_width = 1 << 30; char *s = pr_str(t, prec, 1); pr_width = w; return s; }
 static void lost(Node *t) { if (t->cmt) { bput(&pr_lost, t->cmt); t->cmt = NULL; } }
 static bool is_face(Node *t) { return t->list && t->n >= 1 && !t->it[0]->list && (is(t->it[0], "=") || is(t->it[0], "&") || is(t->it[0], "|") || is(t->it[0], "forall")); }
@@ -1296,6 +1341,7 @@ static const char *keyw_name(const char *s) {
     return s;
 }
 static void pr_sym(Buf *o, const char *s, bool iv) {
+    if (!strcmp(s, "%cm")) { bput(o, "_"); return; }   /* a constant motive's binder */
     if (!strcmp(s, "0")) { bput(o, iv ? "0" : "i0"); return; }
     if (!strcmp(s, "1")) { bput(o, iv ? "1" : "i1"); return; }
     if (!strcmp(s, "U")) { bput(o, "Type"); return; }
@@ -2735,7 +2781,14 @@ static Node *rec_call(Node *e, Node **args, int n) {
         if (tsig.imp[q]) { if (i < n && args[i]->list && args[i]->n == 2 && is(args[i]->it[0], "%imp")) at[q] = args[i++]->it[1]; continue; }
         if (i < n) at[q] = args[i++];
     }
-    if (i < n) die("a recursive call with more arguments than parameters:", tfname);
+    if (i < n) {
+        /* more arguments than parameters: the call at the parameters, applied to the rest (a path
+         * at a dimension, or a function value) */
+        Node *c = rec_call(e, args, i);
+        Node *r = nlist(n - i + 1); r->it[0] = c;
+        for (int k = i; k < n; k++) r->it[k - i + 1] = rec_xform(args[k]);
+        return r;
+    }
     for (int s = ndeeps - 1; s >= 0; s--) {
         Deep *d = &deeps[s];
         int p = d->gp;

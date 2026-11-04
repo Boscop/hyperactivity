@@ -1,3 +1,4 @@
+#include <setjmp.h>
 #include <signal.h>
 /* lang.c — reading terms, compiling them to binder records, definitions,
  * reading values back, and the driver. */
@@ -13,7 +14,12 @@ extern int dup(int); extern int dup2(int, int); extern int close(int); extern FI
 /* grow an array to hold at least n elements */
 #define GROW(arr, cap, n) do { if ((size_t)(n) > (size_t)(cap)) { size_t nc_ = (cap) ? (size_t)(cap) * 2 : 16; while (nc_ < (size_t)(n)) nc_ *= 2; (arr) = realloc((arr), nc_ * sizeof *(arr)); (cap) = nc_; } } while (0)
 
-static void die(const char *m, const char *x) { fprintf(stderr, "error: %s%s%s\n", m, x ? " " : "", x ? x : ""); exit(1); }
+/* a failure where the caller has a way out (printing a result in the surface syntax): back to it */
+static jmp_buf *die_jb;
+static void die(const char *m, const char *x) {
+    if (die_jb) { jmp_buf *j = die_jb; die_jb = NULL; longjmp(*j, 1); }
+    fprintf(stderr, "error: %s%s%s\n", m, x ? " " : "", x ? x : ""); exit(1);
+}
 
 /* ---------------- s-expressions ---------------- */
 typedef struct Node { int list; char *s; int n; struct Node **it; char *cmt; } Node;
@@ -106,7 +112,7 @@ DataInfo *DATA; static size_t capdata; static int ndata;
 FldInfo *FLD; static size_t capfld; static int nfld;
 static int fld_lookup(const char *s) { for (int i = nfld - 1; i >= 0; i--) if (!strcmp(FLD[i].name, s)) return i; return -1; }
 long case_hcomp_global = -1;
-/* "%%c" names the first constructor declared c: the checker's own (lib/check.ctt), referred to by
+/* "%%c" names the first constructor declared c: the checker's own (lib/check.cub), referred to by
  * the code the checker is given, whatever the program declares later under the same name */
 static int con_lookup(const char *s) {
     if (s[0] == '%' && s[1] == '%') { for (int i = 0; i < ncon; i++) if (!strcmp(CON[i].name, s + 2)) return i; return -1; }
@@ -441,7 +447,7 @@ static Node *ds(Node *t) {
 
 /* ---------------- codes of source terms ----------------
  * (code t) writes the code of a source term as data: constructor
- * applications of lib/code.ctt, variables as de Bruijn indices over one
+ * applications of lib/code.cub, variables as de Bruijn indices over one
  * context of term and dimension variables, checked definitions as signature
  * indices. This is reading source text, not inspecting a value. */
 static const char **cscope; static size_t capcscope; static int ncscope;
@@ -645,7 +651,7 @@ static Node *to_code(Node *t) {
 }
 
 /* ---------------- annotated codes ----------------
- * The checker's input (lib/check.ctt `Tm`): the code of a term whose every node carries the
+ * The checker's input (lib/check.cub `Tm`): the code of a term whose every node carries the
  * term's value, computed by the machine from the compiled subterm, and whose binders are
  * functions: a term binder λ x xT. (code of the body), a dimension binder λ i. (code of the
  * body). Instantiating a binder is applying it; a variable's node is (tv x xT), its value and
@@ -945,7 +951,7 @@ static NV ann(Node *t, Chain *C) {
     die("code: no code for form", h);
     return (NV){ 0 };
 }
-/* a data declaration as a telescope (lib/check.ctt `Tel`): its parameters, then the list of its
+/* a data declaration as a telescope (lib/check.cub `Tel`): its parameters, then the list of its
  * constructors, each its fields, its dimensions, then its boundary */
 static Node *atel_ctor(Node *cd, ConInfo *c, int i, int k) {
     if (k < c->nfields) {
@@ -1894,7 +1900,7 @@ static char *read_port(Port prov) {
     return buf;
 }
 /* ---------------- printing a code ----------------
- * A typed reading (quote in lib/check.ctt) is a code of lib/code.ctt: first-order data, with
+ * A typed reading (quote in lib/check.cub) is a code of lib/code.cub: first-order data, with
  * bound variables and dimensions as de Bruijn indices. It is printed with names made in the
  * order the binders are printed, x0 x1 ... for variables (ih for an elimination's hypotheses)
  * and i0 i1 ... for dimensions, as a reading names them. */
@@ -2123,7 +2129,7 @@ static bool trusted;
 static const char *cur_dir;
 /* a checked definition whose check the elaborator already ran: its result and length */
 static const char *forced_result; static long forced_steps;
-/* why a judgment failed: its normal form (no v why A B), lib/check.ctt Res */
+/* why a judgment failed: its normal form (no v why A B), lib/check.cub Res */
 /* the slots of a failure that are types (read at their universe); the others are values whose
  * type the failure does not carry, read without one */
 static bool slot_is_type(int why, int k) {
@@ -2136,6 +2142,22 @@ static bool slot_is_type(int why, int k) {
 static char *read_code(Port prov);
 static Cell *obs_val(Port p);
 static const char *con_of(Cell *c);
+/* results in the language of the file being run: a surface file's in the surface syntax */
+static bool out_surface;
+static char *surface_str(Node *t);
+static void out_term(Node *t) {
+    if (!out_surface) { print_node(stdout, t); return; }
+    char *s = surface_str(t); fputs(s, stdout); free(s);
+}
+/* a read-back term (text) */
+static void out_str(const char *r) {
+    if (!out_surface) { fputs(r, stdout); return; }
+    const char *saved = src; src = r;
+    Node *n = read_node();
+    src = saved;
+    if (!n) { fputs(r, stdout); return; }
+    out_term(n);
+}
 /* q: the judgment that failed, run again to read its type slots at their universe */
 static void explain(const char *r, Node *q) {
     /* reason, then what its two values are */
@@ -2179,7 +2201,7 @@ static void explain(const char *r, Node *q) {
     if (!n || !n->list || n->n != 5 || !is(n->it[0], "no")) { printf("   reason: %s\n", r); return; }
     int why = n->it[2]->list ? -1 : atoi(n->it[2]->s + 1);
     bool known = why >= 0 && why < (int)(sizeof M / sizeof *M);
-    if (!is(n->it[1], "opq")) { printf("   at: "); print_node(stdout, n->it[1]); printf("\n"); }
+    if (!is(n->it[1], "opq")) { printf("   at: "); out_term(n->it[1]); printf("\n"); }
     printf("   reason: %s\n", known ? M[why][0] : "rejected");
     if (why == 28) {
         /* the field whose term is not guarded: (no opq 28 d k), d the codata type, k the field */
@@ -2204,7 +2226,7 @@ static void explain(const char *r, Node *q) {
         Node *v = n->it[3 + k];
         if (is(v, "opq")) { free(typed[k]); continue; }
         printf("   %s: ", known && M[why][1 + k] ? M[why][1 + k] : (k ? "B" : "A"));
-        if (typed[k]) { fputs(typed[k], stdout); free(typed[k]); } else print_node(stdout, v);
+        if (typed[k]) { out_str(typed[k]); free(typed[k]); } else out_term(v);
         printf("\n");
     }
 }
@@ -2427,7 +2449,7 @@ static void toplevel(Node *f) {
         if (!strcmp(G[g].name, "%case-hcomp")) case_hcomp_global = g;
         if (fill_decl) { for (int i = 0; i < G[g].npark; i++) net_push(G[g].park_o[i], G[g].park_v[i]); G[g].npark = 0; }
     } else if (!strcmp(h, "checked") || !strcmp(h, "checked-fail") || !strcmp(h, "check") || !strcmp(h, "check-fail")) {
-        /* the checker (lib/check.ctt), a term, run on the codes of T and t
+        /* the checker (lib/check.cub), a term, run on the codes of T and t
          * against the signature of the definitions checked so far */
         bool define = !strcmp(h, "checked") || !strcmp(h, "checked-fail");
         bool expect = strcmp(h, "check-fail") != 0 && strcmp(h, "checked-fail") != 0;
@@ -2444,7 +2466,7 @@ static void toplevel(Node *f) {
         if (ok) passes++; else failures++;
         if (!trusted) {
             printf("%s: %s ", ok ? "ok" : "FAIL", expect ? "checks" : "rejected");
-            if (define) printf("%s", f->it[1]->s); else print_node(stdout, t);
+            if (define) printf("%s", f->it[1]->s); else out_term(t);
             printf("   [%ld steps]\n", steps);
         }
         if (!accepted && (expect || getenv("CUBICAL_WHY"))) explain(r, nl3("%%chk-def", cT, ct));
@@ -2521,7 +2543,7 @@ static void toplevel(Node *f) {
         obs_depth = atoi(f->it[1]->s);
         char *r = readback(f->it[2], &steps);
         obs_depth = 0;
-        print_node(stdout, f); printf("\n  = %s   [%ld steps]\n", r, steps);
+        out_term(f); printf("\n  = "); out_str(r); printf("   [%ld steps]\n", steps);
         free(r);
     } else if (!strcmp(h, "checked-codata") || !strcmp(h, "checked-codata-fail")) {
         /* (checked-codata (codata ...)): declare a codata type and check it: parameter and field
@@ -2922,7 +2944,7 @@ static void toplevel(Node *f) {
         char *r = T ? readback_at(T, f->it[1], &steps) : readback(f->it[1], &steps);
         if (trace_out) { fprintf(trace_out, "-- %ld steps\n", steps); fclose(trace_out); trace_out = NULL; }
         /* length: every interaction; and the values found already shared (memo hits), the values shared */
-        print_node(stdout, f->it[1]); printf("\n  = %s   [%ld steps", r, steps);
+        out_term(f->it[1]); printf("\n  = "); out_str(r); printf("   [%ld steps", steps);
         if (stat_hits > h0 || stat_keys > k0) printf(", %ld hits, %ld shared", stat_hits - h0, stat_keys - k0);
         printf("]\n");
         free(r);
@@ -2934,8 +2956,8 @@ static void toplevel(Node *f) {
         char *b = T ? readback_at(T, f->it[2], NULL) : readback(f->it[2], NULL);
         if (strcmp(a, b)) {
             failures++;
-            printf("FAIL: "); print_node(stdout, f->it[1]); printf("\n  left:  %s\n  right: %s\n", a, b);
-        } else { passes++; printf("ok: "); print_node(stdout, f->it[1]); printf("\n"); }
+            printf("FAIL: "); out_term(f->it[1]); printf("\n  left:  "); out_str(a); printf("\n  right: "); out_str(b); printf("\n");
+        } else { passes++; printf("ok: "); out_term(f->it[1]); printf("\n"); }
         free(a); free(b);
     } else die("unknown top-level form", h);
 }
@@ -2981,7 +3003,9 @@ static void load_file(const char *path, bool must) {
         bool saved_trusted = trusted;
         { FILE *mf = getenv("CUBICAL_NOCACHE") ? NULL : fopen(marker, "r"); trusted = mf != NULL; if (mf) fclose(mf); }
         int f0 = failures;
+        bool saved_os = out_surface; out_surface = !getenv("CUBICAL_CORE_OUT");
         load_surface(text, rp, false);
+        out_surface = saved_os;
         if (trusted) printf("cached: %s\n", path);
         else if (failures == f0 && !getenv("CUBICAL_NOCACHE")) {
             mkdir(cache_dir(), 0777);
