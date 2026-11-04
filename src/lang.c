@@ -8,7 +8,7 @@
 #include <sys/stat.h>
 #include <limits.h>
 #include <stdarg.h>
-extern int dup(int); extern int dup2(int, int); extern int close(int);
+extern int dup(int); extern int dup2(int, int); extern int close(int); extern FILE *fdopen(int, const char *);
 
 /* grow an array to hold at least n elements */
 #define GROW(arr, cap, n) do { if ((size_t)(n) > (size_t)(cap)) { size_t nc_ = (cap) ? (size_t)(cap) * 2 : 16; while (nc_ < (size_t)(n)) nc_ *= 2; (arr) = realloc((arr), nc_ * sizeof *(arr)); (cap) = nc_; } } while (0)
@@ -572,6 +572,8 @@ static Node *to_code(Node *t) {
         die("code: not a bound variable or checked definition:", s);
     }
     const char *h = t->it[0]->s;
+    if (!strcmp(h, "%guess")) return to_code(t->it[3]);
+    if (!strcmp(h, "%spine")) return to_code(t->it[1]);
     if (!strcmp(h, "lam")) return capp1("clam", code_bound(t->it[1]->s, t->it[2]));
     if (!strcmp(h, "plam")) return capp1("cplam", code_bound(t->it[1]->s, t->it[2]));
     if (!strcmp(h, "forall")) return capp1("cforall", code_bound(t->it[1]->s, t->it[2]));
@@ -3023,6 +3025,11 @@ int main(int argc, char **argv) {
     net_start(w ? atoi(w) : 0);
     /* the machine's build is part of every module's key */
     { const char *b = __DATE__ " " __TIME__; key_mix(b, strlen(b)); }
+    for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--print")) {
+        /* printing a file: everything else the run prints is silenced */
+        fflush(stdout); int so = dup(1); conv_out = fdopen(so, "w");
+        FILE *nul = fopen("/dev/null", "w"); dup2(fileno(nul), 1);
+    }
     for (int i = 1; i < argc; i++) {
         /* --print f: f's core forms in the surface language; --roundtrip f: each printed form parsed
          * back and compared, while f is loaded */

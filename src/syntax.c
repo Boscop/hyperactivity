@@ -1148,6 +1148,7 @@ static void bnl(Buf *o, int col) { bputc(o, '\n'); for (int i = 1; i < col; i++)
 static int pr_width = 100;
 static bool pr_typed;        /* a path λ prints as λ i → (the checker tells it apart), else λ (i : I) → */
 static bool pr_nodrop;       /* the implicit arguments are dropped already */
+static bool pr_keepimp;      /* a term read, not checked: its implicit arguments given in braces */
 static Buf pr_lost;          /* comments of subterms printed within a line */
 static int vlen(const char *s) { int n = 0; for (; *s; s++) if (((unsigned char)*s & 0xC0) != 0x80) n++; return n; }
 static bool has_nl(const char *s) { return strchr(s, '\n') != NULL; }
@@ -1213,7 +1214,7 @@ static Node *pr_binders(Buf *o, Node *t) {
         for (int i = 1; i < t->n - 1; i++) {
             if (!first) bputc(o, ' ');
             first = false;
-            if (dim && !pr_typed) { bput(o, "("); bput(o, param_name(t->it[i])->s); bput(o, " : I)"); }
+            if (dim && (!pr_typed || pr_keepimp)) { bput(o, "("); bput(o, param_name(t->it[i])->s); bput(o, " : I)"); }
             else bput(o, param_name(t->it[i])->s);
         }
         t = t->it[t->n - 1];
@@ -1307,8 +1308,8 @@ static void pr(Buf *o, Node *t, int prec, int col) {
     if (!strcmp(k, "case") || !strcmp(k, "elim")) {
         bool el = !strcmp(k, "elim");
         OPEN(0);
-        bput(o, "case "); pr(o, t->it[el ? 2 : 1], 0, col + 5);
-        if (el) { bput(o, " return "); pr(o, t->it[1], 0, cur_col(o)); }
+        bput(o, "case "); pr(o, t->it[el ? 2 : 1], 1, col + 5);
+        if (el) { bput(o, " return "); pr(o, t->it[1], 1, cur_col(o)); }
         bput(o, " of");
         int from = el ? 3 : 2;
         if (t->n - from == 1 && !t->it[from]->list) { /* (case e D): D has no constructors */ bputc(o, ' '); bput(o, t->it[from]->s); CLOSE(0); return; }
@@ -1334,13 +1335,13 @@ static void pr(Buf *o, Node *t, int prec, int col) {
         free(f);
         CLOSE(0); return;
     }
-    if (!strcmp(k, "PathP") && t->n == 4 && pr_typed && t->it[1]->list && t->it[1]->n == 3 && is(t->it[1]->it[0], "plam")
+    if (!strcmp(k, "PathP") && t->n == 4 && pr_typed && !pr_keepimp && global_lookup("Path") >= 0 && t->it[1]->list && t->it[1]->n == 3 && is(t->it[1]->it[0], "plam")
         && !mentions_x(t->it[1]->it[2], t->it[1]->it[1]->s) && !infer_looking(t->it[2]) && !infer_looking(t->it[3])) {
         /* neither end tells the type: Path A a b */
         Node *r = lst(4, nsym("Path"), t->it[1]->it[2], t->it[2], t->it[3]);
         pr_nodrop = true; pr(o, r, prec, col); return;
     }
-    if (!strcmp(k, "PathP") && t->n == 4 && pr_typed && t->it[1]->list && t->it[1]->n == 3 && is(t->it[1]->it[0], "plam")) {
+    if (!strcmp(k, "PathP") && t->n == 4 && pr_typed && !pr_keepimp && global_lookup("_≡_") >= 0 && t->it[1]->list && t->it[1]->n == 3 && is(t->it[1]->it[0], "plam")) {
         /* a ≡ b, a ≡[ i ↦ A ] b */
         Node *L = t->it[1];
         OPEN(4);
@@ -1444,7 +1445,9 @@ static void pr(Buf *o, Node *t, int prec, int col) {
         Node *keep[256]; int nk = 0;
         /* when no explicit argument tells the types, the implicit ones are given, in braces */
         bool told = false;
+        if (pr_keepimp) goto braces;
         for (int i = 1; i < t->n; i++) if (!(i - 1 < im->len && (im->m >> (i - 1) & 1)) && infer_looking(t->it[i])) told = true;
+        braces:
         for (int i = 1; i < t->n && nk < 255; i++) {
             bool imp = i - 1 < im->len && (im->m >> (i - 1) & 1);
             if (!imp) keep[nk++] = t->it[i];
@@ -1709,7 +1712,7 @@ static void conv_form(Buf *o, Node *f) {
     }
     else if (!strcmp(h, "checked")) conv_checked(o, f);
     else if (!strcmp(h, "checked-fail")) { bput(o, "#fail\n"); conv_checked(o, f); }
-    else if (!strcmp(h, "checked-data") || !strcmp(h, "checked-data-fail")) { if (h[12]) bput(o, "#fail\n"); conv_data(o, f->it[1]); }
+    else if (!strcmp(h, "checked-data") || !strcmp(h, "checked-data-fail")) { if (h[12]) bput(o, "#fail\n"); pr_keepimp = true; conv_data(o, f->it[1]); pr_keepimp = false; }
     else if (!strcmp(h, "checked-codata") || !strcmp(h, "checked-codata-fail") || !strcmp(h, "codata")) {
         Node *c = h[0] == 'c' && h[1] == 'o' ? f : f->it[1];
         if (strlen(h) > 14) bput(o, "#fail\n");
@@ -1718,7 +1721,9 @@ static void conv_form(Buf *o, Node *f) {
         if (!hd->list) bput(o, hd->s);
         else { bput(o, hd->it[0]->s); for (int i = 1; i < hd->n; i++) { Node *p = hd->it[i]; if (p->list) { bput(o, " ("); bput(o, p->it[0]->s); bput(o, " : "); pr(o, p->it[1], 0, cur_col(o)); bputc(o, ')'); } else { bputc(o, ' '); bput(o, p->s); } } }
         bput(o, " where");
+        pr_keepimp = true;
         for (int i = 2; i < c->n; i++) { bput(o, "\n  "); bput(o, c->it[i]->it[0]->s); bput(o, " : "); pr(o, c->it[i]->it[1], 0, cur_col(o)); }
+        pr_keepimp = false;
         bputc(o, '\n');
     }
     else if (!strcmp(h, "mutual") || !strcmp(h, "mutual-fail")) {
@@ -1738,11 +1743,12 @@ static void conv_form(Buf *o, Node *f) {
         if (l > 4 && !strcmp(q + l - 4, ".ctt")) strcpy(q + l - 4, ".cub");
         bput(o, "import \""); bput(o, q); bput(o, "\"\n");
     }
-    else if (!strcmp(h, "show")) { bput(o, "#show "); pr(o, f->it[1], 0, 7); bputc(o, '\n'); }
-    else if (!strcmp(h, "same")) { bput(o, "#same "); pr(o, f->it[1], 0, 7); bput(o, " = "); pr(o, f->it[2], 0, cur_col(o)); bputc(o, '\n'); }
+    else if (!strcmp(h, "show")) { pr_keepimp = true; bput(o, "#show "); pr(o, f->it[1], 0, 7); bputc(o, '\n'); pr_keepimp = false; }
+    else if (!strcmp(h, "same")) { pr_keepimp = true; bput(o, "#same "); pr(o, f->it[1], 1, 7); bput(o, " = "); pr(o, f->it[2], 1, cur_col(o)); bputc(o, '\n'); pr_keepimp = false; }
     else if (!strcmp(h, "check") || !strcmp(h, "check-fail")) {
         if (h[5]) bput(o, "#fail\n");
-        bput(o, "#check "); pr(o, f->it[2], 0, 8); bput(o, " : "); pr(o, f->it[1], 0, cur_col(o)); bputc(o, '\n');
+        pr_keepimp = h[5] != 0;   /* a rejection: the arguments as given */
+        bput(o, "#check "); pr(o, f->it[2], 1, 8); bput(o, " : "); pr(o, f->it[1], 0, cur_col(o)); bputc(o, '\n'); pr_keepimp = false;
     }
     else if (!strcmp(h, "check-data")) { bput(o, "#check-data "); bput(o, f->it[1]->s); bputc(o, '\n'); }
     else if (!strcmp(h, "input")) { bput(o, "#input"); for (int i = 1; i < f->n; i++) { bputc(o, ' '); bput(o, f->it[i]->s); } bputc(o, '\n'); }
@@ -1779,6 +1785,7 @@ static bool alpha(Node *x, Node *y, APair *env, int n) {
     return true;
 }
 static Node **xcollect; static int nxcollect, capxcollect; static bool x_collecting;
+static FILE *conv_out;   /* where --print writes (stdout itself silenced) */
 static void x_top(Node *f) {
     if (x_collecting) { GROW(xcollect, capxcollect, (size_t)nxcollect + 1); xcollect[nxcollect++] = f; return; }
     toplevel(f);
@@ -1800,7 +1807,7 @@ static void convert_file(const char *path, bool check) {
     for (int i = 0; i < nf; i++) {
         Buf o = { 0 }; bput(&o, "");
         conv_form(&o, fs[i]);
-        if (!check) fputs(o.b, stdout);
+        if (!check) { fputs(o.b, conv_out ? conv_out : stdout); fflush(conv_out ? conv_out : stdout); }
         else if (!is(fs[i]->it[0], "declare")) {
             /* parse it back */
             nxcollect = 0; x_collecting = true;
@@ -1836,7 +1843,7 @@ static void convert_file(const char *path, bool check) {
         else {
             /* printing only: the forms the printing needs (constructors, fields, names) are loaded */
             const char *h = fs[i]->it[0]->s;
-            if (!strcmp(h, "data") || !strcmp(h, "codata") || !strcmp(h, "checked-data") || !strcmp(h, "checked-codata") || !strcmp(h, "check-data") || !strcmp(h, "def") || !strcmp(h, "declare") || !strcmp(h, "axiom") || !strcmp(h, "import")) {
+            if (!strcmp(h, "data") || !strcmp(h, "codata") || !strcmp(h, "checked-data") || !strcmp(h, "checked-codata") || !strcmp(h, "check-data") || !strcmp(h, "declare") || !strcmp(h, "axiom") || !strcmp(h, "import")) {
                 fflush(stdout); int so = dup(1); FILE *nul = fopen("/dev/null", "w"); dup2(fileno(nul), 1);
                 toplevel(fs[i]);
                 fflush(stdout); dup2(so, 1); close(so); fclose(nul);
@@ -2744,13 +2751,19 @@ static Node *strip_marks(Node *t) {
     Node *r = nlist(t->n); for (int i = 0; i < t->n; i++) r->it[i] = strip_marks(t->it[i]);
     return r;
 }
+/* does t name a definition the checker does not know (an unchecked one)? */
+static bool has_unchecked(Node *t) {
+    if (!t->list) { if (e_find(t->s) || con_lookup(t->s) >= 0 || keyword(t->s) || constant_sym(t->s)) return false; long g = global_lookup(t->s); return g >= 0 && global_checked(g) < 0 && data_lookup(t->s) < 0 && fld_lookup(t->s) < 0; }
+    for (int i = 0; i < t->n; i++) if (has_unchecked(t->it[i])) return true;
+    return false;
+}
 static Node *x_solve_expr(Node *e) {
     if (!x_typed) return core(e);
     neh = neg = 0;
     Node *t = NULL;
     for (int round = 0; round < 400; round++) {
         nesc = 0; t = core(el(e));
-        if (!has_hole(t) && neg == 0) break;
+        if (!has_hole(t) || has_unchecked(t)) break;
         long steps;
         char *r = readback(nl2("%%infer-ok", nl2("%raw", aclosed(ds(t)))), &steps);
         const char *saved = src; src = r; Node *rn = read_node(); src = saved;
