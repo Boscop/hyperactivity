@@ -2236,7 +2236,11 @@ static int sig_add(const char *name, long g, long tyg, bool hidden) {
 }
 /* a copattern definition: λs and lines over a record (desugared) */
 static bool copattern_body(Node *b) {
-    while (b->list && b->n == 3 && (is(b->it[0], "lam") || is(b->it[0], "plam"))) b = b->it[2];
+    for (;;) {
+        if (b->list && b->n == 4 && is(b->it[0], "%guess")) { b = b->it[3]; continue; }
+        if (b->list && b->n == 3 && (is(b->it[0], "lam") || is(b->it[0], "plam"))) { b = b->it[2]; continue; }
+        break;
+    }
     return b->list && b->n >= 2 && is(b->it[0], "%record");
 }
 static bool plain_def;   /* a copattern definition's body: defined as it is */

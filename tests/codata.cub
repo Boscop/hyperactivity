@@ -22,8 +22,8 @@ path->bisim : {A : Type} {x y : Orbit A} → x ≡ y → Bisim A x y
 (path->bisim p).bhere = λ i → here (p i)
 (path->bisim p).bnext = path->bisim {A} {next x} {next y} (λ i → next (p i))
 iso1 : {A : Type} {x y : Orbit A} → (p : x ≡ y) → bisim (path->bisim p) ≡ p
-iso1 p =
-  λ i j → record (here (here (p j))) (next (iso1 {A} {next x} {next y} (λ k → next (p k)) i j))
+(iso1 p i j).here = here (p j)
+(iso1 p i j).next = iso1 {A} {next x} {next y} (λ k → next (p k)) i j
 iso2 : {A : Type} {x y : Orbit A} → (p : Bisim A x y) → path->bisim (bisim p) ≡ p
 (iso2 p i).bhere = bhere p
 (iso2 p i).bnext = iso2 (bnext p) i
@@ -40,10 +40,10 @@ map-id o = bisim (map-id-b o)
 -- ---------------------------------------------------------------- finite observation
 -- the first n points of an orbit
 take : {A : Type} → Nat → Orbit A → List A
-take n o =
-  (case n return (λ y → Orbit A → List A) of
-     zero → λ o → nil
-     suc k → λ o → cons (here o) (rec k (next o))) o
+take n =
+  case n return (λ y → Orbit A → List A) of
+    zero → λ o → nil
+    suc k → λ o → cons (here o) (rec k (next o))
 n0 = zero
 n1 = suc n0
 n2 = suc n1
@@ -112,10 +112,10 @@ counter : Nat → Proc Unit Nat
 (counter n).step = λ q → (n , counter (suc n))
 -- running a process on a list of questions: its answers
 run : {Q A : Type} → List Q → Proc Q A → List A
-run qs p =
-  (case qs return (λ y → Proc Q A → List A) of
-     nil → λ p → nil
-     cons q r → λ p → let s = step p q in cons (fst s) (rec r (snd s))) p
+run qs =
+  case qs return (λ y → Proc Q A → List A) of
+    nil → λ p → nil
+    cons q r → λ p → let s = step p q in cons (fst s) (rec r (snd s))
 #same run {Nat} {Nat} (cons n3 (cons n1 (cons n4 nil))) (echo {Nat}) = cons n3
                                                                          (cons n1 (cons n4 nil))
 #same run {Unit} {Nat} (cons unit (cons unit (cons unit nil))) (counter n2) = cons n2
@@ -142,7 +142,7 @@ notB-inv : (b : Bool) → notB (notB b) ≡ b
 notB-inv b = case b return (λ y → notB (notB y) ≡ y) of true → λ i → true; false → λ i → false
 notB-eq : Equiv Bool Bool
 notB-eq = isoToEquiv notB notB notB-inv notB-inv
-notL = ua notB-eq
+notL = ua lzero Bool Bool notB-eq
 #same here (transp (λ (i : I) → Orbit (notL i)) ping) = transp notL true
 #same here (next (next (next (transp (λ (i : I) → Orbit (notL i)) ping)))) = transp notL false
 #same transp notL true = transp (λ (i : I) → Bool) (transp (λ (i : I) → Bool) false)
@@ -187,7 +187,7 @@ bad4 : {A : Type} {x y : Orbit A} → Bisim A x y → x ≡ y
 (bad4 p i).next = bad4 (bnext p) (~ i)
 -- a record only as a copattern definition's body
 #fail
-#check record (here zero) (next (unfold {Nat} (λ n → suc n) zero)) : Orbit Nat
+#check record { here = zero ; next = unfold {Nat} (λ n → suc n) zero } : Orbit Nat
 -- a field type not strictly positive
 #fail
 codata Neg where

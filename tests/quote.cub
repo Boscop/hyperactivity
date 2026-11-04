@@ -17,7 +17,7 @@ g s = s
 #same fromopt (quote-top (Nat × Nat → Nat × Nat) g) cword = code (λ s → (fst s , snd s))
 #same law-conv (Nat × Nat → Nat × Nat) g = true
 ap1 : (Nat → Nat) → Nat → Nat
-ap1 F n = F n
+ap1 F = F
 #same fromopt (quote-top ((Nat → Nat) → Nat → Nat) ap1) cword = code (λ F n → F n)
 #same law-conv ((Nat → Nat) → Nat → Nat) ap1 = true
 -- a path variable read at its line: η at path types
@@ -25,7 +25,7 @@ sq : {A : Type} {x y : A} → x ≡ y → x ≡ y
 sq p = p
 #same fromopt
         (quote-top ((A : Type) → (x y : A) → PathP (λ (i : I) → A) x y → PathP (λ (i : I) → A) x y)
-           sq) cword = code (λ A x y p (i : I) → p i)
+           (λ x0 x1 x2 → sq {x0} {x1} {x2})) cword = code (λ A x y p (i : I) → p i)
 -- Glue
 gl : Type → Type
 gl A = Glue A []
@@ -33,8 +33,9 @@ gl A = Glue A []
 -- a constructor of a data type with parameters
 c1 : {A : Type} → A → List A
 c1 a = cons a nil
-#same fromopt (quote-top ((A : Type) → A → List A) c1) cword = code (λ A a → cons a nil)
-#same law-conv ((A : Type) → A → List A) c1 = true
+#same fromopt (quote-top ((A : Type) → A → List A) (λ x0 → c1 {x0})) cword = code
+                                                                               (λ A a → cons a nil)
+#same law-conv ((A : Type) → A → List A) (λ x0 → c1 {x0}) = true
 -- a stuck elimination with a motive: its branches at the motive, a hypothesis as (rec k)
 h : Nat → Nat
 h n = case n return (λ y → Nat) of zero → zero; suc k → suc (rec k)
@@ -46,29 +47,30 @@ h n = case n return (λ y → Nat) of zero → zero; suc k → suc (rec k)
 #same law-conv (Nat → Nat) h = true
 -- a stuck elimination with a motive whose branches are functions: η inside the branches
 hf : Nat → Nat → Nat
-hf n m = (case n return (λ y → Nat → Nat) of zero → λ m → m; suc k → rec k) m
+hf n = case n return (λ y → Nat → Nat) of zero → λ m → m; suc k → rec k
 #same fromopt (quote-top (Nat → Nat → Nat) hf) cword = code
                                                          (λ n m →
                                                             (case n return (λ y → Nat → Nat) of
                                                                zero → λ m2 → m2
                                                                suc k → λ m2 → rec k m2) m)
 #same law-conv (Nat → Nat → Nat) hf = true
--- an elimination without a motive, reached at a known type: its branches at that type
+-- a case written without a motive where a type is expected: that type its motive, and its stuck
+-- value read back with it
 h2 : Nat → Nat → Nat
-h2 n m = (case n of zero → λ m → m; suc k → λ m → k) m
+h2 n = case n of zero → λ m → m; suc k → λ m → k
 #same fromopt (quote-top (Nat → Nat → Nat) h2) cword = code
                                                          (λ n m →
-                                                            (case n of
+                                                            (case n return λ _ → Nat → Nat of
                                                                zero → λ m2 → m2
                                                                suc k → λ m2 → k) m)
--- the endpoint rule under a motiveless case reached at its type
+-- the endpoint rule under a case reached at its type
 h3 : Bool → Path Nat zero zero → Nat
 h3 b p = if b then p i0 else zero
 #same fromopt (quote-top (Bool → PathP (λ (i : I) → Nat) zero zero → Nat) h3) cword = code
                                                                                         (λ b p →
-                                                                                           if b
-                                                                                             then zero
-                                                                                             else zero)
+                                                                                           case b return λ _ → Nat of
+                                                                                             true → zero
+                                                                                             false → zero)
 -- words: a stuck word elimination and a stuck operation
 #same law-conv (Word → Word → Word) plusw = true
 w1 : Word → Bool
@@ -77,7 +79,8 @@ w1 a = %wlt a #3
 -- a stuck transport in a data type
 tl : {A B : Type} → A ≡ B → List A → List B
 tl p l = transport (λ i → List (p i)) l
-#same law-conv ((A B : Type) → PathP (λ (i : I) → Type) A B → List A → List B) tl = true
+#same law-conv ((A B : Type) → PathP (λ (i : I) → Type) A B → List A → List B)
+        (λ x0 x1 → tl {x0} {x1}) = true
 -- quoting the value of a code gives the code again
 #same quote-top (PathP (λ (i : I) → Nat) zero zero → Nat)
         (qe (PathP (λ (i : I) → Nat) zero zero → Nat) f) = quote-top
@@ -91,14 +94,12 @@ tl p l = transport (λ i → List (p i)) l
 #same quote-top (Word → Word → Word) (qe (Word → Word → Word) plusw) = quote-top
                                                                          (Word → Word → Word) plusw
 #same quote-top ((A B : Type) → PathP (λ (i : I) → Type) A B → List A → List B)
-        (qe ((A B : Type) → PathP (λ (i : I) → Type) A B → List A → List B) tl) = quote-top
-                                                                                    ((A B : Type) →
-                                                                                     PathP
-                                                                                       (λ (i : I) →
-                                                                                          Type) A B →
-                                                                                     List A →
-                                                                                     List B) tl
+        (qe ((A B : Type) → PathP (λ (i : I) → Type) A B → List A → List B)
+           (λ x0 x1 → tl {x0} {x1})) = quote-top
+                                         ((A B : Type) →
+                                          PathP (λ (i : I) → Type) A B → List A → List B)
+                                         (λ x0 x1 → tl {x0} {x1})
 -- a typed reading of a checked definition is its normal form at its type
 #show f
 #show hf
-#show tl
+#show λ x0 x1 → tl {x0} {x1}

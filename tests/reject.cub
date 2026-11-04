@@ -21,31 +21,34 @@ data Box (A : Type) = box (a : A)
 -- path application: to an interval, not a term
 #check (λ A x p → p i0) : (A : Type) → (x : A) → x ≡ x → A
 #fail
-#check (λ A x p → p x) : (A : Type) → (x : A) → x ≡ x → A
+#check (λ A x p → p x) : (A : Type) → (x : A) → PathP (λ (i : I) → A) x x → A
 -- interval terms and faces are made of dimensions
 #fail
-#check (λ A x p → p (~ x)) : (A : Type) → (x : A) → x ≡ x → A
+#check (λ A x p → p (~ x)) : (A : Type) → (x : A) → PathP (λ (i : I) → A) x x → A
 #fail
-#check (λ A x i → comp (λ j → A) (λ j → [ x = 0 ↦ x ]) x) : (A : Type) → (x : A) → x ≡ x
+#check (λ A x (i : I) → comp (λ (j : I) → A) (λ (j : I) → [ x = 0 ↦ x ]) x) : (A : Type) →
+                                                                              (x : A) →
+                                                                              PathP (λ (i : I) → A)
+                                                                                x x
 -- λ and pairs only at Π and Σ
 #fail
 #check (λ A x → x) : (A : Type) → A
 #fail
 #check (λ A → (A , A)) : (A : Type) → A → A
 #fail
-#check (λ A i → A) : Type → Type
+#check (λ A (i : I) → A) : Type → Type
 -- the universe: (U l) at (U (lsuc l)), not at itself; a level is a Level
-#check Type : Type i1
+#check Type : Type 1
 #fail
 #check Type : Type
 #fail
-#check Type i1 : Type i1
+#check Type 1 : Type 1
 #fail
 #check (λ A → Type A) : Type → Type
 #fail
 #check (λ A → lsuc A) : Type → Level
 -- Π and Σ: the domain is a type; a family over U lives one level up
-#check ((x : Type) → x) : Type i1
+#check ((x : Type) → x) : Type 1
 #fail
 #check ((x : Type) → x) : Type
 #fail
@@ -55,30 +58,42 @@ data Box (A : Type) = box (a : A)
 -- PathP: the endpoints at the line's ends
 #check (λ A x → x ≡ x) : (A : Type) → A → Type
 #fail
-#check (λ A B x y → x ≡ y) : (A B : Type) → A → B → Type
+#check (λ A B x y → PathP (λ (i : I) → A) x y) : (A B : Type) → A → B → Type
 #fail
-#check (λ A x → x ≡ x) : (A : Type) → A → Type
+#check (λ A x → PathP (λ (i : I) → x) x x) : (A : Type) → A → Type
 -- a line: its endpoints are the declared ones
 #fail
-#check (λ A x y i → x) : (A : Type) → (x y : A) → x ≡ y
+#check (λ A x y (i : I) → x) : (A : Type) → (x y : A) → PathP (λ (i : I) → A) x y
 -- systems: overlapping branches agree; branches at the type
 #check (λ A x i → comp (λ j → A) (λ j → [ i = 0 ↦ x , i = 0 ↦ x , i = 1 ↦ x ]) x) : (A : Type) →
                                                                                     (x : A) → x ≡ x
 #fail
-#check (λ A x y i → comp (λ j → A) (λ j → [ i = 0 ↦ x , i = 0 ↦ y , i = 1 ↦ x ]) x) : (A : Type) →
-                                                                                      (x : A) →
-                                                                                      A → x ≡ x
+#check (λ A x y (i : I) →
+          comp (λ (j : I) → A) (λ (j : I) → [ i = 0 ↦ x , i = 0 ↦ y , i = 1 ↦ x ]) x) : (A : Type) →
+                                                                                        (x : A) →
+                                                                                        A →
+                                                                                        PathP
+                                                                                          (λ (i : I) →
+                                                                                             A) x x
 #fail
-#check (λ A B x b i → comp (λ j → A) (λ j → [ i = 0 ↦ b , i = 1 ↦ x ]) x) : (A B : Type) →
-                                                                            (x : A) → B → x ≡ x
+#check (λ A B x b (i : I) → comp (λ (j : I) → A) (λ (j : I) → [ i = 0 ↦ b , i = 1 ↦ x ]) x) : (A B : Type) →
+                                                                                              (x : A) →
+                                                                                              B →
+                                                                                              PathP
+                                                                                                (λ (i : I) →
+                                                                                                   A)
+                                                                                                x x
 -- there is no regularity: a composition along a constant line is not its base
 #fail
-#check (λ A x i → comp (λ j → A) (λ j → [ i = 0 ↦ x ]) x) : (A : Type) → (x : A) → x ≡ x
+#check (λ A x (i : I) → comp (λ (j : I) → A) (λ (j : I) → [ i = 0 ↦ x ]) x) : (A : Type) →
+                                                                              (x : A) →
+                                                                              PathP (λ (i : I) → A)
+                                                                                x x
 -- comp: the line is a line of types; the tube's faces do not depend on it
 #fail
-#check (λ A x → comp (λ i → x) (λ i → []) x) : (A : Type) → A → A
+#check (λ A x → comp (λ (i : I) → x) (λ (i : I) → []) x) : (A : Type) → A → A
 #fail
-#check (λ A x → comp (λ i → A) (λ i → [ i = 0 ↦ x ]) x) : (A : Type) → A → A
+#check (λ A x → comp (λ (i : I) → A) (λ (i : I) → [ i = 0 ↦ x ]) x) : (A : Type) → A → A
 -- Glue: the system gives types with equivalences into the base
 #check (λ A → Glue A [ tt ↦ (A , idEquiv {lzero} {A}) ]) : Type → Type
 #fail
@@ -141,7 +156,7 @@ data Neg2 = mk (f : (Neg2 → Bool) → Bool)
 data Nu (A : Type) = nu (a : A) (r : Nu Bool)
 #fail
 data Late = l1 (i : I) [ i = 0 ↦ l2 , i = 1 ↦ l2 ] | l2
-data Lv (A : Type) = lv (a : Type i1)
+data Lv (A : Type) = lv (a : Type 1)
 #fail
 data Lw (l : Level) = lw (a : Type l)
 -- words
@@ -165,11 +180,11 @@ data Lw (l : Level) = lw (a : Type l)
 #check (λ A f i → f) : (A : Type) → (f : A → A) → f ≡ (λ x → f x)
 #check (λ A p i → p) : (A : Type) → (p : A × A) → p ≡ (fst p , snd p)
 #fail
-#check (λ A p i → p) : (A : Type) → (p : A × A) → p ≡ (snd p , fst p)
+#check (λ A p (i : I) → p) : (A : Type) → (p : A × A) → PathP (λ (i : I) → A × A) p (snd p , fst p)
 #fail
-#check (λ A x y i → x) : (A : Type) → (x y : A) → x ≡ y
+#check (λ A x y (i : I) → x) : (A : Type) → (x y : A) → PathP (λ (i : I) → A) x y
 #fail
-#check (λ f i → f) : (f : Bool → Bool) → f ≡ (λ b → not (f b))
+#check (λ f (i : I) → f) : (f : Bool → Bool) → PathP (λ (i : I) → Bool → Bool) f (λ b → not (f b))
 -- universes are not cumulative and do not contain themselves at any level
 #fail
 #check (Type → Nat) : Type
