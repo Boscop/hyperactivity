@@ -63,6 +63,13 @@ data Tm
   | twelim P w z s V
   | tproj d k x V
   | trec d fs V
+  -- elaboration: an implicit argument to find (V a fresh variable standing for it); a λ or an
+  -- application whose kind (function or path) was guessed (g: #0 λ, #1 line, #2 application,
+  -- #3 path application)
+  | thole k V
+  | tguess k g t V
+  -- an application with holes among its arguments
+  | tspine t V
 -- a branch of an elimination: binders for its fields, hypotheses, dimensions, then the body
 data Br = bx nm b | bi nm b | be t
 -- a telescope: a term binder over a type, a dimension binder, the end
@@ -119,6 +126,9 @@ tval c =
     twelim P w z s V → V
     tproj d k x V → V
     trec d fs V → V
+    thole k V → V
+    tguess k g t V → V
+    tspine t V → V
 -- ---------------------------------------------------------------- basics
 -- Lst, Opt, View, CloCmp and DTab are declared in code.ctt
 andb a b = if a then b else false
@@ -548,7 +558,9 @@ convneu wu wv =
 -- A judgment's normal form is ok (check), (yes T) (infer), or (no v why A B): the subterm whose
 -- value is v fails for the reason numbered why (named in src/lang.c), A and B the values it
 -- concerns (the expected and the actual type, the two sides that differ, ...).
-data Res = ok | yes T | no v why A B
+-- (elab ds): the implicit arguments found, each (k , code), the term to be checked again with them;
+-- (redo k): the guess k was the wrong kind
+data Res = ok | yes T | no v why A B | elab ds | redo k
 err c why A B = no (tval c) why A B
 and-then r k = case r of ok → k; _ → r
 chk b r = if b then ok else r
@@ -588,6 +600,7 @@ E-unguarded = #28
 E-literal = #29
 E-notcodata = #30
 E-copositive = #31
+E-implicit = #32
 -- a type's universe level (not ω), and a type's sort (a universe, U ω for types over levels)
 infer-level A =
   case infer A of
@@ -668,6 +681,9 @@ infer c =
   case c of
     tv x T → yes T
     tg n V → yes (%gty n)
+    tguess k g t V → guess-infer k g t
+    thole k V → err c E-implicit opq opq
+    tspine t V → solve-spine t none
     tapp f a V → 
       case infer f of
         yes T → 
@@ -699,6 +715,8 @@ infer c =
     tsigma A nm b V → infer-binder A nm b
     tpathp A a b V → 
       case A of
+        -- a λ guessed a function's is a line
+        tguess k g t V2 → (if %weq g #0 then redo k else infer (tpathp t a b V))
         tplam nX X LV → 
           let i = %dim nX
           in case infer-level (X i) of
@@ -912,6 +930,8 @@ infer-binder A nm b =
     r → r
 check c T =
   case c of
+    tguess k g t V → guess-check k g t T
+    tspine t V → solve-spine t (some T)
     tlam nm b V → 
       case %view T of
         wpi A B → let x = %var nm A in check (b x A) (B x)
@@ -1470,3 +1490,127 @@ q-trans bs d psi ls x =
 -- the entry points: a value at its type, and a type
 quote-top T v = quote lnil T v
 quote-ty A = qty lnil A
+
+-- ---------------------------------------------------------------- elaboration
+-- check by inferring the type and comparing
+check-by-infer c T = case infer c of yes T2 → chk (conv-ty T2 T) (err c E-mismatch T T2); r → r
+-- A guessed λ or application: the type tells which it is; the wrong kind is redone.
+guess-check k g t T =
+  if %weq g #0 then (case %view T of wpath L a b → redo k; _ → check t T)
+  else if %weq g #1 then (case %view T of wpi A B → redo k; _ → check t T)
+  else check-by-infer (tguess k g t (tval t)) T
+guess-infer k g t =
+  if %weq g #2 then
+    (case t of
+       tapp f a V → (case infer f of yes T → (case %view T of wpath L a0 a1 → redo k; _ → infer t); r → r)
+       _ → infer t)
+  else if %weq g #3 then
+    (case t of
+       tpapp p r V → (case infer p of yes T → (case %view T of wpi A B → redo k; _ → infer t); r2 → r2)
+       _ → infer t)
+  else infer t
+-- A spine with holes (implicit arguments) is solved where it stands: the head's type is walked
+-- along the arguments, a hole standing as a fresh variable, each explicit argument's inferred type
+-- matched against its domain, then the result type against the expected one; the universe of a
+-- solved type gives its level. The solutions are returned as codes, (elab ...), and the term with
+-- them is checked again. An argument's own holes are solved first.
+spine-of c acc = case c of tapp f a V → spine-of f (lcons a acc); _ → (c , acc)
+-- the holes seen: (k , V , A)
+hole-of hs v = case hs of lnil → none; lcons h r → (if same-var (fst (snd h)) v then some (fst h) else hole-of r v)
+hole-type hs k = case hs of lnil → opq; lcons h r → (if %weq (fst h) k then snd (snd h) else hole-type r k)
+solved sg k = lany (λ s → %weq (fst s) k) sg
+sol-of sg k = case sg of lnil → none; lcons s r → (if %weq (fst s) k then some (snd s) else sol-of r k)
+inferable a =
+  case a of
+    tlam nm b V → false
+    tplam nm b V → false
+    tpair a b V → false
+    tcon d c fs ds V → false
+    tsys bs V → false
+    trec d fs V → false
+    thole k V → false
+    _ → true
+-- P (with holes) against X: the holes P is made of at X's corresponding parts
+vmatch hs P X sg =
+  case hole-of hs P of
+    some k → if solved sg k then sg else lcons (k , X) sg
+    none → vmatch-w hs (%view P) X sg
+vmatch-l hs ps qs sg =
+  case ps of
+    lnil → sg
+    lcons p pr → (case qs of lcons q qr → vmatch-l hs pr qr (vmatch hs p q sg); lnil → sg)
+vmatch-w hs w X sg =
+  case w of
+    wpi A B → (case %view X of wpi A2 B2 → (let x = %var A2 in vmatch hs (B x) (B2 x) (vmatch hs A A2 sg)); _ → sg)
+    wsigma A B → (case %view X of wsigma A2 B2 → (let x = %var A2 in vmatch hs (B x) (B2 x) (vmatch hs A A2 sg)); _ → sg)
+    wpath L a b →
+      (case %view X of
+         wpath L2 c d → (let i = %dim in vmatch hs b d (vmatch hs a c (vmatch hs (L @ i) (L2 @ i) sg)))
+         _ → sg)
+    wdata d ps → (case %view X of wdata d2 qs → (if %weq d d2 then vmatch-l hs ps qs sg else sg); _ → sg)
+    wcon d c fs ds → (case %view X of wcon d2 c2 fs2 ds2 → (if andb (%weq d d2) (%weq c c2) then vmatch-l hs fs fs2 sg else sg); _ → sg)
+    wu l → (case %view X of wu m → vmatch hs l m sg; _ → sg)
+    wapp f a T → (case %view X of wapp f2 a2 T2 → vmatch hs a a2 (vmatch hs f f2 sg); _ → sg)
+    wfst p T → (case %view X of wfst p2 T2 → vmatch hs p p2 sg; _ → sg)
+    wsnd p T → (case %view X of wsnd p2 T2 → vmatch hs p p2 sg; _ → sg)
+    wpapp p r T → (case %view X of wpapp p2 r2 T2 → vmatch hs p p2 sg; _ → sg)
+    _ → sg
+-- the universe level of a type
+univ-level T = case %view T of wu l → l; _ → lzero
+type-level v =
+  case %view v of
+    wu l → lsuc l
+    wpi A B → lmax (type-level A) (type-level (B (%var A)))
+    wsigma A B → lmax (type-level A) (type-level (B (%var A)))
+    wpath L a b → type-level (L @ %dim)
+    wdata d ps → dlvl (%dent d)
+    wglue A S → type-level A
+    wvar l T → univ-level T
+    wapp f a T → univ-level T
+    wfst p T → univ-level T
+    wsnd p T → univ-level T
+    wpapp p r T → univ-level T
+    welim d x f T → univ-level T
+    _ → lzero
+-- a hole of type U l solved by a type: l by its level
+level-close hs sg =
+  case hs of
+    lnil → sg
+    lcons h r →
+      level-close r
+        (case %view (snd (snd h)) of
+           wu l → (case sol-of sg (fst h) of some s → vmatch hs l (type-level s) sg; none → sg)
+           _ → sg)
+solve-spine c oE =
+  let sp = spine-of c lnil
+  in case infer (fst sp) of
+       yes T → spine-walk c T (snd sp) lnil lnil oE
+       r → r
+spine-walk c T args hs sg oE =
+  case args of
+    lnil →
+      let sg2 = case oE of none → sg; some E → vmatch hs T E sg
+      in spine-done c hs (level-close hs (level-close hs sg2))
+    lcons a rest →
+      case %view T of
+        wpi A B →
+          case a of
+            thole k V → spine-walk c (B V) rest (lcons (k , V , A) hs) sg oE
+            _ →
+              if inferable a then
+                (case infer a of
+                   yes Ta → spine-walk c (B (tval a)) rest hs (vmatch hs A Ta sg) oE
+                   elab ds → elab ds
+                   redo k → redo k
+                   _ → spine-walk c (B (tval a)) rest hs sg oE)
+              else spine-walk c (B (tval a)) rest hs sg oE
+        _ → err c E-notfun T opq
+-- a solution as a code, at the hole's type when it is known
+quote-sol hs s =
+  case quote lnil (hole-type hs (fst s)) (snd s) of
+    some q → some q
+    none → qv-un lnil (snd s)
+spine-done c hs sg =
+  if isnil sg
+  then (case hs of lcons h r → no (tval c) E-implicit (snd (snd h)) opq; lnil → err c E-implicit opq opq)
+  else elab (lmap (λ s → (fst s , quote-sol hs s)) sg)

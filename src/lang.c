@@ -91,7 +91,7 @@ static bool node_eq(Node *a, Node *b) {
 }
 
 /* ---------------- desugaring to the core forms ---------------- */
-static const char *KW[] = { "%raw", "%welimP", "%rebuilt", "lam", "thunk", "delay", "force", "case", "elim", "if", "rec", "the", "code", "%data", "%con", "hcompD", "%transD", "%case", "%branches", "record", "%record", "plam", "forall", "let", "app", "pair", "fst", "snd", "Pi", "Sigma", "U",
+static const char *KW[] = { "%raw", "%welimP", "%rebuilt", "%hole", "%guess", "%spine", "lam", "thunk", "delay", "force", "case", "elim", "if", "rec", "the", "code", "%data", "%con", "hcompD", "%transD", "%case", "%branches", "record", "%record", "plam", "forall", "let", "app", "pair", "fst", "snd", "Pi", "Sigma", "U",
     "PathP", "@", "~", "/\\", "\\/", "=", "&", "|", "faceof", "sys", "sys0", "sys+", "sysmap", "comp", "Glue", "glue",
     "unglue", "%view", "%var", "%dim", "%ieq", "%feq", "%clauses", "%dnf", "%motive", "%restrict", "%gval", "%gty", "%dtab", "%dent", "%dtrans", "%abs", "%branch", "%clos", "%box", "%wsucc", "%weq", "%wlt", "%wadd", "%wmax", "%wsub", "%welim", NULL };
 static bool keyword(const char *s) { for (int i = 0; KW[i]; i++) if (!strcmp(KW[i], s)) return true; return false; }
@@ -201,6 +201,11 @@ static Node *ds(Node *t) {
         if (!strcmp(k, "%raw")) { arity(t, 1); return t->it[1]; }
         if (!strcmp(k, "force")) { arity(t, 1); return nl2("force", ds(t->it[1])); }
         if (!strcmp(k, "%rebuilt")) { arity(t, 1); return nl2("%rebuilt", ds(t->it[1])); }
+        /* elaboration: a hole (an implicit argument to find), a guessed λ or application, a spine
+         * with holes */
+        if (!strcmp(k, "%hole")) { arity(t, 1); return t; }
+        if (!strcmp(k, "%guess")) { arity(t, 3); return nl4("%guess", t->it[1], t->it[2], ds(t->it[3])); }
+        if (!strcmp(k, "%spine")) { arity(t, 1); return nl2("%spine", ds(t->it[1])); }
         if (!strcmp(k, "record")) {
             /* (record [D] (f t)...): a copattern, one term per field of the codata type D, in any
              * order; desugared to (%record D t...) in the declared order */
@@ -705,6 +710,9 @@ static Node *vsrc(Node *t, Names *bound) {
 static Node *vsrc0(Node *t) { Names b = { 0 }; Node *r = vsrc(t, &b); free(b.v); return r; }
 typedef struct { Node *node, *val; } NV;
 static NV ann(Node *t, Chain *C);
+static int srcname(const char *s);
+/* a hole's value: a fresh variable of an unknown type, named ? */
+static Node *hole_value(void) { char b[32]; snprintf(b, sizeof b, "#%d", srcname("?")); return nl3("%var", nsym(b), nl2("U", nsym("lomega"))); }
 /* a node: its constructor applied to its parts' nodes, then its value */
 static NV anode(Chain *C, const char *con, Node **parts, int n, Node *val) {
     NV r; r.val = bind_in(C, "av", val);
@@ -908,6 +916,13 @@ static NV ann(Node *t, Chain *C) {
         return anode(C, "tann", p, 2, a.val);
     }
     if (!strcmp(h, "%rebuilt")) return ann(t->it[1], C);
+    if (!strcmp(h, "%hole")) {
+        /* (thole k V): V a fresh variable standing for the argument to be found */
+        p[0] = nsym(t->it[1]->s[0] == '#' ? t->it[1]->s : "#0");
+        return anode(C, "thole", p, 1, hole_value());
+    }
+    if (!strcmp(h, "%guess")) { NV r = ann(t->it[3], C); p[0] = t->it[1]; p[1] = t->it[2]; p[2] = r.node; return anode(C, "tguess", p, 3, r.val); }
+    if (!strcmp(h, "%spine")) { NV r = ann(t->it[1], C); p[0] = r.node; return anode(C, "tspine", p, 1, r.val); }
     if (!strcmp(h, "%record")) {
         /* a copattern: (trec d fields V) */
         int di = checked_data_of(t->it[1]->s, "code: codata type not checked:");
@@ -1117,7 +1132,7 @@ static int maxlev(Node *t) {
     const char *h = t->it[0]->list ? "" : t->it[0]->s;
     int r = -1;
     /* a fresh variable or dimension is made each time its level runs: never lifted */
-    if (!strcmp(h, "%var") || !strcmp(h, "%dim")) return 1 << 30;
+    if (!strcmp(h, "%var") || !strcmp(h, "%dim") || !strcmp(h, "%hole")) return 1 << 30;
     if (!strcmp(h, "lam") || !strcmp(h, "plam") || !strcmp(h, "forall")) {
         GROW(shadow, capshadow, (size_t)nshadow + 1);
         shadow[nshadow++] = t->it[1]->s; r = maxlev(t->it[2]); nshadow--; return r;
@@ -1440,7 +1455,10 @@ static Syn *compile(Node *t) {
     if (!strcmp(h, "thunk")) return compile_record(NULL, t->it[1], true);
     if (!strcmp(h, "force")) return compile_n(S_FORCE, t, 1, 1);
     if (!strcmp(h, "the")) return compile(t->it[2]);
-    if (!strcmp(h, "%rebuilt")) { Syn *r = compile(t->it[1]); if (r->tag == S_CON) r->x = 1; return r; }   /* x: the scrutinee rebuilt: named by it */
+    if (!strcmp(h, "%rebuilt")) { Syn *r = compile(t->it[1]); if (r->tag == S_CON) r->x = 1; return r; }
+    if (!strcmp(h, "%hole")) return compile(hole_value());
+    if (!strcmp(h, "%guess")) return compile(t->it[3]);
+    if (!strcmp(h, "%spine")) return compile(t->it[1]);   /* x: the scrutinee rebuilt: named by it */
     if (!strcmp(h, "plam")) return compile_bound(S_PLAM, t->it[1], t->it[2]);
     if (!strcmp(h, "forall")) return compile_bound(S_FORALL, t->it[1], t->it[2]);
     if (!strcmp(h, "let")) {
@@ -2100,13 +2118,15 @@ static char *readback_at(Node *T, Node *t, long *steps) {
  * before, and its checks are not rerun */
 static bool trusted;
 static const char *cur_dir;
+/* a checked definition whose check the elaborator already ran: its result and length */
+static const char *forced_result; static long forced_steps;
 /* why a judgment failed: its normal form (no v why A B), lib/check.ctt Res */
 /* the slots of a failure that are types (read at their universe); the others are values whose
  * type the failure does not carry, read without one */
 static bool slot_is_type(int why, int k) {
     switch (why) {
     case 0: case 21: return true;
-    case 1: case 2: case 3: case 4: case 20: case 23: case 27: case 30: return k == 0;
+    case 1: case 2: case 3: case 4: case 20: case 23: case 27: case 30: case 32: return k == 0;
     default: return false;
     }
 }
@@ -2148,7 +2168,8 @@ static void explain(const char *r, Node *q) {
         /* 28 */ { "a corecursive call is not guarded: a definition of the group may stand only as the head of a field's term (applied to arguments not mentioning the group), or there under a λ, a line, a pair, a constructor, a case or system branch, or a let's body", NULL, NULL },
         { "a record (copattern) stands only as the body of a definition, after its λs and lines", NULL, NULL },
         { "projected by a field, but not of that codata type", "its type", NULL },
-        { "the field type is not strictly positive in the codata type (the type itself at any parameters not mentioning it, under Π codomains and Σ components, or not mentioning it)", NULL, NULL } };
+        { "the field type is not strictly positive in the codata type (the type itself at any parameters not mentioning it, under Π codomains and Σ components, or not mentioning it)", NULL, NULL },
+        /* 32 */ { "an implicit argument is not determined by the other arguments' types or the type expected", "its type", NULL } };
     const char *saved = src; src = r;
     Node *n = read_node();
     src = saved;
@@ -2410,7 +2431,8 @@ static void toplevel(Node *f) {
         Node *T = f->it[at], *t = f->it[at + 1];
         Node *cT = nl2("%raw", aclosed(ds(T))), *ct = trusted ? NULL : nl2("%raw", aclosed(ds(t)));
         long steps = 0;
-        char *r = trusted ? strdup("ok") : readback(nl3("%%chk-def", cT, ct), &steps), *tr = strdup("ok");
+        char *r = trusted ? strdup("ok") : forced_result ? strdup(forced_result) : readback(nl3("%%chk-def", cT, ct), &steps), *tr = strdup("ok");
+        if (forced_result) steps = forced_steps;
         bool accepted = !strcmp(r, tr), ok = accepted == expect;
         if (ok) passes++; else failures++;
         if (!trusted) {
