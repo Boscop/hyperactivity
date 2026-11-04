@@ -1,0 +1,185 @@
+-- code.ctt — codes of terms as data, and the evaluator as a term (paper 5.26).
+-- Variables are de Bruijn indices (words) over one context of term and
+-- dimension variables; globals are indices (words) into a signature, data types
+-- and their constructors indices into its data part. (code t) writes the code of
+-- a source term. eval maps a code to the value the machine gives the term; a
+-- question about the evaluator is a term.
+data Lst = lnil | lcons x xs
+data Opt = none | some x
+data Code
+  = cvar n
+  | cglob n
+  | clam b
+  | capp f a
+  | cpair a b
+  | cfst p
+  | csnd p
+  | cpi A B
+  | csigma A B
+  | cuniv l
+  | cpathp A a b
+  | cplam b
+  | cpapp p r
+  | ci0
+  | ci1
+  | cneg r
+  | cmeet r s
+  | cjoin r s
+  | ceq0 r
+  | ceq1 r
+  | cfand a b
+  | cfor a b
+  | cftt
+  | cfff
+  | cforall b
+  | csys0
+  | csysc f t r
+  | ccomp A u a
+  | cgluet A S
+  | cglue S a
+  | cunglue S b
+  | clet t b
+  | cann t T
+  | cdata d ps
+  | ccon d c fs ds
+  | celim d P B x
+  | ccase d B x
+  | chcomp u a
+  | cdlam b
+  | cforce t
+  | clevel
+  | clzero
+  | clsuc l
+  | clmax a b
+  | cword
+  | cwlit n
+  | cwsucc a
+  | cwop k a b
+  | cwelim w z s
+  | ctrans d psi ls x
+  | cproj d k x
+  | crec d fs
+  | cfree x
+-- a value's head as data (%view, src/net.c): its parts are the value's own parts, values;
+-- data types, constructors and variables by words
+data View
+  = wlam f
+  | wpair a b
+  | wpi A B
+  | wsigma A B
+  | wu l
+  | wpath A a b
+  | wplam p
+  | wiv r
+  | wface a
+  | wsys bs
+  | wglue A S
+  | wgluev S a
+  | wdata d ps
+  | wcon d c fs ds
+  | whcomp u a
+  | wvar l T
+  | wapp f a T
+  | wfst p T
+  | wsnd p T
+  | wpapp p r T
+  | wcomp A u a0 T
+  | wunglue S b T
+  | welim d x f T
+  | wtrans d psi ls x T
+  | wlevel
+  | wother
+  | wword
+  | wwlit n
+  | wwplus k x
+  | wwop k a b
+  | wwelim x z s
+  | wcofix n T
+  | wproj d k x T
+  | wrec d fs
+-- two λs of one record (%clos): the pairs of (copies of) their environments, and the λs; else
+-- both, untouched
+data CloCmp = csame ps f g | cdiff f g
+cl-at l n = case l of lnil → l; lcons x xs → if %weq n #0 then x else cl-at xs (%wsub n #1)
+cl-map f l = case l of lnil → lnil; lcons x xs → lcons (f x) (cl-map f xs)
+cl-app l m = case l of lnil → m; lcons x xs → lcons x (cl-app xs m)
+app-all f xs = case xs of lnil → f; lcons x r → app-all (f x) r
+-- the machine's data types, for the evaluator: (dtab former constructors elim case); a data
+-- type's transport as a function is the table %dtrans. A codata type's entry is (dtab former
+-- projections record former): its fields' projections, and the record as a function
+data DTab = dtab former cons el cs
+dt-former t = case t of dtab f c e s → f
+dt-cons t = case t of dtab f c e s → c
+dt-elim t = case t of dtab f c e s → e
+dt-case t = case t of dtab f c e s → s
+-- eval-g e c: the value of code c, e the values of its variables (a list); checked definitions
+-- and data types are read from the checker's tables (%gval, %dtab)
+eval-g e c =
+  case c of
+    cvar n → cl-at e n
+    cglob n → %gval n
+    clam b → λ x → eval-g (lcons x e) b
+    capp f a → eval-g e f (eval-g e a)
+    cpair a b → (eval-g e a , eval-g e b)
+    cfst p → fst (eval-g e p)
+    csnd p → snd (eval-g e p)
+    cpi A B → (x : eval-g e A) → eval-g (lcons x e) B
+    csigma A B → (x : eval-g e A) × eval-g (lcons x e) B
+    cuniv l → Type (eval-g e l)
+    cpathp A a b → PathP (eval-g e A) (eval-g e a) (eval-g e b)
+    cplam b → λ (i : I) → eval-g (lcons i e) b
+    cpapp p r → eval-g e p @ eval-g e r
+    ci0 → i0
+    ci1 → i1
+    cneg r → ~ (eval-g e r)
+    cmeet r s → eval-g e r /\ eval-g e s
+    cjoin r s → eval-g e r \/ eval-g e s
+    ceq0 r → ((eval-g e r) = 0)
+    ceq1 r → ((eval-g e r) = 1)
+    cfand a b → %fand (eval-g e a) (eval-g e b)
+    cfor a b → %for (eval-g e a) (eval-g e b)
+    cftt → tt
+    cfff → ff
+    cforall b → (∀ i → (eval-g (lcons i e) b))
+    csys0 → []
+    csysc f t r → sys+ (eval-g e f) (eval-g e t) (eval-g e r)
+    ccomp A u a → comp (eval-g e A) (eval-g e u) (eval-g e a)
+    cgluet A S → Glue (eval-g e A) (eval-g e S)
+    cglue S a → glue (eval-g e S) (eval-g e a)
+    cunglue S b → unglue (eval-g e S) (eval-g e b)
+    clet t b → let x = eval-g e t in eval-g (lcons x e) b
+    cann t T → eval-g e t
+    cdata d ps → app-all (dt-former (%dtab d)) (cl-map (eval-g e) ps)
+    ccon d k fs ds → 
+      app-all (cl-at (dt-cons (%dtab d)) k) (cl-app (cl-map (eval-g e) fs) (cl-map (eval-g e) ds))
+    celim d P B x → 
+      app-all (dt-elim (%dtab d) (eval-g e P))
+        (cl-app (cl-map (eval-g e) B) (lcons (eval-g e x) lnil))
+    ccase d B x → 
+      app-all (dt-case (%dtab d)) (cl-app (cl-map (eval-g e) B) (lcons (eval-g e x) lnil))
+    chcomp u a → hcompD (eval-g e u) (eval-g e a)
+    cdlam b → λ i → eval-g (lcons i e) b
+    cforce t → force (eval-g e t)
+    clevel → Level
+    clzero → lzero
+    clsuc l → lsuc (eval-g e l)
+    clmax a b → lmax (eval-g e a) (eval-g e b)
+    cword → Word
+    cwlit n → n
+    cwsucc a → %wsucc (eval-g e a)
+    cwop k a b → 
+      let x = eval-g e a
+          y = eval-g e b
+      in if %weq k #0
+           then %weq x y
+           else if %weq k #1
+                  then %wlt x y
+                  else if %weq k #2 then %wadd x y else if %weq k #3 then %wmax x y else %wsub x y
+    cwelim w z s → %welim (eval-g e w) (eval-g e z) (eval-g e s)
+    ctrans d psi ls x → 
+      app-all (%dtrans d)
+        (lcons (eval-g e psi) (cl-app (cl-map (eval-g e) ls) (lcons (eval-g e x) lnil)))
+    cproj d k x → cl-at (dt-cons (%dtab d)) k (eval-g e x)
+    crec d fs → app-all (dt-elim (%dtab d)) (cl-map (eval-g e) fs)
+    cfree x → x
+eval = eval-g

@@ -1,0 +1,1472 @@
+-- check.ctt — the type checker as a term (paper 5.26). Its input is the code of a term in which
+-- every node carries the term's value: the machine computed it from the compiled subterm, once,
+-- with each node's value built from its parts' values. A binder's code is a function: a term
+-- binder takes a variable's value and type, a dimension binder a dimension, and gives the code
+-- of the body; instantiating a binder is applying it. A variable's node carries its value and
+-- type, so there is no context: a fresh variable is (%var n T), a fresh dimension (%dim n) (n its
+-- source name, a word), each
+-- made once where it is introduced. A system's branches are thunks of their codes; under a
+-- clause the checker restricts the thunk and forces it, so a branch is computed under its face.
+-- The checker reads values through %view, which gives a value's head as data whose fields are
+-- the value's parts: application, projection, composition, Glue, transport and the endpoints of
+-- a path variable are the machine's own steps. Checked definitions, their types and the data
+-- types are reached through the tables %gval, %gty, %dtab and %dent (words index them).
+-- ---------------------------------------------------------------- codes
+data Tm
+  = tv x T
+  | ti i
+  | tg n V
+  | tlam nm b V
+  | tapp f a V
+  | tpair a b V
+  | tfst p V
+  | tsnd p V
+  | tpi A nm b V
+  | tsigma A nm b V
+  | tuniv l V
+  | tpathp A a b V
+  | tplam nm b V
+  | tpapp p r V
+  | tc0
+  | tc1
+  | tneg r V
+  | tmeet r s V
+  | tjoin r s V
+  | teq0 r V
+  | teq1 r V
+  | tfand a b V
+  | tfor a b V
+  | ttt
+  | tff
+  | tforall nm b V
+  | tsys bs V
+  | tcomp A u a V
+  | tgluet A S V
+  | tglue S a V
+  | tunglue S b V
+  | tlet t nm b V
+  | tann t T V
+  | tdata d ps V
+  | tcon d c fs ds V
+  | telim d P B x F V
+  | tcase d B x F V
+  | thcomp u a V
+  | tforce t V
+  | tlevel
+  | tlzero
+  | tlsuc l V
+  | tlmax a b V
+  | tword
+  | tlit V
+  | twsucc a V
+  | twop k a b V
+  | twelim P w z s V
+  | tproj d k x V
+  | trec d fs V
+-- a branch of an elimination: binders for its fields, hypotheses, dimensions, then the body
+data Br = bx nm b | bi nm b | be t
+-- a telescope: a term binder over a type, a dimension binder, the end
+data Tel = tx A nm r | ty nm r | tz e
+tval c =
+  case c of
+    tv x T → x
+    ti i → i
+    tg n V → V
+    tlam nm b V → V
+    tapp f a V → V
+    tpair a b V → V
+    tfst p V → V
+    tsnd p V → V
+    tpi A nm b V → V
+    tsigma A nm b V → V
+    tuniv l V → V
+    tpathp A a b V → V
+    tplam nm b V → V
+    tpapp p r V → V
+    tc0 → i0
+    tc1 → i1
+    tneg r V → V
+    tmeet r s V → V
+    tjoin r s V → V
+    teq0 r V → V
+    teq1 r V → V
+    tfand a b V → V
+    tfor a b V → V
+    ttt → tt
+    tff → ff
+    tforall nm b V → V
+    tsys bs V → V
+    tcomp A u a V → V
+    tgluet A S V → V
+    tglue S a V → V
+    tunglue S b V → V
+    tlet t nm b V → V
+    tann t T V → V
+    tdata d ps V → V
+    tcon d c fs ds V → V
+    telim d P B x F V → V
+    tcase d B x F V → V
+    thcomp u a V → V
+    tforce t V → V
+    tlevel → Level
+    tlzero → lzero
+    tlsuc l V → V
+    tlmax a b V → V
+    tword → Word
+    tlit V → V
+    twsucc a V → V
+    twop k a b V → V
+    twelim P w z s V → V
+    tproj d k x V → V
+    trec d fs V → V
+-- ---------------------------------------------------------------- basics
+-- Lst, Opt, View, CloCmp and DTab are declared in code.ctt
+andb a b = if a then b else false
+orb a b = if a then true else b
+notb a = if a then false else true
+wle a b = notb (%wlt b a)
+isnil lnil = true
+isnil _ = false
+lapp lnil m = m
+lapp (lcons x xs) m = lcons x (lapp xs m)
+lmap f lnil = lnil
+lmap f (lcons x xs) = lcons (f x) (lmap f xs)
+lany p lnil = false
+lany p (lcons x xs) = if p x then true else lany p xs
+lall p lnil = true
+lall p (lcons x xs) = if p x then lall p xs else false
+lconcatmap f lnil = lnil
+lconcatmap f (lcons x xs) = lapp (f x) (lconcatmap f xs)
+lnth lnil n = none
+lnth (lcons x xs) n = if %weq n #0 then some x else lnth xs (%wsub n #1)
+lsnoc l x = lapp l (lcons x lnil)
+-- all pairs of distinct positions i < j
+lpairs lnil = lnil
+lpairs (lcons x xs) = lapp (lmap (λ y → (x , y)) xs) (lpairs xs)
+fromopt none d = d
+fromopt (some x) d = x
+lall2 p lnil ys = isnil ys
+lall2 p (lcons x r) ys = case ys of lnil → false; lcons y q → andb (p x y) (lall2 p r q)
+single x = lcons x lnil
+lhead (lcons x r) = x
+lhead lnil = lzero
+ltail (lcons x r) = r
+ltail lnil = lnil
+-- a value that equals nothing
+data Opq = opq
+-- ---------------------------------------------------------------- intervals and faces
+check-iv r =
+  case r of
+    ti i → true
+    tc0 → true
+    tc1 → true
+    tneg a V → check-iv a
+    tmeet a b V → andb (check-iv a) (check-iv b)
+    tjoin a b V → andb (check-iv a) (check-iv b)
+    _ → false
+check-face p =
+  case p of
+    teq0 r V → check-iv r
+    teq1 r V → check-iv r
+    tfand a b V → andb (check-face a) (check-face b)
+    tfor a b V → andb (check-face a) (check-face b)
+    ttt → true
+    tff → true
+    tforall nm b V → check-face (b (%dim nm))
+    _ → false
+-- ---------------------------------------------------------------- data types
+-- (dent telescope level): the parameters' telescope ending in the constructors' telescopes, each
+-- its fields, its dimensions, ending in its boundary (the code of a system)
+data DEnt = dent tel lvl | dcoent tel lvl
+dtel de = case de of dent t l → t; dcoent t l → t
+dlvl de = case de of dent t l → l; dcoent t l → l
+-- a codata type (dcoent telescope level): the parameters' telescope ending in its fields' telescope
+is-codata d = case %dent d of dcoent t l → true; _ → false
+-- a telescope instantiated at values (a term binder's type is its type's value)
+tel-inst tel lnil = tel
+tel-inst tel (lcons x rest) =
+  case tel of tx A nm r → tel-inst (r x (tval A)) rest; ty nm r → tel-inst (r x) rest; tz e → tel
+tel-end tel d = case tel of tz e → e; _ → d
+-- the constructors' telescopes at the parameters
+ctors-at d ps = tel-end (tel-inst (dtel (%dent d)) ps) lnil
+centry d c ps = fromopt (lnth (ctors-at d ps) c) (tz (tsys lnil []))
+-- the parameters as fresh variables: (pair variables constructors)
+params-fresh tel pvs =
+  case tel of
+    tx A nm r → let Av = tval A in let x = %var nm Av in params-fresh (r x Av) (lsnoc pvs x)
+    tz e → (pvs , e)
+    _ → (pvs , lnil)
+is-data-d d c = case c of tdata d2 ps V → %weq d d2; _ → false
+-- the machine's data type and constructor, from the table
+mkdata d ps = app-all (dt-former (%dtab d)) ps
+mkcon d c fs ds = app-all (cl-at (dt-cons (%dtab d)) c) (lapp fs ds)
+-- codata: the fields' telescope at the parameters; field j of a value (the machine's projection);
+-- the type of field k of v, the earlier fields v's own
+cofields-at d ps = tel-end (tel-inst (dtel (%dent d)) ps) (tz lnil)
+cproj-v d j v = cl-at (dt-cons (%dtab d)) j v
+cofield-at d tel v k j =
+  case tel of
+    tx A nm r → 
+      if %weq j k then tval A else cofield-at d (r (cproj-v d j v) (tval A)) v k (%wsucc j)
+    _ → opq
+cofield-ty d ps v k = cofield-at d (cofields-at d ps) v k #0
+-- ---------------------------------------------------------------- levels
+-- max(c, a1+o1, ...) over level variables a (their names); lvw: the level of types over levels
+data Lvl = lvl c ts | lvw
+lv0 = lvl #0 lnil
+Uw = Type lomega
+lvl-suc l =
+  case l of lvl c ts → lvl (%wsucc c) (lmap (λ p → (fst p , %wsucc (snd p))) ts); lvw → lvw
+lvl-max l m =
+  case l of lvl c ts → (case m of lvl d us → lvl (%wmax c d) (lapp ts us); lvw → lvw); lvw → lvw
+-- Level's constructors: lzero lsuc lmax lomega
+lvl-of v =
+  case %view v of
+    wcon d c fs ds → 
+      if %weq c #0
+        then lv0
+        else if %weq c #1
+               then lvl-suc (lvl-of (lhead fs))
+               else if %weq c #2
+                      then lvl-max (lvl-of (lhead fs)) (lvl-of (lhead (ltail fs)))
+                      else lvw
+    wvar l T → lvl #0 (single (l , #0))
+    _ → lv0
+-- max(c, ts) ≤ max(d, us) for every value of the variables iff c ≤ d or c ≤ some offset of us,
+-- and each a+o of ts has a+o' in us with o ≤ o'
+lvl-le l m =
+  case l of
+    lvw → (case m of lvw → true; _ → false)
+    lvl c ts → 
+      case m of
+        lvw → true
+        lvl d us → 
+          if orb (wle c d) (lany (λ q → wle c (snd q)) us)
+            then lall (λ p → lany (λ q → andb (%weq (fst p) (fst q)) (wle (snd p) (snd q))) us) ts
+            else false
+lvl-eq l m = if lvl-le l m then lvl-le m l else false
+lvl-closed l = case l of lvl c ts → isnil ts; lvw → false
+is-w l = case lvl-of l of lvw → true; _ → false
+-- ---------------------------------------------------------------- conversion
+-- conv T u v: u = v at type T. At Π, Σ and path types by eliminating both (η), the variable at
+-- its type; at a universe as types; at Glue by unglue and on the face the fibre; at a data type
+-- by constructors; otherwise without the type. uconv: without a type, types by their former,
+-- neutrals by their spine, each argument at its type.
+-- two λs of one record are equal when their environments are: neither is applied
+env-pairs ps = lall (λ p → uconv (fst p) (snd p)) ps
+conv-ty X Y = uconv X Y
+conv T u v =
+  case %view T of
+    wpi A B → 
+      case %clos u v of
+        csame ps u2 v2 → if env-pairs ps then true else let x = %var A in conv (B x) (u2 x) (v2 x)
+        cdiff u2 v2 → let x = %var A in conv (B x) (u2 x) (v2 x)
+    wsigma A B → if conv A (fst u) (fst v) then conv (B (fst u)) (snd u) (snd v) else false
+    wpath L a b → let i = %dim in conv (L @ i) (u @ i) (v @ i)
+    wu l → conv-ty u v
+    wlevel → lvl-eq (lvl-of u) (lvl-of v)
+    wglue A S → 
+      if conv A (unglue S u) (unglue S v)
+        then lall (λ d → conv (%restrict d (Glue A S)) (%restrict d u) (%restrict d v))
+               (%clauses (faceof S))
+        else false
+    wsys bs → lall (λ b → let d = fst b in conv (snd b) (%restrict d u) (%restrict d v)) bs
+    wdata d ps → conv-data d ps u v
+    _ → uconv u v
+-- a system against a value: each branch against the value under its clause
+sys-vs T bs v = lall (λ b → let d = fst b in conv (%restrict d T) (snd b) (%restrict d v)) bs
+-- fields along a constructor's telescope
+conv-fields tel fs gs =
+  case tel of
+    tx A nm r → 
+      case fs of
+        lnil → true
+        lcons f fr → 
+          case gs of
+            lnil → false
+            lcons g gr → 
+              let Av = tval A in if conv Av f g then conv-fields (r f Av) fr gr else false
+    _ → true
+conv-data-ww d ps u wu wv =
+  case wv of
+    wsys bs → sys-vs (mkdata d ps) bs u
+    wrec d2 fs → conv-recv d (cofields-at d ps) fs u #0
+    _ → 
+      case wu of
+        wcon d1 c fs ds → 
+          case wv of
+            wcon d2 c2 fs2 ds2 → 
+              if %weq c c2
+                then if lall2 (λ r s → %ieq r s) ds ds2
+                       then conv-fields (centry d c ps) fs fs2
+                       else false
+                else false
+            _ → false
+        whcomp w a → 
+          case wv of
+            whcomp w2 a2 → 
+              let T = mkdata d ps
+              in if conv T a a2 then let i = %dim in conv T (w @ i) (w2 @ i) else false
+            _ → false
+        _ → (case convneu wu wv of some X → true; none → false)
+-- a codata value is a stuck call, a neutral or a system (as data), or a record: at a copattern
+-- definition's own boundary, compared field by field
+conv-data d ps u v =
+  case %view u of
+    wsys bs → sys-vs (mkdata d ps) bs v
+    wrec d2 fs → conv-recv d (cofields-at d ps) fs v #0
+    wu → conv-data-ww d ps u wu (%view v)
+-- codata: two stuck calls or neutrals by their spines (no η: a value of a codata type is observed
+-- by its fields, and two calls are equal when their definitions and arguments are); a record (only
+-- at a copattern definition's own boundary) by its fields fs against the other value's, each at
+-- its type
+conv-recv d tel fs w j =
+  case tel of
+    tx A nm r → 
+      case fs of
+        lcons f fr → 
+          let Av = tval A
+          in if conv Av f (cproj-v d j w) then conv-recv d (r f Av) fr w (%wsucc j) else false
+        lnil → true
+    _ → true
+uconv-rec d lnil v j = true
+uconv-rec d (lcons f r) v j = if uconv f (cproj-v d j v) then uconv-rec d r v (%wsucc j) else false
+-- Glue types: the same face, and on it the same types and equivalences
+conv-glue-sys A S S2 =
+  if %feq (faceof S) (faceof S2)
+    then lall
+           (λ d →
+              let te = %restrict d S
+                  te2 = %restrict d S2
+              in if conv-ty (fst te) (fst te2)
+                   then conv (Equiv (fst te) (%restrict d A)) (snd te) (snd te2)
+                   else false) (%clauses (faceof S))
+    else false
+-- two families of types over A
+conv-fam A B B2 =
+  case %clos B B2 of
+    csame ps B3 B4 → if env-pairs ps then true else let x = %var A in conv-ty (B3 x) (B4 x)
+    cdiff B3 B4 → let x = %var A in conv-ty (B3 x) (B4 x)
+uconv-head wu v wv =
+  case wu of
+    wpi A B → (case wv of wpi A2 B2 → if conv-ty A A2 then conv-fam A B B2 else false; _ → false)
+    wsigma A B → 
+      case wv of wsigma A2 B2 → if conv-ty A A2 then conv-fam A B B2 else false; _ → false
+    wu l → (case wv of wu m → lvl-eq (lvl-of l) (lvl-of m); _ → false)
+    wlevel → (case wv of wlevel → true; _ → false)
+    wpath L a b → 
+      case wv of
+        wpath M c d → 
+          let i = %dim
+          in if conv-ty (L @ i) (M @ i)
+               then if conv (L @ 0) a c then conv (L @ 1) b d else false
+               else false
+        _ → false
+    wglue A S → 
+      case wv of wglue B S2 → if conv-ty A B then conv-glue-sys A S S2 else false; _ → false
+    wgluev S a → 
+      if uconv a (unglue S v)
+        then lall (λ d → uconv (%restrict d (glue S a)) (%restrict d v)) (%clauses (faceof S))
+        else false
+    wdata d ps → 
+      case wv of wdata d2 ps2 → if %weq d d2 then lall2 uconv ps ps2 else false; _ → false
+    wcon d c fs ds → 
+      case wv of
+        wcon d2 c2 fs2 ds2 → 
+          if %weq d d2
+            then if %weq c c2
+                   then if lall2 (λ r s → %ieq r s) ds ds2 then lall2 uconv fs fs2 else false
+                   else false
+            else false
+        _ → false
+    whcomp w a → 
+      case wv of
+        whcomp w2 a2 → if uconv a a2 then let i = %dim in uconv (w @ i) (w2 @ i) else false
+        _ → false
+    wiv r → (case wv of wiv s → %ieq r s; _ → false)
+    wface a → (case wv of wface b → %feq a b; _ → false)
+    wword → (case wv of wword → true; _ → false)
+    wwlit n → (case wv of wwlit m → %weq n m; _ → false)
+    wwplus k x → (case wv of wwplus j y → if %weq k j then uconv x y else false; _ → false)
+    wother → false
+    _ → (case convneu wu wv of some X → true; none → false)
+uconv-ww u wu v wv =
+  case wv of
+    wsys bs → lall (λ b → let d = fst b in uconv (%restrict d u) (snd b)) bs
+    wrec d fs → uconv-rec d fs u #0
+    wlam g → let x = %var Uw in uconv (u x) (g x)
+    wplam q → let i = %dim in uconv (u @ i) (q @ i)
+    wpair a b → if uconv (fst u) a then uconv (snd u) b else false
+    _ → uconv-head wu v wv
+uconv u v =
+  case %view u of
+    wsys bs → lall (λ b → let d = fst b in uconv (snd b) (%restrict d v)) bs
+    wlam f → 
+      case %clos f v of
+        csame ps f2 v2 → if env-pairs ps then true else let x = %var Uw in uconv (f2 x) (v2 x)
+        cdiff f2 v2 → let x = %var Uw in uconv (f2 x) (v2 x)
+    wplam p → let i = %dim in uconv (p @ i) (v @ i)
+    wpair a b → if uconv a (fst v) then uconv b (snd v) else false
+    wrec d fs → uconv-rec d fs v #0
+    wu → uconv-ww u wu v (%view v)
+-- two eliminations are equal when their branches are: each at fresh fields, hypotheses and
+-- dimensions (the hypotheses as variables: comparing them compares the eliminations)
+elim-dims f g c tel prm =
+  case tel of
+    ty nm r → let i = %dim nm in elim-dims f g c (r i) (lsnoc prm i)
+    _ → uconv (%branch f c prm) (%branch g c prm)
+elim-hyps f g c nr tel prm =
+  if %weq nr #0
+    then elim-dims f g c tel prm
+    else let h = %var Uw in elim-hyps f g c (%wsub nr #1) tel (lsnoc prm h)
+elim-fields d f g c tel nr prm =
+  case tel of
+    tx A nm r → 
+      let Av = tval A
+          x = %var nm Av
+      in elim-fields d f g c (r x Av) (if is-data-d d A then %wsucc nr else nr) (lsnoc prm x)
+    _ → elim-hyps f g c nr tel prm
+conv-elims d f g lnil c = true
+conv-elims d f g (lcons tel rest) c =
+  if elim-fields d f g c tel #0 lnil then conv-elims d f g rest (%wsucc c) else false
+-- the constructors at the parameters of the scrutinee's type, else at fresh parameters
+ctors-of d X =
+  case %view X of wdata d3 ps → ctors-at d ps; _ → snd (params-fresh (dtel (%dent d)) lnil)
+-- neutrals: equal spines; the result is their type, computed along the spine from the head
+-- variable's (only a variable stores one); opq when it is not known
+same-neu p q = case convneu (%view p) (%view q) of some X → some opq; none → none
+convneu wu wv =
+  case wu of
+    wvar l T → (case wv of wvar m T2 → if %weq l m then some T else none; _ → none)
+    -- the stuck head of a copattern definition: the same definition
+    wcofix n T → (case wv of wcofix m T2 → if %weq n m then some T else none; _ → none)
+    wproj d k x T → 
+      case wv of
+        wproj d2 k2 y T2 → 
+          if andb (%weq d d2) (%weq k k2)
+            then case convneu (%view x) (%view y) of
+                   some X → 
+                     case %view X of wdata d3 ps → some (cofield-ty d ps x k); _ → some opq
+                   none → none
+            else none
+        _ → none
+    wapp f a T → 
+      case wv of
+        wapp g b T2 → 
+          case convneu (%view f) (%view g) of
+            some Tf → 
+              case %view Tf of
+                wpi A B → if conv A a b then some (B a) else none
+                _ → if uconv a b then some opq else none
+            none → none
+        _ → none
+    wfst p T → 
+      case wv of
+        wfst q T2 → 
+          case convneu (%view p) (%view q) of
+            some Tp → (case %view Tp of wsigma A B → some A; _ → some opq)
+            none → none
+        _ → none
+    wsnd p T → 
+      case wv of
+        wsnd q T2 → 
+          case convneu (%view p) (%view q) of
+            some Tp → (case %view Tp of wsigma A B → some (B (fst p)); _ → some opq)
+            none → none
+        _ → none
+    wpapp p r T → 
+      case wv of
+        wpapp q s T2 → 
+          if %ieq r s
+            then case convneu (%view p) (%view q) of
+                   some Tp → (case %view Tp of wpath L a b → some (L @ r); _ → some opq)
+                   none → none
+            else none
+        _ → none
+    wcomp A u a0 T → 
+      case wv of
+        wcomp B w b0 T2 → 
+          let i = %dim
+          in if conv-ty (A @ i) (B @ i)
+               then if conv (A @ 0) a0 b0
+                      then if conv (A @ i) (u @ i) (w @ i) then some (A @ 1) else none
+                      else none
+               else none
+        _ → none
+    wunglue S b T → 
+      case wv of
+        wunglue S2 c T2 → 
+          case convneu (%view b) (%view c) of
+            some Tb → (case %view Tb of wglue A S3 → some A; _ → some opq)
+            none → none
+        _ → none
+    welim d x f T → 
+      case wv of
+        welim d2 y g T2 → 
+          if %weq d d2
+            then case convneu (%view x) (%view y) of
+                   -- one table: equal when their motives and shared variables are, else by branches
+                   some X → 
+                     case %clos f g of
+                       csame ps f2 g2 → 
+                         if env-pairs ps
+                           then some T
+                           else if conv-elims d f2 g2 (ctors-of d X) #0 then some T else none
+                       cdiff f2 g2 → if conv-elims d f2 g2 (ctors-of d X) #0 then some T else none
+                   none → none
+            else none
+        _ → none
+    wwop k a b → 
+      case wv of
+        wwop j c e → 
+          if %weq k j
+            then if uconv a c then if uconv b e then some opq else none else none
+            else none
+        _ → none
+    wwelim x z s → 
+      case wv of
+        wwelim y z2 s2 → 
+          if uconv x y
+            then if uconv z z2 then if uconv s s2 then some opq else none else none
+            else none
+        _ → none
+    wtrans d psi ls x T → 
+      case wv of
+        wtrans d2 psi2 ls2 y T2 → 
+          if %weq d d2
+            then if %feq psi psi2
+                   then if lall2 (λ l1 l2 → let i = %dim in uconv (l1 @ i) (l2 @ i)) ls ls2
+                          then case same-neu x y of
+                                 some X → some (mkdata d (lmap (λ l → l @ 1) ls))
+                                 none → none
+                          else none
+                   else none
+            else none
+        _ → none
+    _ → none
+-- ---------------------------------------------------------------- typing
+-- A judgment's normal form is ok (check), (yes T) (infer), or (no v why A B): the subterm whose
+-- value is v fails for the reason numbered why (named in src/lang.c), A and B the values it
+-- concerns (the expected and the actual type, the two sides that differ, ...).
+data Res = ok | yes T | no v why A B
+err c why A B = no (tval c) why A B
+and-then r k = case r of ok → k; _ → r
+chk b r = if b then ok else r
+rall f lnil = ok
+rall f (lcons x xs) = and-then (f x) (rall f xs)
+is-ok r = case r of ok → true; yes T → true; _ → false
+-- reasons
+E-mismatch = #0
+E-notfun = #1
+E-notpair = #2
+E-notpath = #3
+E-nottype = #4
+E-noinfer = #5
+E-notiv = #6
+E-end0 = #7
+E-end1 = #8
+E-sysdis = #9
+E-tube = #10
+E-tubeface = #11
+E-notface = #12
+E-notsys = #13
+E-params = #14
+E-ctor = #15
+E-nbranch = #16
+E-boundary = #17
+E-glueface = #18
+E-gluebr = #19
+E-notdata = #20
+E-motive = #21
+E-notline = #22
+E-omega = #23
+E-positive = #24
+E-later = #25
+E-openlevel = #26
+E-notglue = #27
+E-unguarded = #28
+E-literal = #29
+E-notcodata = #30
+E-copositive = #31
+-- a type's universe level (not ω), and a type's sort (a universe, U ω for types over levels)
+infer-level A =
+  case infer A of
+    yes T → 
+      case %view T of
+        wu l → if is-w l then err A E-omega T opq else yes l
+        _ → err A E-nottype T opq
+    r → r
+infer-sort A =
+  case infer A of yes T → (case %view T of wu l → yes (Type l); _ → err A E-nottype T opq); r → r
+sort-max s1 s2 =
+  case %view s1 of wu l1 → (case %view s2 of wu l2 → Type (lmax l1 l2); _ → Uw); _ → Uw
+-- a system's branches: (pair face-code thunk-of-term-code)
+sys-bs s = case s of tsys bs V → bs; _ → lnil
+is-sys s = case s of tsys bs V → true; _ → false
+lfold-or lnil = ff
+lfold-or (lcons b r) = %for (tval (fst b)) (lfold-or r)
+sys-face s = lfold-or (sys-bs s)
+-- a branch's code under a clause
+br-at d b = force (%restrict d (snd b))
+-- a face that does not depend on the dimension i
+face-indep p i = if %feq p (%restrict (i = 0) p) then %feq p (%restrict (i = 1) p) else false
+-- each branch checked under each clause of its face; overlapping branches agree
+check-sys s T =
+  case s of
+    tsys bs V → 
+      and-then
+        (rall
+           (λ b →
+              if check-face (fst b)
+                then rall (λ d → check (br-at d b) (%restrict d T)) (%clauses (tval (fst b)))
+                else err (fst b) E-notface opq opq) bs)
+        (rall
+           (λ bb →
+              let b1 = fst bb
+                  b2 = snd bb
+              in rall
+                   (λ d →
+                      let v1 = tval (br-at d b1)
+                          v2 = tval (br-at d b2)
+                      in chk (conv (%restrict d T) v1 v2) (no V E-sysdis v1 v2))
+                   (%clauses (%fand (tval (fst b1)) (tval (fst b2))))) (lpairs bs))
+    _ → err s E-notsys opq opq
+-- a tube over a line of types: Wi its code at the fresh dimension i, Li the line there; at 0 it
+-- agrees with the cap av
+tube-ok i Wi L0 Li av =
+  let z = (i = 0)
+  in if is-sys Wi
+       then and-then (check-sys Wi Li)
+              (and-then (chk (face-indep (sys-face Wi) i) (err Wi E-tubeface opq opq))
+                 (rall
+                    (λ b →
+                       rall
+                         (λ d →
+                            let w = tval (br-at d (fst b , %restrict z (snd b)))
+                                a = %restrict d av
+                            in chk (conv (%restrict d L0) w a) (no w E-tube a w))
+                         (%clauses (%restrict z (tval (fst b))))) (sys-bs Wi)))
+       else and-then (check Wi Li)
+              (let w = %restrict z (tval Wi) in chk (conv L0 w av) (no w E-tube av w))
+-- comp A u a: A a line of types, u a line of systems (faces free of the line) or a total line,
+-- a at 0 agreeing with u at 0; the result is at A 1
+check-comp c A u a =
+  case A of
+    tplam nX X LV → 
+      let i = %dim nX
+      in case infer-level (X i) of
+           yes l → 
+             case u of
+               tplam nW W UV → 
+                 let L0 = LV @ 0
+                 in and-then (check a L0)
+                      (and-then (tube-ok i (W i) L0 (LV @ i) (tval a)) (yes (LV @ 1)))
+               _ → err u E-notline opq opq
+           r → r
+    _ → err A E-notline opq opq
+infer c =
+  case c of
+    tv x T → yes T
+    tg n V → yes (%gty n)
+    tapp f a V → 
+      case infer f of
+        yes T → 
+          case %view T of
+            wpi A B → and-then (check a A) (yes (B (tval a)))
+            _ → err f E-notfun T opq
+        r → r
+    tfst p V → 
+      case infer p of
+        yes T → (case %view T of wsigma A B → yes A; _ → err p E-notpair T opq)
+        r → r
+    tsnd p V → 
+      case infer p of
+        yes T → (case %view T of wsigma A B → yes (B (fst (tval p))); _ → err p E-notpair T opq)
+        r → r
+    tpapp p r V → 
+      case infer p of
+        yes T → 
+          case %view T of
+            wpath L a b → if check-iv r then yes (L @ tval r) else err r E-notiv opq opq
+            _ → err p E-notpath T opq
+        r2 → r2
+    tuniv l V → and-then (check l Level) (yes (Type (lsuc (tval l))))
+    tlevel → yes Uw
+    tlzero → yes Level
+    tlsuc l V → and-then (check l Level) (yes Level)
+    tlmax a b V → and-then (check a Level) (and-then (check b Level) (yes Level))
+    tpi A nm b V → infer-binder A nm b
+    tsigma A nm b V → infer-binder A nm b
+    tpathp A a b V → 
+      case A of
+        tplam nX X LV → 
+          let i = %dim nX
+          in case infer-level (X i) of
+               yes l → and-then (check a (LV @ 0)) (and-then (check b (LV @ 1)) (yes (Type l)))
+               r → r
+        -- a line of types given as a term: a path in a universe
+        _ → 
+          case infer A of
+            yes TA → 
+              case %view TA of
+                wpath L T0 T1 → 
+                  case %view (L @ %dim) of
+                    wu l → 
+                      let Lv = tval A
+                      in and-then (check a (Lv @ 0)) (and-then (check b (Lv @ 1)) (yes (Type l)))
+                    _ → err A E-notline TA opq
+                _ → err A E-notline TA opq
+            r → r
+    tgluet A S V → 
+      case infer-level A of
+        yes l → 
+          let Av = tval A in and-then (check-sys S ((T : Type l) × Equiv T Av)) (yes (Type l))
+        r → r
+    tunglue S b V → 
+      case infer b of
+        yes T → (case %view T of wglue A S2 → yes A; _ → err b E-notglue T opq)
+        r → r
+    tcomp A u a V → check-comp c A u a
+    tlet t nm b V → (case infer t of yes T → infer (b (tval t) T); r → r)
+    tann t T V → 
+      case infer-sort T of yes s → let Tv = tval T in and-then (check t Tv) (yes Tv); r → r
+    tdata d ps V → let de = %dent d in and-then (check-tele c (dtel de) ps) (yes (Type (dlvl de)))
+    telim d P B x F V → 
+      case infer x of
+        yes T → 
+          case %view T of
+            wdata d2 ps → 
+              if %weq d d2
+                then case motive-level (mkdata d ps) P of
+                       yes s → 
+                         let Pv = tval P
+                         in and-then (check-branches c d ps Pv F B) (yes (Pv (tval x)))
+                       r → r
+                else err x E-notdata T opq
+            _ → err x E-notdata T opq
+        r → r
+    thcomp u a V → 
+      case infer a of
+        yes T → 
+          case %view T of
+            wdata d ps → let Tv = mkdata d ps in and-then (check-hcomp Tv u a) (yes Tv)
+            _ → err a E-notdata T opq
+        r → r
+    -- a case without a motive: the type of a branch without hypotheses, every branch checked at it
+    tcase d B x F V → 
+      case infer x of
+        yes X → 
+          case %view X of
+            wdata d2 ps → 
+              if %weq d d2
+                then case case-type d (ctors-at d ps) B of
+                       yes R → and-then (check-branches c d ps (λ y → R) F B) (yes R)
+                       _ → err c E-noinfer opq opq
+                else err x E-notdata X opq
+            _ → err x E-notdata X opq
+        r → r
+    tforce t V → infer t
+    trec d fs V → no opq E-literal opq opq
+    -- a field of a value of a codata type: its type at the type's parameters and the value's fields
+    tproj d k x V → 
+      case infer x of
+        yes T → 
+          case %view T of
+            wdata d2 ps → 
+              if andb (%weq d d2) (is-codata d)
+                then yes (cofield-ty d ps (tval x) k)
+                else err x E-notcodata T opq
+            _ → err x E-notcodata T opq
+        r → r
+    tword → yes Type
+    tlit V → yes Word
+    twsucc a V → and-then (check a Word) (yes Word)
+    twop k a b V → 
+      and-then (check a Word) (and-then (check b Word) (yes (if %wlt k #2 then Bool else Word)))
+    -- the elimination of a word: P #0 at zero, P n → P (n+1) at a successor
+    twelim P w z s V → 
+      and-then (check w Word)
+        (case motive-level Word P of
+           yes l → 
+             let Pv = tval P
+             in and-then (check z (Pv #0))
+                  (and-then (check s ((n : Word) → Pv n → Pv (%wsucc n))) (yes (Pv (tval w))))
+           r → r)
+    -- a line: its type is the path of its body's types between its ends
+    tplam nm b V → 
+      let i = %dim nm
+      in case infer (b i) of yes Ti → yes (PathP (%abs i Ti) (V @ 0) (V @ 1)); r → r
+    _ → err c E-noinfer opq opq
+-- the type of a branch's body at fresh fields and dimensions (no hypotheses)
+br-infer tel b =
+  case tel of
+    tx A nm r → 
+      case b of
+        bx nm b1 → let Av = tval A in let x = %var nm Av in br-infer (r x Av) (b1 x Av)
+        _ → none
+    ty nm r → (case b of bi nm b1 → let i = %dim nm in br-infer (r i) (b1 i); _ → none)
+    tz bdy → (case b of be t → infer t; _ → none)
+tel-rec d tel = case tel of tx A nm r → orb (is-data-d d A) (tel-rec d (r (%var Uw) Uw)); _ → false
+case-type d lnil Bs = none
+case-type d (lcons tel rest) Bs =
+  case Bs of
+    lnil → none
+    lcons b br → if tel-rec d tel then case-type d rest br else br-infer tel b
+-- parameters against their telescope
+check-tele c tel ps =
+  case tel of
+    tx A nm r → 
+      case ps of
+        lnil → err c E-params opq opq
+        lcons p pr → let Av = tval A in and-then (check p Av) (check-tele c (r (tval p) Av) pr)
+    tz e → chk (isnil ps) (err c E-params opq opq)
+    _ → err c E-params opq opq
+motive-level T P =
+  case P of
+    tlam nm b V → infer-sort (b (%var nm T) T)
+    _ → 
+      case infer P of
+        yes Pt → 
+          case %view Pt of
+            wpi A B → 
+              if conv-ty A T
+                then case %view (B (%var A)) of wu l → yes (Type l); _ → err P E-motive Pt T
+                else err P E-motive Pt T
+            _ → err P E-motive Pt T
+        r → r
+-- each branch: binders for its fields, hypotheses (the eliminations of the recursive fields),
+-- dimensions, then a body of type P (c fields dims), on the boundary's faces equal to the
+-- elimination of the boundary
+check-brs e d Pv F lnil Bs c = chk (isnil Bs) (err e E-nbranch opq opq)
+check-brs e d Pv F (lcons tel rest) Bs c =
+  case Bs of
+    lnil → err e E-nbranch opq opq
+    lcons b br → and-then (check-branch e d Pv F c tel b) (check-brs e d Pv F rest br (%wsucc c))
+check-branches e d ps Pv F Bs = check-brs e d Pv F (ctors-at d ps) Bs #0
+branch-boundary Pv F t bs =
+  case %view bs of
+    wsys bl → 
+      let bodyv = tval t
+      in rall
+           (λ br →
+              let cl = fst br
+                  w = snd br
+                  v1 = %restrict cl bodyv
+                  v2 = %restrict cl (F w)
+              in chk (conv (%restrict cl (Pv w)) v1 v2) (no bodyv E-boundary v2 v1)) bl
+    _ → ok
+branch-dims e d Pv F c tel b fs ds =
+  case tel of
+    ty nm r → 
+      case b of
+        bi nm b1 → let i = %dim nm in branch-dims e d Pv F c (r i) (b1 i) fs (lsnoc ds i)
+        _ → err e E-ctor opq opq
+    tz bdy → 
+      case b of
+        be t → and-then (check t (Pv (mkcon d c fs ds))) (branch-boundary Pv F t (tval bdy))
+        _ → err e E-ctor opq opq
+    _ → err e E-ctor opq opq
+branch-hyps e d Pv F c tel b fs (lcons f rest) =
+  case b of
+    bx nm b1 → branch-hyps e d Pv F c tel (b1 (F f) (Pv f)) fs rest
+    _ → err e E-ctor opq opq
+branch-hyps e d Pv F c tel b fs lnil = branch-dims e d Pv F c tel b fs lnil
+branch-fields e d Pv F c tel b fs rs =
+  case tel of
+    tx A nm r → 
+      case b of
+        bx nm b1 → 
+          let Av = tval A
+              x = %var nm Av
+          in branch-fields e d Pv F c (r x Av) (b1 x Av) (lsnoc fs x)
+               (if is-data-d d A then lsnoc rs x else rs)
+        _ → err e E-ctor opq opq
+    _ → branch-hyps e d Pv F c tel b fs rs
+check-branch e d Pv F c tel b = branch-fields e d Pv F c tel b lnil lnil
+-- a formal hcomp: a tube of lines in the type, agreeing with the cap at 0
+check-hcomp T u a =
+  case u of
+    tplam nW W UV → let i = %dim nW in tube-ok i (W i) T T (tval a)
+    _ → err u E-notline opq opq
+-- a constructor's fields and dimensions along its telescope
+check-con c tel fs ds =
+  case tel of
+    tx A nm r → 
+      case fs of
+        lnil → err c E-ctor opq opq
+        lcons f fr → let Av = tval A in and-then (check f Av) (check-con c (r (tval f) Av) fr ds)
+    ty nm r → 
+      case fs of
+        lcons f fr → err c E-ctor opq opq
+        lnil → 
+          case ds of
+            lnil → err c E-ctor opq opq
+            lcons e er → 
+              if check-iv e then check-con c (r (tval e)) lnil er else err e E-notiv opq opq
+    tz b → chk (andb (isnil fs) (isnil ds)) (err c E-ctor opq opq)
+infer-binder A nm b =
+  case infer-sort A of
+    yes s1 → 
+      let Av = tval A
+      in case infer-sort (b (%var nm Av) Av) of yes s2 → yes (sort-max s1 s2); r → r
+    r → r
+check c T =
+  case c of
+    tlam nm b V → 
+      case %view T of
+        wpi A B → let x = %var nm A in check (b x A) (B x)
+        _ → err c E-mismatch T opq
+    tpair a b V → 
+      case %view T of
+        wsigma A B → and-then (check a A) (check b (B (tval a)))
+        _ → err c E-mismatch T opq
+    tplam nm b V → 
+      case %view T of
+        wpath L a0 a1 → 
+          let i = %dim nm
+          in and-then (check (b i) (L @ i))
+               (let v0 = V @ 0
+                    v1 = V @ 1
+                in and-then (chk (conv (L @ 0) v0 a0) (err c E-end0 a0 v0))
+                     (chk (conv (L @ 1) v1 a1) (err c E-end1 a1 v1)))
+        _ → err c E-mismatch T opq
+    tglue S a V → 
+      case %view T of
+        wglue A S2 → 
+          and-then (check a A)
+            (and-then (chk (%feq (sys-face S) (faceof S2)) (err c E-glueface opq opq))
+               (and-then (check-sys S (Glue A S2))
+                  (let av = tval a
+                   in rall
+                        (λ b →
+                           rall
+                             (λ d →
+                                let w = unglue (%restrict d S2) (tval (br-at d b))
+                                    x = %restrict d av
+                                in chk (conv (%restrict d A) w x) (err c E-gluebr x w))
+                             (%clauses (tval (fst b)))) (sys-bs S))))
+        _ → err c E-mismatch T opq
+    tlet t nm b V → (case infer t of yes Ty → check (b (tval t) Ty) T; r → r)
+    tcon d c2 fs ds V → 
+      case %view T of
+        wdata d2 ps → 
+          if %weq d d2 then check-con c (centry d c2 ps) fs ds else err c E-mismatch T opq
+        _ → err c E-mismatch T opq
+    thcomp u a V → 
+      case %view T of
+        wdata d ps → let Tv = mkdata d ps in and-then (check a Tv) (check-hcomp Tv u a)
+        _ → err c E-mismatch T opq
+    tcase d B x F V → 
+      case infer x of
+        yes X → 
+          case %view X of
+            wdata d2 ps → 
+              if %weq d d2 then check-branches c d ps (λ y → T) F B else err x E-notdata X opq
+            _ → err x E-notdata X opq
+        r → r
+    -- a record stands only as a copattern definition's body (check-codef)
+    trec d fs V → no opq E-literal opq opq
+    _ → (case infer c of yes T2 → chk (conv-ty T2 T) (err c E-mismatch T T2); r → r)
+check-recfields c tel fs =
+  case tel of
+    tx A nm r → 
+      case fs of
+        lnil → err c E-ctor opq opq
+        lcons f fr → 
+          let Av = tval A in and-then (check f Av) (check-recfields c (r (tval f) Av) fr)
+    _ → chk (isnil fs) (err c E-ctor opq opq)
+-- a definition: its type is a type, its term has that type
+chk-def cT ct = case infer-sort cT of yes s → check ct (tval cT); r → r
+-- the type of a checked definition, as the table holds it
+sig-type cT = tval cT
+-- a data declaration: parameter types are types; each field type a type, strictly positive (D
+-- itself, at its own parameters, or not mentioning D); each boundary an element of D made of
+-- earlier constructors, its branches agreeing on overlaps. The table holds the declaration with
+-- level lzero while it is checked. Walking a code under a binder instantiates the binder.
+cany-b p b = cany p (b (%var Uw) Uw)
+cany-br p b =
+  case b of bx nm f → cany-br p (f (%var Uw) Uw); bi nm f → cany-br p (f (%dim)); be t → cany p t
+cany p c =
+  orb (p c)
+    (case c of
+       tlam nm b V → cany-b p b
+       tplam nm b V → cany p (b (%dim))
+       tforall nm b V → cany p (b (%dim))
+       tfst a V → cany p a
+       tsnd a V → cany p a
+       tforce a V → cany p a
+       tneg a V → cany p a
+       teq0 a V → cany p a
+       teq1 a V → cany p a
+       tlsuc a V → cany p a
+       tuniv a V → cany p a
+       tapp a b V → orb (cany p a) (cany p b)
+       tpair a b V → orb (cany p a) (cany p b)
+       tpi a nm b V → orb (cany p a) (cany-b p b)
+       tsigma a nm b V → orb (cany p a) (cany-b p b)
+       tlet a nm b V → orb (cany p a) (cany-b p b)
+       tpapp a b V → orb (cany p a) (cany p b)
+       tmeet a b V → orb (cany p a) (cany p b)
+       tjoin a b V → orb (cany p a) (cany p b)
+       tfand a b V → orb (cany p a) (cany p b)
+       tfor a b V → orb (cany p a) (cany p b)
+       tlmax a b V → orb (cany p a) (cany p b)
+       tgluet a b V → orb (cany p a) (cany p b)
+       tglue a b V → orb (cany p a) (cany p b)
+       tunglue a b V → orb (cany p a) (cany p b)
+       tann a b V → orb (cany p a) (cany p b)
+       thcomp a b V → orb (cany p a) (cany p b)
+       tpathp a b x V → orb (cany p a) (orb (cany p b) (cany p x))
+       tcomp a b x V → orb (cany p a) (orb (cany p b) (cany p x))
+       tsys bs V → lany (λ b → orb (cany p (fst b)) (cany p (force (snd b)))) bs
+       tdata d ps V → lany (cany p) ps
+       tcon d c fs ds V → orb (lany (cany p) fs) (lany (cany p) ds)
+       telim d P B x F V → orb (cany p P) (orb (lany (cany-br p) B) (cany p x))
+       tcase d B x F V → orb (lany (cany-br p) B) (cany p x)
+       twsucc a V → cany p a
+       twop k a b V → orb (cany p a) (cany p b)
+       twelim P w z s V → orb (cany p P) (orb (cany p w) (orb (cany p z) (cany p s)))
+       tproj d k x V → cany p x
+       trec d fs V → lany (cany p) fs
+       _ → false)
+-- D at its own parameters: each parameter the parameter variable, in order
+var-name v = case %view v of wvar l T → some l; _ → none
+same-var a b =
+  case var-name a of some l → (case var-name b of some m → %weq l m; none → false); none → false
+uniform-at ps pvs = lall2 (λ p x → case p of tv y T → same-var y x; _ → false) ps pvs
+positive d pvs A =
+  orb (notb (cany (is-data-d d) A))
+    (case A of
+       tdata d2 ps V → 
+         andb (%weq d2 d) (andb (lall (λ q → notb (cany (is-data-d d) q)) ps) (uniform-at ps pvs))
+       _ → false)
+earlier-only d c bdy =
+  notb
+    (cany (λ x → case x of tcon d2 c2 fs ds V → andb (%weq d2 d) (notb (%wlt c2 c)); _ → false) bdy)
+check-ptys tel =
+  case tel of
+    tx A nm r → 
+      case infer-sort A of yes s → let Av = tval A in check-ptys (r (%var nm Av) Av); r2 → r2
+    _ → ok
+check-ctor-dims d pvs c tel =
+  case tel of
+    ty nm r → check-ctor-dims d pvs c (r (%dim nm))
+    tz bdy → 
+      and-then (chk (earlier-only d c bdy) (err bdy E-later opq opq))
+        (check-sys bdy (mkdata d pvs))
+    _ → ok
+check-ctor-fields d pvs c tel =
+  case tel of
+    tx A nm r → 
+      and-then (chk (positive d pvs A) (err A E-positive opq opq))
+        (case infer-level A of
+           yes l → let Av = tval A in check-ctor-fields d pvs c (r (%var nm Av) Av)
+           r2 → r2)
+    _ → check-ctor-dims d pvs c tel
+check-ctors d pvs lnil c = ok
+check-ctors d pvs (lcons tel rest) c =
+  and-then (check-ctor-fields d pvs c tel) (check-ctors d pvs rest (%wsucc c))
+-- the level of a data type: the largest of its fields' (a field of type D itself counted at lzero)
+level-of r = case r of yes l → l; _ → lzero
+field-levels d tel =
+  case tel of
+    tx A nm r → 
+      let Av = tval A
+      in lcons (if is-data-d d A then lzero else level-of (infer-level A))
+           (field-levels d (r (%var nm Av) Av))
+    _ → lnil
+lfold-lmax lnil = lzero
+lfold-lmax (lcons x r) = lmax x (lfold-lmax r)
+data-level d tel = lfold-lmax (lconcatmap (field-levels d) (snd (params-fresh tel lnil)))
+data-entry d ent =
+  case ent of dent tel l → dent tel (data-level d tel); dcoent tel l → dcoent tel l
+-- a data type's level is closed: no field's universe depends on a parameter
+chk-data d ent =
+  case ent of
+    dent tel l → 
+      let lv = data-level d tel
+      in and-then (chk (lvl-closed (lvl-of lv)) (no lv E-openlevel opq opq))
+           (and-then (check-ptys tel)
+              (let pc = params-fresh tel lnil in check-ctors d (fst pc) (snd pc) #0))
+    _ → no opq E-notdata opq opq
+-- ---------------------------------------------------------------- codata
+-- A codata declaration: parameter types are types; each field type a type, strictly positive in D
+-- (D at any parameters not mentioning D, under Π codomains and Σ components, or not mentioning
+-- D); the level closed. The table holds the declaration at level lzero while it is checked.
+copositive d A =
+  orb (notb (cany (is-data-d d) A))
+    (case A of
+       tdata d2 ps V → andb (%weq d2 d) (lall (λ q → notb (cany (is-data-d d) q)) ps)
+       tpi B nm b V → andb (notb (cany (is-data-d d) B)) (copositive d (b (%var Uw) Uw))
+       tsigma B nm b V → andb (copositive d B) (copositive d (b (%var Uw) Uw))
+       _ → false)
+check-cofields d tel =
+  case tel of
+    tx A nm r → 
+      and-then (chk (copositive d A) (err A E-copositive opq opq))
+        (case infer-level A of
+           yes l → let Av = tval A in check-cofields d (r (%var nm Av) Av)
+           r2 → r2)
+    _ → ok
+codata-level d tel = lfold-lmax (field-levels d (snd (params-fresh tel lnil)))
+codata-entry d ent =
+  case ent of dcoent tel l → dcoent tel (codata-level d tel); dent tel l → dent tel l
+chk-codata d ent =
+  case ent of
+    dcoent tel l → 
+      let lv = codata-level d tel
+      in and-then (chk (lvl-closed (lvl-of lv)) (no lv E-openlevel opq opq))
+           (and-then (check-ptys tel) (let pc = params-fresh tel lnil in check-cofields d (snd pc)))
+    _ → no opq E-notcodata opq opq
+-- A copattern definition (alone, or with others of a mutual group grp, a list of signature
+-- indices) is λs and lines over a record. Each field's term is guarded: a definition of the group
+-- stands only as the head of a call (applied to arguments not mentioning the group, at any
+-- dimensions), the whole term or under a λ, a line, a pair, a constructor, a case's or a system's
+-- branch, or a let's body; never as an argument or eliminated. Then the definition is checked at
+-- its type, its own calls at their declared types: a guarded call is productive, so the value
+-- exists at every depth, and its boundary holds at every depth since it holds at each field.
+in-grp grp n = lany (λ m → %weq n m) grp
+is-grp grp c = case c of tg n V → in-grp grp n; _ → false
+mentions grp c = cany (is-grp grp) c
+spine-call grp c =
+  case c of
+    tg n V → in-grp grp n
+    tapp f a V → andb (spine-call grp f) (notb (mentions grp a))
+    tpapp p r V → spine-call grp p
+    _ → false
+guarded-br grp b =
+  case b of
+    bx nm f → guarded-br grp (f (%var Uw) Uw)
+    bi nm f → guarded-br grp (f (%dim))
+    be t → guarded grp t
+guarded grp c =
+  if notb (mentions grp c)
+    then true
+    else case c of
+           tlam nm b V → guarded grp (b (%var Uw) Uw)
+           tplam nm b V → guarded grp (b (%dim))
+           tpair a b V → andb (guarded grp a) (guarded grp b)
+           tcon d k fs ds V → lall (guarded grp) fs
+           tcase d B x F V → andb (notb (mentions grp x)) (lall (guarded-br grp) B)
+           telim d P B x F V → 
+             andb (notb (mentions grp P)) (andb (notb (mentions grp x)) (lall (guarded-br grp) B))
+           tlet t nm b V → andb (notb (mentions grp t)) (guarded grp (b (%var Uw) Uw))
+           tsys bs V → 
+             lall (λ b → andb (notb (mentions grp (fst b))) (guarded grp (force (snd b)))) bs
+           tann t T V → andb (guarded grp t) (notb (mentions grp T))
+           _ → spine-call grp c
+-- the fields of the record: (no opq E-unguarded d k) names the field k of codata type d
+codef-fields grp d lnil k = ok
+codef-fields grp d (lcons f r) k =
+  and-then (chk (guarded grp f) (no opq E-unguarded d k)) (codef-fields grp d r (%wsucc k))
+codef-ok grp c =
+  case c of
+    tlam nm b V → codef-ok grp (b (%var Uw) Uw)
+    tplam nm b V → codef-ok grp (b (%dim))
+    trec d fs V → codef-fields grp d fs #0
+    _ → no opq E-literal opq opq
+-- the body at its type: λs and lines as check takes them (a line's ends compared with the type's,
+-- a record with a value field by field), then the record, each field at its type, the earlier
+-- fields the record's own
+check-codef c T =
+  case c of
+    tlam nm b V → 
+      case %view T of
+        wpi A B → let x = %var nm A in check-codef (b x A) (B x)
+        _ → err c E-mismatch T opq
+    tplam nm b V → 
+      case %view T of
+        wpath L a0 a1 → 
+          let i = %dim nm
+          in and-then (check-codef (b i) (L @ i))
+               (let v0 = V @ 0
+                    v1 = V @ 1
+                in and-then (chk (conv (L @ 0) v0 a0) (err c E-end0 a0 v0))
+                     (chk (conv (L @ 1) v1 a1) (err c E-end1 a1 v1)))
+        _ → err c E-mismatch T opq
+    trec d fs V → 
+      case %view T of
+        wdata d2 ps → 
+          if andb (%weq d d2) (is-codata d)
+            then check-recfields c (cofields-at d ps) fs
+            else err c E-mismatch T opq
+        _ → err c E-mismatch T opq
+    _ → no opq E-literal opq opq
+chk-codef grp cT ct =
+  case infer-sort cT of yes s → and-then (codef-ok grp ct) (check-codef ct (tval cT)); r → r
+-- ---------------------------------------------------------------- quoting values into codes
+-- quote bs T v: the code (lib/code.ctt) of v's normal form at type T. At Π it is applied to a
+-- fresh variable of the domain, at Σ read by its projections, at a path type at a fresh
+-- dimension, at a data type by its constructors along the telescope; a type by its former. A
+-- stuck elimination's branches are read at fresh fields, hypotheses and dimensions: at its motive,
+-- or, written without one, at the type it is quoted at when that is known (not as the head of a
+-- stuck term, where its type is not known). Variables and dimensions bound inside are de Bruijn
+-- indices over one list of the binders entered, innermost first; one of an outer context is
+-- (cfree x). An induction hypothesis is a suspended elimination, so its uses are forced (cforce),
+-- as (code t) writes them. A value with no code (of a data type that was not checked) gives none.
+data QB = qv l | qh l | qd i
+obind none k = none
+obind (some x) k = k x
+omap f none = none
+omap f (some x) = some (f x)
+oseq lnil = some lnil
+oseq (lcons o r) = obind o (λ x → omap (λ xs → lcons x xs) (oseq r))
+var-level x = case %view x of wvar l T → l; _ → #0
+q-var-at lnil x l n = cfree x
+q-var-at (lcons b r) x l n =
+  case b of
+    qv m → if %weq l m then cvar n else q-var-at r x l (%wsucc n)
+    qh m → if %weq l m then cforce (cvar n) else q-var-at r x l (%wsucc n)
+    qd j → q-var-at r x l (%wsucc n)
+q-dim-at lnil a n = cfree a
+q-dim-at (lcons b r) a n =
+  case b of
+    qd j → if %ieq j a then cvar n else q-dim-at r a (%wsucc n)
+    _ → q-dim-at r a (%wsucc n)
+-- intervals and faces, from their clauses (%dnf)
+q-ivlit bs p = let a = q-dim-at bs (fst p) #0 in if snd p then cneg a else a
+q-ivand bs lnil = ci1
+q-ivand bs (lcons p r) = case r of lnil → q-ivlit bs p; _ → cmeet (q-ivlit bs p) (q-ivand bs r)
+q-ivor bs lnil = ci0
+q-ivor bs (lcons c r) = case r of lnil → q-ivand bs c; _ → cjoin (q-ivand bs c) (q-ivor bs r)
+q-iv bs r = q-ivor bs (%dnf r)
+q-flit bs p = let a = q-dim-at bs (fst p) #0 in if snd p then ceq1 a else ceq0 a
+q-fand bs lnil = cftt
+q-fand bs (lcons p r) = case r of lnil → q-flit bs p; _ → cfand (q-flit bs p) (q-fand bs r)
+q-for bs lnil = cfff
+q-for bs (lcons c r) = case r of lnil → q-fand bs c; _ → cfor (q-fand bs c) (q-for bs r)
+q-face bs f = q-for bs (%dnf f)
+-- at a type when one is given (some T), else without
+q-at bs none v = qv-un bs v
+q-at bs (some T) v = quote bs T v
+-- a system: each branch under its clause, at the type tf gives for that clause
+q-sys bs tf lnil = some csys0
+q-sys bs tf (lcons p r) =
+  let d = fst p
+  in obind (q-at bs (tf d) (snd p)) (λ t → omap (λ rc → csysc (q-face bs d) t rc) (q-sys bs tf r))
+is-neu (wvar l T) = true
+is-neu (wapp f a T) = true
+is-neu (wfst p T) = true
+is-neu (wsnd p T) = true
+is-neu (wpapp p r T) = true
+is-neu (wcomp A u a T) = true
+is-neu (wunglue S b T) = true
+is-neu (welim d x f T) = true
+is-neu (wtrans d psi ls x T) = true
+is-neu (wwplus k x) = true
+is-neu (wwop k a b) = true
+is-neu (wwelim x z s) = true
+is-neu (wcofix n T) = true
+is-neu (wproj d k x T) = true
+is-neu _ = false
+q-fst p = fst p
+-- fields along a telescope (past its end, without types)
+q-fields bs tel fs =
+  case fs of
+    lnil → some lnil
+    lcons f r → 
+      case tel of
+        tx A nm k → 
+          let Av = tval A in obind (quote bs Av f) (λ c → omap (lcons c) (q-fields bs (k f Av) r))
+        _ → oseq (lmap (qv-un bs) fs)
+-- a line in a constant type T; a line of types; a line in the line of types L
+q-line bs T u = let i = %dim in omap cplam (quote (lcons (qd i) bs) T (u @ i))
+q-tyline bs L = let i = %dim in omap cplam (qty (lcons (qd i) bs) (L @ i))
+q-linein bs L u = let i = %dim in omap cplam (quote (lcons (qd i) bs) (L @ i) (u @ i))
+-- a Glue type's system, over A: each branch a type with an equivalence to A
+q-gsys bs A b = q-sys bs (λ d → some ((X : Uw) × Equiv X (%restrict d A))) b
+quote bs T v =
+  case %view T of
+    wpi A B → let x = %var A in omap clam (quote (lcons (qv (var-level x)) bs) (B x) (v x))
+    wsigma A B → obind (quote bs A (fst v)) (λ a → omap (cpair a) (quote bs (B (fst v)) (snd v)))
+    wpath L a b → let i = %dim in omap cplam (quote (lcons (qd i) bs) (L @ i) (v @ i))
+    wu l → qty bs v
+    WT → 
+      let wv = %view v
+      in case wv of
+           wsys b → q-sys bs (λ d → some (%restrict d T)) b
+           wcon d c fs ds → 
+             case WT of
+               wdata d2 ps → 
+                 omap (λ fc → ccon d c fc (lmap (q-iv bs) ds)) (q-fields bs (centry d c ps) fs)
+               wlevel → q-lvl bs v
+               _ → qv-un bs v
+           whcomp u a → 
+             case WT of
+               wdata d2 ps → obind (q-line bs T u) (λ cu → omap (chcomp cu) (quote bs T a))
+               _ → qv-un bs v
+           wgluev S a → 
+             case WT of
+               wglue A SG → 
+                 case %view S of
+                   wsys b → 
+                     obind (q-sys bs (λ d → some (fst (%restrict d SG))) b)
+                       (λ cs → omap (cglue cs) (quote bs A a))
+                   _ → qv-un bs v
+               _ → qv-un bs v
+           _ → if is-neu wv then omap q-fst (qneu bs (some T) v wv) else qv-un bs v
+-- a type, by its former
+qty bs A =
+  let wa = %view A
+  in case wa of
+       wpi D B → 
+         let x = %var D
+         in obind (qty bs D) (λ cd → omap (cpi cd) (qty (lcons (qv (var-level x)) bs) (B x)))
+       wsigma D B → 
+         let x = %var D
+         in obind (qty bs D) (λ cd → omap (csigma cd) (qty (lcons (qv (var-level x)) bs) (B x)))
+       wu l → omap cuniv (q-lvl bs l)
+       wpath L a b → 
+         obind (q-tyline bs L)
+           (λ cl → obind (quote bs (L @ 0) a) (λ ca → omap (cpathp cl ca) (quote bs (L @ 1) b)))
+       wglue D S → 
+         obind (qty bs D)
+           (λ cd →
+              case %view S of
+                wsys b → omap (cgluet cd) (q-gsys bs D b)
+                _ → omap (cgluet cd) (qv-un bs S))
+       wdata d ps → omap (cdata d) (q-fields bs (dtel (%dent d)) ps)
+       wlevel → some clevel
+       wword → some cword
+       wsys b → q-sys bs (λ d → some Uw) b
+       _ → if is-neu wa then omap q-fst (qneu bs (some Uw) A wa) else none
+-- a level, by Level's constructors lzero lsuc lmax (lomega has no code)
+q-lvl bs l =
+  let w = %view l
+  in case w of
+       wcon d c fs ds → 
+         if %weq c #0
+           then some clzero
+           else if %weq c #1
+                  then omap clsuc (q-lvl bs (lhead fs))
+                  else if %weq c #2
+                         then obind (q-lvl bs (lhead fs))
+                                (λ a → omap (clmax a) (q-lvl bs (lhead (ltail fs))))
+                         else none
+       _ → if is-neu w then omap q-fst (qneu bs (some Level) l w) else none
+-- without a type: a λ at a fresh variable, a path at a fresh dimension, a type by its former
+qv-un bs v =
+  let w = %view v
+  in case w of
+       wlam f → let x = %var Uw in omap clam (qv-un (lcons (qv (var-level x)) bs) (f x))
+       wpair a b → obind (qv-un bs a) (λ ca → omap (cpair ca) (qv-un bs b))
+       wplam p → let i = %dim in omap cplam (qv-un (lcons (qd i) bs) (p @ i))
+       wiv r → some (q-iv bs r)
+       wface a → some (q-face bs a)
+       wsys b → q-sys bs (λ d → none) b
+       wgluev S a → obind (qv-un bs S) (λ cs → omap (cglue cs) (qv-un bs a))
+       wcon d c fs ds → omap (λ fc → ccon d c fc (lmap (q-iv bs) ds)) (oseq (lmap (qv-un bs) fs))
+       whcomp u a → 
+         let i = %dim
+         in obind (qv-un (lcons (qd i) bs) (u @ i)) (λ cu → omap (chcomp (cplam cu)) (qv-un bs a))
+       wwlit n → some (cwlit v)
+       wrec d fs → omap (crec d) (oseq (lmap (qv-un bs) fs))
+       wother → none
+       _ → if is-neu w then omap q-fst (qneu bs none v w) else qty bs v
+-- a neutral: its code and its type, computed along the spine from the head (opq when not known);
+-- E: the type it is quoted at, when known
+qn c T = some (c , T)
+q-wstep bs s =
+  let n = %var Word
+      h = %var Uw
+  in omap (λ c → clam (clam c))
+       (qv-un (lcons (qv (var-level h)) (lcons (qv (var-level n)) bs)) (s n h))
+qneu bs E v (wvar l T) = qn (q-var-at bs v l #0) T
+-- a copattern definition, stuck: its name; a field of a neutral: at the field's type
+qneu bs E v (wcofix n T) = qn (cglob n) T
+qneu bs E v (wproj d k x T) =
+  obind (qneu bs none x (%view x))
+    (λ q →
+       qn (cproj d k (fst q)) (case %view (snd q) of wdata d2 ps → cofield-ty d ps x k; _ → opq))
+qneu bs E v (wapp f a T) =
+  obind (qneu bs none f (%view f))
+    (λ p →
+       let cf = fst p
+       in case %view (snd p) of
+            wpi A B → omap (λ ca → (capp cf ca , B a)) (quote bs A a)
+            _ → omap (λ ca → (capp cf ca , opq)) (qv-un bs a))
+qneu bs E v (wfst p T) =
+  obind (qneu bs none p (%view p))
+    (λ q → qn (cfst (fst q)) (case %view (snd q) of wsigma A B → A; _ → opq))
+qneu bs E v (wsnd p T) =
+  obind (qneu bs none p (%view p))
+    (λ q → qn (csnd (fst q)) (case %view (snd q) of wsigma A B → B (fst p); _ → opq))
+qneu bs E v (wpapp p r T) =
+  obind (qneu bs none p (%view p))
+    (λ q → qn (cpapp (fst q) (q-iv bs r)) (case %view (snd q) of wpath L a b → L @ r; _ → opq))
+qneu bs E v (wcomp A u a0 T) =
+  obind (q-tyline bs A)
+    (λ cA →
+       obind (q-linein bs A u)
+         (λ cu → obind (quote bs (A @ 0) a0) (λ ca → qn (ccomp cA cu ca) (A @ 1))))
+qneu bs E v (wunglue S b T) =
+  obind (qneu bs none b (%view b))
+    (λ q →
+       case %view (snd q) of
+         wglue A SG → 
+           case %view S of
+             wsys sb → omap (λ cs → (cunglue cs (fst q) , A)) (q-gsys bs A sb)
+             _ → omap (λ cs → (cunglue cs (fst q) , A)) (qv-un bs S)
+         _ → omap (λ cs → (cunglue cs (fst q) , opq)) (qv-un bs S))
+qneu bs E v (welim d x f T) = q-elim bs E d x f
+qneu bs E v (wtrans d psi ls x T) = q-trans bs d psi ls x
+qneu bs E v (wwplus k x) =
+  omap (λ cx → (if %weq k #1 then cwsucc cx else cwop #2 cx (cwlit k) , Word)) (quote bs Word x)
+qneu bs E v (wwop k a b) =
+  obind (quote bs Word a)
+    (λ ca → omap (λ cb → (cwop k ca cb , if %wlt k #2 then Bool else Word)) (quote bs Word b))
+qneu bs E v (wwelim x z s) =
+  obind (quote bs Word x)
+    (λ cx → obind (qv-un bs z) (λ cz → omap (λ cs → (cwelim cx cz cs , opq)) (q-wstep bs s)))
+qneu bs E v _ = omap (λ c → (c , opq)) (qv-un bs v)
+-- a stuck elimination: each branch at fresh fields (typed by the constructor's telescope at the
+-- scrutinee's parameters), a hypothesis per recursive field (at the motive at that field; without
+-- a motive, at the type E the elimination is quoted at), its dimensions
+q-br bs E d f mo c tel prm recs =
+  case tel of
+    tx A nm r → 
+      let Av = tval A
+          x = %var nm Av
+      in omap clam
+           (q-br (lcons (qv (var-level x)) bs) E d f mo c (r x Av) (lsnoc prm x)
+              (if is-data-d d A then lsnoc recs x else recs))
+    _ → q-hyps bs E d f mo c tel prm recs prm
+q-hyps bs E d f mo c tel prm lnil fs = q-dims bs E d f mo c tel prm fs lnil
+q-hyps bs E d f mo c tel prm (lcons y rest) fs =
+  let h = %var (case mo of some P → P y; none → fromopt E Uw)
+  in omap clam (q-hyps (lcons (qh (var-level h)) bs) E d f mo c tel (lsnoc prm h) rest fs)
+q-dims bs E d f mo c tel prm fs ds =
+  case tel of
+    ty nm r → 
+      let i = %dim nm
+      in omap cdlam (q-dims (lcons (qd i) bs) E d f mo c (r i) (lsnoc prm i) fs (lsnoc ds i))
+    _ → 
+      let body = %branch f c prm
+      in case mo of some P → quote bs (P (mkcon d c fs ds)) body; none → q-at bs E body
+q-brs bs E d f mo lnil c = some lnil
+q-brs bs E d f mo (lcons tel rest) c =
+  obind (q-br bs E d f mo c tel lnil lnil)
+    (λ b → omap (lcons b) (q-brs bs E d f mo rest (%wsucc c)))
+q-elim bs E d x f =
+  obind (qneu bs none x (%view x))
+    (λ px →
+       let X = snd px
+           mo = %motive f
+       in obind (q-brs bs E d f mo (ctors-of d X) #0)
+            (λ brs →
+               case mo of
+                 some P → omap (λ cP → (celim d cP brs (fst px) , P x)) (quote bs (X → Uw) P)
+                 none → some (ccase d brs (fst px) , fromopt E opq)))
+-- a stuck transport in a data type: the lines of its parameters along the telescope, its element
+q-trans bs d psi ls x =
+  let i = %dim
+      bs2 = lcons (qd i) bs
+  in obind (q-fields bs2 (dtel (%dent d)) (lmap (λ l → l @ i) ls))
+       (λ cls →
+          obind (quote bs (mkdata d (lmap (λ l → l @ 0) ls)) x)
+            (λ cx →
+               some
+                 (ctrans d (q-face bs psi) (lmap cplam cls) cx , mkdata d (lmap (λ l → l @ 1) ls))))
+-- the entry points: a value at its type, and a type
+quote-top T v = quote lnil T v
+quote-ty A = qty lnil A

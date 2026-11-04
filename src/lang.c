@@ -7,6 +7,7 @@
 #include <pthread.h>
 #include <sys/stat.h>
 #include <limits.h>
+#include <stdarg.h>
 
 /* grow an array to hold at least n elements */
 #define GROW(arr, cap, n) do { if ((size_t)(n) > (size_t)(cap)) { size_t nc_ = (cap) ? (size_t)(cap) * 2 : 16; while (nc_ < (size_t)(n)) nc_ *= 2; (arr) = realloc((arr), nc_ * sizeof *(arr)); (cap) = nc_; } } while (0)
@@ -14,24 +15,41 @@
 static void die(const char *m, const char *x) { fprintf(stderr, "error: %s%s%s\n", m, x ? " " : "", x ? x : ""); exit(1); }
 
 /* ---------------- s-expressions ---------------- */
-typedef struct Node { int list; char *s; int n; struct Node **it; } Node;
+typedef struct Node { int list; char *s; int n; struct Node **it; char *cmt; } Node;
 static Node *nsym(const char *s) { Node *x = calloc(1, sizeof(Node)); x->s = strdup(s); return x; }
 static Node *nlist(int n) { Node *x = calloc(1, sizeof(Node)); x->list = 1; x->n = n; x->it = calloc((size_t)n + 1, sizeof(Node *)); return x; }
 static Node *nl2(const char *h, Node *a) { Node *x = nlist(2); x->it[0] = nsym(h); x->it[1] = a; return x; }
 static Node *nl3(const char *h, Node *a, Node *b) { Node *x = nlist(3); x->it[0] = nsym(h); x->it[1] = a; x->it[2] = b; return x; }
 static Node *nl4(const char *h, Node *a, Node *b, Node *c) { Node *x = nlist(4); x->it[0] = nsym(h); x->it[1] = a; x->it[2] = b; x->it[3] = c; return x; }
 
+static Node *read_node1(void);
 static const char *src;
+/* comments, kept (for printing a file in the surface language) when asked */
+static bool keep_cmt; static char *pend_cmt;
 static void skip(void) {
     for (;;) {
         while (*src && isspace((unsigned char)*src)) src++;
-        if (*src == ';') { while (*src && *src != '\n') src++; continue; }
+        if (*src == ';') {
+            const char *b = src; while (*src && *src != '\n') src++;
+            if (keep_cmt) {
+                while (*b == ';') b++; if (*b == ' ') b++;
+                size_t ol = pend_cmt ? strlen(pend_cmt) : 0, nl = (size_t)(src - b);
+                pend_cmt = realloc(pend_cmt, ol + nl + 2); memcpy(pend_cmt + ol, b, nl); pend_cmt[ol + nl] = '\n'; pend_cmt[ol + nl + 1] = 0;
+            }
+            continue;
+        }
         return;
     }
 }
 static Node *read_node(void) {
     skip();
     if (!*src) return NULL;
+    char *cm = pend_cmt; pend_cmt = NULL;
+    Node *x = read_node1();
+    x->cmt = cm;
+    return x;
+}
+static Node *read_node1(void) {
     if (*src == ')') die("unexpected )", NULL);
     if (*src == '(') {
         src++;
@@ -2892,6 +2910,7 @@ static void toplevel(Node *f) {
         free(a); free(b);
     } else die("unknown top-level form", h);
 }
+#include "syntax.c"
 static char *slurp(const char *path) {
     FILE *f = fopen(path, "rb"); if (!f) die("cannot open", path);
     fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
@@ -2920,6 +2939,29 @@ static void load_file(const char *path, bool must) {
     for (int i = 0; i < nloaded; i++) if (!strcmp(loaded[i], rp)) { free(rp); return; }
     GROW(loaded, caploaded, (size_t)nloaded + 1); loaded[nloaded++] = rp;
     char *text = slurp(rp);
+    size_t pl = strlen(rp);
+    if (pl > 4 && !strcmp(rp + pl - 4, ".cub")) {
+        /* the surface language: its imports first, then the running key, then its declarations */
+        const char *saved_dir = cur_dir;
+        char *dir = strdup(rp); char *sl = strrchr(dir, '/'); if (sl) *sl = 0;
+        cur_dir = dir;
+        load_surface(text, rp, true);
+        key_mix(text, strlen(text));
+        char key[40]; snprintf(key, sizeof key, "%016llx%016llx", (unsigned long long)run_key[0], (unsigned long long)run_key[1]);
+        char *marker = malloc(strlen(cache_dir()) + 48); sprintf(marker, "%s/%s", cache_dir(), key);
+        bool saved_trusted = trusted;
+        { FILE *mf = getenv("CUBICAL_NOCACHE") ? NULL : fopen(marker, "r"); trusted = mf != NULL; if (mf) fclose(mf); }
+        int f0 = failures;
+        load_surface(text, rp, false);
+        if (trusted) printf("cached: %s\n", path);
+        else if (failures == f0 && !getenv("CUBICAL_NOCACHE")) {
+            mkdir(cache_dir(), 0777);
+            FILE *mk = fopen(marker, "w"); if (mk) { fputs(rp, mk); fputc('\n', mk); fclose(mk); }
+        }
+        trusted = saved_trusted; cur_dir = saved_dir;
+        free(marker);
+        return;
+    }
     /* its imports first (they extend the running key before this file does) */
     {
         const char *saved = src; src = text;
@@ -2958,7 +3000,13 @@ int main(int argc, char **argv) {
     net_start(w ? atoi(w) : 0);
     /* the machine's build is part of every module's key */
     { const char *b = __DATE__ " " __TIME__; key_mix(b, strlen(b)); }
-    for (int i = 1; i < argc; i++) load_file(argv[i], true);
+    for (int i = 1; i < argc; i++) {
+        /* --print f: f's core forms in the surface language; --roundtrip f: each printed form parsed
+         * back and compared, while f is loaded */
+        if (!strcmp(argv[i], "--print") && i + 1 < argc) { convert_file(argv[++i], false); fflush(stdout); _Exit(0); }
+        if (!strcmp(argv[i], "--roundtrip") && i + 1 < argc) { convert_file(argv[++i], true); continue; }
+        load_file(argv[i], true);
+    }
     /* steps performed so far: a reading only when the workload has normalized (show) */
     printf("%d passed, %d failed; %ld interaction steps performed; %ld memo hits, %ld shared keys; %ld cells live; %ld payloads live\n", passes, failures, stat_steps, stat_hits, stat_keys, stat_cells, stat_payloads);
     prof_print();

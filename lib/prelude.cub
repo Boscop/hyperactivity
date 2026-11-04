@@ -1,0 +1,83 @@
+-- prelude.ctt — the library over the core forms (HANDOFF §§14–18).
+-- The machine's composition rule opens a family at a fresh dimension and,
+-- by its head, applies one of the %comp-* clauses below to the family's
+-- components as lines. A tube is a system of lines; transformations of a
+-- tube act branchwise with sysmap.
+-- universe levels: U carries its level; lomega is the level of types quantifying over levels
+data Level = lzero | lsuc (l : Level) | lmax (a : Level) (b : Level) | lomega
+refl x = λ (i : I) → x
+-- fill^i A [φ ↦ u] a0 (r) = comp^j A(r∧j) [φ ↦ u(r∧j), (r=0) ↦ a0] a0
+fill A u a0 r =
+  comp (λ (j : I) → A @ (r /\ j))
+    (sys+ (r = 0) (λ (j : I) → a0) (sysmap (λ w (j : I) → w @ (r /\ j)) u)) a0
+transp A a0 = comp A [] a0
+hcomp A u a0 = comp (λ (i : I) → A) u a0
+-- equivalences (§15)
+Contr X = (c : X) × ((x : X) → PathP (λ (i : I) → X) c x)
+fib X Y f y = (x : X) × PathP (λ (i : I) → Y) (f x) y
+Equiv X Y = (f : X → Y) × ((y : Y) → Contr (fib X Y f y))
+idequiv X =
+  (λ x → x
+  , λ y →
+      ((y , λ (i : I) → y)
+      , λ z (i : I) → (%@ (snd z) (~ i) (fst z) y , λ (j : I) → %@ (snd z) (~ i \/ j) (fst z) y)))
+lineequiv X = transp (λ (j : I) → Equiv (X @ 0) (X @ j)) (idequiv (X @ 0))
+-- univalence (§17)
+ua A B e = λ (i : I) → Glue B [ i = 0 ↦ (A , e) , i = 1 ↦ (B , idequiv B) ]
+-- composition clauses (§14, §16, §17)
+%comp-pi D E u f0 x1 =
+  let vl = λ (k : I) → fill (λ (j : I) → D @ ~ j) [] x1 (~ k)
+  in comp (λ (i : I) → (E @ i) (vl @ i)) (sysmap (λ w (i : I) → (w @ i) (vl @ i)) u) (f0 (vl @ 0))
+%comp-sigma D E u z0 =
+  let al = λ (k : I) → fill D (sysmap (λ w (i : I) → fst (w @ i)) u) (fst z0) k
+  in (al @ 1 , comp (λ (i : I) → (E @ i) (al @ i)) (sysmap (λ w (i : I) → snd (w @ i)) u) (snd z0))
+%comp-path P l r u p0 =
+  λ (j : I) →
+    comp (λ (i : I) → P @ i @ j)
+      (sys+ (j = 0) (λ (i : I) → l @ i)
+         (sys+ (j = 1) (λ (i : I) → r @ i) (sysmap (λ w (i : I) → %@ (w @ i) j (l @ i) (r @ i)) u)))
+      (%@ p0 j (l @ 0) (r @ 0))
+%comp-u u A0 = Glue A0 (sysmap (λ w → (w @ 1 , lineequiv (λ (j : I) → w @ ~ j))) u)
+%comp-glue A S u u0 =
+  let a0 = unglue (S @ 0) u0
+      al = λ (k : I) → fill A (sysmap (λ w (i : I) → unglue (S @ i) (w @ i)) u) a0 k
+      a1 = al @ 1
+      delta = (∀ i → (faceof (S @ i)))
+      S1 = S @ 1
+      alpha1 = faceof S1
+      vpart = sys+ delta
+                (let tl = λ (k : I) → fill (λ (i : I) → fst (S @ i)) u u0 k
+                 in (tl @ 1
+                    , λ (q : I) →
+                        comp A
+                          (sys+ (q = 0) (λ (i : I) → fst (snd (S @ i)) (tl @ i))
+                             (sys+ (q = 1) al (sysmap (λ w → al) u))) a0))
+                (sysmap (λ w → (w @ 1 , λ (q : I) → a1)) u)
+      tp = sys+ alpha1
+             (let C = snd (snd S1) a1
+              in hcomp (fib (fst S1) (A @ 1) (fst (snd S1)) a1)
+                   (sysmap (λ w (j : I) → %@ (snd C w) j (fst C) w) vpart) (fst C)) []
+      P = sysmap (λ e (q : I) → %@ (snd e) (~ q) (fst (snd S1) (fst e)) a1) tp
+  in glue (sysmap (λ e → fst e) tp)
+       (hcomp (A @ 1) (sys+ (faceof P) P (sysmap (λ w (q : I) → a1) u)) a1)
+-- the partial fibre element over delta ∨ psi
+-- extended under alpha1 by the contraction of e1's fibre
+-- elimination of a higher inductive type on a formal hcomp (CHM):
+-- f (hcomp^i [φ ↦ u] u0) = comp^i P(hfill^i [φ ↦ u] u0) [φ ↦ f u] (f u0)
+%case-hcomp P f u u0 =
+  comp
+    (λ (%i : I) →
+       P (hcompD (sys+ (%i = 0) (λ (%j : I) → u0) (sysmap (λ %w (%j : I) → %w @ (%i /\ %j)) u)) u0))
+    (sysmap (λ %w (%i : I) → f (%w @ %i)) u) (f u0)
+-- data types
+data Bool = true | false
+not b = if b then false else true
+and a b = if a then b else false
+data Nat = zero | suc (n : Nat)
+add m n = case m of zero → n; suc k → suc (add k n)
+mul m n = case m of zero → zero; suc k → add n (mul k n)
+iszero n = case n of zero → true; suc k → false
+data List (A : Type) = nil | cons (x : A) (xs : List A)
+map f xs = case xs of nil → nil; cons x r → cons (f x) (map f r)
+length xs = case xs of nil → zero; cons x r → suc (length r)
+append xs ys = case xs of nil → ys; cons x r → cons x (append r ys)

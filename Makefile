@@ -6,11 +6,11 @@ SRC := src/dnf.c src/big.c src/net.c src/lang.c
 
 all: build/cubical
 
-build/cubical: $(SRC) src/core.h
+build/cubical: $(SRC) src/core.h src/syntax.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) -o $@ $(SRC) -lpthread
 
-build/cubical-asan: $(SRC) src/core.h
+build/cubical-asan: $(SRC) src/core.h src/syntax.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(SAN) -o $@ $(SRC) -lpthread
 
