@@ -44,6 +44,9 @@ data Tm
   | tgluet A S V
   | tglue S a V
   | tunglue S b V
+  -- a composition of types (its faces lines of types from A) and the unglue of its elements
+  | thcompu A S V
+  | tunglueu S b V
   | tlet t nm b V
   | tann t T V
   | tdata d ps V
@@ -112,6 +115,8 @@ tval c =
     tgluet A S V → V
     tglue S a V → V
     tunglue S b V → V
+    thcompu A S V → V
+    tunglueu S b V → V
     tlet t nm b V → V
     tann t T V → V
     tdata d ps V → V
@@ -295,6 +300,11 @@ conv T u v =
         then lall (λ d → conv (%restrict d (Glue A S)) (%restrict d u) (%restrict d v))
                (%clauses (faceof S))
         else false
+    whcompu A S → 
+      if conv A (%unglueU S u) (%unglueU S v)
+        then lall (λ d → conv (%restrict d (%hcompU A S)) (%restrict d u) (%restrict d v))
+               (%clauses (faceof S))
+        else false
     wsys bs → lall (λ b → let d = fst b in conv (snd b) (%restrict d u) (%restrict d v)) bs
     wdata d ps → conv-data d ps u v
     _ → uconv u v
@@ -367,6 +377,12 @@ conv-glue-sys A S S2 =
                    then conv (Equiv (fst te) (%restrict d A)) (snd te) (snd te2)
                    else false) (%clauses (faceof S))
     else false
+-- the faces of two compositions of types: the same face, the same lines
+conv-line-sys S S2 =
+  if %feq (faceof S) (faceof S2)
+    then lall (λ d → let i = %dim in conv-ty ((%restrict d S) @ i) ((%restrict d S2) @ i))
+           (%clauses (faceof S))
+    else false
 -- two families of types over A
 conv-fam A B B2 =
   case %clos B B2 of
@@ -389,6 +405,8 @@ uconv-head wu v wv =
         _ → false
     wglue A S → 
       case wv of wglue B S2 → if conv-ty A B then conv-glue-sys A S S2 else false; _ → false
+    whcompu A S → 
+      case wv of whcompu B S2 → if conv-ty A B then conv-line-sys S S2 else false; _ → false
     wgluev S a → 
       if uconv a (unglue S v)
         then lall (λ d → uconv (%restrict d (glue S a)) (%restrict d v)) (%clauses (faceof S))
@@ -529,6 +547,13 @@ convneu wu wv =
             some Tb → (case %view Tb of wglue A S3 → some A; _ → some opq)
             none → none
         _ → none
+    wunglueu S b T → 
+      case wv of
+        wunglueu S2 c T2 → 
+          case convneu (%view b) (%view c) of
+            some Tb → (case %view Tb of whcompu A S3 → some A; _ → some opq)
+            none → none
+        _ → none
     welim d x f T → 
       case wv of
         welim d2 y g T2 → 
@@ -623,6 +648,7 @@ E-implicit = #32
 E-tick = #33
 E-tickarg = #34
 E-clocktype = #35
+E-hcompset = #36
 -- a type's universe level (not ω), and a type's sort (a universe, U ω for types over levels)
 infer-level A =
   case infer A of
@@ -666,6 +692,46 @@ check-sys s T =
                       in chk (conv (%restrict d T) v1 v2) (no V E-sysdis v1 v2))
                    (%clauses (%fand (tval (fst b1)) (tval (fst b2))))) (lpairs bs))
     _ → err s E-notsys opq opq
+-- the faces of a composition of types: lines of types in Type l from A, agreeing on overlaps
+check-lines s A l =
+  case s of
+    tsys bs V → 
+      and-then
+        (rall
+           (λ b →
+              if check-face (fst b)
+                then rall
+                       (λ d →
+                          let bc = br-at d b
+                          in check bc (PathP (λ (i : I) → Type l) (%restrict d A) ((tval bc) @ 1)))
+                       (%clauses (tval (fst b)))
+                else err (fst b) E-notface opq opq) bs)
+        (rall
+           (λ bb →
+              let b1 = fst bb
+                  b2 = snd bb
+              in rall
+                   (λ d →
+                      let v1 = tval (br-at d b1)
+                          v2 = tval (br-at d b2)
+                      in chk (let i = %dim in conv-ty (v1 @ i) (v2 @ i)) (no V E-sysdis v1 v2))
+                   (%clauses (%fand (tval (fst b1)) (tval (fst b2))))) (lpairs bs))
+    _ → err s E-notsys opq opq
+-- a constructor telescope with a dimension: a path constructor
+tel-has-dim tel =
+  case tel of
+    tx A nm r → let Av = tval A in tel-has-dim (r (%var nm Av) Av)
+    ty nm r → true
+    _ → false
+-- a higher inductive type: one with a path constructor. In any other data type a formal
+-- composition is a value only where its tube covers every closed point (the complement of its
+-- face is empty), as the compositions the machine forms do: every closed instance of it reduces
+is-hit d ps = lany tel-has-dim (ctors-at d ps)
+tube-covers u =
+  case u of
+    tplam nW W UV → %feq (%fneg (sys-face (W (%dim nW)))) ff
+    tguess k g t V → if %weq g #0 then true else tube-covers t
+    _ → true
 -- a tube over a line of types: Wi its code at the fresh dimension i, Li the line there; at 0 it
 -- agrees with the cap av
 tube-ok i Wi L0 Li av =
@@ -776,6 +842,14 @@ infer c =
       case infer b of
         yes T → (case %view T of wglue A S2 → yes A; _ → err b E-notglue T opq)
         r → r
+    thcompu A S V → 
+      case infer-level A of
+        yes l → let Av = tval A in and-then (check-lines S Av l) (yes (Type l))
+        r → r
+    tunglueu S b V → 
+      case infer b of
+        yes T → (case %view T of whcompu A S2 → yes A; _ → err b E-notglue T opq)
+        r → r
     tcomp A u a V → check-comp c A u a
     tlet t nm b V → 
       case infer t of
@@ -802,7 +876,10 @@ infer c =
       case infer a of
         yes T → 
           case %view T of
-            wdata d ps → let Tv = mkdata d ps in and-then (check-hcomp Tv u a) (yes Tv)
+            wdata d ps → 
+              if orb (is-hit d ps) (tube-covers u)
+                then let Tv = mkdata d ps in and-then (check-hcomp Tv u a) (yes Tv)
+                else err c E-hcompset T opq
             _ → err a E-notdata T opq
         r → r
     -- a case without a motive: the type of a branch without hypotheses, every branch checked at it
@@ -1029,6 +1106,8 @@ tick-sub α ctx c =
        tgluet a b V → orb (r a) (r b)
        tglue a b V → orb (r a) (r b)
        tunglue a b V → orb (r a) (r b)
+       thcompu a b V → orb (r a) (r b)
+       tunglueu a b V → orb (r a) (r b)
        tann a b V → orb (r a) (r b)
        thcomp a b V → orb (r a) (r b)
        tpathp a b x V → orb (r a) (orb (r b) (r x))
@@ -1087,6 +1166,19 @@ check c T =
                                     x = %restrict d av
                                 in chk (conv (%restrict d A) w x) (err c E-gluebr x w))
                              (%clauses (tval (fst b)))) (sys-bs S))))
+        whcompu A S2 → 
+          and-then (check a A)
+            (and-then (chk (%feq (sys-face S) (faceof S2)) (err c E-glueface opq opq))
+               (and-then (check-sys S (%hcompU A S2))
+                  (let av = tval a
+                   in rall
+                        (λ b →
+                           rall
+                             (λ d →
+                                let w = %unglueU (%restrict d S2) (tval (br-at d b))
+                                    x = %restrict d av
+                                in chk (conv (%restrict d A) w x) (err c E-gluebr x w))
+                             (%clauses (tval (fst b)))) (sys-bs S))))
         _ → err c E-mismatch T opq
     tlet t nm b V → 
       case infer t of
@@ -1099,7 +1191,10 @@ check c T =
         _ → err c E-mismatch T opq
     thcomp u a V → 
       case %view T of
-        wdata d ps → let Tv = mkdata d ps in and-then (check a Tv) (check-hcomp Tv u a)
+        wdata d ps → 
+          if orb (is-hit d ps) (tube-covers u)
+            then let Tv = mkdata d ps in and-then (check a Tv) (check-hcomp Tv u a)
+            else err c E-hcompset T opq
         _ → err c E-mismatch T opq
     tcase d B x F V → 
       case infer x of
@@ -1168,6 +1263,8 @@ cany p c =
        tgluet a b V → orb (cany p a) (cany p b)
        tglue a b V → orb (cany p a) (cany p b)
        tunglue a b V → orb (cany p a) (cany p b)
+       thcompu a b V → orb (cany p a) (cany p b)
+       tunglueu a b V → orb (cany p a) (cany p b)
        tann a b V → orb (cany p a) (cany p b)
        thcomp a b V → orb (cany p a) (cany p b)
        tpathp a b x V → orb (cany p a) (orb (cany p b) (cany p x))
@@ -1414,6 +1511,7 @@ is-neu (wsnd p T) = true
 is-neu (wpapp p r T) = true
 is-neu (wcomp A u a T) = true
 is-neu (wunglue S b T) = true
+is-neu (wunglueu S b T) = true
 is-neu (welim d x f T) = true
 is-neu (wtrans d psi ls x T) = true
 is-neu (wwplus k x) = true
@@ -1466,6 +1564,12 @@ quote bs T v =
                      obind (q-sys bs (λ d → some (fst (%restrict d SG))) b)
                        (λ cs → omap (cglue cs) (quote bs A a))
                    _ → qv-un bs v
+               whcompu A SG → 
+                 case %view S of
+                   wsys b → 
+                     obind (q-sys bs (λ d → some ((%restrict d SG) @ 1)) b)
+                       (λ cs → omap (cglue cs) (quote bs A a))
+                   _ → qv-un bs v
                _ → qv-un bs v
            _ → if is-neu wv then omap q-fst (qneu bs (some T) v wv) else qv-un bs v
 -- a type, by its former
@@ -1488,6 +1592,15 @@ qty bs A =
               case %view S of
                 wsys b → omap (cgluet cd) (q-gsys bs D b)
                 _ → omap (cgluet cd) (qv-un bs S))
+       whcompu D S → 
+         obind (qty bs D)
+           (λ cd →
+              case %view S of
+                wsys b → 
+                  omap (chcompu cd)
+                    (q-sys bs
+                       (λ d → some (PathP (λ (i : I) → Uw) (%restrict d D) ((%restrict d S) @ 1))) b)
+                _ → omap (chcompu cd) (qv-un bs S))
        wdata d ps → omap (cdata d) (q-fields bs (dtel (%dent d)) ps)
        wlevel → some clevel
        wword → some cword
@@ -1575,6 +1688,12 @@ qneu bs E v (wunglue S b T) =
              wsys sb → omap (λ cs → (cunglue cs (fst q) , A)) (q-gsys bs A sb)
              _ → omap (λ cs → (cunglue cs (fst q) , A)) (qv-un bs S)
          _ → omap (λ cs → (cunglue cs (fst q) , opq)) (qv-un bs S))
+qneu bs E v (wunglueu S b T) =
+  obind (qneu bs none b (%view b))
+    (λ q →
+       case %view (snd q) of
+         whcompu A SG → omap (λ cs → (cunglueu cs (fst q) , A)) (qv-un bs S)
+         _ → omap (λ cs → (cunglueu cs (fst q) , opq)) (qv-un bs S))
 qneu bs E v (welim d x f T) = q-elim bs E d x f
 qneu bs E v (wtrans d psi ls x T) = q-trans bs d psi ls x
 qneu bs E v (wwplus k x) =
@@ -1715,6 +1834,7 @@ type-level v =
     wpath L a b → type-level (L @ %dim)
     wdata d ps → dlvl (%dent d)
     wglue A S → type-level A
+    whcompu A S → type-level A
     wvar l T → univ-level T
     wapp f a T → univ-level T
     wfst p T → univ-level T

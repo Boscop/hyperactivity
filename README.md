@@ -125,8 +125,8 @@ in address order, and revalidates before rewriting.
 
 Besides functions, pairs and data, values are: the interval (`0`, `1`, dimensions, `~`, `/\`,
 `\/`, kept in normal form), paths (a value with a dimension abstracted), faces (conditions on
-dimensions), partial values (systems), composition, Glue types and their elements, and higher
-inductive types (data types with path constructors).
+dimensions), partial values (systems), composition, Glue types and their elements, compositions
+of types and their elements, and higher inductive types (data types with path constructors).
 
 **Partial values.** `[ i = 0 ↦ a , i = 1 ↦ b ]` is a value defined only where its faces hold.
 Each branch is kept unbuilt, as syntax with its environment, and is built with its face's
@@ -142,19 +142,41 @@ depends on what kind of type `A(i)` is; each case is a term in `lib/prelude.cub`
 - pairs (`%comp-sigma`): compose the first components, then the second components along the line
   the first one traced;
 - paths (`%comp-path`): compose pointwise, adding the path's two endpoints to what is given;
-- universes (`%comp-u`) and Glue (`%comp-glue`): via Glue types; this is where univalence
-  computes, so transport along `ua e` applies `e`.
+- Glue (`%comp-glue`): this is where univalence computes, so transport along `ua e` applies `e`;
+  on the end's faces the fibre over the composed base comes from the equivalence's contractibility;
+- universes (`%comp-u`): a composition of types is a type of its own, `%hcompU A S` (Cubical Agda's
+  `hcomp` in `Type`). Its faces `S` are the tube's lines of types from `A`, and the complement of
+  the tube's face carries `A` itself, so where the tube is empty the composition is `A` and a
+  closed composition of types is a type. Its elements are `glue` values; on a face, `%unglueU`
+  transports back along that face's line. Composition through it (`%comp-gluel`) composes the
+  unglued base and then, on the end's faces, takes the fibre of that transport over it from
+  `%tproof`: the transport fillers along the line and one composition back along it. No
+  equivalence and no contractibility proof is involved, so eliminating a higher inductive type
+  into the universe and transporting through the result costs transports along the face lines,
+  at every nesting depth. Transport along the double cover of the circle over a composite of `n`
+  loops costs about 70k steps per loop (`tests/codata.cub`); with compositions of types encoded
+  as Glue types over transported identity equivalences it took 31M steps at four loops and did
+  not finish at six.
 
 **Data types.** One mechanism serves every declared data type, with nothing written per type:
 - moving a constructor value along a line of data types (e.g. `List A(i)`) moves each of its
   fields along its field type; this is derived from the declaration;
 - a path constructor such as `loop i` must still meet its declared endpoints after moving, so the
   result is corrected by a composition that glues those endpoints back on;
-- in a data type without path constructors, a composition with an empty tube goes into the
-  fields (`c a.. ↦ c (comp a)..`), so a closed value moved along a line reads as a constructor
-  again: transport along `ua not` of `true` is `false`, not a formal composition. The rule waits
-  for the value to be a constructor; on a variable the composition stays formal, and a
-  substitution that empties a tube decides again;
+- composition is generalized (Cubical Agda's `gcomp`): the tube gets the complement of its face,
+  carrying the transported starting value. At every closed point the tube is then total, so a
+  composition never leaves a formal composition behind where nothing was to be composed: a
+  composition with an empty tube is transport, transport along a constant line of a closed type
+  is the identity (`transp (λ i → S1) base` is `base`), and transport along `ua not` of `true` is
+  `false`;
+- in a data type without path constructors, a composition whose starting value and sides are
+  all one constructor goes into the fields, each composed along its type at the earlier fields'
+  fillers (CCHM's rule), so `λ j → comp Nat [ j = 0 ↦ 1 , j = 1 ↦ 1 ] 1` is `λ j → 1` and a path
+  field transported along `ua` is a constant path again. The machine looks at the starting value
+  and then at each side at a fresh dimension; a side that is not that constructor (a variable)
+  keeps the composition formal, and a substitution decides again. The checker accepts a formal
+  composition in such a type only when its tube covers every closed point, as the machine's own
+  do, so a closed value of such a type is a constructor;
 - a composition in a data type that cannot be computed further is kept as a value, `hcompD`; a case
   analysis meeting such a value applies itself to the pieces and composes the results in the
   result type.

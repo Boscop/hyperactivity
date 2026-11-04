@@ -99,8 +99,8 @@ static bool node_eq(Node *a, Node *b) {
 }
 
 /* ---------------- desugaring to the core forms ---------------- */
-static const char *KW[] = { "%raw", "%welimP", "%rebuilt", "%hole", "%guess", "%spine", "lam", "thunk", "delay", "force", "case", "elim", "if", "rec", "the", "code", "%data", "%con", "hcompD", "%hcompE", "%transD", "%case", "%branches", "record", "%record", "plam", "forall", "let", "app", "pair", "fst", "snd", "Pi", "Sigma", "U",
-    "PathP", "@", "~", "/\\", "\\/", "=", "&", "|", "faceof", "sys", "sys0", "sys+", "sysmap", "comp", "Glue", "glue",
+static const char *KW[] = { "%raw", "%welimP", "%rebuilt", "%hole", "%guess", "%spine", "lam", "thunk", "delay", "force", "case", "elim", "if", "rec", "the", "code", "%data", "%con", "hcompD", "%hcompF", "%transD", "%case", "%branches", "record", "%record", "plam", "forall", "let", "app", "pair", "fst", "snd", "Pi", "Sigma", "U",
+    "PathP", "@", "~", "/\\", "\\/", "=", "&", "|", "faceof", "%fneg", "sys", "sys0", "sys+", "sysmap", "comp", "Glue", "%hcompU", "%unglueU", "glue",
     "unglue", "%view", "%var", "%dim", "%ieq", "%feq", "%clauses", "%dnf", "%motive", "%restrict", "%gval", "%gty", "%dtab", "%dent", "%dtrans", "%abs", "%branch", "%clos", "%box", "%wsucc", "%weq", "%wlt", "%wadd", "%wmax", "%wsub", "%welim", NULL };
 static bool keyword(const char *s) { for (int i = 0; KW[i]; i++) if (!strcmp(KW[i], s)) return true; return false; }
 static Node *param_name(Node *p) { return p->list ? p->it[0] : p; }
@@ -620,6 +620,8 @@ static Node *to_code(Node *t) {
     if (!strcmp(h, "Glue")) return capp2("cgluet", to_code(t->it[1]), to_code(t->it[2]));
     if (!strcmp(h, "glue")) return capp2("cglue", to_code(t->it[1]), to_code(t->it[2]));
     if (!strcmp(h, "unglue")) return capp2("cunglue", to_code(t->it[1]), to_code(t->it[2]));
+    if (!strcmp(h, "%hcompU")) return capp2("chcompu", to_code(t->it[1]), to_code(t->it[2]));
+    if (!strcmp(h, "%unglueU")) return capp2("cunglueu", to_code(t->it[1]), to_code(t->it[2]));
     if (!strcmp(h, "the")) return capp2("cann", to_code(t->it[2]), to_code(t->it[1]));
     if (!strcmp(h, "%rebuilt")) return to_code(t->it[1]);
     if (!strcmp(h, "%record")) {
@@ -916,7 +918,7 @@ static NV ann(Node *t, Chain *C) {
         { "app", "tapp", 2 }, { "pair", "tpair", 2 }, { "fst", "tfst", 1 }, { "snd", "tsnd", 1 },
         { "PathP", "tpathp", 3 }, { "@", "tpapp", 2 }, { "~", "tneg", 1 }, { "/\\", "tmeet", 2 }, { "\\/", "tjoin", 2 },
         { "&", "tfand", 2 }, { "|", "tfor", 2 }, { "comp", "tcomp", 3 }, { "Glue", "tgluet", 2 }, { "glue", "tglue", 2 },
-        { "unglue", "tunglue", 2 }, { "hcompD", "thcomp", 2 }, { "force", "tforce", 1 }, { NULL, NULL, 0 } };
+        { "unglue", "tunglue", 2 }, { "%hcompU", "thcompu", 2 }, { "%unglueU", "tunglueu", 2 }, { "hcompD", "thcomp", 2 }, { "force", "tforce", 1 }, { NULL, NULL, 0 } };
     {
         static const char *WO[] = { "%weq", "%wlt", "%wadd", "%wmax", "%wsub", NULL };
         for (int q = 0; WO[q]; q++) if (!strcmp(h, WO[q])) {
@@ -1586,11 +1588,14 @@ static Syn *compile(Node *t) {
         return s;
     }
     if (!strcmp(h, "faceof")) return compile_n(S_FACEOF, t, 1, 1);
+    if (!strcmp(h, "%fneg")) { arity(t, 1); return compile_n(S_FNEG, t, 1, 1); }
     if (!strcmp(h, "sys0")) return syn(S_SYS0, 0);
     if (!strcmp(h, "sys+")) return compile_n(S_SYSCONS, t, 1, 3);
     if (!strcmp(h, "sysmap")) return compile_n(S_SYSMAP, t, 1, 2);
     if (!strcmp(h, "comp")) return compile_n(S_COMP, t, 1, 3);
     if (!strcmp(h, "Glue")) return compile_n(S_GLUE, t, 1, 2);
+    if (!strcmp(h, "%hcompU")) { arity(t, 2); Syn *s = compile_n(S_GLUE, t, 1, 2); s->x = 1; return s; }
+    if (!strcmp(h, "%unglueU")) { arity(t, 2); Syn *s = compile_n(S_UNGLUE, t, 1, 2); s->x = 1; return s; }
     if (!strcmp(h, "glue")) return compile_n(S_GLUEV, t, 1, 2);
     if (!strcmp(h, "unglue")) return compile_n(S_UNGLUE, t, 1, 2);
     if (!strcmp(h, "%data")) {
@@ -1604,7 +1609,7 @@ static Syn *compile(Node *t) {
         Syn *s = compile_n(S_CON, t, 2, t->n - 2); s->id = c; return s;
     }
     if (!strcmp(h, "hcompD")) return compile_n(S_HCOMPD, t, 1, 2);
-    if (!strcmp(h, "%hcompE")) { arity(t, 3); return compile_n(S_HCOMPD, t, 1, 3); }
+    if (!strcmp(h, "%hcompF")) { arity(t, 3); return compile_n(S_HCOMPD, t, 1, 3); }
     if (!strcmp(h, "%record")) {
         /* a copattern: its fields held unbuilt, each built when its projection reads it */
         int d = data_lookup(t->it[1]->s);
@@ -1769,7 +1774,7 @@ static void rb_one(FILE *o, Port prov) {
         }
         return;
     }
-    case V_GLUE: push_fields(o, "Glue", c, 1); return;
+    case V_GLUE: push_fields(o, c->x ? "%hcompU" : "Glue", c, 1); return;
     case V_GLUEV: push_fields(o, "glue", c, 1); return;
     case V_NVAR: if (c->x) fputs(srcname_of((int)c->x - 1), o); else fputs(name_of((long)c->a), o); return;
     case V_NAPP:
@@ -1799,7 +1804,7 @@ static void rb_one(FILE *o, Port prov) {
         return;
     }
     case V_NCOMP: push_fields_to(o, "comp", c, 1, 4); return;
-    case V_NUNGLUE: push_fields_to(o, "unglue", c, 1, 3); return;
+    case V_NUNGLUE: push_fields_to(o, c->x ? "%unglueU" : "unglue", c, 1, 3); return;
     case V_THUNK: { extern Port thunk_build(Cell *c); push_port(thunk_build(c)); return; }
     case V_UNK: fputs("?", o); return;
     case V_DATA: if (c->n == 1) fputs(DATA[c->a].name, o); else push_fields(o, DATA[c->a].name, c, 1); return;
@@ -2087,7 +2092,7 @@ static void pcode(FILE *o, Port p) {
         /* the rest print as their head and fields */
         static const struct { const char *c, *s; } F[] = {
             { "cpair", "pair" }, { "cfst", "fst" }, { "csnd", "snd" }, { "cpathp", "PathP" }, { "cpapp", "@" },
-            { "cneg", "~" }, { "ccomp", "comp" }, { "cgluet", "Glue" }, { "cglue", "glue" }, { "cunglue", "unglue" },
+            { "cneg", "~" }, { "ccomp", "comp" }, { "cgluet", "Glue" }, { "cglue", "glue" }, { "cunglue", "unglue" }, { "chcompu", "%hcompU" }, { "cunglueu", "%unglueU" },
             { "cann", "the" }, { "chcomp", "hcompD" }, { "cforce", "force" }, { "clsuc", "lsuc" }, { "clmax", "lmax" },
             { "cwsucc", "%wsucc" }, { "cwelim", "%welim" },
             { "ci0", "0" }, { "ci1", "1" }, { "cftt", "tt" }, { "cfff", "ff" }, { "clevel", "Level" }, { "clzero", "lzero" },
@@ -2224,7 +2229,8 @@ static void explain(const char *r, Node *q) {
         /* 32 */ { "an implicit argument is not determined by the other arguments' types or the type expected", "its type", NULL },
         /* 33 */ { "applied to a tick, but it uses a variable bound after the tick (a later value used now)", NULL, NULL },
         /* 34 */ { "a tick here is not a tick variable (ticks are bound by λ only)", "its type", NULL },
-        /* 35 */ { "clocks and ticks are not types in a universe (only the domain of a Π)", NULL, NULL } };
+        /* 35 */ { "clocks and ticks are not types in a universe (only the domain of a Π)", NULL, NULL },
+        /* 36 */ { "a formal composition in a type without path constructors must cover every closed point (its tube's face has a complement)", "the type", NULL } };
     const char *saved = src; src = r;
     Node *n = read_node();
     src = saved;
@@ -2853,37 +2859,61 @@ static void toplevel(Node *f) {
         for (int k = 0; k < np; k++) fprintf(m, " %%z%d", k);
         fprintf(m, " %%x)))");
         EMIT();
-        bool pathfree = con_lookup("true") >= 0;   /* (the test of the tube's face reads a Bool) */
-        for (int ci = 0; ci < nc; ci++) if (cs[ci].nd) pathfree = false;
-        if (!nc) pathfree = false;   /* an empty type has nothing to compose */
-        if (pathfree && strcmp(D, "Tick") && strcmp(D, "Clock")) {
-            /* a data type without path constructors: composition with an empty tube is not formal.
-             * hcomp [] (c a..) = c (hcomp [] a..), each field composed at its own type (non-dependent
-             * fields; a constructor whose field types mention earlier fields keeps hcompD) */
+        /* a data type without path constructors whose fields have types: composition goes into
+         * the fields when the cap and every side of the tube are one constructor c (CCHM): each
+         * field composed along its type at the earlier fields' fillers, its sides the sides'
+         * fields. F params u a, applied by the machine once the sides are seen to be c */
+        bool fieldwise = nc > 0 && strcmp(D, "Tick") && strcmp(D, "Clock");
+        for (int ci = 0; ci < nc; ci++) {
+            if (cs[ci].nd) fieldwise = false;
+            for (int k = 0; k < cs[ci].nf; k++) if (!cs[ci].ft[k]) fieldwise = false;
+        }
+        if (fieldwise) {
             OPEN();
-            fprintf(m, "(def %%hcomp0-%s (lam", D);
+            fprintf(m, "(def %%hcompf-%s (lam", D);
             for (int k = 0; k < np; k++) fprintf(m, " %s", pn[k]);
-            fprintf(m, " %%a (case %%a");
+            fprintf(m, " %%u %%a (case %%a");
             for (int ci = 0; ci < nc; ci++) {
                 CD *x = &cs[ci]; const char *cn = CON[DATA[d].cons[ci]].name;
-                bool dep = false;
-                for (int k = 0; k < x->nf; k++) for (int j = 0; j < x->nf; j++) if (!x->ft[k] || mentions_name(x->ft[k], x->fn[j]->s)) dep = true;
                 fprintf(m, " ((%s", cn);
                 for (int k = 0; k < x->nf; k++) fprintf(m, " %%f%d", k);
                 fputs(") ", m);
-                if (dep || !x->nf) {
-                    if (!x->nf) fprintf(m, "%s)", cn);
-                    else { fprintf(m, "(hcompD (sys0) (%s", cn); for (int k = 0; k < x->nf; k++) fprintf(m, " %%f%d", k); fputs(")))", m); }
-                    continue;
+                if (!x->nf) { fprintf(m, "%s)", cn); continue; }
+                for (int k = 0; k < x->nf; k++) {
+                    /* field k's filler at r: along its type at the earlier fillers (at r ∧ j), from
+                     * the cap's field, its sides the sides' field k */
+                    fprintf(m, "(let %%F%d (plam %%r (comp (plam %%j ", k);
+                    for (int q = 0; q < k; q++) { fprintf(m, "(let "); PN(x->fn[q]); fprintf(m, " (@ %%F%d (/\\ %%r %%j)) ", q); }
+                    PN(x->ft[k]);
+                    for (int q = 0; q < k; q++) fputc(')', m);
+                    fprintf(m, ") (sys+ (= %%r 0) (plam %%j %%f%d) (sysmap (lam %%w (plam %%j (case (@ %%w (/\\ %%r %%j))", k);
+                    /* the side's field k (the sides are c: the other branches are not reached) */
+                    for (int cj = 0; cj < nc; cj++) {
+                        fprintf(m, " ((%s", CON[DATA[d].cons[cj]].name);
+                        for (int q = 0; q < cs[cj].nf; q++) fprintf(m, " %%g%d", q);
+                        if (cj == ci) fprintf(m, ") %%g%d)", k); else fprintf(m, ") (@ %%w %%j))");
+                    }
+                    fprintf(m, "))) %%u)) %%f%d)) ", k);
                 }
                 fprintf(m, "(%s", cn);
-                for (int k = 0; k < x->nf; k++) { fprintf(m, " (comp (plam %%j "); PN(x->ft[k]); fprintf(m, ") (sys0) %%f%d)", k); }
-                fputs("))", m);
+                for (int k = 0; k < x->nf; k++) fprintf(m, " (@ %%F%d 1)", k);
+                fputc(')', m);
+                for (int k = 0; k < x->nf; k++) fputc(')', m);
+                fputc(')', m);
             }
             fputs(")))", m);
             EMIT();
         }
-        /* composition: hcomp after transport (CHM); a closed type transports as the identity */
+        /* the formal hcomp, with the fieldwise composition at the end parameters when there is one */
+        #define HCOMP_OPEN() fputs(fieldwise ? "(%hcompF " : "(hcompD ", m)
+        #define HCOMP_CLOSE() do { if (fieldwise && !np) fprintf(m, " %%hcompf-%s", D); \
+            else if (fieldwise) { fprintf(m, " (%%hcompf-%s", D); for (int k = 0; k < np; k++) fprintf(m, " (@ %%z%d 1)", k); fputc(')', m); } \
+            fputc(')', m); } while (0)
+        /* composition: hcomp after transport (CHM), generalized (Cubical Agda's gcomp): the tube
+         * gets the complement of its face, on which the composite is the transported cap. On a
+         * closed point the tube is then total, so a composition never leaves a formal hcomp behind
+         * where it has nothing to compose, and a composition with an empty tube is transport. A
+         * closed type transports as the identity. */
         OPEN();
         if (!strcmp(D, "Tick") || !strcmp(D, "Clock")) {
             /* a tick or a clock does not vary along a line: composition is the identity (a later
@@ -2893,19 +2923,21 @@ static void toplevel(Node *f) {
             fprintf(m, " %%u %%a0 %%a0))");
         }
         else if (!np) {
-            if (pathfree) fprintf(m, "(def %%comp-%s (lam %%u %%a0 (%%hcompE %%u %%a0 %%hcomp0-%s)))", D, D);
-            else fprintf(m, "(def %%comp-%s (lam %%u %%a0 (hcompD %%u %%a0)))", D);
+            fprintf(m, "(def %%comp-%s (lam %%u %%a0 ", D);
+            HCOMP_OPEN(); fprintf(m, "(sys+ (%%fneg (faceof %%u)) (plam %%i %%a0) %%u) %%a0"); HCOMP_CLOSE();
+            fputs("))", m);
         }
         else {
             fprintf(m, "(def %%comp-%s (lam", D);
             for (int k = 0; k < np; k++) fprintf(m, " %%z%d", k);
-            /* an empty tube (in a type without path constructors): fieldwise, at the end params */
-            fprintf(m, " %%u %%a0 (%s (sysmap (lam %%w (plam %%i (%%transD %s (= %%i 1)", pathfree ? "%hcompE" : "hcompD", D);
-            for (int k = 0; k < np; k++) fprintf(m, " (plam %%j (@ %%z%d (\\/ %%i %%j)))", k);
-            fprintf(m, " (@ %%w %%i)))) %%u) (%%transD %s ff", D);
+            fprintf(m, " %%u %%a0 (let %%a1 (%%transD %s ff", D);
             for (int k = 0; k < np; k++) fprintf(m, " %%z%d", k);
-            fprintf(m, " %%a0)");
-            if (pathfree) { fprintf(m, " (%%hcomp0-%s", D); for (int k = 0; k < np; k++) fprintf(m, " (@ %%z%d 1)", k); fputc(')', m); }
+            fprintf(m, " %%a0) ");
+            HCOMP_OPEN();
+            fprintf(m, "(sys+ (%%fneg (faceof %%u)) (plam %%i %%a1) (sysmap (lam %%w (plam %%i (%%transD %s (= %%i 1)", D);
+            for (int k = 0; k < np; k++) fprintf(m, " (plam %%j (@ %%z%d (\\/ %%i %%j)))", k);
+            fprintf(m, " (@ %%w %%i)))) %%u)) %%a1");
+            HCOMP_CLOSE();
             fputs(")))", m);
         }
         EMIT();
@@ -2914,17 +2946,21 @@ static void toplevel(Node *f) {
         OPEN();
         fprintf(m, "(def %%trans-hcomp-%s (lam", D);
         for (int k = 0; k < np; k++) fprintf(m, " %%z%d", k);
-        if (!np) { if (pathfree) fprintf(m, " %%psi %%u %%u0 (%%hcompE %%u %%u0 %%hcomp0-%s)))", D); else fprintf(m, " %%psi %%u %%u0 (hcompD %%u %%u0)))"); }
+        if (!np) { fprintf(m, " %%psi %%u %%u0 "); HCOMP_OPEN(); fprintf(m, "%%u %%u0"); HCOMP_CLOSE(); fputs("))", m); }
         else {
-            fprintf(m, " %%psi %%u %%u0 (%s (sysmap (lam %%w (plam %%j (%%transD %s %%psi", pathfree ? "%hcompE" : "hcompD", D);
+            fprintf(m, " %%psi %%u %%u0 ");
+            HCOMP_OPEN();
+            fprintf(m, "(sysmap (lam %%w (plam %%j (%%transD %s %%psi", D);
             for (int k = 0; k < np; k++) fprintf(m, " %%z%d", k);
             fprintf(m, " (@ %%w %%j)))) %%u) (%%transD %s %%psi", D);
             for (int k = 0; k < np; k++) fprintf(m, " %%z%d", k);
             fprintf(m, " %%u0)");
-            if (pathfree) { fprintf(m, " (%%hcomp0-%s", D); for (int k = 0; k < np; k++) fprintf(m, " (@ %%z%d 1)", k); fputc(')', m); }
-            fputs(")))", m);
+            HCOMP_CLOSE();
+            fputs("))", m);
         }
         EMIT();
+        #undef HCOMP_OPEN
+        #undef HCOMP_CLOSE
         { char nm[256]; snprintf(nm, sizeof nm, "%%trans-hcomp-%s", D); DATA[d].transh = global_lookup(nm); }
         /* transport on each constructor */
         for (int ci = 0; ci < nc; ci++) {

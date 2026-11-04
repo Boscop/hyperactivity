@@ -128,6 +128,17 @@ Dnf *iv_neg(const Dnf *x) {
     }
     return acc;
 }
+/* the complement of a face: ¬(∨_c ∧_l l) = ∧_c ∨_l ¬l, met as faces (a dimension at both ends
+ * is no face), so a face and its complement meet in ⊥ and join to ⊤ on every closed point */
+Dnf *face_neg(const Dnf *x) {
+    Dnf *acc = dnf_one();
+    for (uint32_t i = 0; i < x->n; i++) {
+        Dnf *d = dnf_zero();
+        for (uint32_t k = 0; k < x->c[i]->n; k++) d = join_into(d, dnf_lit(x->c[i]->l[k] ^ 1), true);
+        acc = meet_into(acc, d, true);
+    }
+    return acc;
+}
 const Dnf *subst_get(const Subst *s, Dim j) {
     for (uint32_t i = 0; i < s->n; i++) if (s->d[i] == j) return s->v[i];
     return NULL;

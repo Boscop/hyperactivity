@@ -26,7 +26,6 @@ idequiv X =
   , λ y →
       ((y , λ (i : I) → y)
       , λ z (i : I) → (%@ (snd z) (~ i) (fst z) y , λ (j : I) → %@ (snd z) (~ i \/ j) (fst z) y)))
-lineequiv X = transp (λ (j : I) → Equiv (X @ 0) (X @ j)) (idequiv (X @ 0))
 -- univalence (§17)
 ua A B e = λ (i : I) → Glue B [ i = 0 ↦ (A , e) , i = 1 ↦ (B , idequiv B) ]
 -- composition clauses (§14, §16, §17)
@@ -42,7 +41,38 @@ ua A B e = λ (i : I) → Glue B [ i = 0 ↦ (A , e) , i = 1 ↦ (B , idequiv B)
       (sys+ (j = 0) (λ (i : I) → l @ i)
          (sys+ (j = 1) (λ (i : I) → r @ i) (sysmap (λ w (i : I) → %@ (w @ i) j (l @ i) (r @ i)) u)))
       (%@ p0 j (l @ 0) (r @ 0))
-%comp-u u A0 = Glue A0 (sysmap (λ w → (w @ 1 , lineequiv (λ (j : I) → w @ ~ j))) u)
+-- composition in the universe: a type of its own (Cubical Agda's hcomp in Type) whose faces are
+-- the tube's type lines from the base, with the complement of the tube's face on the base itself,
+-- so a closed composition of types is a type, never a formal one. Its elements are glue values;
+-- on a face unglue is transport back along that face's line
+%comp-u u A0 = %hcompU A0 (sys+ (%fneg (faceof u)) (λ (j : I) → A0) u)
+%unglue-line w b = comp (λ (j : I) → w @ ~ j) [] b
+-- the fibre of transport along L over b that extends the fibres (a , refl) given on the face of
+-- pa (b is the transport of a there): the transport fillers along L and one composition back
+-- along L, never an equivalence's contractibility
+%tproof L pa b =
+  let tf = sysmap (λ a (i : I) → fill L [] a i) pa
+      gl = λ (k : I) → fill (λ (i : I) → L @ ~ i) (sysmap (λ t (i : I) → t @ ~ i) tf) b k
+      x = gl @ 1
+  in (x
+     , λ (j : I) →
+         comp L (sys+ (j = 0) (λ (i : I) → fill L [] x i) (sys+ (j = 1) (λ (i : I) → gl @ ~ i) tf)) x)
+-- composition in a line of compositions of types (S a line of systems of type lines from A):
+-- the base composed with the unglued tube and, where the whole line is on a face, the unglued
+-- filler of the faces' ends; then on the end's faces the transport fibre over it
+%comp-gluel A S u u0 =
+  let a0 = %unglueU (S @ 0) u0
+      delta = (∀ i → (faceof (S @ i)))
+      tl = λ (k : I) → fill (λ (i : I) → (S @ i) @ 1) u u0 k
+      a1 =
+        comp A
+          (sys+ delta (λ (i : I) → %unglueU (S @ i) (tl @ i))
+             (sysmap (λ w (i : I) → %unglueU (S @ i) (w @ i)) u)) a0
+      tp =
+        sysmap (λ w → %tproof (λ (j : I) → w @ ~ j) (sys+ delta (tl @ 1) (sysmap (λ v → v @ 1) u)) a1)
+          (S @ 1)
+  in glue (sysmap (λ e → fst e) tp)
+       (hcomp (A @ 1) (sys+ (faceof tp) (sysmap (λ e (q : I) → (snd e) @ (~ q)) tp) (sysmap (λ w (q : I) → a1) u)) a1)
 %comp-glue A S u u0 =
   let a0 = unglue (S @ 0) u0
       al = λ (k : I) → fill A (sysmap (λ w (i : I) → unglue (S @ i) (w @ i)) u) a0 k

@@ -68,6 +68,7 @@ Dnf *face_subst(const Dnf *f, const Subst *s);
 Dnf *face_of_clause(const Clause *c);
 bool dnf_equal(const Dnf *x, const Dnf *y);
 Dnf *face_forall(const Dnf *f, Dim i);
+Dnf *face_neg(const Dnf *f);
 Dnf *face_of_clauses(const Dnf *list);
 Subst *subst_single(Dim i, const Dnf *r);
 Subst *subst_of_clause(const Clause *c);
@@ -147,6 +148,7 @@ enum {
     O_UNGLUE,   /* 0=S 1=b 2=out */
     O_UNGLUE2,  /* 0=b 1=S 2=out */
     O_FACEOF,   /* 0=s 1=out */
+    O_FNEG,     /* 0=face 1=out: the complement */
     O_NEG,      /* 0=r 1=out */
     O_BIN,      /* x=B_*; 0=a 1=b 2=out */
     O_BIN2,     /* x=B_*, p=Dnf a; 0=b 1=out */
@@ -157,8 +159,12 @@ enum {
     O_SYSMAP,   /* 0=s 1=f 2=out */
     O_TPART,    /* a=k; 0=a type 1=out: the type's k-th component */
     O_CONCHK,   /* a=constructor; 0=its boundary's face 1=the boundary 2..=fields, dims; out */
-    O_HCOMP,    /* 0=tube 1=cap 2=out: a formal hcomp unless the tube is total */
-    O_HCOMPE,   /* 0=cap 1=fieldwise composition 2=out: an empty tube, applied once the cap is a constructor */
+    O_HCOMP,    /* 0=tube 1=cap [2=F] out: a formal hcomp unless the tube is total; with F (a data type
+                 * without path constructors) the composition goes into the fields, F u a, when the
+                 * cap and every side of the tube are one constructor */
+    O_HCM1,     /* 0=cap 1=tube 2=F 3=out 4=the tube again (to inspect); a: unused */
+    O_HCM2,     /* 0=tube (inspected) 1=tube 2=cap 3=F 4=out; a: the cap's constructor */
+    O_HCM3,     /* 0=a side at a fresh dimension, then the sides left, tube, cap, F, out; a: as above */
     O_TRANSD1,  /* a=data type; 0=ψ 1..k=parameter lines k+1=x out */
     O_TRANSD2,  /* a=data type, p=Dnf ψ; 0=x 1..k=parameter lines out */
     O_CASE,     /* p=CaseTab, x=has motive; 0=scrutinee [1=motive] environment, out. Meeting a
@@ -311,7 +317,7 @@ extern FILE *trace_out;   /* CUBICAL_TRACE: interactions of a (show ...) reading
 /* ---------------- compiled syntax ---------------- */
 enum {
     S_VAR, S_LAM, S_APP, S_PAIR, S_FST, S_SND, S_PI, S_SIGMA, S_U, S_PATHP, S_PLAM, S_PAPP,
-    S_IV0, S_IV1, S_NEG, S_BIN, S_FEQ, S_FTT, S_FFF, S_FORALL, S_FACEOF, S_SYS0, S_SYSCONS,
+    S_IV0, S_IV1, S_NEG, S_BIN, S_FEQ, S_FTT, S_FFF, S_FORALL, S_FACEOF, S_FNEG, S_SYS0, S_SYSCONS,
     S_SYSMAP, S_COMP, S_GLUE, S_GLUEV, S_UNGLUE, S_GLOBAL, S_AXIOM, S_LET, S_FORCE,
     S_DATA, S_CON, S_HCOMPD, S_TRANSD, S_CASE,  /* id: the data type or constructor; S_CASE: tab */
     S_PRIM,     /* x=the operation cell, n operands */

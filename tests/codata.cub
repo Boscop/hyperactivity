@@ -131,8 +131,8 @@ mutual
   pong.next = ping
 #same take {Bool} n4 ping = cons true (cons false (cons true (cons false nil)))
 -- ---------------------------------------------------------------- composition in codata
--- field by field, lazily: a field of a transported orbit is the field transported (a data type
--- without path constructors composes an empty tube field by field, so a closed numeral comes back)
+-- field by field, lazily: a field of a transported orbit is the field transported (composition is
+-- generalized, so transport of a closed numeral leaves no formal composition: the numeral comes back)
 #same here (transp (λ (i : I) → Orbit Nat) nats) = transp (λ (i : I) → Nat) zero
 #same here (next (transp (λ (i : I) → Orbit Nat) nats)) = transp (λ (i : I) → Nat) n1
 -- along univalence: an orbit of booleans transported along not
@@ -150,6 +150,41 @@ notL = ua lzero Bool Bool notB-eq
 #same transp notL true = false
 #same transp (λ (i : I) → Nat) n1 = n1
 #same here (next (transp (λ (i : I) → Orbit Nat) nats)) = n1
+-- ---------------------------------------------------------------- compositions of types
+-- the double cover of the circle: Bool over the base, not along the loop. A composite of loops is
+-- a formal composition in the circle, so the fibre over it is a composition of types (a type of
+-- its own, its faces the fibres' lines); transport through it builds its fibre from transports
+-- along those lines, so the cost per loop is constant (before: 31M steps at four loops, no answer
+-- at six)
+notP : Bool ≡ Bool
+notP = ua notB-eq
+data Circ = cbase | cloop (i : I) [ i = 0 ↦ cbase , i = 1 ↦ cbase ]
+cover : Circ → Type
+cover x = case x of cbase → Bool; cloop i → notP i
+cl : cbase ≡ cbase
+cl = λ i → cloop i
+wind : cbase ≡ cbase → Bool → Bool
+wind p b = transport (λ i → cover (p i)) b
+#same wind cl true = false
+#same wind (concat cl cl) true = true
+#same wind (concat (concat cl cl) cl) true = false
+#same wind (concat (concat (concat (concat (concat (concat (concat cl cl) cl) cl) cl) cl) cl) cl) true = true
+#same wind (concat (concat (concat (concat (concat (concat (concat cl cl) cl) cl) cl) cl) cl) cl) false = false
+-- a composition with a face in a composition of types (the filler of the transport, checked at a
+-- fresh dimension, where its tube's face is r = 0)
+#check λ r → comp (λ i → cover (concat cl cl (r /\ i))) (λ i → [ r = 0 ↦ true ]) true
+         : PathP (λ r → cover (concat cl cl r)) true true
+#check λ r → comp (λ i → cover (concat (concat cl cl) cl (r /\ i))) (λ i → [ r = 0 ↦ true ]) true
+         : PathP (λ r → cover (concat (concat cl cl) cl r)) true false
+-- ---------------------------------------------------------------- composition into constructors
+-- in a type without path constructors, a composition whose cap and sides are one constructor goes
+-- into the fields (each along its type at the earlier fields' fillers): a path field transported
+-- along ua is the constant path again, and a composition of numerals is a numeral
+data DPair (A : Type) = dpair (x : A) (y : PathP (λ (i : I) → A) x x)
+#same transp (λ (i : I) → DPair (notP i)) (dpair true (λ (j : I) → true)) = dpair false (λ (j : I) → false)
+#same (λ (j : I) → comp (λ (i : I) → Nat) [ j = 0 ↦ λ (i : I) → n1 , j = 1 ↦ λ (i : I) → n1 ] n1) = λ (j : I) → n1
+-- a side that is not a constructor keeps the composition formal (it is a variable's)
+#show λ (n : Nat) (j : I) → comp (λ (i : I) → Nat) [ j = 0 ↦ λ (i : I) → n ] n
 -- a later field whose type depends on an earlier one: composed along its type at the earlier
 -- field's filler
 codata Tagged where

@@ -743,7 +743,7 @@ static void rule_subst(Cell *o, Cell *v) {
         break;
     }
     case V_NCOMP: { Cell *a = cell(O_COMP, 4); link(sub(v->port[2], s), P(a, 0)); link(sub(v->port[1], s), P(a, 1)); link(sub(v->port[3], s), P(a, 2)); link(P(a, 3), out); era(v->port[4]); break; }
-    case V_NUNGLUE: { Cell *a = cell(O_UNGLUE, 3); link(sub(v->port[1], s), P(a, 0)); link(sub(v->port[2], s), P(a, 1)); link(P(a, 2), out); era(v->port[3]); break; }
+    case V_NUNGLUE: { Cell *a = cell(O_UNGLUE, 3); a->x = v->x; link(sub(v->port[1], s), P(a, 0)); link(sub(v->port[2], s), P(a, 1)); link(P(a, 2), out); era(v->port[3]); break; }
     case V_CON: {
         ConInfo *k = &CON[v->a];
         int n = k->nfields + k->ndims;
@@ -757,7 +757,7 @@ static void rule_subst(Cell *o, Cell *v) {
     case V_NWOP: { Cell *a = cell((int)v->x, 3); link(sub(v->port[1], s), P(a, 0)); link(sub(v->port[2], s), P(a, 1)); link(P(a, 2), out); break; }
     case V_NWELIM: { Cell *a = cell(O_WELIM, 4); for (int k = 1; k <= 3; k++) link(sub(v->port[k], s), P(a, k - 1)); link(P(a, 3), out); break; }
     case V_HCOMP: {
-        /* rebuilt, so that a tube emptied by the substitution composes fieldwise again */
+        /* rebuilt: a tube the substitution makes total ends, and sides it makes constructors meet */
         Cell *a = cell(O_HCOMP, v->n); link(sub(v->port[1], s), P(a, 0)); link(sub(v->port[2], s), P(a, 1));
         if (v->n == 4) link(sub(v->port[3], s), P(a, 2));
         link(P(a, a->n - 1), out); break;
@@ -784,7 +784,7 @@ static void rule_subst(Cell *o, Cell *v) {
         era(v->port[v->n - 1]);
         break;
     }
-    case V_GLUE: { Cell *a = cell(O_MKGLUE, 3); link(sub(v->port[2], s), P(a, 0)); link(sub(v->port[1], s), P(a, 1)); link(P(a, 2), out); break; }
+    case V_GLUE: { Cell *a = cell(O_MKGLUE, 3); a->x = v->x; link(sub(v->port[2], s), P(a, 0)); link(sub(v->port[1], s), P(a, 1)); link(P(a, 2), out); break; }
     case V_GLUEV: { Cell *a = cell(O_MKGLUEV, 3); link(sub(v->port[1], s), P(a, 0)); link(sub(v->port[2], s), P(a, 1)); link(P(a, 2), out); break; }
     default: {
         /* constructors: λ (its environment), pair, Π, Σ, PathP */
@@ -860,7 +860,7 @@ static void distribute(Cell *o, Cell *v) {
             if (o->x) { link(cp[0][b], P(c, 2)); link(cp[1][b], P(c, 3)); }
             link(P(c, c->n - 1), res);
             break;
-        case O_UNGLUE2: c = cell(O_UNGLUE, 3); link(cp[0][b], P(c, 0)); link(val, P(c, 1)); link(P(c, 2), res); break;
+        case O_UNGLUE2: c = cell(O_UNGLUE, 3); c->x = o->x; link(cp[0][b], P(c, 0)); link(val, P(c, 1)); link(P(c, 2), res); break;
         case O_COMPA: c = cell(O_COMP, 4); link(cp[0][b], P(c, 0)); link(val, P(c, 1)); link(cp[1][b], P(c, 2)); link(P(c, 3), res); break;
         case O_CASE:
             c = cell(O_CASE, o->n); c->x = o->x; c->p = o->p;
@@ -902,11 +902,11 @@ static void neutral_proj(Cell *o, Cell *v) {
  * value's own ports: nothing is copied, and a part is read further only by viewing it. */
 enum { W_LAM, W_PAIR, W_PI, W_SIGMA, W_U, W_PATH, W_PLAM, W_IV, W_FACE, W_SYS, W_GLUE, W_GLUEV, W_DATA, W_CON,
        W_HCOMP, W_VAR, W_APP, W_FST, W_SND, W_PAPP, W_COMP, W_UNGLUE, W_ELIM, W_TRANS, W_LEVEL, W_OTHER,
-       W_WORD, W_WLIT, W_WPLUS, W_WOP, W_WELIM, W_COFIX, W_PROJ, W_REC, W_CLOCK, W_TICK, W_CLOCK0, W_TICK0, W_N };
+       W_WORD, W_WLIT, W_WPLUS, W_WOP, W_WELIM, W_COFIX, W_PROJ, W_REC, W_CLOCK, W_TICK, W_CLOCK0, W_TICK0, W_HCOMPU, W_UNGLUEU, W_N };
 static const char *WNAME[W_N] = { "wlam", "wpair", "wpi", "wsigma", "wu", "wpath", "wplam", "wiv", "wface", "wsys", "wglue",
     "wgluev", "wdata", "wcon", "whcomp", "wvar", "wapp", "wfst", "wsnd", "wpapp", "wcomp", "wunglue", "welim", "wtrans",
     "wlevel", "wother", "wword", "wwlit", "wwplus", "wwop", "wwelim", "wcofix", "wproj", "wrec", "wclock", "wtick",
-    "wclock0", "wtick0" };
+    "wclock0", "wtick0", "whcompu", "wunglueu" };
 static int WC[W_N], C_LNIL = -1, C_LCONS, C_TRUE, C_FALSE, C_NONE, C_SOME;
 static int B_TRUE = -1, B_FALSE;
 static void need_bool(void) {
@@ -957,7 +957,7 @@ static void rule_view(Cell *o, Cell *v) {
     case V_SIGMA: r = mk(WC[W_SIGMA], v->port[1], v->port[2], 0, 0); break;
     case V_U: r = mk(WC[W_U], v->port[1], 0, 0, 0); break;
     case V_PATHP: r = mk(WC[W_PATH], v->port[1], v->port[2], v->port[3], 0); break;
-    case V_GLUE: r = mk(WC[W_GLUE], v->port[1], v->port[2], 0, 0); break;
+    case V_GLUE: r = mk(WC[v->x ? W_HCOMPU : W_GLUE], v->port[1], v->port[2], 0, 0); break;
     case V_GLUEV: r = mk(WC[W_GLUEV], v->port[1], v->port[2], 0, 0); break;
     case V_HCOMP: if (v->n == 4) era(v->port[3]); r = mk(WC[W_HCOMP], v->port[1], v->port[2], 0, 0); break;
     case V_SYS: {
@@ -1019,7 +1019,7 @@ static void rule_view(Cell *o, Cell *v) {
         break;
     }
     case V_NCOMP: r = mk(WC[W_COMP], v->port[1], v->port[2], v->port[3], v->port[4]); break;
-    case V_NUNGLUE: r = mk(WC[W_UNGLUE], v->port[1], v->port[2], v->port[3], 0); break;
+    case V_NUNGLUE: r = mk(WC[v->x ? W_UNGLUEU : W_UNGLUE], v->port[1], v->port[2], v->port[3], 0); break;
     case V_NCASE: {
         /* the elimination as a function of its scrutinee: its table and environment (its motive,
          * when it has one, is the table's over that environment: %motive) */
@@ -1158,6 +1158,7 @@ static const char *const KIND_NAME[K_END] = {
     [O_UNGLUE] = "UNGLUE",
     [O_UNGLUE2] = "UNGLUE2",
     [O_FACEOF] = "FACEOF",
+    [O_FNEG] = "FNEG",
     [O_NEG] = "NEG",
     [O_BIN] = "BIN",
     [O_BIN2] = "BIN2",
@@ -1169,7 +1170,9 @@ static const char *const KIND_NAME[K_END] = {
     [O_TPART] = "TPART",
     [O_CONCHK] = "CONCHK",
     [O_HCOMP] = "HCOMP",
-    [O_HCOMPE] = "HCOMPE",
+    [O_HCM1] = "HCM1",
+    [O_HCM2] = "HCM2",
+    [O_HCM3] = "HCM3",
     [O_TRANSD1] = "TRANSD1",
     [O_TRANSD2] = "TRANSD2",
     [O_CASE] = "CASE",
@@ -1473,8 +1476,9 @@ static void interact(Cell *o, Cell *v) {
             return;
         }
         case V_GLUE:
+            /* a Glue type, or a composition of types (its faces lines, unglued by transport) */
             args[0] = mkplam_of(v->port[1], i); args[1] = mkplam_of(v->port[2], i); args[2] = u; args[3] = a0; n = 4;
-            clause = "%comp-glue"; break;
+            clause = v->x ? "%comp-gluel" : "%comp-glue"; break;
         case V_SYS: {
             /* a system of families: each branch whose clause holds along the
              * whole line, ∀i, composes in its own family */
@@ -1514,7 +1518,12 @@ static void interact(Cell *o, Cell *v) {
         return;
     }
     case O_MKGLUE:
-        if (vk == V_SYS) { Cell *g = cell(V_GLUE, 3); mv(o, 1, P(g, 1)); link(P(v, 0), P(g, 2)); link(P(g, 0), o->port[2]); }
+        if (vk == V_SYS) { Cell *g = cell(V_GLUE, 3); g->x = o->x; mv(o, 1, P(g, 1)); link(P(v, 0), P(g, 2)); link(P(g, 0), o->port[2]); }
+        else if (o->x) {
+            /* a composition of types whose tube covers: the tube's end */
+            Cell *pr = cell(O_PAPPR, 3);
+            link(iv_cell(dnf_one()), P(pr, 0)); link(P(v, 0), P(pr, 1)); link(P(pr, 2), o->port[2]); era(o->port[1]);
+        }
         else { Cell *f = cell(O_FST, 2); link(P(v, 0), P(f, 0)); link(P(f, 1), o->port[2]); era(o->port[1]); }
         cell_free(o);
         return;
@@ -1525,8 +1534,12 @@ static void interact(Cell *o, Cell *v) {
         return;
     case O_UNGLUE:
         if (vk == V_SYS) {
-            Cell *u2 = cell(O_UNGLUE2, 3);
+            Cell *u2 = cell(O_UNGLUE2, 3); u2->x = o->x;
             mv(o, 1, P(u2, 0)); link(P(v, 0), P(u2, 1)); link(P(u2, 2), o->port[2]);
+        } else if (o->x) {
+            /* on the face of a composition of types: transport back along the face's line */
+            Port a[2] = { P(v, 0), o->port[1] };
+            link(apply_global("%unglue-line", a, 2), o->port[2]);
         } else {
             /* on the face: the equivalence's map */
             Cell *sn = cell(O_SND, 2), *f = cell(O_FST, 2), *a = cell(O_APP, 3);
@@ -1541,12 +1554,19 @@ static void interact(Cell *o, Cell *v) {
         } else if (vk == V_SYS) distribute(o, v);
         else {
             /* stuck: a neutral unglue, of type the Glue type's base */
-            Cell *n = cell(V_NUNGLUE, 4);
+            Cell *n = cell(V_NUNGLUE, 4); n->x = o->x;
             link(unk(), P(n, 3));
             mv(o, 1, P(n, 1)); link(P(v, 0), P(n, 2)); link(P(n, 0), o->port[2]);
             cell_free(o);
         }
         return;
+    case O_FNEG: {
+        if (vk != V_FACE) { fprintf(stderr, "%%fneg: not a face\n"); exit(2); }
+        Cell *f = cell(V_FACE, 1); f->p = face_neg(v->p);
+        link(P(f, 0), o->port[1]); era(P(v, 0));
+        cell_free(o);
+        return;
+    }
     case O_FACEOF: {
         Cell *f = cell(V_FACE, 1);
         if (vk == V_SYS) {
@@ -1655,22 +1675,16 @@ static void interact(Cell *o, Cell *v) {
         return;
     }
     case O_HCOMP: {
-        /* 0=tube 1=cap [2=the composition with an empty tube, for a data type without path
-         * constructors: fieldwise] out */
         Port out = o->port[o->n - 1];
-        bool empty = false;
-        if (vk == V_SYS && o->n == 4) { Dnf *fc = face_of_clauses(v->p); empty = dnf_is_zero(fc); dnf_release(fc); }
-        if (empty) {
-            /* fieldwise, once the cap is a constructor; on a neutral cap it stays formal */
-            era(P(v, 0));
-            Cell *e = cell(O_HCOMPE, 3);
-            link(o->port[1], P(e, 0)); link(o->port[2], P(e, 1)); link(P(e, 2), out);
+        if (vk == V_SYS && o->n == 4) {
+            /* a data type without path constructors: look at the cap, then at the sides */
+            Port t1, t2; split2(P(v, 0), &t1, &t2);
+            Cell *m = cell(O_HCM1, 5);
+            link(o->port[1], P(m, 0)); link(t1, P(m, 1)); link(o->port[2], P(m, 2)); link(out, P(m, 3)); link(t2, P(m, 4));
         } else if (vk == V_SYS) {
             /* a partial tube: a formal hcomp, a value of the data type */
-            Cell *h = cell(V_HCOMP, o->n);
-            link(P(v, 0), P(h, 1)); mv(o, 1, P(h, 2));
-            if (o->n == 4) mv(o, 2, P(h, 3));
-            link(P(h, 0), out);
+            Cell *h = cell(V_HCOMP, 3);
+            link(P(v, 0), P(h, 1)); mv(o, 1, P(h, 2)); link(P(h, 0), out);
         } else {
             Cell *pr = cell(O_PAPPR, 3);
             link(iv_cell(dnf_one()), P(pr, 0)); link(P(v, 0), P(pr, 1)); link(P(pr, 2), out);
@@ -1680,14 +1694,53 @@ static void interact(Cell *o, Cell *v) {
         cell_free(o);
         return;
     }
-    case O_HCOMPE:
-        if (vk == V_CON) link(app2(o->port[1], P(v, 0)), o->port[2]);
-        else {
-            Cell *h = cell(V_HCOMP, 4), *z = cell(V_SYS, 1); z->p = NULL;
-            link(P(z, 0), P(h, 1)); link(P(v, 0), P(h, 2)); mv(o, 1, P(h, 3)); link(P(h, 0), o->port[2]);
+    case O_HCM1:
+        if (vk == V_CON) {
+            /* the cap is a constructor: are the sides? */
+            Cell *m = cell(O_HCM2, 5); m->a = v->a;
+            link(o->port[4], P(m, 0)); link(o->port[1], P(m, 1)); link(P(v, 0), P(m, 2)); link(o->port[2], P(m, 3)); link(o->port[3], P(m, 4));
+        } else {
+            /* a formal hcomp, which a substitution may make meet */
+            Cell *h = cell(V_HCOMP, 4);
+            link(o->port[1], P(h, 1)); link(P(v, 0), P(h, 2)); link(o->port[2], P(h, 3)); link(P(h, 0), o->port[3]);
+            era(o->port[4]);
         }
         cell_free(o);
         return;
+    case O_HCM2: {
+        /* each side of the tube at a fresh dimension, one after another */
+        if (vk != V_SYS) { fprintf(stderr, "hcomp: the tube is not a system\n"); exit(2); }
+        int nb = v->n - 1;
+        Port tube = o->port[1], cap = o->port[2], F = o->port[3], out = o->port[4];
+        if (nb == 0) link(app2(app2(F, tube), cap), out);
+        else {
+            Cell *m = cell(O_HCM3, nb + 4); m->a = o->a;   /* the first side, the nb - 1 left, 4 more */
+            link(papp_at(v->port[1], iv_atom(fresh_dim())), P(m, 0));
+            for (int b = 1; b < nb; b++) link(v->port[b + 1], P(m, b));
+            link(tube, P(m, nb)); link(cap, P(m, nb + 1)); link(F, P(m, nb + 2)); link(out, P(m, nb + 3));
+        }
+        cell_free(o); cell_free(v);
+        return;
+    }
+    case O_HCM3: {
+        int left = o->n - 5;   /* the sides not yet looked at */
+        Port tube = o->port[left + 1], cap = o->port[left + 2], F = o->port[left + 3], out = o->port[left + 4];
+        bool meet = vk == V_CON && v->a == o->a;
+        era(P(v, 0));
+        if (meet && left == 0) link(app2(app2(F, tube), cap), out);
+        else if (meet) {
+            Cell *m = cell(O_HCM3, left + 4); m->a = o->a;
+            link(papp_at(o->port[1], iv_atom(fresh_dim())), P(m, 0));
+            for (int b = 1; b < left; b++) link(o->port[b + 1], P(m, b));
+            link(tube, P(m, left)); link(cap, P(m, left + 1)); link(F, P(m, left + 2)); link(out, P(m, left + 3));
+        } else {
+            for (int b = 1; b <= left; b++) era(o->port[b]);
+            Cell *h = cell(V_HCOMP, 4);
+            link(tube, P(h, 1)); link(cap, P(h, 2)); link(F, P(h, 3)); link(P(h, 0), out);
+        }
+        cell_free(o);
+        return;
+    }
     case O_TRANSD1: {
         int np = o->n - 3;
         if (vk != V_FACE) { stuck(o, v); return; }
@@ -2592,6 +2645,7 @@ static Port build(Syn *t, Frame *f) {
     case S_FTT: c = cell(V_FACE, 1); c->p = dnf_one(); c->key = synkey(t, f); return P(c, 0);
     case S_FFF: c = cell(V_FACE, 1); c->p = dnf_zero(); c->key = synkey(t, f); return P(c, 0);
     case S_FACEOF: return op1(O_FACEOF, t->k[0], f);
+    case S_FNEG: return op1(O_FNEG, t->k[0], f);
     case S_SYS0: c = cell(V_SYS, 1); c->p = NULL; return P(c, 0);
     case S_SYSCONS:
         c = cell(O_SYSCONS, 4);
@@ -2602,9 +2656,9 @@ static Port build(Syn *t, Frame *f) {
         c = cell(O_COMP, 4);
         link(build(t->k[1], f), P(c, 0)); link(build(t->k[0], f), P(c, 1)); link(build(t->k[2], f), P(c, 2));
         return P(c, 3);
-    case S_GLUE: c = cell(O_MKGLUE, 3); link(build(t->k[1], f), P(c, 0)); link(build(t->k[0], f), P(c, 1)); return P(c, 2);
+    case S_GLUE: c = cell(O_MKGLUE, 3); c->x = t->x; link(build(t->k[1], f), P(c, 0)); link(build(t->k[0], f), P(c, 1)); return P(c, 2);
     case S_GLUEV: c = cell(O_MKGLUEV, 3); link(build(t->k[0], f), P(c, 0)); link(build(t->k[1], f), P(c, 1)); return P(c, 2);
-    case S_UNGLUE: c = cell(O_UNGLUE, 3); link(build(t->k[0], f), P(c, 0)); link(build(t->k[1], f), P(c, 1)); return P(c, 2);
+    case S_UNGLUE: c = cell(O_UNGLUE, 3); c->x = t->x; link(build(t->k[0], f), P(c, 0)); link(build(t->k[1], f), P(c, 1)); return P(c, 2);
     case S_GLOBAL: c = cell(V_GLOBAL, 1); c->a = (uint64_t)t->id; c->key = key_global(t->id); return P(c, 0);
     case S_AXIOM:
         c = cell(V_NVAR, 2); c->a = (uint64_t)t->id; c->key = synkey(t, f);
