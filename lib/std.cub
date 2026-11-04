@@ -241,6 +241,32 @@ le : Nat → Nat → Type
 le m n = (k : Nat) × plus k m ≡ n
 le-refl : (n : Nat) → le n n
 le-refl n = (zero , λ i → n)
+-- ---------------------------------------------------------------- the order that computes, and recursion along it
+-- m < n is Unit or Empty on numerals: a proof of it on numerals is unit
+-- (by recursion on the bound: m < zero is Empty whatever m is)
+above : Nat → Nat → Type
+above zero m = Empty
+above (suc n) zero = Unit
+above (suc n) (suc m) = above n m
+infix 4 <
+_<_ : Nat → Nat → Type
+m < n = above n m
+<-suc-self : (n : Nat) → n < suc n
+<-suc-self zero = unit
+<-suc-self (suc n) = <-suc-self n
+<-step : (a b c : Nat) → a < b → b < suc c → a < c
+<-step a zero c h k = Empty-rec h
+<-step zero (suc b) zero h k = Empty-rec k
+<-step zero (suc b) (suc c) h k = unit
+<-step (suc a) (suc b) zero h k = Empty-rec k
+<-step (suc a) (suc b) (suc c) h k = <-step a b c h k
+-- a definition whose calls decrease a measure (decreasing by m): recursion on a bound of the measure
+wf-go : {A : Type} {P : A → Type} → (m : A → Nat) → ((x : A) → ((y : A) → m y < m x → P y) → P x) →
+        (n : Nat) → (x : A) → m x < n → P x
+wf-go m s zero x h = Empty-rec h
+wf-go m s (suc n) x h = s x (λ y hy → wf-go m s n y (<-step (m y) (m x) n hy h))
+wfrec : {A : Type} {P : A → Type} → (m : A → Nat) → ((x : A) → ((y : A) → m y < m x → P y) → P x) → (x : A) → P x
+wfrec m s x = wf-go m s (suc (m x)) x (<-suc-self (m x))
 -- ---------------------------------------------------------------- booleans, integers
 not : Bool → Bool
 not b = if b then false else true

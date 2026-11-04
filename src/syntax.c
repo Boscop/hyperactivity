@@ -1,3 +1,4 @@
+#include <setjmp.h>
 /* syntax.c — the surface language: tokens, layout, parsing into the core forms, and printing the
  * core forms back in the surface language. Included by lang.c (it uses its Node and tables).
  *
@@ -187,7 +188,7 @@ static bool at(const char *s) { return x_is(P0(), s); }
 static void want(const char *s) { if (!at(s)) { char m[64]; snprintf(m, sizeof m, "expected %s, found", s); x_err(m, P0()); } NX(); }
 static void wantk(int k, const char *what) { if (P0()->k != k) { char m[64]; snprintf(m, sizeof m, "expected %s, found", what); x_err(m, P0()); } NX(); }
 static const char *RESERVED[] = { "=", ":", "→", "λ", "↦", "|", "of", "where", "let", "in", "if", "then", "else", "case", "return",
-    "data", "codata", "record", "mutual", "postulate", "import", "infix", "infixl", "infixr", "by", "calc", "∀", "decreasing", NULL };
+    "data", "codata", "record", "mutual", "postulate", "import", "infix", "infixl", "infixr", "by", "calc", "∀", "decreasing", "using", NULL };
 static bool reserved(const char *s) { for (int i = 0; RESERVED[i]; i++) if (!strcmp(RESERVED[i], s)) return true; return false; }
 static int nfresh_x;
 static Node *xfresh(const char *p) { char b[32]; snprintf(b, sizeof b, "%%%s%d", p, nfresh_x++); return nsym(b); }
@@ -649,12 +650,22 @@ static Node *cc_match(Node **vars, int nv, Row *rows, int nr, const char *fname)
     /* the first row matches when all its patterns are variables */
     int j = -1;
     for (int q = 0; q < nv; q++) if (!pat_wild(rows[0].p[q]) && pat_con(rows[0].p[q]) >= 0) { j = q; break; }
+    if (j >= 0) {
+        /* split the leftmost column any clause matches by constructor: a recursion on an earlier
+         * parameter must re-split the later ones it changes, so they are split inside it */
+        for (int q = 0; q < j; q++) {
+            bool any = false;
+            for (int r = 0; r < nr && !any; r++) if (!pat_wild(rows[r].p[q]) && pat_con(rows[r].p[q]) >= 0) any = true;
+            if (any) { j = q; break; }
+        }
+    }
     if (j < 0) {
         Node *e = rows[0].rhs;
         for (int q = 0; q < nv; q++) if (!pat_wild(rows[0].p[q]) && strcmp(rows[0].p[q]->s, vars[q]->s)) e = x_rename(e, rows[0].p[q]->s, vars[q]->s);
         return e;
     }
-    int d = CON[pat_con(rows[0].p[j])].data;
+    int jr = 0; while (jr < nr && (pat_wild(rows[jr].p[j]) || pat_con(rows[jr].p[j]) < 0)) jr++;
+    int d = CON[pat_con(rows[jr].p[j])].data;
     int N = DATA[d].ncons;
     Node **alts = calloc((size_t)N + 2, sizeof(Node *)); int na = 0;
     bool need_default = false;
@@ -771,6 +782,7 @@ static TSig tsig;
 static Node *autobind(Node *sig);
 static void tele(Node *sig);
 static Node *clauses_typed(const char *f, Lhs *ls, Node **rhs, int n);
+static Node *clauses_wf(const char *f, Lhs *ls, Node **rhs, int n, Node *m, Node *L);
 static void x_checked(const char *name, Node *sig, Node *body, bool expect, uint64_t mask, int mlen);
 static Node *copattern_clauses(const char *f, Lhs *ls, Node **rhs, int n, bool typed);
 static Node *copattern_wrap(Node *b);
@@ -1106,6 +1118,20 @@ static void p_decl(void) {
         ls = realloc(ls, (size_t)(n + 1) * sizeof(Lhs)); rs = realloc(rs, (size_t)(n + 1) * sizeof(Node *));
         ls[n] = l; rs[n] = p_rhs(); n++;
     }
+    /* recursion along a measure: decreasing by m [using L] */
+    Node *dec_m = NULL, *dec_l = NULL;
+    {
+        int save = xp;
+        if (P0()->k == X_VS) {
+            NX();
+            if (x_is(P0(), "decreasing")) {
+                NX(); if (!x_is(P0(), "by")) x_err("decreasing by a measure: expected by, found", P0());
+                NX(); dec_m = p_expr(0);
+                if (x_is(P0(), "using")) { NX(); dec_l = p_expr(0); }
+                if (!sig) x_err("decreasing by needs a signature (its parameters' names), for", P0());
+            } else xp = save;
+        }
+    }
     if (l0.field) {
         /* copattern clauses: one per field, its patterns variables */
         Node *body = copattern_clauses(l0.f, ls, rs, n, sig != NULL);
@@ -1121,7 +1147,7 @@ static void p_decl(void) {
         tele(sg);
         uint64_t mask = 0; for (int q = 0; q < tsig.np && q < 64; q++) if (tsig.imp[q]) mask |= 1ull << q;
         for (int i = 0; i < n; i++) if (strcmp(ls[i].f, l0.f)) x_err("a clause of another definition after a signature:", P0());
-        Node *body = clauses_typed(l0.f, ls, rs, n);
+        Node *body = dec_m ? clauses_wf(l0.f, ls, rs, n, dec_m, dec_l) : clauses_typed(l0.f, ls, rs, n);
         x_checked(l0.f, sg, body, !fail, mask, tsig.np);
     } else def_untyped(l0.f, clauses_untyped(l0.f, ls, rs, n));
     decl_end();
@@ -2182,7 +2208,7 @@ static Node *subst_multi(Node *t, const char **ps, Node **vs, int n) {
         return r2;
     }
     /* (λ x → b) a */
-    if (r->n >= 2 && h->list && h->n == 3 && !h->it[0]->list && is(h->it[0], "lam")) {
+    if (r->n >= 2 && h->list && h->n == 3 && !h->it[0]->list && (is(h->it[0], "lam") || is(h->it[0], "%lam"))) {
         const char *x = h->it[1]->s; Node *a = r->it[1];
         Node *b = subst_multi(h->it[2], &x, &a, 1);
         if (r->n == 2) return b;
@@ -2693,6 +2719,14 @@ static Node *expand(Node *e) {
     }
     return e;
 }
+/* course-of-values recursion: a split of a parameter computes, with each value, the values at every
+ * value below (Below v: for each recursive field r, the value at r and Below r). A variable below
+ * the split has its pair (value, Below) as an expression; a split of it reverts the pair, so that
+ * in its branches the pair's Below unfolds to the pairs of its own recursive fields */
+typedef struct { const char *w; Node *e; const char *v; int gp; Node *E; Node *M; Node *Bl; } Deep;
+static Deep *deeps; static int ndeeps, capdeeps;
+static bool cov_on, cov_armed; static jmp_buf cov_jb;
+static Deep *deep_of(const char *w) { for (int i = ndeeps - 1; i >= 0; i--) if (!strcmp(deeps[i].w, w)) return &deeps[i]; return NULL; }
 static Node *rec_xform(Node *e);
 static Node *rec_call(Node *e, Node **args, int n) {
     /* the call's arguments at the parameters' positions (implicit ones not given) */
@@ -2702,6 +2736,25 @@ static Node *rec_call(Node *e, Node **args, int n) {
         if (i < n) at[q] = args[i++];
     }
     if (i < n) die("a recursive call with more arguments than parameters:", tfname);
+    for (int s = ndeeps - 1; s >= 0; s--) {
+        Deep *d = &deeps[s];
+        int p = d->gp;
+        bool ok = at[p] != NULL;
+        for (int q = 0; q < p && ok; q++) if (at[q] && !(!at[q]->list && !strcmp(at[q]->s, tsig.pn[q]->s))) ok = false;
+        if (!ok) continue;
+        Node *want = expand(rec_xform(at[p]));
+        Node *cand = expand(subst_sym(d->E, d->v, nsym(d->w)));
+        if (!node_eq(cand, want)) continue;
+        int nl = 0; for (int q = p + 1; q < tsig.np; q++) if (tsig.rev[q]) nl++;
+        Node *call = sym2("fst", d->e);
+        if (!nl) return call;
+        Node *ap = nlist(nl + 1); ap->it[0] = call; int k = 1;
+        for (int q = p + 1; q < tsig.np; q++) if (tsig.rev[q]) {
+            if (!at[q] && !tsig.imp[q]) die("a recursive call must give every argument after the one it recurses on:", tfname);
+            ap->it[k++] = at[q] ? rec_xform(at[q]) : nsym("%hole");
+        }
+        return ap;
+    }
     for (int s = nframes - 1; s >= 0; s--) {
         Frame *f = &frames[s];
         int p = f->gp;
@@ -2725,7 +2778,8 @@ static Node *rec_call(Node *e, Node **args, int n) {
         }
     }
     (void)e;
-    char m[256]; snprintf(m, sizeof m, "%s: a recursive call is not on a constructor field from one of the definition's own matches (structural recursion), in", tfname);
+    if (cov_armed && !cov_on) longjmp(cov_jb, 1);   /* deeper than a field: again, with the values below */
+    char m[256]; snprintf(m, sizeof m, "%s: a recursive call is not on a constructor field or a field's field from one of the definition's own matches (structural recursion), in", tfname);
     print_node(stderr, e); fputc('\n', stderr);
     die(m, tfname);
     return NULL;
@@ -2764,6 +2818,15 @@ static Node *ccm_t(Node **vars, int nv, Row *rows, int nr) {
     if (!nr) die("the clauses do not cover every case of", tfname);
     int j = -1;
     for (int q = 0; q < nv; q++) if (!pat_wild(rows[0].p[q]) && pat_con(rows[0].p[q]) >= 0) { j = q; break; }
+    if (j >= 0) {
+        /* split the leftmost column any clause matches by constructor: a recursion on an earlier
+         * parameter must re-split the later ones it changes, so they are split inside it */
+        for (int q = 0; q < j; q++) {
+            bool any = false;
+            for (int r = 0; r < nr && !any; r++) if (!pat_wild(rows[r].p[q]) && pat_con(rows[r].p[q]) >= 0) any = true;
+            if (any) { j = q; break; }
+        }
+    }
     if (j < 0) {
         Node *e = rows[0].rhs;
         for (int q = 0; q < nv; q++) if (!pat_wild(rows[0].p[q]) && strcmp(rows[0].p[q]->s, vars[q]->s)) e = x_rename(e, rows[0].p[q]->s, vars[q]->s);
@@ -2772,7 +2835,8 @@ static Node *ccm_t(Node **vars, int nv, Row *rows, int nr) {
     const char *v = vars[j]->s;
     int gp = gp_of(v);
     if (gp < 0) die("internal: a split on an unknown variable", v);
-    int d = CON[pat_con(rows[0].p[j])].data, N = DATA[d].ncons;
+    int jr = 0; while (jr < nr && (pat_wild(rows[jr].p[j]) || pat_con(rows[jr].p[j]) < 0)) jr++;
+    int d = CON[pat_con(rows[jr].p[j])].data, N = DATA[d].ncons;
     /* the rebuilt variables that depend on v, in order */
     int dep[256], nd = 0;
     for (int i = 0; i < ncdefs; i++) {
@@ -2781,9 +2845,51 @@ static Node *ccm_t(Node **vars, int nv, Row *rows, int nr) {
         for (int q = 0; q < nd && !m; q++) if (mentions_any(cdefs[i].def, cdefs[dep[q]].v)) m = true;
         if (m && nd < 256) dep[nd++] = i;
     }
+    /* a split of a parameter of a recursive type, when recursion goes deeper than a field: with the
+     * values below. A split of a variable below such a split: its pair reverted */
+    Deep *dv = deep_of(v);
+    bool cov = false;
+    if (cov_on && !dv && !strcmp(tsig.pn[gp]->s, v)) {
+        bool rec = false, paths = false;
+        for (int ci = 0; ci < N; ci++) { int c = DATA[d].cons[ci]; if (CON[c].recmask) rec = true; if (CON[c].ndims) paths = true; }
+        cov = rec && !paths && global_lookup("Unit") >= 0;
+    }
     Node *mot = later_pi(gp);
-    for (int q = nd - 1; q >= 0; q--) if (mentions_name(mot, cdefs[dep[q]].v)) mot = sym4("let", nsym(cdefs[dep[q]].v), typed_def(&cdefs[dep[q]]), mot);
-    mot = sym3("%lam", nsym(v), mot);
+    Node *Mlam = NULL, *Bllam = NULL, *ihv = NULL;
+    if (cov) {
+        /* M v: the value's type; Below v: by elimination into types */
+        Node *Mv = mot;
+        for (int q = nd - 1; q >= 0; q--) if (mentions_name(Mv, cdefs[dep[q]].v)) Mv = sym4("let", nsym(cdefs[dep[q]].v), typed_def(&cdefs[dep[q]]), Mv);
+        Mlam = sym3("%lam", nsym(v), Mv);
+        Node *ba = nlist(N + 3); ba->it[0] = nsym("elim"); ba->it[1] = sym3("%lam", xfresh("b"), nsym("U")); ba->it[2] = nsym(v);
+        for (int ci = 0; ci < N; ci++) {
+            int c = DATA[d].cons[ci], nf = CON[c].nfields;
+            Node *pat = nlist(nf + 1); pat->it[0] = nsym(CON[c].name);
+            Node *rf[64]; int nrf = 0;
+            for (int q = 0; q < nf; q++) { pat->it[q + 1] = xfresh("f"); if (CON[c].recmask >> q & 1 && nrf < 64) rf[nrf++] = pat->it[q + 1]; }
+            Node *prod = nrf ? NULL : nsym("Unit");
+            for (int k = nrf - 1; k >= 0; k--) {
+                Node *Mr = subst_sym(Mv, v, rf[k]);
+                Node *pk = sym4("Sigma", xfresh("_"), Mr, sym2("rec", rf[k]));
+                prod = prod ? sym4("Sigma", xfresh("_"), pk, prod) : pk;
+            }
+            ba->it[3 + ci] = lst(2, nf ? pat : nsym(CON[c].name), prod);
+            if (!nf) ba->it[3 + ci] = lst(2, lst(1, nsym(CON[c].name)), prod);
+        }
+        Bllam = sym3("%lam", nsym(v), ba);
+        mot = sym4("Sigma", xfresh("_"), Mv, ba);
+        mot = sym3("%lam", nsym(v), mot);
+    } else {
+        if (dv) {
+            /* the pair of v reverted */
+            const char *vv = dv->v; Node *vn = nsym(v);
+            Node *Mv = subst_sym(dv->M->it[2], vv, vn), *Bv = subst_sym(dv->Bl->it[2], vv, vn);
+            ihv = xfresh("ih");
+            mot = sym4("Pi", ihv, sym4("Sigma", xfresh("_"), Mv, Bv), mot);
+        }
+        for (int q = nd - 1; q >= 0; q--) if (mentions_name(mot, cdefs[dep[q]].v)) mot = sym4("let", nsym(cdefs[dep[q]].v), typed_def(&cdefs[dep[q]]), mot);
+        mot = sym3("%lam", nsym(v), mot);
+    }
     /* the frame of this split: x_gp in terms of v */
     Node *E = expand(tsig.pn[gp]);
     Node **alts = calloc((size_t)N + 1, sizeof(Node *)); int na = 0;
@@ -2836,14 +2942,44 @@ static Node *ccm_t(Node **vars, int nv, Row *rows, int nr) {
         for (int q = 0; q < nd; q++) { GROW(cdefs, capcdefs, (size_t)ncdefs + 1); cdefs[ncdefs++] = cdefs[dep[q]]; }
         for (int q = 0; q < nf; q++) { GROW(cdefs, capcdefs, (size_t)ncdefs + 1); cdefs[ncdefs++] = (CVar){ fv[q]->s, NULL, gp, q < CON[c].nfields ? fty[q] : NULL }; }
         /* the recursive fields' hypotheses */
-        Frame fr = { v, gp, E, calloc((size_t)nf + 1, sizeof(Node *)), 0 };
-        for (int q = 0; q < CON[c].nfields; q++) if (CON[c].recmask >> q & 1) fr.rf[fr.nrf++] = fv[q];
-        GROW(frames, capframes, (size_t)nframes + 1); frames[nframes++] = fr;
+        int save_deeps = ndeeps;
+        Node *tuple = NULL;
+        if (cov || dv) {
+            /* each recursive field's pair: the hypothesis (a split with the values below), or from
+             * the reverted pair's Below */
+            Node *rfs[64]; int nrf = 0;
+            for (int q = 0; q < CON[c].nfields; q++) if (CON[c].recmask >> q & 1 && nrf < 64) rfs[nrf++] = fv[q];
+            for (int k = 0; k < nrf; k++) {
+                Node *e;
+                if (cov) e = sym2("rec", rfs[k]);
+                else {
+                    e = sym2("snd", ihv);
+                    for (int z = 0; z < k; z++) e = sym2("snd", e);
+                    if (k < nrf - 1) e = sym2("fst", e);
+                }
+                Deep dd = { rfs[k]->s, e, cov ? v : dv->v, gp, cov ? E : dv->E, cov ? Mlam : dv->M, cov ? Bllam : dv->Bl };
+                GROW(deeps, capdeeps, (size_t)ndeeps + 1); deeps[ndeeps++] = dd;
+            }
+            if (cov) {
+                for (int k = nrf - 1; k >= 0; k--) { Node *ek = sym2("rec", rfs[k]); tuple = tuple ? sym3("pair", ek, tuple) : ek; }
+                if (!tuple) tuple = nsym("unit");
+            }
+        } else {
+            Frame fr = { v, gp, E, calloc((size_t)nf + 1, sizeof(Node *)), 0 };
+            for (int q = 0; q < CON[c].nfields; q++) if (CON[c].recmask >> q & 1) fr.rf[fr.nrf++] = fv[q];
+            GROW(frames, capframes, (size_t)nframes + 1); frames[nframes++] = fr;
+        }
         Node *body = ccm_t(v2, nv2, r2, n2);
-        nframes = save_frames;
+        nframes = save_frames; ndeeps = save_deeps;
         /* the field entries are scoping only */
         ncdefs = save_defs;
         body = later_lam(gp, body);
+        if (cov) body = sym3("pair", body, tuple);
+        if (dv) {
+            const char *vv = dv->v;
+            Node *T = sym4("Sigma", xfresh("_"), subst_sym(dv->M->it[2], vv, cv), subst_sym(dv->Bl->it[2], vv, cv));
+            body = lam_t(ihv, T, body);
+        }
         /* v rebuilt (and what depends on it) where the branch mentions it */
         for (int q = nd - 1; q >= 0; q--) if (mentions_name(body, cdefs[dep[q]].v)) body = sym4("let", nsym(cdefs[dep[q]].v), typed_def(&cdefs[dep[q]]), body);
         if (mentions_name(body, v)) body = sym4("let", nsym(v), typed_def(&vdef), body);
@@ -2852,11 +2988,13 @@ static Node *ccm_t(Node **vars, int nv, Row *rows, int nr) {
         alts[na++] = lst(2, pat, body);
     }
     /* a motive not depending on v: a case */
-    bool dep_mot = mentions_name(mot->it[2], v);
+    bool dep_mot = mentions_name(mot->it[2], v) || cov || dv;
     for (int q = gp + 1; q < tsig.np; q++) if (tsig.rev[q]) dep_mot = true;   /* applied to the reverted: inferred, so with its motive */
     Node *el_ = nlist(na + (dep_mot ? 3 : 2)); int k0 = 0;
     el_->it[k0++] = nsym(dep_mot ? "elim" : "case"); if (dep_mot) el_->it[k0++] = mot; el_->it[k0++] = nsym(v);
     for (int i = 0; i < na; i++) el_->it[k0++] = alts[i];
+    if (cov) el_ = sym2("fst", el_);
+    if (dv) el_ = lst(2, el_, dv->e);
     return later_app(gp, el_);
 }
 /* free names of a signature not bound anywhere: its implicit type (and level) parameters */
@@ -2984,12 +3122,111 @@ static Node *clauses_typed(const char *f, Lhs *ls, Node **rhs, int n) {
         for (int r = 0; r < q; r++) if (mentions_name(tsig.pty[q], tsig.pn[r]->s)) tsig.rev[q] = true;
         if (!tsig.imp[q]) for (int i = 0; i < n && !tsig.rev[q]; i++) if (!uniform_in(rows[i].rhs, f, q, rows[i].p[q])) tsig.rev[q] = true;
     }
-    ncdefs = 0; nframes = 0;
+    ncdefs = 0; nframes = 0; ndeeps = 0;
     Node **vars = calloc((size_t)tsig.np + 1, sizeof(Node *));
     for (int q = 0; q < tsig.np; q++) vars[q] = tsig.pn[q];
     /* each clause's right side under its dimensions (a path's λs, guessed: a line by default) */
     for (int i = 0; i < n; i++) for (int q = extra - 1; q >= 0; q--) rows[i].rhs = sym3("lam", dn[q], rows[i].rhs);
+    cov_on = false; cov_armed = true;
+    if (setjmp(cov_jb)) { cov_on = true; ncdefs = 0; nframes = 0; ndeeps = 0; }
     Node *body = ccm_t(vars, tsig.np, rows, n);
+    cov_armed = cov_on = false;
+    if (getenv("CUB_SHOWCLAUSES")) { fprintf(stderr, "[clauses] %s = ", f); print_node(stderr, body); fprintf(stderr, "\n"); }
+    for (int q = tsig.np - 1; q >= 0; q--) body = lam_t(tsig.pn[q], tsig.pty[q], body);
+    return body;
+}
+/* recursion along a measure. Each call f a.. becomes (%rcall a..) (every parameter given); the
+ * clauses compile without recursion; the definition is then recursion on a bound k of the measure:
+ *     f ps = (elim (λ k → Π ps → m ps < k → R) (suc (m ps))
+ *               (zero → λ ps h → Empty-rec h)
+ *               (suc k → λ ps h → body[%rcall as ↦ rec k as (<-step (m as) (m ps) k (L : m as < m ps) h)]))
+ *            ps (<-suc-self (m ps))
+ * L is the using expression (checked at the call's obligation), unit when none is given (the
+ * obligation then computes to Unit) */
+static Node *wf_m, *wf_l, *wf_here;   /* the measure (in the parameters' names), the using expression, the measure at this clause's patterns */
+static Node *wf_xform(Node *e, const char *f) {
+    if (!e->list) { if (!strcmp(e->s, f) && !e_find(e->s)) die("decreasing by: a call of the definition must give its arguments:", f); return e; }
+    if (e->n == 0) return e;
+    Node *h = e->it[0];
+    if (!h->list && !strcmp(h->s, f)) {
+        Node *at[256] = { 0 }; int i = 1;
+        for (int q = 0; q < tsig.np; q++) {
+            if (tsig.imp[q]) { if (i < e->n && e->it[i]->list && e->it[i]->n == 2 && is(e->it[i]->it[0], "%imp")) at[q] = wf_xform(e->it[i++]->it[1], f); else at[q] = tsig.pn[q]; continue; }
+            if (i >= e->n) die("decreasing by: a call of the definition must give every argument:", f);
+            at[q] = wf_xform(e->it[i++], f);
+        }
+        /* the arguments, the measure at them and here, and the proof that it decreased: in the
+         * clause, so that its matches rebuild what the measure mentions */
+        const char *ps[256]; for (int q = 0; q < tsig.np; q++) ps[q] = tsig.pn[q]->s;
+        Node *M2 = subst_multi(wf_m, ps, at, tsig.np);
+        Node *prf = sym3("the", lst(3, nsym("_<_"), M2, wf_here), wf_l ? wf_l : nsym("unit"));
+        Node *c = nlist(tsig.np + 4); c->it[0] = nsym("%rcall");
+        for (int q = 0; q < tsig.np; q++) c->it[q + 1] = at[q];
+        c->it[tsig.np + 1] = M2; c->it[tsig.np + 2] = wf_here; c->it[tsig.np + 3] = prf;
+        if (i == e->n) return c;
+        Node *r = nlist(e->n - i + 1); r->it[0] = c; for (int k = i; k < e->n; k++) r->it[k - i + 1] = wf_xform(e->it[k], f);
+        return r;
+    }
+    if (!h->list && (is(h, "lam") || is(h, "plam") || is(h, "%lam")) && e->n == 3 && !strcmp(e->it[1]->s, f)) return e;
+    Node *r = nlist(e->n);
+    for (int i = 0; i < e->n; i++) r->it[i] = wf_xform(e->it[i], f);
+    return r;
+}
+static Node *wf_calls(Node *e, Node *M, Node *L, Node *k, Node *h) {
+    if (!e->list || e->n == 0) return e;
+    if (!e->it[0]->list && is(e->it[0], "%rcall")) {
+        Node *as[256];
+        for (int q = 0; q < tsig.np; q++) as[q] = wf_calls(e->it[q + 1], M, L, k, h);
+        Node *M2 = wf_calls(e->it[tsig.np + 1], M, L, k, h), *M1 = wf_calls(e->it[tsig.np + 2], M, L, k, h), *prf = wf_calls(e->it[tsig.np + 3], M, L, k, h);
+        Node *step = lst(6, nsym("<-step"), M2, M1, k, prf, h);
+        Node *r = nlist(tsig.np + 2); r->it[0] = sym2("rec", k);
+        for (int q = 0; q < tsig.np; q++) r->it[q + 1] = as[q];
+        r->it[tsig.np + 1] = step;
+        return r;
+    }
+    Node *r = nlist(e->n);
+    for (int i = 0; i < e->n; i++) r->it[i] = wf_calls(e->it[i], M, L, k, h);
+    return r;
+}
+static Node *clauses_wf(const char *f, Lhs *ls, Node **rhs, int n, Node *m, Node *L) {
+    if (global_lookup("<-step") < 0 || global_lookup("_<_") < 0) die("decreasing by needs the order of lib/std.cub (_<_, <-step, <-suc-self), for", f);
+    int np0 = tsig.np; Node *orig[256];
+    for (int q = 0; q < np0 && q < 256; q++) orig[q] = tsig.pn[q];
+    Node **rs2 = calloc((size_t)n + 1, sizeof(Node *));
+    wf_m = m; wf_l = L;
+    for (int i = 0; i < n; i++) {
+        /* the measure at the clause's patterns (a parameter not matched: its name) */
+        Node *pt[256]; const char *ps[256]; int k = 0;
+        for (int q = 0; q < tsig.np; q++) {
+            ps[q] = tsig.pn[q]->s; pt[q] = tsig.pn[q];
+            if (tsig.imp[q]) { if (k < ls[i].np && ls[i].ps[k]->list && ls[i].ps[k]->n == 2 && is(ls[i].ps[k]->it[0], "%imp")) { Node *p = ls[i].ps[k++]->it[1]; if (!pat_wild(p)) pt[q] = p; } continue; }
+            if (k < ls[i].np) { Node *p = ls[i].ps[k++]; if (!pat_wild(p)) pt[q] = p; }
+        }
+        wf_here = subst_multi(m, ps, pt, tsig.np);
+        rs2[i] = wf_xform(rhs[i], f);
+    }
+    /* the bound's hypothesis, an implicit last parameter: the clauses' matches refine it */
+    Node *k = xfresh("k"), *kb = xfresh("kb"), *h = xfresh("h");
+    Node *R0 = tsig.R;
+    tsig.pn[np0] = h; tsig.pty[np0] = lst(3, nsym("_<_"), m, lst(2, nsym("suc"), k)); tsig.imp[np0] = true; tsig.np = np0 + 1;
+    Node *B = clauses_typed(f, ls, rs2, n);
+    if (tsig.np != np0 + 1) die("decreasing by: the clauses must match every parameter, in", f);
+    for (int q = 0; q < tsig.np; q++) { if (!(B->list && B->n == 3)) die("internal: decreasing by", f); B = B->it[2]; }
+    tsig.np = np0; tsig.R = R0;
+    /* the measure in the parameters' names as the clauses named them */
+    for (int q = 0; q < tsig.np; q++) if (strcmp(orig[q]->s, tsig.pn[q]->s)) { m = subst_sym(m, orig[q]->s, tsig.pn[q]); B = subst_sym(B, orig[q]->s, tsig.pn[q]); }
+    Node *mot = sym4("Pi", h, lst(3, nsym("_<_"), m, kb), tsig.R);
+    for (int q = tsig.np - 1; q >= 0; q--) mot = sym4("Pi", tsig.pn[q], tsig.pty[q], mot);
+    mot = sym3("%lam", kb, mot);
+    Node *zb = sym3("lam", h, lst(2, nsym("Empty-rec"), h));
+    for (int q = tsig.np - 1; q >= 0; q--) zb = sym3("lam", tsig.pn[q], zb);
+    Node *sb = sym3("lam", h, wf_calls(B, m, L, k, h));
+    for (int q = tsig.np - 1; q >= 0; q--) sb = sym3("lam", tsig.pn[q], sb);
+    Node *el_ = lst(5, nsym("elim"), mot, sym3("the", nsym("Nat"), lst(2, nsym("suc"), m)), lst(2, lst(1, nsym("zero")), zb), lst(2, lst(2, nsym("suc"), k), sb));
+    Node *app = nlist(tsig.np + 2); app->it[0] = el_;
+    for (int q = 0; q < tsig.np; q++) app->it[q + 1] = tsig.pn[q];
+    app->it[tsig.np + 1] = lst(2, nsym("<-suc-self"), m);
+    Node *body = app;
     for (int q = tsig.np - 1; q >= 0; q--) body = lam_t(tsig.pn[q], tsig.pty[q], body);
     return body;
 }
