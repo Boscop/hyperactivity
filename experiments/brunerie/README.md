@@ -29,7 +29,7 @@ Run from `scoped-machine/`:
 | `run-circle.cub` | g9 on `loop` and on `loop·loop` | `t2inc (pos 1)` in 1.7k steps, `t2inc (pos 2)` in 7.5k |
 | `run-square.cub` | F, the η₃-on-push square through f7' | 45k steps; contains one `squash4` |
 | `run-cube4.cub` | encodeTruncS2 along a genuine `squash4` 4-cube, which exercises TL3 | 155M steps, 365 s (an open 3-cube, read back in full) |
-| `run-brunerie.cub` | the number | `negsuc (suc zero)`, -2, in 1.26M steps (about 3 s with the library) |
+| `run-brunerie.cub` | the number | `negsuc (suc zero)`, -2, in 1.26M steps: 0.4 s, plus 1.1 s to load the cached library |
 | `run-squash.cub` | g10 on a squash₂ square; surfc on a squash₄ cube at generic dimensions, read at a corner of Ω² | `pos 1` everywhere; the cube's point (201k steps) |
 
 surfc on a squash₄ cube read in the interior of Ω² at generic dimensions (a 6-dimensional open term

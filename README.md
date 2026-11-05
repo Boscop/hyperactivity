@@ -402,7 +402,8 @@ bisimulations, and `(x ≡ y) ≃ (x ≈ y)`) checks in 60k steps, `iso1` (a cor
 
 Brunerie's number, by an untyped port of Ljungström's `brunerie'` from agda/cubical
 (`experiments/brunerie/`, about 1 s in Agda), reads `negsuc (suc zero)`, that is -2, in 1.26M
-steps (about 3 s with the library); `make test` checks it with one and four workers. The port has no
+steps: 0.4 s for the reading, 1.1 s to load the cached library (one thread; the library
+elaborated, compiled and its checks skipped); `make test` checks it with one and four workers. The port has no
 placeholders: isSetℤ is Hedberg's theorem in the library, and the 4-truncation case of the Hopf
 H-space structure is a checked filler over families of sets. The pipeline
 eliminates the circle and S² into truncations, the Hopf fibration and `Code` into the universe,

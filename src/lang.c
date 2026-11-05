@@ -24,8 +24,20 @@ static void die(const char *m, const char *x) {
 
 /* ---------------- s-expressions ---------------- */
 typedef struct Node { int list; char *s; int n; struct Node **it; char *cmt; } Node;
-static Node *nsym(const char *s) { Node *x = calloc(1, sizeof(Node)); x->s = strdup(s); return x; }
-static Node *nlist(int n) { Node *x = calloc(1, sizeof(Node)); x->list = 1; x->n = n; x->it = calloc((size_t)n + 1, sizeof(Node *)); return x; }
+/* nodes are never freed: they come from a bump arena of zeroed chunks */
+static char *ar_p, *ar_end;
+static void *ar_alloc(size_t n) {
+    n = (n + 15) & ~(size_t)15;
+    if ((size_t)(ar_end - ar_p) < n) {
+        size_t c = n > (1u << 20) ? n : (1u << 20);
+        ar_p = calloc(1, c); if (!ar_p) { fputs("out of memory\n", stderr); exit(2); }
+        ar_end = ar_p + c;
+    }
+    void *r = ar_p; ar_p += n; return r;
+}
+static char *ar_strdup(const char *s) { size_t l = strlen(s) + 1; char *r = ar_alloc(l); memcpy(r, s, l); return r; }
+static Node *nsym(const char *s) { Node *x = ar_alloc(sizeof(Node)); x->s = ar_strdup(s); return x; }
+static Node *nlist(int n) { Node *x = ar_alloc(sizeof(Node)); x->list = 1; x->n = n; x->it = ar_alloc(((size_t)n + 1) * sizeof(Node *)); return x; }
 static Node *nl2(const char *h, Node *a) { Node *x = nlist(2); x->it[0] = nsym(h); x->it[1] = a; return x; }
 static Node *nl3(const char *h, Node *a, Node *b) { Node *x = nlist(3); x->it[0] = nsym(h); x->it[1] = a; x->it[2] = b; return x; }
 static Node *nl4(const char *h, Node *a, Node *b, Node *c) { Node *x = nlist(4); x->it[0] = nsym(h); x->it[1] = a; x->it[2] = b; x->it[3] = c; return x; }
@@ -103,6 +115,7 @@ static const char *KW[] = { "%raw", "%welimP", "%rebuilt", "%hole", "%guess", "%
     "PathP", "@", "~", "/\\", "\\/", "=", "&", "|", "faceof", "%fneg", "sys", "sys0", "sys+", "sysmap", "comp", "Glue", "%hcompU", "%unglueU", "glue",
     "unglue", "%view", "%var", "%dim", "%ieq", "%feq", "%clauses", "%dnf", "%motive", "%restrict", "%gval", "%gty", "%dtab", "%dent", "%dtrans", "%abs", "%branch", "%clos", "%box", "%wsucc", "%weq", "%wlt", "%wadd", "%wmax", "%wsub", "%welim", NULL };
 /* the keywords, in an open-addressed table (asked of every symbol the compiler walks) */
+static size_t kw_hash(const char *s);
 static size_t kw_hash(const char *s) { size_t h = 1469598103934665603ull; for (; *s; s++) h = (h ^ (unsigned char)*s) * 1099511628211ull; return h; }
 static bool keyword(const char *s) {
     enum { KWCAP = 512 };
@@ -126,9 +139,24 @@ static int fld_lookup(const char *s) { for (int i = nfld - 1; i >= 0; i--) if (!
 long case_hcomp_global = -1;
 /* "%%c" names the first constructor declared c: the checker's own (lib/check.cub), referred to by
  * the code the checker is given, whatever the program declares later under the same name */
+/* by name: an open-addressed table of the latest constructor of each name, rebuilt when constructors
+ * have been declared since (declarations are rare, lookups constant) */
+static int *CONH; static size_t capCONH; static int conh_built = -1;
+static size_t kw_hash(const char *s);
 static int con_lookup(const char *s) {
     if (s[0] == '%' && s[1] == '%') { for (int i = 0; i < ncon; i++) if (!strcmp(CON[i].name, s + 2)) return i; return -1; }
-    for (int i = ncon - 1; i >= 0; i--) if (!strcmp(CON[i].name, s)) return i;
+    if (conh_built != ncon) {
+        size_t cap = 64; while (cap < (size_t)ncon * 2 + 2) cap *= 2;
+        if (cap != capCONH) { free(CONH); CONH = malloc(cap * sizeof(int)); capCONH = cap; }
+        for (size_t j = 0; j < cap; j++) CONH[j] = -1;
+        for (int i = 0; i < ncon; i++) {
+            size_t j = kw_hash(CON[i].name) & (cap - 1);
+            while (CONH[j] >= 0 && strcmp(CON[CONH[j]].name, CON[i].name)) j = (j + 1) & (cap - 1);
+            CONH[j] = i;   /* a later constructor of the same name replaces the earlier */
+        }
+        conh_built = ncon;
+    }
+    for (size_t j = kw_hash(s) & (capCONH - 1); CONH[j] >= 0; j = (j + 1) & (capCONH - 1)) if (!strcmp(CON[CONH[j]].name, s)) return CONH[j];
     return -1;
 }
 int con_index(const char *name) { return con_lookup(name); }
@@ -144,7 +172,7 @@ static bool constant_sym(const char *s);
 /* the local variables free in a desugared term, in order of first occurrence: symbols not
  * bound within it, not global, not constants, not keywords */
 typedef struct { const char **v; int n, cap; } Names;
-static bool names_has(const Names *s, const char *x) { for (int i = 0; i < s->n; i++) if (!strcmp(s->v[i], x)) return true; return false; }
+static bool names_has(const Names *s, const char *x) { for (int i = 0; i < s->n; i++) if (s->v[i][0] == x[0] && !strcmp(s->v[i], x)) return true; return false; }
 static void names_add(Names *s, const char *x) { if (names_has(s, x)) return; if (s->n == s->cap) { s->cap = s->cap ? s->cap * 2 : 8; s->v = realloc(s->v, (size_t)s->cap * sizeof(char *)); } s->v[s->n++] = x; }
 static void free_vars(Node *t, Names *bound, Names *out) {
     if (!t->list) {
@@ -1131,7 +1159,7 @@ static Port held_copy(Cell *r) {
 }
 
 /* ---------------- compiling: binder levels and lifting ---------------- */
-typedef struct { const char *name; int level, slot; } Bind;
+typedef struct { const char *name; int level, slot; size_t h; } Bind;
 typedef struct {
     int is_thunk, scope_start, nslots, ucap;
     int *uses;
@@ -1143,12 +1171,12 @@ static Level *levels; static size_t caplevels; static int nlevels;
 static const char **shadow; static size_t capshadow; static int nshadow;
 
 static Syn *syn(int tag, int n) { Syn *s = calloc(1, sizeof(Syn)); s->tag = tag; s->n = n; s->k = calloc((size_t)n + 1, sizeof(Syn *)); return s; }
-static Bind *lookup(const char *name) { for (int i = nbinds - 1; i >= 0; i--) if (!strcmp(binds[i].name, name)) return &binds[i]; return NULL; }
+static Bind *lookup(const char *name) { size_t h = kw_hash(name); for (int i = nbinds - 1; i >= 0; i--) if (binds[i].h == h && !strcmp(binds[i].name, name)) return &binds[i]; return NULL; }
 static bool constant_sym(const char *s);
 static void push_bind(const char *name, int level, int slot) {
     if (constant_sym(name)) die("a constant cannot be bound:", name);
     if (keyword(name)) die("a keyword cannot be bound:", name);
-    GROW(binds, capbinds, (size_t)nbinds + 1); binds[nbinds++] = (Bind){ name, level, slot }; }
+    GROW(binds, capbinds, (size_t)nbinds + 1); binds[nbinds++] = (Bind){ name, level, slot, kw_hash(name) }; }
 static int new_slot(void) {
     Level *L = &levels[nlevels - 1];
     if (L->nslots == L->ucap) { L->ucap = L->ucap ? L->ucap * 2 : 8; L->uses = realloc(L->uses, (size_t)L->ucap * sizeof(int)); }
@@ -1173,7 +1201,7 @@ static int ml_cut = 1 << 30;
 static int maxlev(Node *t) {
     if (!t->list) {
         if (constant_sym(t->s)) return -1;
-        for (int i = nshadow - 1; i >= 0; i--) if (!strcmp(shadow[i], t->s)) return -1;
+        for (int i = nshadow - 1; i >= 0; i--) if (shadow[i][0] == t->s[0] && !strcmp(shadow[i], t->s)) return -1;
         Bind *b = lookup(t->s);
         return b ? b->level : -1;
     }
