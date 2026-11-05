@@ -6,8 +6,8 @@
 #include <string.h>
 
 static Big *big_new(uint32_t n) { Big *b = malloc(sizeof(Big) + (size_t)n * sizeof(uint64_t)); b->rc = 1; b->n = n; return b; }
-Big *big_retain(Big *b) { if (b) __atomic_fetch_add(&b->rc, 1, __ATOMIC_RELAXED); return b; }
-void big_release(Big *b) { if (b && __atomic_sub_fetch(&b->rc, 1, __ATOMIC_ACQ_REL) == 0) free(b); }
+Big *big_retain(Big *b) { if (b) rc_inc(&b->rc); return b; }
+void big_release(Big *b) { if (b && rc_dec(&b->rc) == 0) free(b); }
 
 /* the limbs of a number, without copying */
 static const uint64_t *limbs(const WN *x, uint32_t *n) {

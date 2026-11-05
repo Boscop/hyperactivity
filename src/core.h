@@ -17,6 +17,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* One thread (no workers): nothing is contended, so reference counts and statistics are plain
+ * arithmetic and the net takes no locks. Set once, before any rewriting (net_start). */
+extern bool net_solo;
+static inline void rc_inc(uint32_t *p) { if (net_solo) (*p)++; else __atomic_fetch_add(p, 1, __ATOMIC_RELAXED); }
+static inline uint32_t rc_dec(uint32_t *p) { return net_solo ? --*p : __atomic_sub_fetch(p, 1, __ATOMIC_ACQ_REL); }
+static inline void rcl_inc(long *p) { if (net_solo) (*p)++; else __atomic_fetch_add(p, 1, __ATOMIC_RELAXED); }
+static inline long rcl_dec(long *p) { return net_solo ? --*p : __atomic_sub_fetch(p, 1, __ATOMIC_ACQ_REL); }
+static inline void cnt_add(long *p, long v) { if (net_solo) *p += v; else __atomic_fetch_add(p, v, __ATOMIC_RELAXED); }
+
 /* ---------------- dimensions, intervals, faces, substitutions ---------------- */
 typedef uint64_t Dim;   /* dimension names: never reused (a 64-bit count is never reached) */
 /* a clause: sorted literals. Interval literal = dim<<1 | negated;

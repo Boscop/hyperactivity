@@ -6,7 +6,8 @@
 #include <sched.h>
 
 long stat_steps, stat_kind[K_END], stat_cells;
-#define ADD(x, v) __atomic_fetch_add(&(x), (v), __ATOMIC_RELAXED)
+#define ADD(x, v) cnt_add(&(x), (v))
+bool net_solo = true;
 
 /* ---------------- type-stable cells ----------------
  * A cell's memory is never returned: a thread holding a stale pointer can
@@ -41,7 +42,7 @@ static bool owns_subst(int k) { return k == O_SUBST; }
 static void box_release(Box *b);
 static void payload_retain(Cell *c) {
     if (owns_dnf(c->kind)) dnf_retain(c->p); else if (owns_subst(c->kind)) subst_retain(c->p);
-    else if (c->kind == V_REF) { __atomic_add_fetch(&((Box *)c->p)->rc, 1, __ATOMIC_RELAXED); if (c->a) subst_retain((Subst *)(uintptr_t)c->a); }
+    else if (c->kind == V_REF) { rcl_inc(&((Box *)c->p)->rc); if (c->a) subst_retain((Subst *)(uintptr_t)c->a); }
     else if (c->kind == V_WORD || c->kind == V_WPLUS) big_retain(c->p);
     else if (c->kind == V_THUNK && c->a) subst_retain((Subst *)(uintptr_t)c->a);
 }
@@ -67,10 +68,11 @@ static Cell *clone(const Cell *v) { Cell *c = cell(v->kind, v->n); c->x = v->x; 
  * initialized before any thread reaching it through a wire touches it */
 static inline Port rd(Cell *c, int k) { return __atomic_load_n(&c->port[k], __ATOMIC_ACQUIRE); }
 static void lock(Cell *c) {
+    if (net_solo) return;
     while (__atomic_exchange_n(&c->lk, 1, __ATOMIC_ACQUIRE))
         while (__atomic_load_n(&c->lk, __ATOMIC_RELAXED)) __builtin_ia32_pause();
 }
-static void unlock(Cell *c) { __atomic_store_n(&c->lk, 0, __ATOMIC_RELEASE); }
+static void unlock(Cell *c) { if (!net_solo) __atomic_store_n(&c->lk, 0, __ATOMIC_RELEASE); }
 
 /* ---------------- active pairs: per-worker queues ---------------- */
 typedef struct { pthread_mutex_t mu; Redex *q; size_t head, len, cap; } Queue;
@@ -84,20 +86,20 @@ static void queues_init(int n) {
 void net_push(Cell *op, Cell *v) {
     if (!Q) queues_init(1);
     Queue *q = &Q[myq];
-    pthread_mutex_lock(&q->mu);
+    if (!net_solo) pthread_mutex_lock(&q->mu);
     if (q->len == q->cap) {
         if (q->head > 0) { memmove(q->q, q->q + q->head, (q->len - q->head) * sizeof(Redex)); q->len -= q->head; q->head = 0; }
         if (q->len == q->cap) { q->cap = q->cap ? q->cap * 2 : 1024; q->q = realloc(q->q, q->cap * sizeof(Redex)); }
     }
     q->q[q->len++] = (Redex){ op, v };
     ADD(pending, 1);
-    pthread_mutex_unlock(&q->mu);
+    if (!net_solo) pthread_mutex_unlock(&q->mu);
 }
 static bool pop_from(Queue *q, Redex *r) {
     bool got = false;
-    pthread_mutex_lock(&q->mu);
+    if (!net_solo) pthread_mutex_lock(&q->mu);
     if (q->head < q->len) { *r = q->q[q->head++]; if (q->head == q->len) q->head = q->len = 0; got = true; }
-    pthread_mutex_unlock(&q->mu);
+    if (!net_solo) pthread_mutex_unlock(&q->mu);
     return got;
 }
 static bool pop(Redex *r) {
@@ -140,6 +142,8 @@ static Port out_of(Cell *o) { return o->port[o->n - 1]; }
 static void era(Port prov);
 long stat_hits, stat_keys;
 static pthread_mutex_t kmu = PTHREAD_MUTEX_INITIALIZER;
+static inline void klock(void) { if (!net_solo) pthread_mutex_lock(&kmu); }
+static inline void kunlock(void) { if (!net_solo) pthread_mutex_unlock(&kmu); }
 static Key **KT; static size_t KTcap, KTn;
 static void key_print_d(FILE *o, const Key *k, int d);
 static void key_print(FILE *o, const Key *k) { key_print_d(o, k, 0); }
@@ -179,19 +183,19 @@ static bool key_same(const Key *k, int tag, uint64_t a, const void *p, int n, Ke
     if (tag == K_WORD) { WN x = { a, k->p }, y = { a, (Big *)p }; return wn_cmp(&x, &y) == 0; }
     return k->p == p;
 }
-Key *key_retain(Key *k) { __atomic_add_fetch(&k->rc, 1, __ATOMIC_RELAXED); return k; }
+Key *key_retain(Key *k) { rc_inc(&k->rc); return k; }
 static void key_free(Key *k);
 static void key_release_locked(Key *k) {   /* under kmu */
-    if (__atomic_sub_fetch(&k->rc, 1, __ATOMIC_ACQ_REL) == 0) key_free(k);
+    if (rc_dec(&k->rc) == 0) key_free(k);
 }
 /* A count that reaches zero is never raised again: interning takes a reference only to a key whose
  * count is not zero (key() below), and every other retain is by a holder of a reference. So the
  * last releaser frees the key; until it does, interning passes over it */
 void key_release(Key *k) {
-    if (__atomic_sub_fetch(&k->rc, 1, __ATOMIC_ACQ_REL) == 0) {
-        pthread_mutex_lock(&kmu);
+    if (rc_dec(&k->rc) == 0) {
+        klock();
         key_free(k);
-        pthread_mutex_unlock(&kmu);
+        kunlock();
     }
 }
 static void key_free(Key *k) {
@@ -215,7 +219,7 @@ static void key_free(Key *k) {
 static Key *key(int tag, uint64_t a, void *p, int n, Key *const *c) {
     for (int i = 0; i < n; i++) if (!c[i]) return NULL;
     uint64_t h = key_hash(tag, a, p, n, c);
-    pthread_mutex_lock(&kmu);
+    klock();
     if (KTn * 2 >= KTcap) {
         size_t nc = KTcap ? KTcap * 2 : 4096;
         Key **nt = calloc(nc, sizeof(Key *));
@@ -228,15 +232,16 @@ static Key *key(int tag, uint64_t a, void *p, int n, Key *const *c) {
             /* a reference to it, unless its last reference is gone (its releaser frees it) */
             Key *k = KT[i];
             uint32_t r = __atomic_load_n(&k->rc, __ATOMIC_ACQUIRE);
-            while (r && !__atomic_compare_exchange_n(&k->rc, &r, r + 1, true, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) { }
-            if (r) { pthread_mutex_unlock(&kmu); return k; }
+            if (net_solo) { if (r) k->rc = r + 1; }
+            else while (r && !__atomic_compare_exchange_n(&k->rc, &r, r + 1, true, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) { }
+            if (r) { kunlock(); return k; }
         }
     Key *k = malloc(sizeof(Key) + (size_t)n * sizeof(Key *));
     k->rc = 1; k->n = (uint32_t)n; k->h = h; k->tag = (uint16_t)tag; k->a = a;
     k->p = (tag == K_IV || tag == K_FACE) ? dnf_retain(p) : tag == K_WORD ? big_retain(p) : p;
     for (int j = 0; j < n; j++) k->c[j] = key_retain(c[j]);
     KT[i] = k; KTn++;
-    pthread_mutex_unlock(&kmu);
+    kunlock();
     return k;
 }
 static Key *key0(int tag, uint64_t a, void *p) { return key(tag, a, p, 0, NULL); }
@@ -316,21 +321,21 @@ static void memo_register(Cell *c) {
     Key *k = eff_key(c);
     if (!k) return;
     if (key_trace) { fprintf(stderr, "register %d ", c->kind); key_print(stderr, k); fputc('\n', stderr); }
-    pthread_mutex_lock(&kmu);
+    klock();
     Entry *e = memo_find(k, true); e->pending++; c->e = e;
-    if (e->box && !e->hold) { __atomic_add_fetch(&e->box->rc, 1, __ATOMIC_RELAXED); e->hold = true; }
-    pthread_mutex_unlock(&kmu);
+    if (e->box && !e->hold) { rcl_inc(&e->box->rc); e->hold = true; }
+    kunlock();
     key_release(k);
 }
 static void box_release(Box *b);
 static void memo_leave(Cell *c) {   /* a pending producer consumed without producing (erased) or re-keyed */
     Entry *e = c->e; c->e = NULL;
-    pthread_mutex_lock(&kmu);
+    klock();
     if (--e->pending == 0) {
-        if (e->box) { Box *b = e->box; bool h = e->hold; e->hold = false; pthread_mutex_unlock(&kmu); if (h) box_release(b); return; }
+        if (e->box) { Box *b = e->box; bool h = e->hold; e->hold = false; kunlock(); if (h) box_release(b); return; }
         memo_drop(e);
     }
-    pthread_mutex_unlock(&kmu);
+    kunlock();
 }
 /* a pending producer fires. Returns the port to give its consumer when the value is (or will be)
  * shared, and *out = the box to build into (NULL when the value is already there or being built);
@@ -340,16 +345,16 @@ static Port memo_begin(Cell *c, Box **out, bool builder) {
     Entry *e = c->e;
     if (!e) return 0;
     c->e = NULL;
-    pthread_mutex_lock(&kmu);
+    klock();
     e->pending--;
     if (key_trace) { fprintf(stderr, "fire %d %s pending=%ld box=%d ", c->kind, builder ? "builder" : "thunk", e->pending, e->box != NULL); key_print(stderr, e->k); fputc('\n', stderr); }
     if (e->box) {
         /* the value, there or being built: read it */
         Box *b = e->box;
-        __atomic_add_fetch(&b->rc, 1, __ATOMIC_RELAXED);
+        rcl_inc(&b->rc);
         bool last = e->pending == 0 && e->hold;
         if (last) e->hold = false;
-        pthread_mutex_unlock(&kmu);
+        kunlock();
         ADD(stat_hits, 1);
         Cell *r = cell(V_REF, 1); r->p = b; r->key = key_retain(b->key);
         if (last) box_release(b);   /* the entry's own hold */
@@ -359,7 +364,7 @@ static Port memo_begin(Cell *c, Box **out, bool builder) {
         /* a thunk: its body's producer, which has the same key, decides (it registers as pending);
          * a builder nobody else waits for builds directly */
         if (e->pending == 0) memo_drop(e);
-        pthread_mutex_unlock(&kmu);
+        kunlock();
         return 0;
     }
     /* others wait for this value: it is held once and read by reference. Its root is locked until the
@@ -368,7 +373,7 @@ static Port memo_begin(Cell *c, Box **out, bool builder) {
     Box *b = malloc(sizeof(Box)); b->rc = 2; b->root = cell(O_ROOT, 1); b->key = key_retain(e->k); b->e = e;
     lock(b->root);
     e->box = b; e->hold = true;
-    pthread_mutex_unlock(&kmu);
+    kunlock();
     ADD(stat_keys, 1);
     *out = b;
     Cell *r = cell(V_REF, 1); r->p = b; r->key = key_retain(b->key);
@@ -377,20 +382,20 @@ static Port memo_begin(Cell *c, Box **out, bool builder) {
 /* CUBICAL_KEYS: the entries still live at the end (what holds values across readings) */
 void memo_dump(void) {
     if (!key_trace) return;
-    pthread_mutex_lock(&kmu);
+    klock();
     for (size_t i = 0; i < MTcap; i++) for (Entry *e = MT[i]; e; e = e->next) {
         fprintf(stderr, "entry pending=%ld box=%d ", e->pending, e->box != NULL);
         key_print(stderr, e->k); fputc('\n', stderr);
     }
     fprintf(stderr, "%zu entries, %zu keys\n", MTn, KTn);
-    pthread_mutex_unlock(&kmu);
+    kunlock();
 }
 /* the box of a memo entry is gone: the entry no longer has a value */
 static void memo_box_gone(Box *b) {
-    pthread_mutex_lock(&kmu);
+    klock();
     Entry *e = b->e; b->e = NULL;
     if (e) { e->box = NULL; e->hold = false; if (e->pending == 0) memo_drop(e); }
-    pthread_mutex_unlock(&kmu);
+    kunlock();
 }
 /* ---------------- small constructors ---------------- */
 /* profile: where each duplicator and eraser comes from (a record's definition, or a rule) */
@@ -410,7 +415,7 @@ static Cell *ref_to(Box *b) { Cell *r = cell(V_REF, 1); r->p = b; r->key = b->ke
  * stored part (wrapped in a box when first read), so a part is copied only when an operation
  * reads it, one level per interaction. A reader of a value not yet there waits for it (O_FWD)
  * and gets the same copy when it arrives. The rewrite holds the stored value and its neighbours (lockset). */
-static void box_hold(Box *b) { __atomic_add_fetch(&b->rc, 1, __ATOMIC_RELAXED); }
+static void box_hold(Box *b) { rcl_inc(&b->rc); }
 Port thunk_build(Cell *v);
 Port unbuilt_build(Cell *v);
 static bool unbuilt(int k);
@@ -517,7 +522,7 @@ static void era(Port prov);
  * rewrite's locks are released (retire_boxes), under the locks of exactly the two cells involved. */
 static void memo_box_gone(Box *b);
 static void box_release(Box *b) {
-    if (__atomic_sub_fetch(&b->rc, 1, __ATOMIC_ACQ_REL)) return;
+    if (rcl_dec(&b->rc)) return;
     if (b->e) memo_box_gone(b);
     Local *l = local();
     if (l->ndead == l->capdead) { l->capdead = l->capdead ? l->capdead * 2 : 16; l->dead = realloc(l->dead, l->capdead * sizeof(Box *)); }
@@ -2348,6 +2353,13 @@ static int lockset(Cell *o, Cell *v, Cell **S, int cap) {
 }
 static void rewrite(Redex r) {
     Cell *o = r.op, *v = r.v;
+    if (net_solo) {
+        /* one thread: no other rewrite can touch the neighbours, so no lock set */
+        interact(o, v);
+        retire_boxes(); flush_frees(); publish();
+        pending--;
+        return;
+    }
     int cap = o->n + v->n + 8;
     if (o->kind == O_WOP2 || o->kind == O_CLOS2) { Port p = rd(o, 1); if (p) cap += PC(p)->n; }
     if (v->kind == V_REF || v->kind == V_GLOBAL) {
@@ -2412,6 +2424,7 @@ void net_start(int n) {
     no_memo = getenv("CUBICAL_NOMEMO") != NULL;
     queues_init(n + 1);
     nworkers = n;
+    net_solo = n == 0;
     workers = calloc((size_t)n + 1, sizeof(pthread_t));
     for (int i = 0; i < n; i++) pthread_create(&workers[i], NULL, worker, (void *)(intptr_t)(i + 1));
     pthread_mutex_lock(&wmu);
@@ -2465,20 +2478,20 @@ bool net_observe(Cell *root, long limit) {
 void net_drain(void) { net_observe(NULL, -1); }
 
 /* ---------------- building a net from syntax ---------------- */
-typedef struct { Port *sup; int cur, n; Key *key; } Supply;
+typedef struct { Port *sup; int cur, n; Key *key; Port inl[4]; } Supply;   /* inl: the providers of a slot used at most 3 times */
 typedef struct { Supply *s; int nslots; const int *uses; Key *scrut; } Frame;   /* scrut: a case branch's scrutinee's key (the value it rebuilds is named by it) */
 
 static void bind(Frame *f, int slot, Port prov) {
     int u = f->uses[slot];
     Supply *s = &f->s[slot];
-    s->sup = malloc((size_t)(u + 1) * sizeof(Port)); s->n = u; s->cur = 0;
+    s->sup = u + 1 <= 4 ? s->inl : malloc((size_t)(u + 1) * sizeof(Port)); s->n = u; s->cur = 0;
     s->key = key_of_port(prov);
     split(prov, u, s->sup);
 }
 static void bind_dim(Frame *f, int slot, Dim i) {
     int u = f->uses[slot];
     Supply *s = &f->s[slot];
-    s->sup = malloc((size_t)(u + 1) * sizeof(Port)); s->n = u; s->cur = 0;
+    s->sup = u + 1 <= 4 ? s->inl : malloc((size_t)(u + 1) * sizeof(Port)); s->n = u; s->cur = 0;
     Dnf *at = iv_atom(i); s->key = key0(K_IV, 0, at); dnf_release(at);
     for (int k = 0; k < u; k++) s->sup[k] = iv_cell(iv_atom(i));
 }
@@ -2706,7 +2719,9 @@ static Port build(Syn *t, Frame *f) {
 }
 
 static Port run_frame(Syn *body, int nslots, const int *uses, int nparam, const Port *params, int nenv, const int *env_slot, const Port *env, int where) {
-    Frame f = { calloc((size_t)nslots + 1, sizeof(Supply)), nslots, uses, scrut_key };
+    Supply local_s[16];
+    Supply *ss = nslots + 1 <= 16 ? (memset(local_s, 0, (size_t)(nslots + 1) * sizeof(Supply)), local_s) : calloc((size_t)nslots + 1, sizeof(Supply));
+    Frame f = { ss, nslots, uses, scrut_key };
     scrut_key = NULL;
     long saved = dup_origin;
     if (prof_on) dup_origin = where + 1;
@@ -2715,11 +2730,11 @@ static Port run_frame(Syn *body, int nslots, const int *uses, int nparam, const 
     Port r = build(body, &f);
     for (int k = 0; k < nslots; k++) {
         if (f.s[k].cur != f.s[k].n) { fprintf(stderr, "internal: slot %d built %d of %d uses\n", k, f.s[k].cur, f.s[k].n); exit(2); }
-        free(f.s[k].sup);
+        if (f.s[k].sup != f.s[k].inl) free(f.s[k].sup);
         if (f.s[k].key) key_release(f.s[k].key);
     }
     if (f.scrut) key_release(f.scrut);
-    free(f.s);
+    if (f.s != local_s) free(f.s);
     dup_origin = saved;
     return r;
 }

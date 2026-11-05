@@ -16,14 +16,14 @@ static Dim next_dim = 1;
 Dim fresh_dim(void) { return __atomic_fetch_add(&next_dim, 1, __ATOMIC_RELAXED); }
 
 long stat_payloads;
-#define LIVE(d) __atomic_fetch_add(&stat_payloads, (d), __ATOMIC_RELAXED)
+#define LIVE(d) cnt_add(&stat_payloads, (d))
 static Clause *cl_new(uint32_t n) { Clause *c = malloc(sizeof(Clause) + n * sizeof(uint64_t)); c->rc = 1; c->n = n; LIVE(1); return c; }
 static Dnf *dnf_new(uint32_t n) { Dnf *d = malloc(sizeof(Dnf) + n * sizeof(Clause *)); d->rc = 1; d->n = n; LIVE(1); return d; }
-Clause *clause_retain(Clause *c) { __atomic_fetch_add(&c->rc, 1, __ATOMIC_RELAXED); return c; }
-void clause_release(Clause *c) { if (c && __atomic_sub_fetch(&c->rc, 1, __ATOMIC_ACQ_REL) == 0) { free(c); LIVE(-1); } }
-Dnf *dnf_retain(Dnf *d) { if (d) __atomic_fetch_add(&d->rc, 1, __ATOMIC_RELAXED); return d; }
+Clause *clause_retain(Clause *c) { rc_inc(&c->rc); return c; }
+void clause_release(Clause *c) { if (c && rc_dec(&c->rc) == 0) { free(c); LIVE(-1); } }
+Dnf *dnf_retain(Dnf *d) { if (d) rc_inc(&d->rc); return d; }
 void dnf_release(Dnf *d) {
-    if (d && __atomic_sub_fetch(&d->rc, 1, __ATOMIC_ACQ_REL) == 0) {
+    if (d && rc_dec(&d->rc) == 0) {
         for (uint32_t i = 0; i < d->n; i++) clause_release(d->c[i]);
         free(d); LIVE(-1);
     }
@@ -143,7 +143,20 @@ const Dnf *subst_get(const Subst *s, Dim j) {
     for (uint32_t i = 0; i < s->n; i++) if (s->d[i] == j) return s->v[i];
     return NULL;
 }
+/* does s move any dimension x mentions? (most substitutions reaching a formula do not) */
+static bool dnf_moved(const Dnf *x, const Subst *s) {
+    for (uint32_t i = 0; i < x->n; i++)
+        for (uint32_t k = 0; k < x->c[i]->n; k++) if (subst_get(s, x->c[i]->l[k] >> 1)) return true;
+    return false;
+}
 Dnf *iv_subst(const Dnf *x, const Subst *s) {
+    if (!dnf_moved(x, s)) return dnf_retain((Dnf *)x);
+    if (x->n == 1 && x->c[0]->n == 1) {
+        /* a single literal: its image (negated) */
+        uint64_t lit = x->c[0]->l[0];
+        Dnf *v = (Dnf *)subst_get(s, lit >> 1);
+        return (lit & 1) ? iv_neg(v) : dnf_retain(v);
+    }
     Dnf *acc = dnf_zero();
     for (uint32_t i = 0; i < x->n; i++) {
         Dnf *m = dnf_one();
@@ -180,6 +193,7 @@ Dnf *face_eq(const Dnf *r, int eps) {
     return acc;
 }
 Dnf *face_subst(const Dnf *f, const Subst *s) {
+    if (!dnf_moved(f, s)) return dnf_retain((Dnf *)f);
     Dnf *acc = dnf_zero();
     for (uint32_t i = 0; i < f->n; i++) {
         Dnf *m = dnf_one();
@@ -210,17 +224,18 @@ Dnf *face_forall(const Dnf *f, Dim i) {
     return d;
 }
 
+/* one block: the header, then the dimensions, then their values */
 static Subst *subst_new(uint32_t n) {
-    Subst *s = malloc(sizeof(Subst));
-    s->rc = 1; s->n = n; s->d = malloc((n + 1) * sizeof(Dim)); s->v = malloc((n + 1) * sizeof(Dnf *));
+    Subst *s = malloc(sizeof(Subst) + (size_t)(n + 1) * (sizeof(Dim) + sizeof(Dnf *)));
+    s->rc = 1; s->n = n; s->d = (Dim *)(s + 1); s->v = (Dnf **)(s->d + n + 1);
     LIVE(1);
     return s;
 }
-Subst *subst_retain(Subst *s) { if (s) __atomic_fetch_add(&s->rc, 1, __ATOMIC_RELAXED); return s; }
+Subst *subst_retain(Subst *s) { if (s) rc_inc(&s->rc); return s; }
 void subst_release(Subst *s) {
-    if (s && __atomic_sub_fetch(&s->rc, 1, __ATOMIC_ACQ_REL) == 0) {
+    if (s && rc_dec(&s->rc) == 0) {
         for (uint32_t i = 0; i < s->n; i++) dnf_release(s->v[i]);
-        free(s->d); free(s->v); free(s); LIVE(-1);
+        free(s); LIVE(-1);
     }
 }
 Subst *subst_single(Dim i, const Dnf *r) { Subst *s = subst_new(1); s->d[0] = i; s->v[0] = dnf_retain((Dnf *)r); return s; }
@@ -261,6 +276,12 @@ Subst *subst_with(const Subst *s, Dim j, const Dnf *r) {
 }
 /* s, then t: x ↦ s(x)[t], and t's entries for the dimensions s leaves alone */
 Subst *subst_compose(const Subst *s, const Subst *t) {
+    /* t adds nothing to s and moves nothing in its range: s itself (the usual case: a substitution
+     * reaching a reference that already carries one for the same dimensions) */
+    bool same = true;
+    for (uint32_t k = 0; k < t->n && same; k++) if (!subst_get(s, t->d[k])) same = false;
+    for (uint32_t i = 0; i < s->n && same; i++) if (dnf_moved(s->v[i], t)) same = false;
+    if (same) return subst_retain((Subst *)s);
     Subst *u = subst_new(s->n + t->n);
     uint32_t n = 0;
     for (uint32_t i = 0; i < s->n; i++) { u->d[n] = s->d[i]; u->v[n] = iv_subst(s->v[i], t); n++; }
