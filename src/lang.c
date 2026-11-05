@@ -102,7 +102,18 @@ static bool node_eq(Node *a, Node *b) {
 static const char *KW[] = { "%raw", "%welimP", "%rebuilt", "%hole", "%guess", "%spine", "lam", "thunk", "delay", "force", "case", "elim", "if", "rec", "the", "code", "%data", "%con", "hcompD", "%hcompF", "%transD", "%case", "%branches", "record", "%record", "plam", "forall", "let", "app", "pair", "fst", "snd", "Pi", "Sigma", "U",
     "PathP", "@", "~", "/\\", "\\/", "=", "&", "|", "faceof", "%fneg", "sys", "sys0", "sys+", "sysmap", "comp", "Glue", "%hcompU", "%unglueU", "glue",
     "unglue", "%view", "%var", "%dim", "%ieq", "%feq", "%clauses", "%dnf", "%motive", "%restrict", "%gval", "%gty", "%dtab", "%dent", "%dtrans", "%abs", "%branch", "%clos", "%box", "%wsucc", "%weq", "%wlt", "%wadd", "%wmax", "%wsub", "%welim", NULL };
-static bool keyword(const char *s) { for (int i = 0; KW[i]; i++) if (!strcmp(KW[i], s)) return true; return false; }
+/* the keywords, in an open-addressed table (asked of every symbol the compiler walks) */
+static size_t kw_hash(const char *s) { size_t h = 1469598103934665603ull; for (; *s; s++) h = (h ^ (unsigned char)*s) * 1099511628211ull; return h; }
+static bool keyword(const char *s) {
+    enum { KWCAP = 512 };
+    static const char *T[KWCAP]; static bool built;
+    if (!built) {
+        for (int i = 0; KW[i]; i++) { size_t j = kw_hash(KW[i]) & (KWCAP - 1); while (T[j]) j = (j + 1) & (KWCAP - 1); T[j] = KW[i]; }
+        built = true;
+    }
+    for (size_t j = kw_hash(s) & (KWCAP - 1); T[j]; j = (j + 1) & (KWCAP - 1)) if (!strcmp(T[j], s)) return true;
+    return false;
+}
 static Node *param_name(Node *p) { return p->list ? p->it[0] : p; }
 
 /* data types: higher inductive types (Coquand–Huber–Mörtberg), declared by
@@ -1145,7 +1156,15 @@ static int new_slot(void) {
     return L->nslots++;
 }
 static Syn *var_syn(int slot) { levels[nlevels - 1].uses[slot]++; Syn *s = syn(S_VAR, 0); s->slot = slot; return s; }
-static bool constant_sym(const char *s) { return !strcmp(s, "0") || !strcmp(s, "1") || !strcmp(s, "tt") || !strcmp(s, "ff") || !strcmp(s, "U") || !strcmp(s, "Word"); }
+static bool constant_sym(const char *s) {
+    switch (s[0]) {
+    case '0': case '1': case 'U': return s[1] == 0;
+    case 't': return s[1] == 't' && s[2] == 0;
+    case 'f': return s[1] == 'f' && s[2] == 0;
+    case 'W': return !strcmp(s, "Word");
+    default: return false;
+    }
+}
 
 /* the outermost binder level a term refers to (-1: none) */
 /* (only whether it is below the current level matters: the walk stops at the first variable of
@@ -3152,16 +3171,34 @@ static void load_file(const char *path, bool must) {
         char key[40]; snprintf(key, sizeof key, "%016llx%016llx", (unsigned long long)run_key[0], (unsigned long long)run_key[1]);
         char *marker = malloc(strlen(cache_dir()) + 48); sprintf(marker, "%s/%s", cache_dir(), key);
         bool saved_trusted = trusted;
+        char *cached = NULL;
         { FILE *mf = getenv("CUBICAL_NOCACHE") ? NULL : fopen(marker, "r"); trusted = mf != NULL; if (mf) fclose(mf); }
+        if (trusted) cached = slurp(marker);
+        /* this module's recorded forms: read (cached) or recorded (checked now) */
+        FILE *s_rec = xrec; bool s_recbad = xrec_bad; Node **s_rep = xrep; int s_nrep = nxrep, s_irep = ixrep; bool s_repbad = xrep_bad;
+        char *recbuf = NULL; size_t reclen = 0;
+        xrec = NULL; xrec_bad = false; xrep = NULL; nxrep = ixrep = 0; xrep_bad = false;
+        if (cached) {
+            const char *saved = src; src = strchr(cached, '\n'); src = src ? src + 1 : cached + strlen(cached);
+            Node *f; size_t cap = 0; xrep = NULL;
+            while ((f = read_node())) { GROW(xrep, cap, (size_t)nxrep + 1); xrep[nxrep++] = f; }
+            src = saved;
+            if (!xrep) { xrep = malloc(sizeof(Node *)); }   /* no forms recorded: every form a mismatch */
+        } else if (!getenv("CUBICAL_NOCACHE")) xrec = open_memstream(&recbuf, &reclen);
         int f0 = failures;
         bool saved_os = out_surface; out_surface = !getenv("CUBICAL_CORE_OUT");
         load_surface(text, rp, false);
         out_surface = saved_os;
-        if (trusted) printf("cached: %s\n", path);
-        else if (failures == f0 && !getenv("CUBICAL_NOCACHE")) {
+        if (xrec) fclose(xrec);
+        if (trusted) {
+            printf("cached: %s\n", path);
+            if (xrep_bad || ixrep != nxrep) printf("warning: the cache of %s does not match its forms; elaborated forms used where they differ\n", path);
+        } else if (failures == f0 && !getenv("CUBICAL_NOCACHE") && !xrec_bad) {
             mkdir(cache_dir(), 0777);
-            FILE *mk = fopen(marker, "w"); if (mk) { fputs(rp, mk); fputc('\n', mk); fclose(mk); }
+            FILE *mk = fopen(marker, "w"); if (mk) { fputs(rp, mk); fputc('\n', mk); if (recbuf) fputs(recbuf, mk); fclose(mk); }
         }
+        free(recbuf); free(cached); free(xrep);
+        xrec = s_rec; xrec_bad = s_recbad; xrep = s_rep; nxrep = s_nrep; ixrep = s_irep; xrep_bad = s_repbad;
         trusted = saved_trusted; cur_dir = saved_dir;
         free(marker);
         return;

@@ -2056,8 +2056,33 @@ static void shadow_decl(Node *f) {
         imask_set(nm->s, 0, 0); sig_set(nm->s, NULL);
     }
 }
+/* The cache of a module holds its elaborated core forms, in order: a cached (trusted) module is
+ * elaborated again only for the surface's own bookkeeping, and each form it produces is replaced by
+ * the recorded one, so it runs as the checked program did (its implicit arguments solved, its
+ * guesses decided) without running the checker. xrec: where an unchecked module's forms are
+ * recorded; xrep: a cached module's recorded forms. */
+static FILE *xrec; static bool xrec_bad;
+static Node **xrep; static int nxrep, ixrep; static bool xrep_bad;
+static void x_rec_form(Node *f) {
+    char *b; size_t l; FILE *m = open_memstream(&b, &l); print_node(m, f); fclose(m);
+    const char *saved = src; src = b; Node *g = read_node(); bool more = g && (skip(), *src != 0); src = saved;
+    if (!g || more || !node_eq(f, g)) xrec_bad = true;   /* a form that does not read back: the module is not cached */
+    fputs(b, xrec); fputc('\n', xrec); free(b);
+}
+static bool x_same_decl(Node *a, Node *b) {
+    if (a->list != b->list || !a->list || a->n < 1 || b->n < 1) return false;
+    if (!is(a->it[0], b->it[0]->list ? "" : b->it[0]->s)) return false;
+    if (a->n > 1 && b->n > 1 && !a->it[1]->list && !b->it[1]->list) return !strcmp(a->it[1]->s, b->it[1]->s);
+    return true;
+}
 static void x_top(Node *f) {
     if (x_collecting) { GROW(xcollect, capxcollect, (size_t)nxcollect + 1); xcollect[nxcollect++] = f; return; }
+    if (xrec) x_rec_form(f);
+    if (xrep) {
+        if (ixrep < nxrep && x_same_decl(xrep[ixrep], f)) f = xrep[ixrep];
+        else xrep_bad = true;
+        ixrep++;
+    }
     shadow_decl(f);
     toplevel(f);
 }
