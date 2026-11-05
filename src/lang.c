@@ -23,7 +23,7 @@ static void die(const char *m, const char *x) {
 }
 
 /* ---------------- s-expressions ---------------- */
-typedef struct Node { int list; char *s; int n; struct Node **it; char *cmt; } Node;
+typedef struct Node { int list; char *s; int n; struct Node **it; char *cmt; short hk; } Node;   /* hk: a symbol's binder/head class, once found (hk_of) */   /* hk: a symbol's binder/head class, once found (hk_of) */
 /* nodes are never freed: they come from a bump arena of zeroed chunks */
 static char *ar_p, *ar_end;
 static void *ar_alloc(size_t n) {
@@ -96,6 +96,19 @@ static Node *read_node1(void) {
     return x;
 }
 static bool is(Node *x, const char *s) { return x && !x->list && strcmp(x->s, s) == 0; }
+/* the head classes the compiler's walks dispatch on, found once per symbol node (not by a chain of
+ * strcmp at every visit) */
+enum { H_NONE = 1, H_LAM, H_PLAM, H_FORALL, H_LET, H_THE, H_CON, H_DATA, H_TRANSD, H_RECORD, H_BRANCHES, H_EQ, H_VAR, H_DIM, H_HOLE };
+static int hk_of(Node *h) {
+    if (h->list) return H_NONE;
+    if (!h->hk) {
+        static const char *nm[] = { "lam", "plam", "forall", "let", "the", "%con", "%data", "%transD", "%record", "%branches", "=", "%var", "%dim", "%hole" };
+        int k = H_NONE;
+        for (int i = 0; i < (int)(sizeof nm / sizeof *nm); i++) if (!strcmp(h->s, nm[i])) { k = H_LAM + i; break; }
+        h->hk = (short)k;
+    }
+    return h->hk;
+}
 static void print_node(FILE *o, Node *x) {
     if (!x->list) { fputs(x->s, o); return; }
     fputc('(', o);
@@ -185,15 +198,15 @@ static void free_vars(Node *t, Names *bound, Names *out) {
     if (t->n == 0) return;
     Node *h = t->it[0];
     if (!h->list) {
-        const char *k = h->s;
-        if ((!strcmp(k, "lam") || !strcmp(k, "plam") || !strcmp(k, "forall")) && t->n == 3) {
+        int hk = hk_of(h);
+        if ((hk == H_LAM || hk == H_PLAM || hk == H_FORALL) && t->n == 3) {
             int save = bound->n; names_add(bound, param_name(t->it[1])->s);
             bool added = bound->n > save;
             free_vars(t->it[2], bound, out);
             if (added) bound->n = save;
             return;
         }
-        if (!strcmp(k, "let") && t->n == 4) {
+        if (hk == H_LET && t->n == 4) {
             free_vars(t->it[2], bound, out);
             int save = bound->n; names_add(bound, t->it[1]->s);
             bool added = bound->n > save;
@@ -202,9 +215,9 @@ static void free_vars(Node *t, Names *bound, Names *out) {
             return;
         }
         int from = 1;
-        if (!strcmp(k, "%con") || !strcmp(k, "%data") || !strcmp(k, "%transD") || !strcmp(k, "%record")) from = 2;
-        if (!strcmp(k, "%branches")) from = 4;
-        if (!strcmp(k, "=")) { free_vars(t->it[1], bound, out); return; }
+        if (hk == H_CON || hk == H_DATA || hk == H_TRANSD || hk == H_RECORD) from = 2;
+        if (hk == H_BRANCHES) from = 4;
+        if (hk == H_EQ) { free_vars(t->it[1], bound, out); return; }
         for (int i = from; i < t->n; i++) free_vars(t->it[i], bound, out);
         return;
     }
@@ -1205,15 +1218,15 @@ static int maxlev(Node *t) {
         Bind *b = lookup(t->s);
         return b ? b->level : -1;
     }
-    const char *h = t->it[0]->list ? "" : t->it[0]->s;
+    int hk = t->n ? hk_of(t->it[0]) : H_NONE;
     int r = -1;
     /* a fresh variable or dimension is made each time its level runs: never lifted */
-    if (!strcmp(h, "%var") || !strcmp(h, "%dim") || !strcmp(h, "%hole")) return 1 << 30;
-    if (!strcmp(h, "lam") || !strcmp(h, "plam") || !strcmp(h, "forall")) {
+    if (hk == H_VAR || hk == H_DIM || hk == H_HOLE) return 1 << 30;
+    if (hk == H_LAM || hk == H_PLAM || hk == H_FORALL) {
         GROW(shadow, capshadow, (size_t)nshadow + 1);
         shadow[nshadow++] = t->it[1]->s; r = maxlev(t->it[2]); nshadow--; return r;
     }
-    if (!strcmp(h, "let")) {
+    if (hk == H_LET) {
         r = maxlev(t->it[2]);
         if (r >= ml_cut) return r;
         GROW(shadow, capshadow, (size_t)nshadow + 1);
@@ -1404,20 +1417,20 @@ static void local_free(Node *t, Names *bound, Names *out) {
     }
     if (t->n == 0) return;
     if (t->it[0]->list) { for (int i = 0; i < t->n; i++) local_free(t->it[i], bound, out); return; }
-    const char *h = t->it[0]->s;
-    if ((!strcmp(h, "lam") || !strcmp(h, "plam") || !strcmp(h, "forall")) && t->n == 3) {
+    int hk = hk_of(t->it[0]);
+    if ((hk == H_LAM || hk == H_PLAM || hk == H_FORALL) && t->n == 3) {
         int save = bound->n; names_add(bound, param_name(t->it[1])->s);
         local_free(t->it[2], bound, out); bound->n = save; return;
     }
-    if (!strcmp(h, "let") && t->n == 4) {
+    if (hk == H_LET && t->n == 4) {
         local_free(t->it[2], bound, out);
         int save = bound->n; names_add(bound, t->it[1]->s);
         local_free(t->it[3], bound, out); bound->n = save; return;
     }
-    if (!strcmp(h, "the") && t->n == 3) { local_free(t->it[2], bound, out); return; }
+    if (hk == H_THE && t->n == 3) { local_free(t->it[2], bound, out); return; }
     int from = 1;
-    if (!strcmp(h, "%branches")) from = 4;
-    else if (!strcmp(h, "%con") || !strcmp(h, "%data") || !strcmp(h, "%transD") || !strcmp(h, "%record")) from = 2;
+    if (hk == H_BRANCHES) from = 4;
+    else if (hk == H_CON || hk == H_DATA || hk == H_TRANSD || hk == H_RECORD) from = 2;
     for (int i = from; i < t->n; i++) local_free(t->it[i], bound, out);
 }
 /* a branch: a record whose parameters (slots 0..np-1) are the constructor's fields, hypotheses
