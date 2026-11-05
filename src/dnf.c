@@ -97,6 +97,9 @@ bool dnf_mentions(const Dnf *x, Dim i) {
 }
 Dnf *dnf_join(const Dnf *x, const Dnf *y, bool face) {
     (void)face;
+    /* units and absorbing elements: no new formula */
+    if (x->n == 0 || dnf_is_one(y)) return dnf_retain((Dnf *)y);
+    if (y->n == 0 || dnf_is_one(x)) return dnf_retain((Dnf *)x);
     Clause **a = malloc((x->n + y->n + 1) * sizeof(Clause *));
     uint32_t n = 0;
     for (uint32_t i = 0; i < x->n; i++) a[n++] = clause_retain(x->c[i]);
@@ -106,6 +109,8 @@ Dnf *dnf_join(const Dnf *x, const Dnf *y, bool face) {
     return d;
 }
 Dnf *dnf_meet(const Dnf *x, const Dnf *y, bool face) {
+    if (dnf_is_one(x) || y->n == 0) return dnf_retain((Dnf *)y);
+    if (dnf_is_one(y) || x->n == 0) return dnf_retain((Dnf *)x);
     Clause **a = malloc(((size_t)x->n * y->n + 1) * sizeof(Clause *));
     uint32_t n = 0;
     for (uint32_t i = 0; i < x->n; i++)
@@ -120,6 +125,7 @@ static Dnf *join_into(Dnf *acc, Dnf *d, bool face) { Dnf *r = dnf_join(acc, d, f
 
 /* ~(∨_c ∧_l l) = ∧_c ∨_l ~l */
 Dnf *iv_neg(const Dnf *x) {
+    if (x->n == 1 && x->c[0]->n == 1) return dnf_lit(x->c[0]->l[0] ^ 1);
     Dnf *acc = dnf_one();
     for (uint32_t i = 0; i < x->n; i++) {
         Dnf *d = dnf_zero();

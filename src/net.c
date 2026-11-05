@@ -88,8 +88,10 @@ void net_push(Cell *op, Cell *v) {
     Queue *q = &Q[myq];
     if (!net_solo) pthread_mutex_lock(&q->mu);
     if (q->len == q->cap) {
-        if (q->head > 0) { memmove(q->q, q->q + q->head, (q->len - q->head) * sizeof(Redex)); q->len -= q->head; q->head = 0; }
-        if (q->len == q->cap) { q->cap = q->cap ? q->cap * 2 : 1024; q->q = realloc(q->q, q->cap * sizeof(Redex)); }
+        /* compact only when at least half is consumed; otherwise grow (a compaction that gains a few
+         * slots would be repeated at every push) */
+        if (q->head * 2 >= q->cap && q->head > 0) { memmove(q->q, q->q + q->head, (q->len - q->head) * sizeof(Redex)); q->len -= q->head; q->head = 0; }
+        else { q->cap = q->cap ? q->cap * 2 : 1024; q->q = realloc(q->q, q->cap * sizeof(Redex)); }
     }
     q->q[q->len++] = (Redex){ op, v };
     ADD(pending, 1);
@@ -118,6 +120,9 @@ void link(Port a, Port b) {
         if (is_value(x->kind) && !is_value(y->kind)) { op = y; val = x; }
         else if (is_value(y->kind) && !is_value(x->kind)) { op = x; val = y; }
         if (op && op->kind != O_ROOT) {
+            /* one thread: nothing pops before the replacement is complete, so the pair is queued now
+             * (in the order it would have been published) */
+            if (net_solo && Q) { net_push(op, val); return; }
             /* held until the replacement creating it is complete */
             Local *l = local();
             if (l->nmade == l->capmade) { l->capmade = l->capmade ? l->capmade * 2 : 64; l->made = realloc(l->made, l->capmade * sizeof(Redex)); }
