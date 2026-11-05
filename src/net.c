@@ -2365,6 +2365,21 @@ static void rewrite(Redex r) {
         pending--;
         return;
     }
+    /* The pair may be stale: a redex is queued when its wire is made, and the cells can have been
+     * consumed by another worker's rule (and their memory reused) before it is popped. Nothing
+     * below may be read through the pair's pointers (a reference's box in particular, which is
+     * freed when its last reference goes) until the two cells are held and still wired to each
+     * other: so they are locked first, in address order, and the redex dropped if the wire is gone.
+     * The lock set is then estimated under those two locks, they are released (every lock below is
+     * taken in address order, so none may be held across it), and the set is taken and read again
+     * under all of them: a change in between fails that comparison and the whole thing restarts. */
+restart:
+    { Cell *x = o < v ? o : v, *y = o < v ? v : o; lock(x); lock(y); }
+    if (o->port[0] != P(v, 0) || v->port[0] != P(o, 0) || !is_value(v->kind) || is_value(o->kind)) {
+        unlock(o); unlock(v);
+        ADD(pending, -1);
+        return;
+    }
     int cap = o->n + v->n + 8;
     if (o->kind == O_WOP2 || o->kind == O_CLOS2) { Port p = rd(o, 1); if (p) cap += PC(p)->n; }
     if (v->kind == V_REF || v->kind == V_GLOBAL) {
@@ -2387,12 +2402,19 @@ static void rewrite(Redex r) {
             T = cap <= 64 ? buf2 : malloc((size_t)cap * sizeof(Cell *));
             continue;
         }
+        break;
+    }
+    unlock(o); unlock(v);
+    for (;;) {
         for (int i = 0; i < n; i++) lock(S[i]);
-        int m = lockset(o, v, T, cap), j = 0;
-        bool ok = m >= 0;
+        bool live = o->port[0] == P(v, 0) && v->port[0] == P(o, 0) && is_value(v->kind) && !is_value(o->kind);
+        int m = live ? lockset(o, v, T, cap) : 0, j = 0;
+        bool ok = live && m >= 0;
         for (int i = 0; i < m && ok; i++) { while (j < n && S[j] < T[i]) j++; if (j == n || S[j] != T[i]) ok = false; }
         if (ok) break;
         for (int i = n - 1; i >= 0; i--) unlock(S[i]);
+        if (cap > 64) { free(S); free(T); }
+        goto restart;
     }
     interact(o, v);
     for (int i = n - 1; i >= 0; i--) unlock(S[i]);
