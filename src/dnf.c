@@ -11,19 +11,25 @@
  */
 #include "core.h"
 #include <string.h>
+#include <pthread.h>
 
 static Dim next_dim = 1;
 Dim fresh_dim(void) { return __atomic_fetch_add(&next_dim, 1, __ATOMIC_RELAXED); }
 
 long stat_payloads;
 #define LIVE(d) cnt_add(&stat_payloads, (d))
+/* Immortal payloads: the constants 0 and 1 and every single literal (a dimension or its negation,
+ * an endpoint face) live once, made on first use and never freed; retaining or releasing one does
+ * nothing. These are most of the formulas a run makes. */
+#define IMMORTAL 0x40000000u
 static Clause *cl_new(uint32_t n) { Clause *c = malloc(sizeof(Clause) + n * sizeof(uint64_t)); c->rc = 1; c->n = n; LIVE(1); return c; }
 static Dnf *dnf_new(uint32_t n) { Dnf *d = malloc(sizeof(Dnf) + n * sizeof(Clause *)); d->rc = 1; d->n = n; LIVE(1); return d; }
-Clause *clause_retain(Clause *c) { rc_inc(&c->rc); return c; }
-void clause_release(Clause *c) { if (c && rc_dec(&c->rc) == 0) { free(c); LIVE(-1); } }
-Dnf *dnf_retain(Dnf *d) { if (d) rc_inc(&d->rc); return d; }
+static inline bool imm(const uint32_t *rc) { return (net_solo ? *rc : __atomic_load_n(rc, __ATOMIC_RELAXED)) & IMMORTAL; }   /* the bit never changes once set */
+Clause *clause_retain(Clause *c) { if (!imm(&c->rc)) rc_inc(&c->rc); return c; }
+void clause_release(Clause *c) { if (c && !imm(&c->rc) && rc_dec(&c->rc) == 0) { free(c); LIVE(-1); } }
+Dnf *dnf_retain(Dnf *d) { if (d && !imm(&d->rc)) rc_inc(&d->rc); return d; }
 void dnf_release(Dnf *d) {
-    if (d && rc_dec(&d->rc) == 0) {
+    if (d && !imm(&d->rc) && rc_dec(&d->rc) == 0) {
         for (uint32_t i = 0; i < d->n; i++) clause_release(d->c[i]);
         free(d); LIVE(-1);
     }
@@ -81,9 +87,29 @@ static Dnf *normalize(Clause **a, uint32_t n) {
     return d;
 }
 
-Dnf *dnf_zero(void) { return dnf_new(0); }
-Dnf *dnf_one(void) { Dnf *d = dnf_new(1); d->c[0] = cl_new(0); return d; }
-static Dnf *dnf_lit(uint64_t lit) { Dnf *d = dnf_new(1); d->c[0] = cl_new(1); d->c[0]->l[0] = lit; return d; }
+static Dnf *ZERO, *ONE;
+typedef struct { Dnf **t; size_t cap; } LitTab;   /* by literal, made on first use; the table is replaced whole when it grows */
+static LitTab *LT;
+static pthread_mutex_t litmu = PTHREAD_MUTEX_INITIALIZER;
+static Dnf *immortal(Dnf *d) { d->rc |= IMMORTAL; for (uint32_t i = 0; i < d->n; i++) d->c[i]->rc |= IMMORTAL; return d; }
+Dnf *dnf_zero(void) { if (!ZERO) ZERO = immortal(dnf_new(0)); return ZERO; }
+Dnf *dnf_one(void) { if (!ONE) { Dnf *d = dnf_new(1); d->c[0] = cl_new(0); ONE = immortal(d); } return ONE; }
+static Dnf *dnf_lit(uint64_t lit) {
+    LitTab *T = __atomic_load_n(&LT, __ATOMIC_ACQUIRE);
+    if (T && lit < T->cap) { Dnf *d = __atomic_load_n(&T->t[lit], __ATOMIC_ACQUIRE); if (d) return d; }
+    if (!net_solo) pthread_mutex_lock(&litmu);
+    T = LT;
+    if (!T || lit >= T->cap) {
+        size_t nc = T ? T->cap : 1024; while (nc <= lit) nc *= 2;
+        LitTab *N = malloc(sizeof(LitTab)); N->t = calloc(nc, sizeof(Dnf *)); N->cap = nc;
+        if (T) memcpy(N->t, T->t, T->cap * sizeof(Dnf *));
+        __atomic_store_n(&LT, N, __ATOMIC_RELEASE); T = N;   /* the old table is kept: a reader may hold it */
+    }
+    Dnf *d = T->t[lit];
+    if (!d) { d = dnf_new(1); d->c[0] = cl_new(1); d->c[0]->l[0] = lit; immortal(d); __atomic_store_n(&T->t[lit], d, __ATOMIC_RELEASE); }
+    if (!net_solo) pthread_mutex_unlock(&litmu);
+    return d;
+}
 Dnf *iv_atom(Dim i) { return dnf_lit(i << 1); }
 bool dnf_is_zero(const Dnf *x) { return x->n == 0; }
 bool dnf_is_one(const Dnf *x) { return x->n == 1 && x->c[0]->n == 0; }
@@ -100,23 +126,24 @@ Dnf *dnf_join(const Dnf *x, const Dnf *y, bool face) {
     /* units and absorbing elements: no new formula */
     if (x->n == 0 || dnf_is_one(y)) return dnf_retain((Dnf *)y);
     if (y->n == 0 || dnf_is_one(x)) return dnf_retain((Dnf *)x);
-    Clause **a = malloc((x->n + y->n + 1) * sizeof(Clause *));
+    Clause *buf[16], **a = x->n + y->n + 1 <= 16 ? buf : malloc((x->n + y->n + 1) * sizeof(Clause *));
     uint32_t n = 0;
     for (uint32_t i = 0; i < x->n; i++) a[n++] = clause_retain(x->c[i]);
     for (uint32_t i = 0; i < y->n; i++) a[n++] = clause_retain(y->c[i]);
     Dnf *d = normalize(a, n);
-    free(a);
+    if (a != buf) free(a);
     return d;
 }
 Dnf *dnf_meet(const Dnf *x, const Dnf *y, bool face) {
     if (dnf_is_one(x) || y->n == 0) return dnf_retain((Dnf *)y);
     if (dnf_is_one(y) || x->n == 0) return dnf_retain((Dnf *)x);
-    Clause **a = malloc(((size_t)x->n * y->n + 1) * sizeof(Clause *));
+    size_t need = (size_t)x->n * y->n + 1;
+    Clause *buf[16], **a = need <= 16 ? buf : malloc(need * sizeof(Clause *));
     uint32_t n = 0;
     for (uint32_t i = 0; i < x->n; i++)
         for (uint32_t j = 0; j < y->n; j++) a[n++] = cl_union(x->c[i], y->c[j], face);
     Dnf *d = normalize(a, n);
-    free(a);
+    if (a != buf) free(a);
     return d;
 }
 /* acc := acc ∧ d / acc ∨ d, releasing both */

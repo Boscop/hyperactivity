@@ -31,13 +31,14 @@ Cell *cell(int kind, int n) {
     }
     /* other workers read ports without locks (a lock set is read, then read again under the
      * locks), and a cell they read may be reused here: its ports are cleared atomically */
-    for (int k = 0; k < n; k++) __atomic_store_n(&c->port[k], 0, __ATOMIC_RELAXED);
+    if (net_solo) memset(c->port, 0, (size_t)n * sizeof(Port));
+    else for (int k = 0; k < n; k++) __atomic_store_n(&c->port[k], 0, __ATOMIC_RELAXED);
     c->kind = (uint16_t)kind; c->x = 0; c->ty = 0; c->a = 0; c->p = NULL; c->key = NULL; c->e = NULL;
     ADD(stat_cells, 1);
     return c;
 }
 /* the payload a cell owns */
-static bool owns_dnf(int k) { return k == O_PEND || k == V_IV || k == V_FACE || k == V_SYS || k == V_NPAPP || k == O_PAPPP || k == O_BIN2 || k == O_SYSCONS2 || k == V_NTRANS || k == O_TRANSD2 || k == O_IEQB || k == O_FEQLB; }
+static inline bool owns_dnf(int k) { switch (k) { case O_PEND: case V_IV: case V_FACE: case V_SYS: case V_NPAPP: case O_PAPPP: case O_BIN2: case O_SYSCONS2: case V_NTRANS: case O_TRANSD2: case O_IEQB: case O_FEQLB: return true; default: return false; } }
 static bool owns_subst(int k) { return k == O_SUBST; }
 static void box_release(Box *b);
 static void payload_retain(Cell *c) {
@@ -83,7 +84,24 @@ static void queues_init(int n) {
     NQ = n; Q = calloc((size_t)n, sizeof(Queue));
     for (int i = 0; i < n; i++) pthread_mutex_init(&Q[i].mu, NULL);
 }
+/* one thread: a ring of pairs (power-of-two capacity), no lock, no compaction */
+static Redex *R; static size_t Rhead, Rlen, Rcap;
+static inline void ring_push(Cell *op, Cell *v) {
+    if (Rlen == Rcap) {
+        size_t nc = Rcap ? Rcap * 2 : 4096; Redex *nr = malloc(nc * sizeof(Redex));
+        for (size_t i = 0; i < Rlen; i++) nr[i] = R[(Rhead + i) & (Rcap - 1)];
+        free(R); R = nr; Rcap = nc; Rhead = 0;
+    }
+    R[(Rhead + Rlen++) & (Rcap - 1)] = (Redex){ op, v };
+    pending++;
+}
+static inline bool ring_pop(Redex *r) {
+    if (!Rlen) return false;
+    *r = R[Rhead]; Rhead = (Rhead + 1) & (Rcap - 1); Rlen--;
+    return true;
+}
 void net_push(Cell *op, Cell *v) {
+    if (net_solo) { ring_push(op, v); return; }
     if (!Q) queues_init(1);
     Queue *q = &Q[myq];
     if (!net_solo) pthread_mutex_lock(&q->mu);
@@ -105,6 +123,7 @@ static bool pop_from(Queue *q, Redex *r) {
     return got;
 }
 static bool pop(Redex *r) {
+    if (net_solo) return ring_pop(r);
     if (!Q) queues_init(1);
     if (pop_from(&Q[myq], r)) return true;
     for (int k = 1; k < NQ; k++) if (pop_from(&Q[(myq + k) % NQ], r)) return true;
@@ -112,8 +131,11 @@ static bool pop(Redex *r) {
 }
 
 void link(Port a, Port b) {
-    if (a) __atomic_store_n(&PC(a)->port[PI(a)], b, __ATOMIC_RELEASE);
-    if (b) __atomic_store_n(&PC(b)->port[PI(b)], a, __ATOMIC_RELEASE);
+    if (net_solo) { if (a) PC(a)->port[PI(a)] = b; if (b) PC(b)->port[PI(b)] = a; }
+    else {
+        if (a) __atomic_store_n(&PC(a)->port[PI(a)], b, __ATOMIC_RELEASE);
+        if (b) __atomic_store_n(&PC(b)->port[PI(b)], a, __ATOMIC_RELEASE);
+    }
     if (a && b && PI(a) == 0 && PI(b) == 0) {
         Cell *x = PC(a), *y = PC(b);
         Cell *op = NULL, *val = NULL;
@@ -122,7 +144,7 @@ void link(Port a, Port b) {
         if (op && op->kind != O_ROOT) {
             /* one thread: nothing pops before the replacement is complete, so the pair is queued now
              * (in the order it would have been published) */
-            if (net_solo && Q) { net_push(op, val); return; }
+            if (net_solo) { ring_push(op, val); return; }
             /* held until the replacement creating it is complete */
             Local *l = local();
             if (l->nmade == l->capmade) { l->capmade = l->capmade ? l->capmade * 2 : 64; l->made = realloc(l->made, l->capmade * sizeof(Redex)); }
