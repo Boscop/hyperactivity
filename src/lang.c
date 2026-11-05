@@ -1596,7 +1596,11 @@ static Syn *compile(Node *t) {
     if (!strcmp(h, "Glue")) return compile_n(S_GLUE, t, 1, 2);
     if (!strcmp(h, "%hcompU")) { arity(t, 2); Syn *s = compile_n(S_GLUE, t, 1, 2); s->x = 1; return s; }
     if (!strcmp(h, "%unglueU")) { arity(t, 2); Syn *s = compile_n(S_UNGLUE, t, 1, 2); s->x = 1; return s; }
-    if (!strcmp(h, "glue")) return compile_n(S_GLUEV, t, 1, 2);
+    if (!strcmp(h, "glue")) {
+        /* the base is held unbuilt: where the system is total the glue value is its face's element
+         * and the base is never read (in a composition the base is a further composition) */
+        arity(t, 2); Syn *s = syn(S_GLUEV, 2); s->k[0] = compile(t->it[1]); s->k[1] = compile_lazy(t->it[2]); return s;
+    }
     if (!strcmp(h, "unglue")) return compile_n(S_UNGLUE, t, 1, 2);
     if (!strcmp(h, "%data")) {
         int d = data_lookup(t->it[1]->s);

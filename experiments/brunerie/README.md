@@ -18,14 +18,17 @@ Run from `scoped-machine/`:
 
 | driver | what it shows | measured |
 |---|---|---|
-| `run-circle.cub` | g9 on `loop` and on `loop·loop` | `t2inc (pos 1)` and `t2inc (pos 2)` |
-| `run-square.cub` | F, the η₃-on-push square through f7' | 19.4M steps without the patch, 2.4M steps with it; contains one `squash4` |
-| `run-cube4.cub` | encodeTruncS2 along a genuine `squash4` 4-cube, which exercises TL3 | does not finish in 400 s within 3 GB |
-| `run-brunerie.cub` | the number | runs out of memory (more than 6.5 GB, about 3 min); no numeral yet |
+| `run-circle.cub` | g9 on `loop` and on `loop·loop` | `t2inc (pos 1)` in 1.7k steps, `t2inc (pos 2)` in 7.5k |
+| `run-square.cub` | F, the η₃-on-push square through f7' | 45k steps; contains one `squash4` |
+| `run-cube4.cub` | encodeTruncS2 along a genuine `squash4` 4-cube, which exercises TL3 | 155M steps, 365 s (an open 3-cube, read back in full) |
+| `run-brunerie.cub` | the number | `negsuc (suc zero)`, -2, in 1.26M steps (about 3 s with the library) |
 
-The measurements were taken at commit c5aab2d. They were not re-measured after 11907e3 and 04f761c.
+Neither placeholder is evaluated on the way to the number. Measured after the Kan redesign (04f761c:
+compositions of types as a type former, generalized composition) and with the glue base held
+unbuilt; before these, on a 7 GB machine, the square and the number ran out of memory and the cube
+did not finish.
 
-The parser reads a literal `0` or `1` given as a constructor's interval argument as Nat `zero`. Bind the interval with `λ (a : I)` and apply it with `@` instead.
+The parser reads a literal `0` or `1` given as an interval argument (a constructor's, or an ordinary function's) as Nat `zero`. Bind the interval with `λ (a : I)` and apply it with `@` instead. `pE P = tE P 0` had this error: the face `i = 1` in `tE` met the numeral, and the number read as `?`.
 
 `empty-hcomp-experiment.patch`, made against c5aab2d, makes `hcompD` with an empty system reduce to its base in every data type.
 It is a stand-in for measuring only, and it is not coherent for higher inductive types: eliminating into the universe gives `Glue A []`, not `A`.
@@ -42,3 +45,12 @@ It is a stand-in for measuring only, and it is not coherent for higher inductive
    For a `lineequiv`, that contraction is itself a composition in the fibre types (Σ of a path) along the face line, one Glue level down.
    TL3 on the 4-cube nests about four such levels (retract hcomp, univalence retract, uaη, Hopf Glue), with up to 8 faces each.
    Agda instead treats a composition of types as its own type former, and transports through it using only transport along the faces.
+3. **The glue base was built eagerly.** Composition through a Glue type or a composition of types ends
+   with `glue tp base`, where `base` composes the unglued value with the fibre paths as its tube. On
+   the end's faces the system is total and `base` is never read, but it was built, and the machine
+   computes whatever is built: its tube's fibre paths composed generically one level down, whose
+   glue bases did the same. Each nesting level paid for every level below it.
+
+Causes 1 and 2 are fixed by commit 04f761c (generalized composition, which never leaves a formal
+`hcompD` on a closed point; compositions of types as their own type former, transported through by
+`%tproof`). Cause 3 is fixed by holding the glue base unbuilt.

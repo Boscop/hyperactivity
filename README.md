@@ -153,10 +153,25 @@ depends on what kind of type `A(i)` is; each case is a term in `lib/prelude.cub`
   `%tproof`: the transport fillers along the line and one composition back along it. No
   equivalence and no contractibility proof is involved, so eliminating a higher inductive type
   into the universe and transporting through the result costs transports along the face lines,
-  at every nesting depth. Transport along the double cover of the circle over a composite of `n`
-  loops costs about 70k steps per loop (`tests/codata.cub`); with compositions of types encoded
-  as Glue types over transported identity equivalences it took 31M steps at four loops and did
-  not finish at six.
+  at every nesting depth.
+
+A `glue` value's base is held unbuilt. Where the system is total (on the end's faces of a
+composition through a Glue type or a composition of types, the usual case) the value is the face's
+element and the base is never read; built, it is a further composition whose tube carries the
+fibre paths, and those compose generically one level down, so each level of nesting would pay for
+every level below it. Transport along the double cover of the circle over a composite of `n`
+loops (`tests/codata.cub`, the composites defined one on another):
+
+| loops | composed on the left | composed on the right |
+|---|---|---|
+| 4 | 4.2k steps | 5.1k |
+| 8 | 9.1k | 12.0k |
+| 16 | 19.0k | 27.0k |
+| 64 | 78.4k | 146k |
+
+With compositions of types encoded as Glue types over transported identity equivalences and the
+base built (commit 04f761c and before) the same transports took 20.5k, 46.9k and 99.8k steps on
+the left and 51.9k, 340k and 2.49M on the right at 4, 8 and 16 loops.
 
 **Data types.** One mechanism serves every declared data type, with nothing written per type:
 - moving a constructor value along a line of data types (e.g. `List A(i)`) moves each of its
@@ -381,3 +396,11 @@ reads in 36k steps, of 25 in 278k, and of 20 written out in 36k; the iterative `
 the keys registered, fired and hit on stderr, and the entries left at the end. The development of
 `Orbit.agda` (the codata types, `unfold`, `mapO`, the four corecursive maps between paths and
 bisimulations, and `(x ≡ y) ≃ (x ≈ y)`) checks in 60k steps, `iso1` (a corecursive square) in 13k.
+
+Brunerie's number, by an untyped port of Ljungström's `brunerie'` from agda/cubical
+(`experiments/brunerie/`, about 1 s in Agda), reads `negsuc (suc zero)`, that is -2, in 1.26M
+steps (about 3 s with the library); `make test` checks it with one and four workers. The pipeline
+eliminates the circle and S² into truncations, the Hopf fibration and `Code` into the universe,
+and transports through the proofs that the types of sets and of groupoids have the next h-level.
+Before compositions of types were a type former and the glue base was held unbuilt it ran out of
+7 GB of memory.
