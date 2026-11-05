@@ -29,6 +29,8 @@ test: build/cubical build/cubical-asan
 	for w in 0 4; do CUBICAL_WORKERS=$$w ./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub \
 	  experiments/brunerie/brunerie.cub experiments/brunerie/run-brunerie.cub | grep -A1 -x brunerie | grep -q "= negsuc (suc zero) " \
 	  || { echo "brunerie: not -2 with $$w workers"; exit 1; }; done; echo "brunerie = negsuc (suc zero)"
+	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub experiments/brunerie/brunerie.cub \
+	  experiments/brunerie/run-squash.cub | tail -1 | grep -q " 0 failed"
 	rm -rf build/cache-test
 	env -u CUBICAL_NOCACHE CUBICAL_CACHE=build/cache-test ./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/mod/main.cub | tail -1
 	env -u CUBICAL_NOCACHE CUBICAL_CACHE=build/cache-test ./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/mod/main.cub | grep -c "^cached: " | grep -qx 6

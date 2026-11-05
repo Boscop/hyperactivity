@@ -9,7 +9,15 @@ The port includes the h-level proofs that the pipeline evaluates:
 - `P4`: isOfHLevelΠ 4.
 - `help`: the S²ToSetElim equivalence proof.
 
-Two proofs are still placeholders, `HOLE_E4` (surfc on `squash4`) and `HOLE_SZ` (isSetℤ). If either one is evaluated, its name shows in the result.
+The two proofs that were placeholders are ported:
+- isSetℤ (`g10`'s squash₂ case) is `isSetInt` in `lib/std.cub`: Hedberg's theorem (`Discrete→isSet`)
+  over the decidable equality of ℤ, checked.
+- surfc on `squash4` is `fill4OverSets` (isOfHLevel→isOfHLevelDep 4 for a family of sets), checked in
+  `brunerie.cub`. The 3-cubes over the 4-cube's sections form a line of propositions, so the 3-cube
+  over `t` and the one over `u` are joined; it uses `isPropPathP` and `isProp→isSet` from the library.
+
+The data types `T2`, `T3` and `K2` check: a constructor field that is a path in the type itself
+(of any dimension) is strictly positive.
 
 Run from `scoped-machine/`:
 
@@ -22,8 +30,12 @@ Run from `scoped-machine/`:
 | `run-square.cub` | F, the η₃-on-push square through f7' | 45k steps; contains one `squash4` |
 | `run-cube4.cub` | encodeTruncS2 along a genuine `squash4` 4-cube, which exercises TL3 | 155M steps, 365 s (an open 3-cube, read back in full) |
 | `run-brunerie.cub` | the number | `negsuc (suc zero)`, -2, in 1.26M steps (about 3 s with the library) |
+| `run-squash.cub` | g10 on a squash₂ square; surfc on a squash₄ cube at generic dimensions, read at a corner of Ω² | `pos 1` everywhere; the cube's point (201k steps) |
 
-Neither placeholder is evaluated on the way to the number. Measured after the Kan redesign (04f761c:
+surfc on a squash₄ cube read in the interior of Ω² at generic dimensions (a 6-dimensional open term
+over K₂) did not finish within 6.5 GB.
+
+Measured after the Kan redesign (04f761c:
 compositions of types as a type former, generalized composition) and with the glue base held
 unbuilt; before these, on a 7 GB machine, the square and the number ran out of memory and the cube
 did not finish.

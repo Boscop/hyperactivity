@@ -1,6 +1,4 @@
 -- Ljungström's Brunerie number (agda/cubical BrunerieExperiments.brunerie'), untyped port.
--- HOLE_* are placeholders for proofs not yet ported: if one is ever evaluated it shows in the result. See README.md.
-postulate HOLE_E4 HOLE_SZ
 
 -- ---------------------------------------------------------------- spaces
 data S1 = base | loop (i : I) [ i = 0 ↦ base , i = 1 ↦ base ]
@@ -172,9 +170,35 @@ S2SetElim a = case a return λ y → Om2 (tinc y) of
     base2 → bOm
     surf k l → isPropToPathP (λ (i : I) → PathP (λ (j : I) → Om2 (tinc (surf i j))) bOm bOm)
                  (λ (i : I) → helperS2 (λ (m : I) → surf i m)) (λ (j : I) → bOm) (λ (j : I) → bOm) @ k @ l
+-- (checked: it has a type)
+-- a family of sets over A fills over every 4-cube of A (isOfHLevel→isOfHLevelDep 4, for sets): the
+-- 3-cubes over the 4-cube's sections, with fixed faces, form a line of propositions (each a path over a
+-- line of propositions, down to paths in a set), so the 3-cube over t and the one over u are joined
+fill4OverSets : {A : Type} → (B : A → Type) → ((a : A) → isSet (B a)) →
+  {x y : A} {p q : x ≡ y} {r s : p ≡ q} {t u : r ≡ s} → (c : t ≡ u) →
+  {b0 : B x} {b1 : B y} {bp : PathP (λ l → B (p l)) b0 b1} {bq : PathP (λ l → B (q l)) b0 b1}
+  {br : PathP (λ k → PathP (λ l → B (r k l)) b0 b1) bp bq} {bs : PathP (λ k → PathP (λ l → B (s k l)) b0 b1) bp bq} →
+  (bt : PathP (λ j → PathP (λ k → PathP (λ l → B (t j k l)) b0 b1) bp bq) br bs) →
+  (bu : PathP (λ j → PathP (λ k → PathP (λ l → B (u j k l)) b0 b1) bp bq) br bs) →
+  PathP (λ i → PathP (λ j → PathP (λ k → PathP (λ l → B (c i j k l)) b0 b1) bp bq) br bs) bt bu
+fill4OverSets {A} B setB {x} {y} {p} {q} {r} {s} {t} {u} c {b0} {b1} {bp} {bq} {br} {bs} bt bu =
+  let propDp = isPropPathP (λ l → B (q l)) (setB y) b0 b1
+      propSq = isPropPathP (λ k → PathP (λ l → B (s k l)) b0 b1) (isProp→isSet propDp) bp bq
+      propC3 = isPropPathP (λ j → PathP (λ k → PathP (λ l → B (u j k l)) b0 b1) bp bq) (isProp→isSet propSq) br bs
+  in isProp→PathP (λ i → PathP (λ j → PathP (λ k → PathP (λ l → B (c i j k l)) b0 b1) bp bq) br bs) propC3 bt bu
+-- Ω²(K₂, y) is a set at every y: squash₄ at y
+setOm2y y = λ x z p q → λ (i : I) (j : I) → λ (k : I) (l : I) →
+  squash4 y y (λ (m : I) → y) (λ (m : I) → y) x z p q i j k l
+-- surfc on squash₄: the dependent 4-cube over it, Ω² being a family of sets
 surfc x = case x return λ y → Om2 y of
     tinc a → S2SetElim a
-    squash4 x1 y1 p q r s t u i j k l → HOLE_E4 i j k l
+    squash4 x1 y1 p q r s t u i j k l →
+      fill4OverSets K2 Om2 setOm2y x1 y1 p q r s t u
+        (λ (i : I) (j : I) (k : I) (l : I) → squash4 x1 y1 p q r s t u i j k l)
+        (surfc x1) (surfc y1) (λ (m : I) → surfc (p @ m)) (λ (m : I) → surfc (q @ m))
+        (λ (m : I) (n : I) → surfc (r @ m @ n)) (λ (m : I) (n : I) → surfc (s @ m @ n))
+        (λ (m : I) (n : I) (o : I) → surfc (t @ m @ n @ o)) (λ (m : I) (n : I) (o : I) → surfc (u @ m @ n @ o))
+        @ i @ j @ k @ l
 plus2 x = rec4 (K2 → K2) P4
   (λ a → case a return λ w → K2 → K2 of base2 → (λ z → z) ; surf i j → (λ z → surfc z @ i @ j)) x
 isEquivK f = (y : K2) → Contr (fib K2 K2 f y)
@@ -199,7 +223,7 @@ encodeTruncS2 p = transp (λ (j : I) → fst (codeTruncS2 (p @ j))) (t3inc base)
 codeS1 s = (T2 (helix s) , λ a b p q → λ (i : I) (j : I) → squash2 a b p q i j)
 codeTruncS1 x = rec3 hSet TL2 codeS1 x
 encodeTruncS1 p = transp (λ (i : I) → fst (codeTruncS1 (p @ i))) (t2inc (pos zero))
-g10 x = rec2 Int HOLE_SZ (λ z → z) x
+g10 x = rec2 Int isSetInt (λ z → z) x
 
 F = λ (i : I) (j : I) → f7 (λ (k : I) → eta3push (loop i) (loop j) @ k)
 g8 = λ (i : I) → encodeTruncS2 (λ (j : I) → F @ i @ j)

@@ -221,11 +221,18 @@ params-fresh tel pvs =
     tz e → (pvs , e)
     _ → (pvs , lnil)
 is-data-d d c = case c of tdata d2 ps V → %weq d d2; _ → false
--- D itself, or D some ticks later (a guarded field): at level lzero in D's own level
+-- D itself, D some ticks later (a guarded field), or a path in D (a truncation's argument, of any
+-- dimension): at level lzero in D's own level
 later-rec d c =
   case c of
     tdata d2 ps V → %weq d d2
     tpi B nm b V → (case B of ttick k V2 → later-rec d (b (%var Uw) Uw); _ → false)
+    tpathp L x y V → later-rec-line d L
+    _ → false
+later-rec-line d L =
+  case L of
+    tplam nm b V → later-rec d (b (%dim))
+    tguess k g t V → later-rec-line d t
     _ → false
 -- the machine's data type and constructor, from the table
 mkdata d ps = app-all (dt-former (%dtab d)) ps
@@ -1292,7 +1299,16 @@ positive d pvs A =
          andb (%weq d2 d) (andb (lall (λ q → notb (cany (is-data-d d) q)) ps) (uniform-at ps pvs))
        -- a later D (guarded recursion): a field, not a recursive one (no hypothesis is taken)
        tpi B nm b V → (case B of ttick k V2 → positive d pvs (b (%var Uw) Uw); _ → false)
+       -- a path in D (a truncation's argument): a map from the interval into D, its line positive
+       -- and its endpoints elements, D not among their types
+       tpathp L x y V → 
+         andb (notb (orb (cany (is-data-d d) x) (cany (is-data-d d) y))) (positive-line d pvs L)
        _ → false)
+positive-line d pvs L =
+  case L of
+    tplam nm b V → positive d pvs (b (%dim))
+    tguess k g t V → positive-line d pvs t
+    _ → false
 earlier-only d c bdy =
   notb
     (cany (λ x → case x of tcon d2 c2 fs ds V → andb (%weq d2 d) (notb (%wlt c2 c)); _ → false) bdy)

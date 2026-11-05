@@ -2358,6 +2358,14 @@ static Node *syn_canon(Node *t) {
     return r;
 }
 static bool mentions_unknown(Node *t) { return mentions_name(t, "%?"); }
+/* the elimination a case without a motive is elaborated as, by the case node and the type expected */
+typedef struct { Node *t, *ex, *e; } CMot;
+static CMot *CM; static int ncm; static size_t capcm;
+static Node *cm_get(Node *t, Node *ex) {
+    for (int i = ncm - 1; i >= 0; i--) if (CM[i].t == t && node_eq(CM[i].ex, ex)) return CM[i].e;
+    return NULL;
+}
+static void cm_put(Node *t, Node *ex, Node *e) { GROW(CM, capcm, (size_t)ncm + 1); CM[ncm++] = (CMot){ t, ex, e }; }
 /* the type expected of the application being elaborated, when its context tells it (unknowns as %?) */
 static Node *app_expect, *syn_expect;
 /* a λ where a function is due: its body's type, the binder at the domain (NULL when not told) */
@@ -2913,13 +2921,22 @@ static Node *el(Node *t) {
     }
     if (!strcmp(k, "the") && t->n == 3) { Node *T = el(t->it[1]); syn_expect = t->it[1]; Node *e = el(t->it[2]); return sym3("the", T, e); }
     if (!strcmp(k, "case") && t->n >= 3 && ex && !mentions_unknown(ex) && !getenv("CUB_NOCASEMOTIVE")) {
-        /* the type expected: the motive, constant (its stuck values then say their type) */
-        Node *e = nlist(t->n + 1); e->it[0] = nsym("elim"); e->it[1] = sym3("lam", nsym("%cm"), ex);
-        for (int i = 1; i < t->n; i++) e->it[i + 1] = t->it[i];
+        /* the type expected: the motive, constant (its stuck values then say their type). Made once
+         * per case and expected type, so a hole in it keeps its key from one elaboration to the next */
+        Node *e = cm_get(t, ex);
+        if (!e) {
+            e = nlist(t->n + 1); e->it[0] = nsym("elim"); e->it[1] = sym3("lam", nsym("%cm"), ex);
+            for (int i = 1; i < t->n; i++) e->it[i + 1] = t->it[i];
+            cm_put(t, ex, e);
+        }
         return el_alts(e, 3);
     }
     if (!strcmp(k, "if") && t->n == 4 && ex && !mentions_unknown(ex) && !getenv("CUB_NOCASEMOTIVE") && con_lookup("true") >= 0) {
-        Node *e = lst(5, nsym("elim"), sym3("lam", nsym("%cm"), ex), t->it[1], lst(2, lst(1, nsym("true")), t->it[2]), lst(2, lst(1, nsym("false")), t->it[3]));
+        Node *e = cm_get(t, ex);
+        if (!e) {
+            e = lst(5, nsym("elim"), sym3("lam", nsym("%cm"), ex), t->it[1], lst(2, lst(1, nsym("true")), t->it[2]), lst(2, lst(1, nsym("false")), t->it[3]));
+            cm_put(t, ex, e);
+        }
         return el_alts(e, 3);
     }
     if (!strcmp(k, "case")) return el_alts(t, 2);

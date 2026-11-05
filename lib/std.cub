@@ -313,6 +313,66 @@ isProp× : {A B : Type} → isProp A → isProp B → isProp (A × B)
 isProp× pa pb = λ u v i → (pa (fst u) (fst v) i , pb (snd u) (snd v) i)
 isPropPi : {A : Type} {B : A → Type} → ((a : A) → isProp (B a)) → isProp ((a : A) → B a)
 isPropPi h = λ f g i a → h a (f a) (g a) i
+-- ---------------------------------------------------------------- sets: Hedberg's theorem
+-- a type with decidable equality is a set (agda/cubical's Discrete→isSet, through stability of
+-- its paths: a constant endofunction on each path type)
+isSet : {l : Level} → Type l → Type l
+isSet A = (a b : A) → (p q : a ≡ b) → p ≡ q
+data Dec (A : Type) = yes (a : A) | no (n : Neg A)
+Discrete : Type → Type
+Discrete A = (a b : A) → Dec (a ≡ b)
+isPropNeg : {A : Type} → isProp (Neg A)
+isPropNeg f g = λ i a → Empty-rec {lzero} {f a ≡ g a} (f a) i
+stable : {A : Type} → Dec A → Neg (Neg A) → A
+stable d h = case d of yes a → a; no n → Empty-rec (h n)
+-- the constant function on a ≡ x: the decision's path, whatever path was given
+hconst : {A : Type} → Discrete A → (a x : A) → a ≡ x → a ≡ x
+hconst d a x p = stable (d a x) (λ h → h p)
+hconst-const : {A : Type} → (d : Discrete A) → (a x : A) → (p q : a ≡ x) → hconst d a x p ≡ hconst d a x q
+hconst-const {A} d a x p q = λ i → stable (d a x) (isPropNeg {Neg (a ≡ x)} (λ h → h p) (λ h → h q) i)
+hconst-along : {A : Type} → (d : Discrete A) → (a b : A) → (p : a ≡ b) →
+               PathP (λ i → a ≡ p i) (hconst d a a (λ i → a)) (hconst d a b p)
+hconst-along d a b p = λ j → hconst d a (p j) (λ i → p (i /\ j))
+Discrete→isSet : {A : Type} → Discrete A → isSet A
+Discrete→isSet {A} d a b p q = λ j i →
+  comp (λ k → A)
+    (λ k → [ i = 0 ↦ hconst d a a (λ m → a) k , i = 1 ↦ hconst-const d a b p q j k
+           , j = 0 ↦ hconst-along d a b p i k , j = 1 ↦ hconst-along d a b q i k ]) a
+-- propositions are sets; a path over a line of types ending in a set is a proposition (the line of
+-- types from PathP P p q to the path type at the end, agda/cubical's PathP≡Path)
+isProp→isSet : {A : Type} → isProp A → isSet A
+isProp→isSet {A} h a b p q = λ j i →
+  comp (λ k → A)
+    (λ k → [ i = 0 ↦ h a a k , i = 1 ↦ h a b k , j = 0 ↦ h a (p i) k , j = 1 ↦ h a (q i) k ]) a
+PathP≡Path : {A0 A1 : Type} → (P : A0 ≡ A1) → (p : A0) → (q : A1) → PathP P p q ≡ Path A1 (transport P p) q
+PathP≡Path P p q = λ i → PathP (λ j → P (i \/ j)) (comp (λ j → P (i /\ j)) (λ j → [ i = 0 ↦ p ]) p) q
+isPropPathP : {A0 A1 : Type} → (P : A0 ≡ A1) → isSet A1 → (p : A0) → (q : A1) → isProp (PathP P p q)
+isPropPathP {A0} {A1} P s p q =
+  transport {lzero} {isProp (Path A1 (transport P p) q)} {isProp (PathP P p q)}
+    (λ i → isProp (PathP≡Path P p q (~ i))) (s (transport P p) q)
+-- Nat and Int have decidable equality
+isPosZ : Int → Type
+isPosZ z = case z of pos n → Unit; negsuc n → Empty
+unposZ : Int → Nat
+unposZ z = case z of pos n → n; negsuc n → n
+dec-suc : {m n : Nat} → Dec (m ≡ n) → Dec (suc m ≡ suc n)
+dec-suc d = case d of yes p → yes (λ i → suc (p i)); no ne → no (λ p → ne (λ i → predN (p i)))
+dec-pos : {m n : Nat} → Dec (m ≡ n) → Dec (pos m ≡ pos n)
+dec-pos d = case d of yes p → yes (λ i → pos (p i)); no ne → no (λ p → ne (λ i → unposZ (p i)))
+dec-negsuc : {m n : Nat} → Dec (m ≡ n) → Dec (negsuc m ≡ negsuc n)
+dec-negsuc d = case d of yes p → yes (λ i → negsuc (p i)); no ne → no (λ p → ne (λ i → unposZ (p i)))
+discreteNat : (a b : Nat) → Dec (a ≡ b)
+discreteNat zero zero = yes (λ i → zero)
+discreteNat zero (suc n) = no (λ p → snotz {n} (λ i → p (~ i)))
+discreteNat (suc m) zero = no (λ p → snotz {m} p)
+discreteNat (suc m) (suc n) = dec-suc (discreteNat m n)
+discreteInt : (a b : Int) → Dec (a ≡ b)
+discreteInt (pos m) (pos n) = dec-pos (discreteNat m n)
+discreteInt (pos m) (negsuc n) = no (λ p → comp (λ i → isPosZ (p i)) (λ i → []) unit)
+discreteInt (negsuc m) (pos n) = no (λ p → comp (λ i → isPosZ (p (~ i))) (λ i → []) unit)
+discreteInt (negsuc m) (negsuc n) = dec-negsuc (discreteNat m n)
+isSetInt : isSet Int
+isSetInt = Discrete→isSet discreteInt
 -- decidable equality on Nat, and cancellation
 eqb : Nat → Nat → Bool
 eqb m n =

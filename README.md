@@ -127,6 +127,9 @@ Besides functions, pairs and data, values are: the interval (`0`, `1`, dimension
 `\/`, kept in normal form), paths (a value with a dimension abstracted), faces (conditions on
 dimensions), partial values (systems), composition, Glue types and their elements, compositions
 of types and their elements, and higher inductive types (data types with path constructors).
+A constructor's field may be a path in the type itself, of any dimension (the truncations'
+arguments: `squash (x y : T) (p q : x ≡ y) (i j : I)`); such a field is a map from the interval into
+the type, so it is strictly positive, and the checker accepts it.
 
 **Partial values.** `[ i = 0 ↦ a , i = 1 ↦ b ]` is a value defined only where its faces hold.
 Each branch is kept unbuilt, as syntax with its environment, and is built with its face's
@@ -399,7 +402,9 @@ bisimulations, and `(x ≡ y) ≃ (x ≈ y)`) checks in 60k steps, `iso1` (a cor
 
 Brunerie's number, by an untyped port of Ljungström's `brunerie'` from agda/cubical
 (`experiments/brunerie/`, about 1 s in Agda), reads `negsuc (suc zero)`, that is -2, in 1.26M
-steps (about 3 s with the library); `make test` checks it with one and four workers. The pipeline
+steps (about 3 s with the library); `make test` checks it with one and four workers. The port has no
+placeholders: isSetℤ is Hedberg's theorem in the library, and the 4-truncation case of the Hopf
+H-space structure is a checked filler over families of sets. The pipeline
 eliminates the circle and S² into truncations, the Hopf fibration and `Code` into the universe,
 and transports through the proofs that the types of sets and of groupoids have the next h-level.
 Before compositions of types were a type former and the glue base was held unbuilt it ran out of
