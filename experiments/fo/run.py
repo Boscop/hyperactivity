@@ -24,9 +24,12 @@ zl = fromopt (rule-of (gidx (code plusw-zero-l))) (rule #0 cword cword)
 spec-id = specialize (Word → Word) (lcons zl lnil) (clam (capp (capp (code plusw) (cwlit #0)) (cvar #0)))
 #same spec-id = flam (fvar #0)
 defs = lcons (#0 , (#0 , fcall #1 (lcons (flit #7) lnil))) (lcons (#1 , (#1 , lam-body spec-id)) lnil)""", "7"),
+ # an assumed fact (a validity fact a certificate established, lib/lin.cub) printed as ASSUME:
+ # the C compiler is told what the checker knows
+ 'assume': ("""defs = lcons (#0 , (#0 , flet (flit #3) (fassume (cwop #1 (cvar #0) (cwlit #10)) (fprim P-mul (lcons (fvar #0) (lcons (fvar #0) lnil)))))) lnil""", "9", "ASSUME((v0->n < 10))"),
  'let-if': ("""defs = lcons (#0 , (#0 , flet (flit #3) (fif (fprim P-lt (lcons (fvar #0) (lcons (flit #5) lnil))) (fprim P-mul (lcons (fvar #0) (lcons (fvar #0) lnil))) (flit #0)))) lnil""", "9"),
 }
-def run(name, defs, expect):
+def run(name, defs, expect, contains=None):
     with tempfile.TemporaryDirectory() as d:
         cub = os.path.join(d, name + '.cub')
         open(cub, 'w').write(defs + "\n#show emit-prog defs\n")
@@ -39,8 +42,8 @@ def run(name, defs, expect):
         cc = subprocess.run(['gcc', '-O2', '-w', '-o', exe, c], capture_output=True, text=True)
         if cc.returncode: print(name, 'FAIL: gcc'); print(cc.stderr[:800]); print(bs.decode()); return False
         got = subprocess.run([exe], capture_output=True, text=True).stdout.strip()
-        ok = got == expect
-        print(name, 'ok' if ok else f'FAIL: got {got}, expected {expect}')
+        ok = got == expect and (contains is None or contains.encode() in bs)
+        print(name, 'ok' if ok else f'FAIL: got {got}, expected {expect}' + ('' if contains is None or contains.encode() in bs else f'; {contains!r} not in the source'))
         if not ok: print(bs.decode())
         return ok
 if __name__ == '__main__':
