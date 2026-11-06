@@ -401,7 +401,7 @@ determines is the one clock in scope. A recursive call needed now is reported wh
 
 ## 9. Programs about programs: the first-order form, matching, navigation, certificates
 
-Four libraries over codes, each untyped data as `lib/code.cub` is and loaded before the checker,
+Six libraries over codes, each untyped data as `lib/code.cub` is and loaded before the checker (two after it),
 each with its readings in `make test`:
 
 - **`lib/fo.cub`**, the first-order form. A program with no types, paths, dimensions or universes in
@@ -430,6 +430,38 @@ each with its readings in `make test`:
   Farkas certificate (nonnegative multipliers of hypotheses `l ≤ r`) verified by `check-cert`, and a
   bounded search whose answer is checked before use. The reading is a decoder's obligation
   `off + 4 ≤ n` from `off ≤ i` and `i + 8 ≤ n`.
+- **`lib/rules.cub`** (after the checker and `lib/std.cub`), the store's identities as rules. A
+  checked definition whose type is `Π x1 … xk. l ≡ r` is read through `quote-ty`; `rule-of` makes
+  `l → r` with the binders as metavariables, `view-of` a navigation view from named theorems. The
+  endpoints come from the type's value, so they are in normal form, as the specializer's terms are:
+  `plus-assoc` rewrites the normal form of `(a+b)+c` to that of `a+(b+c)`, navigation reaches it in
+  one step, and `plus-zero` is consumed by the specializer so that what is lowered is the identity;
+  `run.py`'s `law` case takes `plusw-zero-l` through the specializer to a compiled identity, and its
+  `assume` case prints an assumed fact as `ASSUME(expr)` for the C compiler.
+
+Four more are typed, loaded after `lib/std.cub`, and are theorems the machine checks: the method of
+reflection, where a decision procedure is a term, its soundness is checked once, and each use is an
+evaluation.
+
+- **`lib/linproof.cub`**: the linear normalizer over words with `same-norm-eq` (equal normal forms,
+  equal values), order as a witnessed sum, and `cert-sound`: a Farkas certificate that checks
+  proves `a ≤ b` wherever the hypotheses hold. Multiples are repeated addition, so no multiplication
+  law enters; the order check is an equality test on `f + (g − f)`, so the subtraction need not be
+  verified.
+- **`lib/eqproof.cub`**: equality certificates over uninterpreted functions. A certificate is a
+  trace of steps (position, hypothesis, direction, substitution); `eq-cert-sound`: a trace that
+  checks proves `s = t` in every model where the schematic hypotheses hold at every valuation.
+  `find-trace` searches (unverified) and what it finds is checked.
+- **`lib/ring.cub`**: the commutative semiring of `Nat` decided by reflection. Expressions
+  normalize to sorted sums of monomials; `ring-eq : norm a ≡ norm b → xeval e a ≡ xeval e b` from
+  the semiring laws of `lib/std.cub`. `(x+1)² = x²+2x+1` is a theorem at every valuation with the
+  proof term a constant path, one evaluation of the normalizer; a non-identity is rejected.
+- **`lib/autodiff.cub`**: `D` the symbolic derivative over polynomial codes, `fwd` forward-mode
+  differentiation by dual numbers, `fwd-der` (they agree), and `taylor`: `p(x+h) = p(x) + h·p'(x) +
+  h²·q` with `q` computed, each inductive step a ring identity discharged by the normalizer.
+
+Every top-level name in `lib/` is unique (`tools/names.py`, first in `make test`): a later module's
+name rebinds the references of every module parsed after it.
 
 ## Measurements
 
