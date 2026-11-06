@@ -188,7 +188,7 @@ static bool at(const char *s) { return x_is(P0(), s); }
 static void want(const char *s) { if (!at(s)) { char m[64]; snprintf(m, sizeof m, "expected %s, found", s); x_err(m, P0()); } NX(); }
 static void wantk(int k, const char *what) { if (P0()->k != k) { char m[64]; snprintf(m, sizeof m, "expected %s, found", what); x_err(m, P0()); } NX(); }
 static const char *RESERVED[] = { "=", ":", "→", "λ", "↦", "|", "of", "where", "let", "in", "if", "then", "else", "case", "return",
-    "data", "codata", "record", "mutual", "postulate", "import", "infix", "infixl", "infixr", "by", "calc", "∀", "decreasing", "using", "▸", "primitive", ":0", ":1", NULL };
+    "data", "codata", "record", "mutual", "postulate", "import", "infix", "infixl", "infixr", "by", "calc", "∀", "decreasing", "using", "▸", "primitive", ":0", ":1", "represent", NULL };
 static bool reserved(const char *s) { for (int i = 0; RESERVED[i]; i++) if (!strcmp(RESERVED[i], s)) return true; return false; }
 static int nfresh_x;
 static Node *xfresh(const char *p) { char b[32]; snprintf(b, sizeof b, "%%%s%d", p, nfresh_x++); return nsym(b); }
@@ -1088,6 +1088,59 @@ static void p_decl(void) {
         x_primitive(nm, tick, sig, b, nt);
         decl_end(); return;
     }
+    if (x_is(t, "represent")) {
+        /* represent T by R where ... (plan B12): a representation of the data type T by the type R: the
+         * equivalence (to, from, to-from, from-to) and, per operation on T to run natively, op f : A
+         * = native by law = proof. Each line is a checked definition named T·R·name (to and from are
+         * so renamed in the later lines); the table's entry is (represent T R). `represent T by auto`
+         * states that the automatic layout is meant: no definitions */
+        NX();
+        Tok *tn = NX(); if (tn->k != X_ID) x_err("represent names a data type, found", tn);
+        const char *T = strdup(tn->s);
+        while (P0()->k == X_ID && !x_is(P0(), "by")) NX();   /* the data type's parameters, named for reading */
+        want("by");
+        if (x_is(P0(), "auto")) { NX(); decl_end(); return; }
+        Node *R = p_expr(0);
+        Node *Rh = R; while (Rh->list && Rh->n > 0) Rh = Rh->it[0];
+        char pre[256]; snprintf(pre, sizeof pre, "%s·%s·", T, Rh->s);
+        bool have[4] = { false, false, false, false }; static const char *LAWS[4] = { "to", "from", "to-from", "from-to" };
+        const char *qto = NULL, *qfrom = NULL;
+        if (!x_typed) x_err("represent needs the checker (the laws are checked):", tn);
+        int fail0 = failures, pass0 = passes;   /* under #fail: some definition of the block is rejected */
+        if (x_is(P0(), "where")) {
+            NX(); wantk(X_VO, "a block of definitions");
+            while (P0()->k != X_VC) {
+                bool op = x_is(P0(), "op"); if (op) NX();
+                Tok *fn = NX(); if (fn->k != X_ID) x_err("a representation's definition names something, found", fn);
+                char *qn = malloc(strlen(pre) + strlen(fn->s) + 8); sprintf(qn, "%s%s%s", pre, op ? "op·" : "", fn->s);
+                want(":"); Node *sig = p_expr(0); want("="); Node *body = p_expr(0);
+                if (qto) { sig = x_rename(sig, "to", qto); body = x_rename(body, "to", qto); }
+                if (qfrom) { sig = x_rename(sig, "from", qfrom); body = x_rename(body, "from", qfrom); }
+                tsig.np = 0; x_checked(qn, sig, body, true, 0, 0);
+                if (op) {
+                    if (!x_is(P0(), "by")) x_err("an op needs its law, by ... = ...: in", fn);
+                    NX(); Node *law = p_expr(0); want("="); Node *prf = p_expr(0);
+                    if (qto) { law = x_rename(law, "to", qto); prf = x_rename(prf, "to", qto); }
+                    if (qfrom) { law = x_rename(law, "from", qfrom); prf = x_rename(prf, "from", qfrom); }
+                    char *qb = malloc(strlen(qn) + 8); sprintf(qb, "%s·by", qn);
+                    tsig.np = 0; x_checked(qb, law, prf, true, 0, 0);
+                } else {
+                    for (int k = 0; k < 4; k++) if (!strcmp(fn->s, LAWS[k])) have[k] = true;
+                    if (!strcmp(fn->s, "to")) qto = qn; else if (!strcmp(fn->s, "from")) qfrom = qn;
+                }
+                if (P0()->k == X_VS || P0()->k == X_SEMI) NX(); else if (P0()->k != X_VC) x_err("expected a new definition of the representation, found", P0());
+            }
+            NX();
+        }
+        for (int k = 0; k < 4; k++) if (!have[k]) { char m[128]; snprintf(m, sizeof m, "a representation gives %s (the equivalence and its two laws), missing in", LAWS[k]); x_err(m, tn); }
+        if (fail) {
+            bool rejected = failures > fail0;
+            failures = fail0; passes = pass0;
+            if (rejected) passes++; else failures++;
+            printf("%s: rejected represent %s by %s\n", rejected ? "ok" : "FAIL", T, Rh->s);
+        } else x_top(sym3("represent", nsym(T), core(R)));
+        decl_end(); return;
+    }
     if (x_is(t, "postulate")) {
         NX();
         wantk(X_VO, "a block of postulates");
@@ -1106,6 +1159,14 @@ static void p_decl(void) {
     }
     if (x_is(t, "#show")) { NX(); x_test("show", x_solve_expr(p_expr(0)), NULL); decl_end(); return; }
     if (x_is(t, "#usage")) { NX(); Tok *n = NX(); x_top(sym2("usage", nsym(n->s))); decl_end(); return; }
+    if (x_is(t, "#trusted")) { NX(); x_top(lst(1, nsym("trusted"))); decl_end(); return; }
+    if (x_is(t, "#layout")) {
+        /* #layout T [as R]: the layout of a type by its first representation, or by the named one */
+        NX(); Tok *n = NX(); Node *r = NULL;
+        if (x_is(P0(), "as")) { NX(); r = p_expr(0); }
+        x_top(r ? sym3("layout", nsym(n->s), core(r)) : sym2("layout", nsym(n->s)));
+        decl_end(); return;
+    }
     if (x_is(t, "#observe")) { NX(); Tok *n = NX(); x_test("observe", nsym(n->s), x_solve_expr(p_expr(0))); decl_end(); return; }
     if (x_is(t, "#same")) { NX(); Node *a = p_expr(0); want("="); Node *b = p_expr(0); x_test("same", x_solve_expr(a), x_solve_expr(b)); decl_end(); return; }
     if (x_is(t, "#check")) {

@@ -34,6 +34,7 @@ test: build/cubical build/cubical-asan
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/recursion.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub lib/derive.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/guarded.cub
+	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub lib/prim.cub tests/prim.cub
 	# Brunerie's number (Ljungström's brunerie', an untyped port): -2, with one and with four workers
 	for w in 0 4; do CUBICAL_WORKERS=$$w ./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub \
 	  experiments/brunerie/brunerie.cub experiments/brunerie/run-brunerie.cub | grep -A1 -x brunerie | grep -q "= negsuc (suc zero) " \
@@ -53,7 +54,8 @@ test: build/cubical build/cubical-asan
 	# depends on the order of the rewrites, so its count can)
 	set -e; for s in "tests/cubical.cub" "lib/code.cub tests/code.cub" "tests/hit.cub" "tests/memo.cub" \
 	    "lib/code.cub lib/check.cub tests/check.cub" "lib/code.cub lib/check.cub lib/std.cub tests/reject.cub tests/quote.cub" \
-	    "lib/code.cub lib/check.cub lib/std.cub tests/codata.cub" "lib/code.cub lib/check.cub lib/std.cub tests/guarded.cub"; do \
+	    "lib/code.cub lib/check.cub lib/std.cub tests/codata.cub" "lib/code.cub lib/check.cub lib/std.cub tests/guarded.cub" \
+	    "lib/code.cub lib/check.cub lib/std.cub lib/prim.cub tests/prim.cub"; do \
 	  CUBICAL_NOMEMO=1 CUBICAL_WORKERS=0 ./build/cubical lib/prelude.cub $$s > build/workers-0.out; \
 	  for w in 1 2 4 8 16; do CUBICAL_NOMEMO=1 CUBICAL_WORKERS=$$w ./build/cubical lib/prelude.cub $$s > build/workers-$$w.out; \
 	    cmp -s build/workers-0.out build/workers-$$w.out || { echo "differs with $$w workers: $$s"; diff build/workers-0.out build/workers-$$w.out | head; exit 1; }; done; \

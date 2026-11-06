@@ -6,6 +6,9 @@
 -- question about the evaluator is a term.
 data Lst = lnil | lcons x xs
 data Opt = none | some x
+-- a layout (plan B12): first-order data the checker computes for a type and the back end reads;
+-- a struct's fields and a union's alternatives are chains in the type itself, ending in lnone
+data Layout = lword | lbytes n | lptr target | larray n elem | lstruct fields | lunion alts | lnone | lfield name layout align rest | lalt layout rest
 data Code
   = cvar n
   | cglob n
@@ -55,6 +58,8 @@ data Code
   | clmax a b
   | cword
   | cwlit n
+  | cpty k n
+  | cplit k b
   | cwsucc a
   | cwop k a b
   | cwelim w z s
@@ -99,6 +104,9 @@ data View
   | wother
   | wword
   | wwlit n
+  | wpty k n
+  | wplit k b
+  | wbytes n
   | wwplus k x
   | wwop k a b
   | wwelim x z s
@@ -181,6 +189,8 @@ eval-g e c =
     clmax a b → lmax (eval-g e a) (eval-g e b)
     cword → Word
     cwlit n → n
+    cpty k n → (if %weq k #4 then %bytesty (eval-g e n) else %pty k)
+    cplit k b → %pval k b
     cwsucc a → %wsucc (eval-g e a)
     cwop k a b → 
       let x = eval-g e a

@@ -1,0 +1,65 @@
+-- prim.cub — primitive types and operations (plan B12): the machine's fixed-width numbers and byte
+-- strings, as constants of the type theory. Each is a `primitive`: its type is checked, its
+-- computation is the machine's (trusted), and `#trusted` lists it. Loaded after lib/std.cub.
+--
+-- A primitive value prints as #i64:n, #u32:n, #f64:x, #bytes:n:..., and is made only by these
+-- operations (there are no literals): i64 #5 is the Int64 5.
+
+-- ---------------------------------------------------------------- the types
+primitive Int64 : Type = %pty #0
+primitive UInt32 : Type = %pty #1
+primitive Float64 : Type = %pty #2
+primitive Float32 : Type = %pty #3
+primitive Bytes : Nat → Type = λ n → %bytesty n
+
+-- ---------------------------------------------------------------- integers, modular (two's complement)
+primitive i64 : Word → Int64 = λ w → %i64ofw w
+primitive i64toWord : Int64 → Word = λ a → %wofi64 a
+primitive i64add : Int64 → Int64 → Int64 = λ a b → %i64add a b
+primitive i64sub : Int64 → Int64 → Int64 = λ a b → %i64sub a b
+primitive i64mul : Int64 → Int64 → Int64 = λ a b → %i64mul a b
+primitive i64eq : Int64 → Int64 → Bool = λ a b → %i64eq a b
+primitive i64lt : Int64 → Int64 → Bool = λ a b → %i64lt a b
+primitive u32 : Word → UInt32 = λ w → %u32ofw w
+primitive u32toWord : UInt32 → Word = λ a → %wofu32 a
+primitive u32add : UInt32 → UInt32 → UInt32 = λ a b → %u32add a b
+primitive u32sub : UInt32 → UInt32 → UInt32 = λ a b → %u32sub a b
+primitive u32mul : UInt32 → UInt32 → UInt32 = λ a b → %u32mul a b
+primitive u32eq : UInt32 → UInt32 → Bool = λ a b → %u32eq a b
+primitive u32lt : UInt32 → UInt32 → Bool = λ a b → %u32lt a b
+
+-- ---------------------------------------------------------------- floating point (IEEE 754 binary64; no
+-- specification in the language yet: wholly trusted, listed by #trusted)
+primitive f64 : Word → Float64 = λ w → %f64ofw w
+primitive f64ofi64 : Int64 → Float64 = λ a → %f64ofi64 a
+primitive i64off64 : Float64 → Int64 = λ a → %i64off64 a
+primitive f64add : Float64 → Float64 → Float64 = λ a b → %f64add a b
+primitive f64sub : Float64 → Float64 → Float64 = λ a b → %f64sub a b
+primitive f64mul : Float64 → Float64 → Float64 = λ a b → %f64mul a b
+primitive f64div : Float64 → Float64 → Float64 = λ a b → %f64div a b
+primitive f64eq : Float64 → Float64 → Bool = λ a b → %f64eq a b
+primitive f64lt : Float64 → Float64 → Bool = λ a b → %f64lt a b
+
+-- ---------------------------------------------------------------- the byte layer: a string of n bytes,
+-- loads and stores at an offset with the proof that they fit (le (plus off w) n, from lib/std.cub);
+-- a store is a copy with the value written
+primitive bytes : (n : Nat) → Bytes n = λ n → %bytes n
+primitive load32 : (n : Nat) → (b : Bytes n) → (off : Nat) → le (plus off 4) n → UInt32 = λ n b off pf → %load32 b off
+primitive store32 : (n : Nat) → (b : Bytes n) → (off : Nat) → le (plus off 4) n → UInt32 → Bytes n = λ n b off pf v → %store32 b off v
+primitive load64 : (n : Nat) → (b : Bytes n) → (off : Nat) → le (plus off 8) n → Int64 = λ n b off pf → %load64 b off
+primitive store64 : (n : Nat) → (b : Bytes n) → (off : Nat) → le (plus off 8) n → Int64 → Bytes n = λ n b off pf v → %store64 b off v
+
+-- Layouts (data Layout, lib/code.cub) are computed by the checker: #layout T, or #layout T as R.
+
+-- ---------------------------------------------------------------- Nat by Word: the numerals' mechanism as a
+-- representation (plan B12 2.2): addition on words is addition on numbers across the equivalence
+toNat-plusw : (a b : Nat) → toNat (plusw (fromNat a) (fromNat b)) ≡ plus a b
+toNat-plusw a b = case b return (λ y → toNat (plusw (fromNat a) (fromNat y)) ≡ plus a y) of
+    zero → concat (toNat-fromNat a) (sym (plus-zero a))
+    suc k → concat (λ i → suc (rec k i)) (sym (plus-suc a k))
+represent Nat by Word where
+  to : Nat → Word = fromNat
+  from : Word → Nat = toNat
+  to-from : (w : Word) → to (from w) ≡ w = fromNat-toNat
+  from-to : (n : Nat) → from (to n) ≡ n = toNat-fromNat
+  op plus : Word → Word → Word = plusw by (a b : Nat) → from (plusw (to a) (to b)) ≡ plus a b = toNat-plusw
