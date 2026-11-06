@@ -18,10 +18,8 @@ typedef struct { Cell *op, *v; } Redex;
 typedef struct Local { Cell *free[MAXFREE + 1]; Cell *defer; Redex *made; size_t nmade, capmade; struct Box **dead; size_t ndead, capdead; long steps, kind[K_END], cells; struct Local *next; } Local;
 static __thread Local *L;
 static Local *ALL; static pthread_mutex_t allmu = PTHREAD_MUTEX_INITIALIZER;
-static Local *local(void) {
-    if (!L) { L = calloc(1, sizeof(Local)); pthread_mutex_lock(&allmu); L->next = ALL; ALL = L; pthread_mutex_unlock(&allmu); }
-    return L;
-}
+static Local *local_make(void) { L = calloc(1, sizeof(Local)); pthread_mutex_lock(&allmu); L->next = ALL; ALL = L; pthread_mutex_unlock(&allmu); return L; }
+static inline Local *local(void) { return L ? L : local_make(); }
 /* the counts over every thread, into the globals a reading reports (threads are parked when read) */
 void stat_gather(void) {
     long st = 0, cells = 0; static long kinds[K_END];
@@ -81,13 +79,24 @@ static Cell *clone(const Cell *v) { Cell *c = cell(v->kind, v->n); c->x = v->x; 
 /* a wire is published with release and read with acquire, so a cell is
  * initialized before any thread reaching it through a wire touches it */
 static inline Port rd(Cell *c, int k) { return __atomic_load_n(&c->port[k], __ATOMIC_ACQUIRE); }
+/* A cell's lock word holds its holder's tag (1 + the worker's queue index), so a holder meeting a
+ * cell it already holds passes (a lock set may name a cell twice), and an unlock releases only a
+ * cell this holder holds (the second unlock of a cell named twice does nothing). */
+static __thread uint32_t mytag = 1;
 static void lock(Cell *c) {
     if (net_solo) return;
-    while (__atomic_exchange_n(&c->lk, 1, __ATOMIC_ACQUIRE))
+    for (;;) {
+        uint32_t z = 0;
+        if (__atomic_compare_exchange_n(&c->lk, &z, mytag, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) return;
+        if (z == mytag) return;
         while (__atomic_load_n(&c->lk, __ATOMIC_RELAXED)) __builtin_ia32_pause();
+    }
 }
-static void unlock(Cell *c) { if (!net_solo) __atomic_store_n(&c->lk, 0, __ATOMIC_RELEASE); }
-static inline bool trylock(Cell *c) { return !__atomic_exchange_n(&c->lk, 1, __ATOMIC_ACQUIRE); }
+static void unlock(Cell *c) { if (!net_solo) { uint32_t t = mytag; __atomic_compare_exchange_n(&c->lk, &t, 0, false, __ATOMIC_RELEASE, __ATOMIC_RELAXED); } }
+static inline bool trylock(Cell *c) {
+    uint32_t z = 0;
+    return __atomic_compare_exchange_n(&c->lk, &z, mytag, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED) || z == mytag;
+}
 
 /* ---------------- active pairs: per-worker queues ----------------
  * Each worker owns a queue it pushes to; any worker pops from any queue (its own first). A queue is
@@ -2384,10 +2393,6 @@ static void interact(Cell *o, Cell *v) {
  * neighbours; for a definition, the cell holding its value and that value's
  * cell), in address order; revalidate that the neighbours are unchanged;
  * rewrite; release; then retire the consumed cells. */
-static int cell_cmp(const void *x, const void *y) {
-    uintptr_t a = (uintptr_t)*(Cell *const *)x, b = (uintptr_t)*(Cell *const *)y;
-    return a < b ? -1 : a > b;
-}
 /* the cells to lock, sorted and distinct; when they do not fit in cap, minus the number needed (the
  * stored value read without locks may have been replaced by a larger one since cap was estimated) */
 static int lockset(Cell *o, Cell *v, Cell **S, int cap) {
@@ -2417,10 +2422,7 @@ static int lockset(Cell *o, Cell *v, Cell **S, int cap) {
 #undef ADDPARTS
 #undef ADDC
     if (n > cap) return -n;
-    /* distinct (a cell is locked once); the order no longer matters */
-    int m = 0;
-    for (int i = 0; i < n; i++) { bool seen = false; for (int j = 0; j < m; j++) if (S[j] == S[i]) { seen = true; break; } if (!seen) S[m++] = S[i]; }
-    return m;
+    return n;   /* a cell may be named twice: the locks are held by tag, so that is harmless */
 }
 static void rewrite(Redex r) {
     Cell *o = r.op, *v = r.v;
@@ -2493,7 +2495,7 @@ static pthread_mutex_t wmu = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t wcv = PTHREAD_COND_INITIALIZER, pcv = PTHREAD_COND_INITIALIZER;
 static int running, parked;
 static void *worker(void *arg) {
-    myq = (int)(intptr_t)arg;
+    myq = (int)(intptr_t)arg; mytag = (uint32_t)myq + 1;
     for (;;) {
         if (!__atomic_load_n(&running, __ATOMIC_ACQUIRE)) {
             pthread_mutex_lock(&wmu);
