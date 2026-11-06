@@ -111,8 +111,8 @@ lin-add : LinT → LinT → LinT
 lin-add f g =
   case f return (λ w → LinT) of
     lint k cs → (case g return (λ w → LinT) of lint m ds → lint (plusw k m) (coef-add cs ds))
-normalize : LinCode → LinT
-normalize c =
+lnorm : LinCode → LinT
+lnorm c =
   case c return (λ w → LinT) of
     lc-lit n → lint n cnil
     lc-var v → lint #0 (ccons v #1 cnil)
@@ -177,17 +177,17 @@ lsem-add e f g =
 -- the normal form denotes the code's value
 norm-var : (e : Env) (v : Word) → plusw #0 (plusw (mulw #1 (e v)) #0) ≡ e v
 norm-var e v = catw (plusw-zero-l (plusw (mulw #1 (e v)) #0)) (plusw-zero-l (e v))
-norm-add : (e : Env) (a b : LinCode) → lsem e (normalize a) ≡ wev e a → lsem e (normalize b) ≡ wev e b →
-           lsem e (normalize (lc-add a b)) ≡ wev e (lc-add a b)
-norm-add e a b ha hb = catw (lsem-add e (normalize a) (normalize b)) (cong2w (λ z w → plusw z w) ha hb)
-norm-suc : (e : Env) (a : LinCode) → lsem e (normalize a) ≡ wev e a → lsem e (normalize (lc-suc a)) ≡ wev e (lc-suc a)
+norm-add : (e : Env) (a b : LinCode) → lsem e (lnorm a) ≡ wev e a → lsem e (lnorm b) ≡ wev e b →
+           lsem e (lnorm (lc-add a b)) ≡ wev e (lc-add a b)
+norm-add e a b ha hb = catw (lsem-add e (lnorm a) (lnorm b)) (cong2w (λ z w → plusw z w) ha hb)
+norm-suc : (e : Env) (a : LinCode) → lsem e (lnorm a) ≡ wev e a → lsem e (lnorm (lc-suc a)) ≡ wev e (lc-suc a)
 norm-suc e a ha =
-  catw (lsem-add e (lint #1 cnil) (normalize a))
+  catw (lsem-add e (lint #1 cnil) (lnorm a))
     (catw (congw (λ z → plusw #1 z) ha)
       (catw (plusw-suc-l #0 (wev e a)) (congw (λ z → %wsucc z) (plusw-zero-l (wev e a)))))
-norm-sound : (e : Env) (c : LinCode) → lsem e (normalize c) ≡ wev e c
+norm-sound : (e : Env) (c : LinCode) → lsem e (lnorm c) ≡ wev e c
 norm-sound e c =
-  case c return (λ w → lsem e (normalize w) ≡ wev e w) of
+  case c return (λ w → lsem e (lnorm w) ≡ wev e w) of
     lc-lit n → λ i → n
     lc-var v → norm-var e v
     lc-add a b → norm-add e a b (rec a) (rec b)
@@ -196,13 +196,13 @@ norm-sound e c =
 -- two codes with the same normal form denote the same word, in every environment
 conglw : (e : Env) → {f g : LinT} → f ≡ g → lsem e f ≡ lsem e g
 conglw e p = λ i → lsem e (p i)
-same-norm-eq : (e : Env) (a b : LinCode) → normalize a ≡ normalize b → wev e a ≡ wev e b
+same-norm-eq : (e : Env) (a b : LinCode) → lnorm a ≡ lnorm b → wev e a ≡ wev e b
 same-norm-eq e a b p = catw (symw (norm-sound e a)) (catw (conglw e p) (norm-sound e b))
--- readings: x + (1 + x) and (x + x) + 1 normalize alike and so agree at any environment
+-- readings: x + (1 + x) and (x + x) + 1 lnorm alike and so agree at any environment
 ex1 = lc-add (lc-var #0) (lc-suc (lc-var #0))
 ex2 = lc-add (lc-add (lc-var #0) (lc-var #0)) (lc-lit #1)
-#same normalize ex1 = lint #1 (ccons #0 #2 cnil)
-#same normalize ex2 = lint #1 (ccons #0 #2 cnil)
+#same lnorm ex1 = lint #1 (ccons #0 #2 cnil)
+#same lnorm ex2 = lint #1 (ccons #0 #2 cnil)
 #same wev (λ v → #7) ex1 = #15
 #same wev (λ v → #7) ex2 = #15
 -- ---------------------------------------------------------------- order
@@ -324,28 +324,28 @@ le-transport-path a b x y d p q h = catw (congw (λ z → plusw z d) (symw p)) (
 le-transport : (a b x y : Word) → x ≡ a → y ≡ b → Lew x y → Lew a b
 le-transport a b x y p q h = (fst h , le-transport-path a b x y (fst h) p q (snd h))
 code-le : LinCode → LinCode → Bool
-code-le a b = lin-le (normalize a) (normalize b)
+code-le a b = lin-le (lnorm a) (lnorm b)
 code-le-sound : (e : Env) (a b : LinCode) → code-le a b ≡ true → Lew (wev e a) (wev e b)
-code-le-sound e a b p = le-transport (wev e a) (wev e b) (lsem e (normalize a)) (lsem e (normalize b)) (norm-sound e a) (norm-sound e b) (lin-le-sound e (normalize a) (normalize b) p)
+code-le-sound e a b p = le-transport (wev e a) (wev e b) (lsem e (lnorm a)) (lsem e (lnorm b)) (norm-sound e a) (norm-sound e b) (lin-le-sound e (lnorm a) (lnorm b) p)
 -- ---------------------------------------------------------------- certificates
 -- hypotheses l_i ≤ r_i with multipliers c_i: the goal a ≤ b is certified by the check
 --   a + Σ c_i r_i ≤ b + Σ c_i l_i on normal forms (lib/lin.cub's check-cert). A multiple c·l is
 -- the code l added c times, so no multiplication enters the proof
 data Hyps = hnil | hcons (l : LinCode) (r : LinCode) (rest : Hyps)
-data Mults = mnil | mcons (c : Word) (rest : Mults)
+data Mults = munil | mucons (c : Word) (rest : Mults)
 scale : Word → LinCode → LinCode
 scale c l = %welimP (λ v → LinCode) c (lc-lit #0) (λ n h → lc-add h l)
 sum-l : Hyps → Mults → LinCode
 sum-l hs ms =
   case hs return (λ w → Mults → LinCode) of
     hnil → λ ms → lc-lit #0
-    hcons l r rest → λ ms → (case ms return (λ w → LinCode) of mnil → lc-lit #0; mcons c cr → lc-add (scale c l) (rec rest cr))
+    hcons l r rest → λ ms → (case ms return (λ w → LinCode) of munil → lc-lit #0; mucons c cr → lc-add (scale c l) (rec rest cr))
   ms
 sum-r : Hyps → Mults → LinCode
 sum-r hs ms =
   case hs return (λ w → Mults → LinCode) of
     hnil → λ ms → lc-lit #0
-    hcons l r rest → λ ms → (case ms return (λ w → LinCode) of mnil → lc-lit #0; mcons c cr → lc-add (scale c r) (rec rest cr))
+    hcons l r rest → λ ms → (case ms return (λ w → LinCode) of munil → lc-lit #0; mucons c cr → lc-add (scale c r) (rec rest cr))
   ms
 check-cert : Hyps → Mults → LinCode → LinCode → Bool
 check-cert hs ms a b = code-le (lc-add a (sum-r hs ms)) (lc-add b (sum-l hs ms))
@@ -361,8 +361,8 @@ sum-le e hs ms hh =
     hnil → λ ms hh → lew-refl #0
     hcons l r rest → λ ms hh →
       (case ms return (λ w → Lew (wev e (sum-l (hcons l r rest) w)) (wev e (sum-r (hcons l r rest) w))) of
-         mnil → lew-refl #0
-         mcons c cr → le-add (wev e (scale c l)) (wev e (scale c r)) (wev e (sum-l rest cr)) (wev e (sum-r rest cr)) (scale-le e c l r (fst hh)) (rec rest cr (snd hh)))
+         munil → lew-refl #0
+         mucons c cr → le-add (wev e (scale c l)) (wev e (scale c r)) (wev e (sum-l rest cr)) (wev e (sum-r rest cr)) (scale-le e c l r (fst hh)) (rec rest cr (snd hh)))
   ms hh
 -- the theorem: a certificate that checks proves the goal wherever the hypotheses hold
 cert-sound : (e : Env) (hs : Hyps) (ms : Mults) (a b : LinCode) → Holds e hs →
@@ -372,9 +372,9 @@ cert-sound e hs ms a b hh p =
 -- readings: the decoder's obligation off + 4 ≤ n from off ≤ i and i + 8 ≤ n (multipliers 1, 1);
 -- with the wrong multipliers it does not check; a ≤ b alone decided on normal forms
 hyp1 = hcons (lc-var #0) (lc-var #1) (hcons (lc-add (lc-var #1) (lc-lit #8)) (lc-var #2) hnil)
-#same check-cert hyp1 (mcons #1 (mcons #1 mnil)) (lc-add (lc-var #0) (lc-lit #4)) (lc-var #2) = true
-#same check-cert hyp1 (mcons #0 (mcons #1 mnil)) (lc-add (lc-var #0) (lc-lit #4)) (lc-var #2) = false
-#same check-cert hyp1 (mcons #1 (mcons #1 mnil)) (lc-add (lc-var #0) (lc-lit #9)) (lc-var #2) = false
+#same check-cert hyp1 (mucons #1 (mucons #1 munil)) (lc-add (lc-var #0) (lc-lit #4)) (lc-var #2) = true
+#same check-cert hyp1 (mucons #0 (mucons #1 munil)) (lc-add (lc-var #0) (lc-lit #4)) (lc-var #2) = false
+#same check-cert hyp1 (mucons #1 (mucons #1 munil)) (lc-add (lc-var #0) (lc-lit #9)) (lc-var #2) = false
 #same code-le (lc-add (lc-var #0) (lc-lit #4)) (lc-add (lc-var #0) (lc-lit #64)) = true
 #same code-le (lc-add (lc-var #0) (lc-lit #4)) (lc-add (lc-var #1) (lc-lit #64)) = false
 #same code-le (lc-add (lc-var #0) (lc-var #1)) (lc-add (lc-var #1) (lc-add (lc-var #0) (lc-var #0))) = true
