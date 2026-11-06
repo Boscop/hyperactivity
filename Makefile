@@ -17,6 +17,7 @@ build/cubical-asan: $(SRC) src/core.h src/syntax.c
 # tests check: the module cache is off, except in the cache test (a fresh directory, run twice)
 test: export CUBICAL_NOCACHE = 1
 test: build/cubical build/cubical-asan
+	python3 tools/names.py
 	./build/cubical lib/prelude.cub tests/cubical.cub
 	./build/cubical lib/prelude.cub lib/code.cub tests/code.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/fo.cub lib/emitc.cub

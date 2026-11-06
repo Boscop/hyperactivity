@@ -4,117 +4,117 @@
 -- a direction; the checker runs the trace on the left side and compares the result with the right
 -- side; eq-cert-sound: a trace that checks proves its goal in every model where the hypotheses hold.
 -- Terms are curried applications of constants to variables, so every first-order signature is
--- covered (f(a, b) is tapp (tapp (tc f) a) b). The search for a trace (lib/match.cub, lib/nav.cub
+-- covered (f(a, b) is eapp (eapp (etc f) a) b). The search for a trace (lib/match.cub, lib/nav.cub
 -- over codes) is separate and unverified; what it finds is checked here.
 -- ---------------------------------------------------------------- terms and models
-data Tm = tv (v : Word) | tc (f : Word) | tapp (a : Tm) (b : Tm)
+data ETm = etv (v : Word) | etc (f : Word) | eapp (a : ETm) (b : ETm)
 -- a model: values of variables, values of constants, and application as a binary operation
 Model : Type
 Model = (Word → Word) × ((Word → Word) × (Word → Word → Word))
-tev : Model → Tm → Word
+tev : Model → ETm → Word
 tev m t =
   case t return (λ w → Word) of
-    tv v → fst m v
-    tc f → fst (snd m) f
-    tapp a b → snd (snd m) (rec a) (rec b)
-congt : (m : Model) → {s t : Tm} → s ≡ t → tev m s ≡ tev m t
+    etv v → fst m v
+    etc f → fst (snd m) f
+    eapp a b → snd (snd m) (rec a) (rec b)
+congt : (m : Model) → {s t : ETm} → s ≡ t → tev m s ≡ tev m t
 congt m p = λ i → tev m (p i)
 -- ---------------------------------------------------------------- deciding syntactic equality
-cong-tv : {v w : Word} → v ≡ w → tv v ≡ tv w
-cong-tv p = λ i → tv (p i)
-cong-tc : {v w : Word} → v ≡ w → tc v ≡ tc w
-cong-tc p = λ i → tc (p i)
-cong-tapp : {a b c d : Tm} → a ≡ c → b ≡ d → tapp a b ≡ tapp c d
-cong-tapp p q = λ i → tapp (p i) (q i)
-tm-same : Tm → Tm → Bool
+cong-etv : {v w : Word} → v ≡ w → etv v ≡ etv w
+cong-etv p = λ i → etv (p i)
+cong-etc : {v w : Word} → v ≡ w → etc v ≡ etc w
+cong-etc p = λ i → etc (p i)
+cong-eapp : {a b c d : ETm} → a ≡ c → b ≡ d → eapp a b ≡ eapp c d
+cong-eapp p q = λ i → eapp (p i) (q i)
+tm-same : ETm → ETm → Bool
 tm-same s t =
-  case s return (λ w → Tm → Bool) of
-    tv v → λ t → (case t return (λ w → Bool) of tv w → weq v w; tc f → false; tapp a b → false)
-    tc f → λ t → (case t return (λ w → Bool) of tv w → false; tc g → weq f g; tapp a b → false)
-    tapp a b → λ t → (case t return (λ w → Bool) of tv w → false; tc g → false; tapp c d → andbt (rec a c) (rec b d))
+  case s return (λ w → ETm → Bool) of
+    etv v → λ t → (case t return (λ w → Bool) of etv w → weq v w; etc f → false; eapp a b → false)
+    etc f → λ t → (case t return (λ w → Bool) of etv w → false; etc g → weq f g; eapp a b → false)
+    eapp a b → λ t → (case t return (λ w → Bool) of etv w → false; etc g → false; eapp c d → andbt (rec a c) (rec b d))
   t
-tm-same-sound : (s t : Tm) → tm-same s t ≡ true → s ≡ t
+tm-same-sound : (s t : ETm) → tm-same s t ≡ true → s ≡ t
 tm-same-sound s t =
-  case s return (λ w → (t : Tm) → tm-same w t ≡ true → w ≡ t) of
-    tv v → λ t →
-      (case t return (λ w → tm-same (tv v) w ≡ true → tv v ≡ w) of
-         tv w → λ p → cong-tv (weq-sound v w p)
-         tc f → λ p → Empty-rec {lzero} {tv v ≡ tc f} (false≢true p)
-         tapp a b → λ p → Empty-rec {lzero} {tv v ≡ tapp a b} (false≢true p))
-    tc f → λ t →
-      (case t return (λ w → tm-same (tc f) w ≡ true → tc f ≡ w) of
-         tv w → λ p → Empty-rec {lzero} {tc f ≡ tv w} (false≢true p)
-         tc g → λ p → cong-tc (weq-sound f g p)
-         tapp a b → λ p → Empty-rec {lzero} {tc f ≡ tapp a b} (false≢true p))
-    tapp a b → λ t →
-      (case t return (λ w → tm-same (tapp a b) w ≡ true → tapp a b ≡ w) of
-         tv w → λ p → Empty-rec {lzero} {tapp a b ≡ tv w} (false≢true p)
-         tc g → λ p → Empty-rec {lzero} {tapp a b ≡ tc g} (false≢true p)
-         tapp c d → λ p →
-           cong-tapp (rec a c (andbt-l (tm-same a c) (tm-same b d) p))
+  case s return (λ w → (t : ETm) → tm-same w t ≡ true → w ≡ t) of
+    etv v → λ t →
+      (case t return (λ w → tm-same (etv v) w ≡ true → etv v ≡ w) of
+         etv w → λ p → cong-etv (weq-sound v w p)
+         etc f → λ p → Empty-rec {lzero} {etv v ≡ etc f} (false≢true p)
+         eapp a b → λ p → Empty-rec {lzero} {etv v ≡ eapp a b} (false≢true p))
+    etc f → λ t →
+      (case t return (λ w → tm-same (etc f) w ≡ true → etc f ≡ w) of
+         etv w → λ p → Empty-rec {lzero} {etc f ≡ etv w} (false≢true p)
+         etc g → λ p → cong-etc (weq-sound f g p)
+         eapp a b → λ p → Empty-rec {lzero} {etc f ≡ eapp a b} (false≢true p))
+    eapp a b → λ t →
+      (case t return (λ w → tm-same (eapp a b) w ≡ true → eapp a b ≡ w) of
+         etv w → λ p → Empty-rec {lzero} {eapp a b ≡ etv w} (false≢true p)
+         etc g → λ p → Empty-rec {lzero} {eapp a b ≡ etc g} (false≢true p)
+         eapp c d → λ p →
+           cong-eapp (rec a c (andbt-l (tm-same a c) (tm-same b d) p))
                      (rec b d (andbt-r (tm-same a c) (tm-same b d) p)))
   t
 -- ---------------------------------------------------------------- positions
 data Pos = here | pl (p : Pos) | pr (p : Pos)
 -- the subterm at a position; a position outside the term returns the term itself, and replace
 -- leaves such a term unchanged, so a step at a bad position is a step that does nothing
-subterm : Pos → Tm → Tm
+subterm : Pos → ETm → ETm
 subterm p t =
-  case p return (λ w → Tm → Tm) of
+  case p return (λ w → ETm → ETm) of
     here → λ t → t
-    pl q → λ t → (case t return (λ w → Tm) of tv v → tv v; tc f → tc f; tapp a b → rec q a)
-    pr q → λ t → (case t return (λ w → Tm) of tv v → tv v; tc f → tc f; tapp a b → rec q b)
+    pl q → λ t → (case t return (λ w → ETm) of etv v → etv v; etc f → etc f; eapp a b → rec q a)
+    pr q → λ t → (case t return (λ w → ETm) of etv v → etv v; etc f → etc f; eapp a b → rec q b)
   t
-replace : Pos → Tm → Tm → Tm
+replace : Pos → ETm → ETm → ETm
 replace p r t =
-  case p return (λ w → Tm → Tm) of
+  case p return (λ w → ETm → ETm) of
     here → λ t → r
-    pl q → λ t → (case t return (λ w → Tm) of tv v → tv v; tc f → tc f; tapp a b → tapp (rec q a) b)
-    pr q → λ t → (case t return (λ w → Tm) of tv v → tv v; tc f → tc f; tapp a b → tapp a (rec q b))
+    pl q → λ t → (case t return (λ w → ETm) of etv v → etv v; etc f → etc f; eapp a b → eapp (rec q a) b)
+    pr q → λ t → (case t return (λ w → ETm) of etv v → etv v; etc f → etc f; eapp a b → eapp a (rec q b))
   t
 -- a rewrite at a position by an equation whose left side is the subterm there preserves the value
-rw-sound : (m : Model) (p : Pos) (l r : Tm) → tev m l ≡ tev m r →
-           (t : Tm) → tm-same (subterm p t) l ≡ true → tev m t ≡ tev m (replace p r t)
+rw-sound : (m : Model) (p : Pos) (l r : ETm) → tev m l ≡ tev m r →
+           (t : ETm) → tm-same (subterm p t) l ≡ true → tev m t ≡ tev m (replace p r t)
 rw-sound m p l r h t q =
-  case p return (λ w → (t : Tm) → tm-same (subterm w t) l ≡ true → tev m t ≡ tev m (replace w r t)) of
+  case p return (λ w → (t : ETm) → tm-same (subterm w t) l ≡ true → tev m t ≡ tev m (replace w r t)) of
     here → λ t q → catw (congt m (tm-same-sound t l q)) h
     pl q2 → λ t →
       (case t return (λ w → tm-same (subterm (pl q2) w) l ≡ true → tev m w ≡ tev m (replace (pl q2) r w)) of
-         tv v → λ q i → fst m v
-         tc f → λ q i → fst (snd m) f
-         tapp a b → λ q i → snd (snd m) (rec q2 a q i) (tev m b))
+         etv v → λ q i → fst m v
+         etc f → λ q i → fst (snd m) f
+         eapp a b → λ q i → snd (snd m) (rec q2 a q i) (tev m b))
     pr q2 → λ t →
       (case t return (λ w → tm-same (subterm (pr q2) w) l ≡ true → tev m w ≡ tev m (replace (pr q2) r w)) of
-         tv v → λ q i → fst m v
-         tc f → λ q i → fst (snd m) f
-         tapp a b → λ q i → snd (snd m) (tev m a) (rec q2 b q i))
+         etv v → λ q i → fst m v
+         etc f → λ q i → fst (snd m) f
+         eapp a b → λ q i → snd (snd m) (tev m a) (rec q2 b q i))
   t q
 -- ---------------------------------------------------------------- substitution
 -- hypotheses are schematic: their variables range over all valuations. A step instantiates one
 -- by a substitution (a finite map from variables to terms; the identity elsewhere)
-data Subst = snil | scons (v : Word) (t : Tm) (rest : Subst)
-lookup : Subst → Word → Tm
+data Subst = snil | scons (v : Word) (t : ETm) (rest : Subst)
+lookup : Subst → Word → ETm
 lookup σ v =
-  case σ return (λ w → Tm) of
-    snil → tv v
-    scons v2 t rest → (case weq v v2 return (λ w → Tm) of true → t; false → rec rest)
-tsubst : Subst → Tm → Tm
+  case σ return (λ w → ETm) of
+    snil → etv v
+    scons v2 t rest → (case weq v v2 return (λ w → ETm) of true → t; false → rec rest)
+tsubst : Subst → ETm → ETm
 tsubst σ t =
-  case t return (λ w → Tm) of
-    tv v → lookup σ v
-    tc f → tc f
-    tapp a b → tapp (rec a) (rec b)
+  case t return (λ w → ETm) of
+    etv v → lookup σ v
+    etc f → etc f
+    eapp a b → eapp (rec a) (rec b)
 -- the value of an instance is the value at the substituted valuation
 msub : Model → Subst → Model
 msub m σ = ((λ v → tev m (lookup σ v)) , snd m)
-tsubst-sound : (m : Model) (σ : Subst) (t : Tm) → tev m (tsubst σ t) ≡ tev (msub m σ) t
+tsubst-sound : (m : Model) (σ : Subst) (t : ETm) → tev m (tsubst σ t) ≡ tev (msub m σ) t
 tsubst-sound m σ t =
   case t return (λ w → tev m (tsubst σ w) ≡ tev (msub m σ) w) of
-    tv v → λ i → tev m (lookup σ v)
-    tc f → λ i → fst (snd m) f
-    tapp a b → λ i → snd (snd m) (rec a i) (rec b i)
+    etv v → λ i → tev m (lookup σ v)
+    etc f → λ i → fst (snd m) f
+    eapp a b → λ i → snd (snd m) (rec a i) (rec b i)
 -- ---------------------------------------------------------------- hypotheses and traces
-data Eqs = enil | econs (l : Tm) (r : Tm) (rest : Eqs)
+data Eqs = enil | econs (l : ETm) (r : ETm) (rest : Eqs)
 Vals : Type
 Vals = Word → Word
 -- the hypotheses hold in a model when each holds at every valuation of its variables
@@ -124,11 +124,11 @@ EqHolds m hs =
     enil → Unit
     econs l r rest → ((vals : Vals) → tev (vals , snd m) l ≡ tev (vals , snd m) r) × rec rest
 -- the i-th equation; past the end, a trivial one (which holds in every model)
-hyp-at : Word → Eqs → Tm × Tm
+hyp-at : Word → Eqs → ETm × ETm
 hyp-at i hs =
-  case hs return (λ w → Word → Tm × Tm) of
-    enil → λ i → (tc #0 , tc #0)
-    econs l r rest → λ i → %welimP (λ v → Tm × Tm) i (l , r) (λ j h → rec rest j)
+  case hs return (λ w → Word → ETm × ETm) of
+    enil → λ i → (etc #0 , etc #0)
+    econs l r rest → λ i → %welimP (λ v → ETm × ETm) i (l , r) (λ j h → rec rest j)
   i
 hyp-holds : (m : Model) (hs : Eqs) (i : Word) → EqHolds m hs →
             (vals : Vals) → tev (vals , snd m) (fst (hyp-at i hs)) ≡ tev (vals , snd m) (snd (hyp-at i hs))
@@ -147,47 +147,47 @@ inst-holds m hs i σ hh =
   catw (tsubst-sound m σ (fst (hyp-at i hs)))
     (catw (hyp-holds m hs i hh (λ v → tev m (lookup σ v))) (symw (tsubst-sound m σ (snd (hyp-at i hs)))))
 -- an equation read in a direction
-lhs : Bool → Tm × Tm → Tm
-lhs d eq = case d return (λ w → Tm) of true → snd eq; false → fst eq
-rhs : Bool → Tm × Tm → Tm
-rhs d eq = case d return (λ w → Tm) of true → fst eq; false → snd eq
-dir-sound : (m : Model) (d : Bool) (σ : Subst) (eq : Tm × Tm) → tev m (tsubst σ (fst eq)) ≡ tev m (tsubst σ (snd eq)) →
+lhs : Bool → ETm × ETm → ETm
+lhs d eq = case d return (λ w → ETm) of true → snd eq; false → fst eq
+rhs : Bool → ETm × ETm → ETm
+rhs d eq = case d return (λ w → ETm) of true → fst eq; false → snd eq
+dir-sound : (m : Model) (d : Bool) (σ : Subst) (eq : ETm × ETm) → tev m (tsubst σ (fst eq)) ≡ tev m (tsubst σ (snd eq)) →
             tev m (tsubst σ (lhs d eq)) ≡ tev m (tsubst σ (rhs d eq))
 dir-sound m d σ eq h = case d return (λ w → tev m (tsubst σ (lhs w eq)) ≡ tev m (tsubst σ (rhs w eq))) of true → symw h; false → h
 -- a trace: steps (position, hypothesis, direction, substitution)
 data Trace = tnil | tstep (p : Pos) (i : Word) (d : Bool) (σ : Subst) (rest : Trace)
 -- one step: rewrite if the subterm is the instance of the equation's side, else leave the term
-step : Eqs → Pos → Word → Bool → Subst → Tm → Tm
+step : Eqs → Pos → Word → Bool → Subst → ETm → ETm
 step hs p i d σ t =
-  case tm-same (subterm p t) (tsubst σ (lhs d (hyp-at i hs))) return (λ w → Tm) of
+  case tm-same (subterm p t) (tsubst σ (lhs d (hyp-at i hs))) return (λ w → ETm) of
     true → replace p (tsubst σ (rhs d (hyp-at i hs))) t
     false → t
 step-sound : (m : Model) (hs : Eqs) (p : Pos) (i : Word) (d : Bool) (σ : Subst) → EqHolds m hs →
-             (t : Tm) → tev m t ≡ tev m (step hs p i d σ t)
+             (t : ETm) → tev m t ≡ tev m (step hs p i d σ t)
 step-sound m hs p i d σ hh t =
   case tm-same (subterm p t) (tsubst σ (lhs d (hyp-at i hs)))
     return (λ b → tm-same (subterm p t) (tsubst σ (lhs d (hyp-at i hs))) ≡ b →
-                  tev m t ≡ tev m (case b return (λ w → Tm) of true → replace p (tsubst σ (rhs d (hyp-at i hs))) t; false → t)) of
+                  tev m t ≡ tev m (case b return (λ w → ETm) of true → replace p (tsubst σ (rhs d (hyp-at i hs))) t; false → t)) of
     true → λ q → rw-sound m p (tsubst σ (lhs d (hyp-at i hs))) (tsubst σ (rhs d (hyp-at i hs)))
                     (dir-sound m d σ (hyp-at i hs) (inst-holds m hs i σ hh)) t q
     false → λ q j → tev m t
   (λ j → tm-same (subterm p t) (tsubst σ (lhs d (hyp-at i hs))))
-run : Eqs → Trace → Tm → Tm
+run : Eqs → Trace → ETm → ETm
 run hs tr t =
-  case tr return (λ w → Tm → Tm) of
+  case tr return (λ w → ETm → ETm) of
     tnil → λ t → t
     tstep p i d σ rest → λ t → rec rest (step hs p i d σ t)
   t
-run-sound : (m : Model) (hs : Eqs) (tr : Trace) → EqHolds m hs → (t : Tm) → tev m t ≡ tev m (run hs tr t)
+run-sound : (m : Model) (hs : Eqs) (tr : Trace) → EqHolds m hs → (t : ETm) → tev m t ≡ tev m (run hs tr t)
 run-sound m hs tr hh t =
-  case tr return (λ w → (t : Tm) → tev m t ≡ tev m (run hs w t)) of
+  case tr return (λ w → (t : ETm) → tev m t ≡ tev m (run hs w t)) of
     tnil → λ t i → tev m t
     tstep p i d σ rest → λ t → catw (step-sound m hs p i d σ hh t) (rec rest (step hs p i d σ t))
   t
 -- the checker and its theorem
-check-eq : Eqs → Trace → Tm → Tm → Bool
+check-eq : Eqs → Trace → ETm → ETm → Bool
 check-eq hs tr s t = tm-same (run hs tr s) t
-eq-cert-sound : (m : Model) (hs : Eqs) (tr : Trace) (s t : Tm) → EqHolds m hs → check-eq hs tr s t ≡ true → tev m s ≡ tev m t
+eq-cert-sound : (m : Model) (hs : Eqs) (tr : Trace) (s t : ETm) → EqHolds m hs → check-eq hs tr s t ≡ true → tev m s ≡ tev m t
 eq-cert-sound m hs tr s t hh q = catw (run-sound m hs tr hh s) (congt m (tm-same-sound (run hs tr s) t q))
 -- ---------------------------------------------------------------- search (unverified)
 -- a trace is found by bounded depth-first search: at every position of the term, every
@@ -197,16 +197,16 @@ data OSubst = nosub | asub (σ : Subst)
 bound : Subst → Word → Bool
 bound σ v = case σ return (λ w → Bool) of snil → false; scons v2 t rest → (case weq v v2 return (λ w → Bool) of true → true; false → rec rest)
 -- matching a pattern (its variables are the hypothesis's) against a term, extending σ
-tmatch : Tm → Tm → Subst → OSubst
+tmatch : ETm → ETm → Subst → OSubst
 tmatch p t σ =
-  case p return (λ w → Tm → Subst → OSubst) of
-    tv v → λ t σ → (case bound σ v return (λ w → OSubst) of true → (case tm-same (lookup σ v) t return (λ w → OSubst) of true → asub σ; false → nosub); false → asub (scons v t σ))
-    tc f → λ t σ → (case t return (λ w → OSubst) of tv w → nosub; tc g → (case weq f g return (λ w → OSubst) of true → asub σ; false → nosub); tapp a b → nosub)
-    tapp a b → λ t σ →
+  case p return (λ w → ETm → Subst → OSubst) of
+    etv v → λ t σ → (case bound σ v return (λ w → OSubst) of true → (case tm-same (lookup σ v) t return (λ w → OSubst) of true → asub σ; false → nosub); false → asub (scons v t σ))
+    etc f → λ t σ → (case t return (λ w → OSubst) of etv w → nosub; etc g → (case weq f g return (λ w → OSubst) of true → asub σ; false → nosub); eapp a b → nosub)
+    eapp a b → λ t σ →
       (case t return (λ w → OSubst) of
-         tv w → nosub
-         tc g → nosub
-         tapp c d → (case rec a c σ return (λ w → OSubst) of nosub → nosub; asub σ2 → rec b d σ2))
+         etv w → nosub
+         etc g → nosub
+         eapp c d → (case rec a c σ return (λ w → OSubst) of nosub → nosub; asub σ2 → rec b d σ2))
   t σ
 data Poss = pnil | pcons (p : Pos) (rest : Poss)
 pmap-l : Poss → Poss
@@ -215,16 +215,16 @@ pmap-r : Poss → Poss
 pmap-r ps = case ps return (λ w → Poss) of pnil → pnil; pcons p r → pcons (pr p) (rec r)
 pcat : Poss → Poss → Poss
 pcat a b = case a return (λ w → Poss) of pnil → b; pcons p r → pcons p (rec r)
-positions : Tm → Poss
+positions : ETm → Poss
 positions t =
   case t return (λ w → Poss) of
-    tv v → pcons here pnil
-    tc f → pcons here pnil
-    tapp a b → pcons here (pcat (pmap-l (rec a)) (pmap-r (rec b)))
+    etv v → pcons here pnil
+    etc f → pcons here pnil
+    eapp a b → pcons here (pcat (pmap-l (rec a)) (pmap-r (rec b)))
 data OTrace = notr | atrace (tr : Trace)
 eqs-len : Eqs → Word
 eqs-len hs = case hs return (λ w → Word) of enil → #0; econs l r rest → %wsucc (rec rest)
-try-dir : (Tm → OTrace) → Eqs → Pos → Word → Bool → Tm → OTrace
+try-dir : (ETm → OTrace) → Eqs → Pos → Word → Bool → ETm → OTrace
 try-dir deeper hs p i d s =
   case tmatch (lhs d (hyp-at i hs)) (subterm p s) snil return (λ w → OTrace) of
     nosub → notr
@@ -232,7 +232,7 @@ try-dir deeper hs p i d s =
       (case deeper (step hs p i d σ s) return (λ w → OTrace) of
          notr → notr
          atrace tr → atrace (tstep p i d σ tr))
-try-hyp : (Tm → OTrace) → Eqs → Pos → Word → Word → Tm → OTrace
+try-hyp : (ETm → OTrace) → Eqs → Pos → Word → Word → ETm → OTrace
 try-hyp deeper hs p n i s =
   %welimP (λ v → Word → OTrace) n (λ i → notr)
     (λ k h i →
@@ -240,16 +240,16 @@ try-hyp deeper hs p n i s =
           atrace tr → atrace tr
           notr → (case try-dir deeper hs p i true s return (λ w → OTrace) of atrace tr → atrace tr; notr → h (%wsucc i))))
   i
--- try every position, hypothesis and direction; deeper : Tm → OTrace searches from the result
-try-pos : (Tm → OTrace) → Eqs → Poss → Tm → OTrace
+-- try every position, hypothesis and direction; deeper : ETm → OTrace searches from the result
+try-pos : (ETm → OTrace) → Eqs → Poss → ETm → OTrace
 try-pos deeper hs ps s =
   case ps return (λ w → OTrace) of
     pnil → notr
     pcons p rest → (case try-hyp deeper hs p (eqs-len hs) #0 s return (λ w → OTrace) of atrace tr → atrace tr; notr → rec rest)
 -- find-trace n hs s t: a trace of at most n steps from s to t, or none
-find-trace : Word → Eqs → Tm → Tm → OTrace
+find-trace : Word → Eqs → ETm → ETm → OTrace
 find-trace n hs s t =
-  %welimP (λ v → Tm → OTrace) n
+  %welimP (λ v → ETm → OTrace) n
     (λ s → (case tm-same s t return (λ w → OTrace) of true → atrace tnil; false → notr))
     (λ k deeper s →
        (case tm-same s t return (λ w → OTrace) of
@@ -259,24 +259,24 @@ find-trace n hs s t =
 -- ---------------------------------------------------------------- readings
 -- constants: 0 = f, 1 = g, 2 = c. Hypotheses (schematic in the variable 0 = x):
 --   f x = g x (0), g c = c (1). Goal: f (f c) = c by f (f c) → g (f c) → g (g c) → g c → c
-ap1 : Tm → Tm → Tm
-ap1 f a = tapp f a
-hs1 = econs (ap1 (tc #0) (tv #0)) (ap1 (tc #1) (tv #0)) (econs (ap1 (tc #1) (tc #2)) (tc #2) enil)
-goal1 = ap1 (tc #0) (ap1 (tc #0) (tc #2))
-tr1 = tstep here #0 false (scons #0 (ap1 (tc #0) (tc #2)) snil)
-        (tstep (pr here) #0 false (scons #0 (tc #2) snil)
+ap1 : ETm → ETm → ETm
+ap1 f a = eapp f a
+ehs1 = econs (ap1 (etc #0) (etv #0)) (ap1 (etc #1) (etv #0)) (econs (ap1 (etc #1) (etc #2)) (etc #2) enil)
+goal1 = ap1 (etc #0) (ap1 (etc #0) (etc #2))
+tr1 = tstep here #0 false (scons #0 (ap1 (etc #0) (etc #2)) snil)
+        (tstep (pr here) #0 false (scons #0 (etc #2) snil)
           (tstep (pr here) #1 false snil (tstep here #1 false snil tnil)))
-#same check-eq hs1 tr1 goal1 (tc #2) = true
+#same check-eq ehs1 tr1 goal1 (etc #2) = true
 -- a step whose instance does not match where it points does nothing, and the check fails
-#same check-eq hs1 (tstep (pl here) #0 false snil tnil) goal1 (tc #2) = false
+#same check-eq ehs1 (tstep (pl here) #0 false snil tnil) goal1 (etc #2) = false
 -- direction: g c = c read backwards turns c into g c
-#same check-eq hs1 (tstep here #1 true snil tnil) (tc #2) (ap1 (tc #1) (tc #2)) = true
+#same check-eq ehs1 (tstep here #1 true snil tnil) (etc #2) (ap1 (etc #1) (etc #2)) = true
 -- the empty trace proves only syntactic equality
-#same check-eq hs1 tnil (tc #2) (tc #2) = true
-#same check-eq hs1 tnil (tc #2) (tc #1) = false
+#same check-eq ehs1 tnil (etc #2) (etc #2) = true
+#same check-eq ehs1 tnil (etc #2) (etc #1) = false
 -- the search finds a trace for the goal, and what it finds checks; none within one step
-#same (case find-trace #4 hs1 goal1 (tc #2) of atrace tr → check-eq hs1 tr goal1 (tc #2); notr → false) = true
-#same find-trace #1 hs1 goal1 (tc #2) = notr
+#same (case find-trace #4 ehs1 goal1 (etc #2) of atrace tr → check-eq ehs1 tr goal1 (etc #2); notr → false) = true
+#same find-trace #1 ehs1 goal1 (etc #2) = notr
 -- a schematic hypothesis used at two instances: h x y = h y x (2) proves h a b = h b a
-hs2 = econs (ap1 (ap1 (tc #3) (tv #0)) (tv #1)) (ap1 (ap1 (tc #3) (tv #1)) (tv #0)) enil
-#same (case find-trace #2 hs2 (ap1 (ap1 (tc #3) (tc #4)) (tc #5)) (ap1 (ap1 (tc #3) (tc #5)) (tc #4)) of atrace tr → check-eq hs2 tr (ap1 (ap1 (tc #3) (tc #4)) (tc #5)) (ap1 (ap1 (tc #3) (tc #5)) (tc #4)); notr → false) = true
+hs2 = econs (ap1 (ap1 (etc #3) (etv #0)) (etv #1)) (ap1 (ap1 (etc #3) (etv #1)) (etv #0)) enil
+#same (case find-trace #2 hs2 (ap1 (ap1 (etc #3) (etc #4)) (etc #5)) (ap1 (ap1 (etc #3) (etc #5)) (etc #4)) of atrace tr → check-eq hs2 tr (ap1 (ap1 (etc #3) (etc #4)) (etc #5)) (ap1 (ap1 (etc #3) (etc #5)) (etc #4)); notr → false) = true

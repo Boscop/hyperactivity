@@ -187,8 +187,8 @@ pmul-sound e p q =
     pterm c m r → pmul-step e c m r q (rec r)
 -- ---------------------------------------------------------------- expressions
 data Ex = ec (n : Nat) | ev (v : Word) | eadd (a : Ex) (b : Ex) | emul (a : Ex) (b : Ex)
-eval : Val → Ex → Nat
-eval e x =
+xeval : Val → Ex → Nat
+xeval e x =
   case x return (λ w → Nat) of
     ec n → n
     ev v → e v
@@ -205,9 +205,9 @@ norm-const : (n : Nat) → plus (times n (suc zero)) zero ≡ n
 norm-const n = transN (plus-zero (times n (suc zero))) (times-one n)
 norm-var : (e : Val) (v : Word) → plus (times (suc zero) (times (e v) (suc zero))) zero ≡ e v
 norm-var e v = transN (plus-zero (times (suc zero) (times (e v) (suc zero)))) (transN (times-one-l (times (e v) (suc zero))) (times-one (e v)))
-norm-sound : (e : Val) (x : Ex) → pev e (norm x) ≡ eval e x
+norm-sound : (e : Val) (x : Ex) → pev e (norm x) ≡ xeval e x
 norm-sound e x =
-  case x return (λ w → pev e (norm w) ≡ eval e w) of
+  case x return (λ w → pev e (norm w) ≡ xeval e w) of
     ec n → (case n return (λ w → pev e (norm (ec w)) ≡ w) of zero → λ i → zero; suc k → norm-const (suc k))
     ev v → norm-var e v
     eadd a b → transN (padd-sound e (norm a) (norm b)) (cong2N (λ x y → plus x y) (rec a) (rec b))
@@ -215,7 +215,7 @@ norm-sound e x =
 -- the decision procedure: same normal form, same value everywhere
 congp : (e : Val) → {p q : Poly} → p ≡ q → pev e p ≡ pev e q
 congp e r = λ i → pev e (r i)
-ring-eq : (e : Val) (a b : Ex) → norm a ≡ norm b → eval e a ≡ eval e b
+ring-eq : (e : Val) (a b : Ex) → norm a ≡ norm b → xeval e a ≡ xeval e b
 ring-eq e a b r = transN (symN (norm-sound e a)) (transN (congp e r) (norm-sound e b))
 -- ---------------------------------------------------------------- readings
 -- (x + 1)² = x² + 2x + 1, as expressions over the variable 0
@@ -232,7 +232,7 @@ sq2 = eadd (eadd (emul x0 x0) (emul two x0)) one
 #same norm sq1 = norm sq2
 -- the identity as a theorem at every valuation, by one evaluation of the normalizer: the proof
 -- term is the constant path at the shared normal form
-sq-thm : (e : Val) → eval e sq1 ≡ eval e sq2
+sq-thm : (e : Val) → xeval e sq1 ≡ xeval e sq2
 sq-thm e = ring-eq e sq1 sq2 (λ i → norm sq1)
 -- (x + y)·(x + y) = x·x + 2·x·y + y·y, in two variables; and a non-identity is not decided
 y0 : Ex
@@ -242,7 +242,7 @@ sq3 = emul (eadd x0 y0) (eadd x0 y0)
 sq4 : Ex
 sq4 = eadd (eadd (emul x0 x0) (emul two (emul x0 y0))) (emul y0 y0)
 #same norm sq3 = norm sq4
-sq-thm2 : (e : Val) → eval e sq3 ≡ eval e sq4
+sq-thm2 : (e : Val) → xeval e sq3 ≡ xeval e sq4
 sq-thm2 e = ring-eq e sq3 sq4 (λ i → norm sq3)
 #fail
-#check λ e → ring-eq e sq3 sq2 (λ i → norm sq3) : (e : Val) → eval e sq3 ≡ eval e sq2
+#check λ e → ring-eq e sq3 sq2 (λ i → norm sq3) : (e : Val) → xeval e sq3 ≡ xeval e sq2
