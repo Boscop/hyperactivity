@@ -66,3 +66,27 @@ It is a stand-in for measuring only, and it is not coherent for higher inductive
 Causes 1 and 2 are fixed by commit 04f761c (generalized composition, which never leaves a formal
 `hcompD` on a closed point; compositions of types as their own type former, transported through by
 `%tproof`). Cause 3 is fixed by holding the glue base unbuilt.
+
+## g8, measured against its result (A8)
+
+`#show g8` (the loop in T3 at a generic dimension): 1,135,531 steps for a result of 2,346 cells,
+484 steps per cell of result. A `#show` now prints the result's size beside the steps.
+
+Steps by rule: substitution 31%, erasure 22%, application 13%, line abstraction (`plam`) 7%,
+`hcomp` 5%, path application 7%, `%transD` 5%, duplication 3.5%.
+
+Definitions entered: `%trans-hcomp-T3` 48,490 times and `%trans-t3inc` 45,708 times; everything
+else under 6,000. Erasures by value kind: references 116K, thunks 30K, constructors 25K, faces 23K,
+lines 20K, systems 13K, formal hcomps 10K.
+
+The mechanism: the generated clause `%trans-hcomp-D` is `transp ψ (hcomp [u] u0) = hcomp [sysmap
+(λ w. λ j. transD ψ (w @ j)) u] (transD ψ u0)`. An application reduces as soon as it exists (only
+a subterm held unbuilt is lazy), so the transport is pushed into every side of the tube at once;
+the result at an endpoint then selects one side of each layer and erases the rest, whose
+transports were computed. Through 20 nested layers that multiplies, and the erased references
+are those transports. Holding each side's transport unbuilt (`delay` around `%transD` in the
+clause) is not the fix: the square driver is unchanged (45,428 steps) and g8 runs out of 3 GB,
+the held sides accumulating substitutions through the layers and losing the sharing the eager
+transports had. The structural fix is a change to the composition clauses (a proposal, not a
+commit).
+

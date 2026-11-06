@@ -44,9 +44,12 @@ static void *ar_alloc(size_t n) {
 }
 static ArMark ar_mark(void) { return (ArMark){ ar_cur, ar_p }; }
 static void ar_release(ArMark m) {
+    /* nodes are made from zeroed memory: what was used since the mark is zeroed again (the mark's
+     * chunk from the mark to where its use reached; later chunks are freed) */
+    char *used_to = ar_cur == m.c ? ar_p : (m.c ? m.c->data + m.c->cap : NULL);
     while (ar_cur != m.c) { Chunk *k = ar_cur; ar_cur = k->prev; free(k); }
     ar_p = m.p; ar_end = ar_cur ? ar_cur->data + ar_cur->cap : NULL;
-    if (ar_cur) memset(ar_p, 0, (size_t)(ar_end - ar_p));   /* nodes are made from zeroed memory */
+    if (ar_cur && used_to > ar_p) memset(ar_p, 0, (size_t)(used_to - ar_p));
 }
 static char *ar_strdup(const char *s) { size_t l = strlen(s) + 1; char *r = ar_alloc(l); memcpy(r, s, l); return r; }
 static Node *nsym(const char *s) { Node *x = ar_alloc(sizeof(Node)); x->s = ar_strdup(s); return x; }
@@ -1880,9 +1883,11 @@ static char *dnf_string(const Dnf *d, bool face) {
     return buf;
 }
 static int obs_depth;
+static long rb_nodes;   /* cells of the value read back: its size, reported beside the steps */
 static void rb_one(FILE *o, Port prov) {
     Cell *c = observe(prov);
     if (!c) { fputs("<pending>", o); return; }
+    rb_nodes++;
     long nm;
     if (obs_depth > 0 && (c->kind == V_NVAR || c->kind == V_NAPP || c->kind == V_NPAPP) && (c->ty & TY_COFIX)) {
         /* (observe n t): a stuck call unfolded, its fields read one level less deep */
@@ -2081,7 +2086,7 @@ static void rb(FILE *o, Port prov) {
 static char *read_port(Port prov) {
     char *buf; size_t len;
     FILE *o = open_memstream(&buf, &len);
-    ndshow = 0; dcount = 0; vcount = 0;
+    ndshow = 0; dcount = 0; vcount = 0; rb_nodes = 0;
     rb(o, prov);
     fclose(o);
     return buf;
@@ -3278,8 +3283,10 @@ static void toplevel(Node *f) {
         Node *T = reading_type(f->it[1]);
         char *r = T ? readback_at(T, f->it[1], &steps) : readback(f->it[1], &steps);
         if (trace_out) { fprintf(trace_out, "-- %ld steps\n", steps); fclose(trace_out); trace_out = NULL; }
-        /* length: every interaction; and the values found already shared (memo hits), the values shared */
+        /* length: every interaction; the size of the value (cells read back), so that the work can be
+         * read against the result; and the values found already shared (memo hits), the values shared */
         out_term(f->it[1]); printf("\n  = "); out_str(r); printf("   [%ld steps", steps);
+        if (rb_nodes) printf(", %ld cells", rb_nodes);
         if (stat_hits > h0 || stat_keys > k0) printf(", %ld hits, %ld shared", stat_hits - h0, stat_keys - k0);
         printf("]\n");
         free(r);
