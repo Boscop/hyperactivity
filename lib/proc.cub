@@ -13,14 +13,22 @@ Cmd : Sig → Type
 Cmd S = fst S
 Resp : (S : Sig) → Cmd S → Type
 Resp S c = snd S c
-Proc : Sig → Type → Type (lsuc lzero)
-Proc S A = (R : Type) → (A → R) → ((c : Cmd S) → (Resp S c → R) → R) → R
-ret : {S : Sig} {A : Type} → A → Proc S A
+-- the level is the level of the interpretations a process admits: a process written at every
+-- level ({l : Level} → Proc {l} S A) can be interpreted into processes (level 1) by a handler
+Proc : {l : Level} → Sig → Type → Type (lsuc l)
+Proc {l} S A = (R : Type l) → (A → R) → ((c : Cmd S) → (Resp S c → R) → R) → R
+ret : {l : Level} {S : Sig} {A : Type} → A → Proc {l} S A
 ret a = λ R k h → k a
-cmd : {S : Sig} → (c : Cmd S) → Proc S (Resp S c)
+cmd : {l : Level} {S : Sig} → (c : Cmd S) → Proc {l} S (Resp S c)
 cmd c = λ R k h → h c k
-bind : {S : Sig} {A B : Type} → Proc S A → (A → Proc S B) → Proc S B
+bind : {l : Level} {S : Sig} {A B : Type} → Proc {l} S A → (A → Proc {l} S B) → Proc {l} S B
 bind p f = λ R k h → p R (λ a → f a R k h) h
+-- a handler: each command of S as a process of W; a process of S becomes one of W (a world is a
+-- handler into the drivers' signature; handlers compose as functions)
+Handler : Sig → Sig → Type (lsuc lzero)
+Handler S W = (c : Cmd S) → Proc {lzero} W (Resp S c)
+handle : {S W : Sig} {A : Type} → Handler S W → Proc {lsuc lzero} S A → Proc {lzero} W A
+handle hd p = p (Proc {lzero} W A) (ret {lzero} {W} {A}) (λ c k → bind {lzero} {W} {Resp S c} {A} (hd c) k)
 -- ---------------------------------------------------------------- worlds and running
 -- a world with state St answers a command, or refuses it (none): the response and the next state
 World : Sig → Type → Type
@@ -47,20 +55,43 @@ kv-world c st =
     get k → inl (st k , st)
     put k v → (case weq k #0 of true → inr unit; false → inl (unit , (λ j → case weq j k of true → v; false → st j)))
 -- a process: put 1 := 5, put 2 := 7, then get 1 and get 2, returning their sum
-pr1 : Proc KVS Word
-pr1 = bind {KVS} {Unit} {Word} (cmd {KVS} (put #1 #5)) (λ u →
-     bind {KVS} {Unit} {Word} (cmd {KVS} (put #2 #7)) (λ u2 →
-     bind {KVS} {Word} {Word} (cmd {KVS} (get #1)) (λ a →
-     bind {KVS} {Word} {Word} (cmd {KVS} (get #2)) (λ b → ret {KVS} {Word} (%wadd a b)))))
+pr1 : {l : Level} → Proc {l} KVS Word
+pr1 {l} = bind {l} {KVS} {Unit} {Word} (cmd {l} {KVS} (put #1 #5)) (λ u →
+     bind {l} {KVS} {Unit} {Word} (cmd {l} {KVS} (put #2 #7)) (λ u2 →
+     bind {l} {KVS} {Word} {Word} (cmd {l} {KVS} (get #1)) (λ a →
+     bind {l} {KVS} {Word} {Word} (cmd {l} {KVS} (get #2)) (λ b → ret {l} {KVS} {Word} (%wadd a b)))))
 empty-st : Word → Word
 empty-st k = #0
-#same fst (runp {KVS} {Word} {Word → Word} pr1 kv-world empty-st) = done #12
-#same snd (runp {KVS} {Word} {Word → Word} pr1 kv-world empty-st) #2 = #7
+#same fst (runp {KVS} {Word} {Word → Word} (pr1 {lzero}) kv-world empty-st) = done #12
+#same snd (runp {KVS} {Word} {Word → Word} (pr1 {lzero}) kv-world empty-st) #2 = #7
 -- a refused command stops the process; the state is the one at the refusal
-pr2 : Proc KVS Word
-pr2 = bind {KVS} {Unit} {Word} (cmd {KVS} (put #1 #5)) (λ u →
-     bind {KVS} {Unit} {Word} (cmd {KVS} (put #0 #9)) (λ u2 → ret {KVS} {Word} #1))
-#same fst (runp {KVS} {Word} {Word → Word} pr2 kv-world empty-st) = stopped
-#same snd (runp {KVS} {Word} {Word → Word} pr2 kv-world empty-st) #1 = #5
+pr2 : {l : Level} → Proc {l} KVS Word
+pr2 {l} = bind {l} {KVS} {Unit} {Word} (cmd {l} {KVS} (put #1 #5)) (λ u →
+     bind {l} {KVS} {Unit} {Word} (cmd {l} {KVS} (put #0 #9)) (λ u2 → ret {l} {KVS} {Word} #1))
+#same fst (runp {KVS} {Word} {Word → Word} (pr2 {lzero}) kv-world empty-st) = stopped
+#same snd (runp {KVS} {Word} {Word → Word} (pr2 {lzero}) kv-world empty-st) #1 = #5
 -- the monad laws hold by computation: bind (ret a) f = f a and bind p ret = p at the interpretation
-#same runp {KVS} {Word} {Word → Word} (bind {KVS} {Word} {Word} (ret {KVS} {Word} #3) (λ a → ret {KVS} {Word} (%wadd a #1))) kv-world empty-st = runp {KVS} {Word} {Word → Word} (ret {KVS} {Word} #4) kv-world empty-st
+#same runp {KVS} {Word} {Word → Word} (bind {lzero} {KVS} {Word} {Word} (ret {lzero} {KVS} {Word} #3) (λ a → ret {lzero} {KVS} {Word} (%wadd a #1))) kv-world empty-st = runp {KVS} {Word} {Word → Word} (ret {lzero} {KVS} {Word} #4) kv-world empty-st
+-- ---------------------------------------------------------------- handlers
+-- a logging handler into a signature with one more command: every put is also logged (cmd log k),
+-- then performed; the handled process is run in a world that counts the logs in its state
+data KVL = kv (c : KV) | log (k : Word)
+kvl-resp : KVL → Type
+kvl-resp c = case c of kv c2 → kv-resp c2; log k → Unit
+KVLS : Sig
+KVLS = (KVL , kvl-resp)
+logging : Handler KVS KVLS
+logging c =
+  case c return (λ x → Proc {lzero} KVLS (kv-resp x)) of
+    get k → cmd {lzero} {KVLS} (kv (get k))
+    put k v → bind {lzero} {KVLS} {Unit} {Unit} (cmd {lzero} {KVLS} (log k)) (λ u → cmd {lzero} {KVLS} (kv (put k v)))
+-- the world: the store and a log count
+kvl-world : World KVLS ((Word → Word) × Word)
+kvl-world c st =
+  case c return (λ x → Sum (kvl-resp x × ((Word → Word) × Word)) Unit) of
+    kv c2 → (case kv-world c2 (fst st) of inl r → inl (fst r , (snd r , snd st)); inr u → inr unit)
+    log k → inl (unit , (fst st , %wsucc (snd st)))
+pr1-logged : Proc {lzero} KVLS Word
+pr1-logged = handle {KVS} {KVLS} {Word} logging (pr1 {lsuc lzero})
+#same fst (runp {KVLS} {Word} {(Word → Word) × Word} pr1-logged kvl-world (empty-st , #0)) = done #12
+#same snd (snd (runp {KVLS} {Word} {(Word → Word) × Word} pr1-logged kvl-world (empty-st , #0))) = #2
