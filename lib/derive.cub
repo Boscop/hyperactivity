@@ -1,0 +1,99 @@
+-- lib/derive.cub — generic programming over the data table (plan 18.13, F31: deriving as terms
+-- over %dent producing codes). Loaded after lib/check.cub. derive-eq d: the code of a decidable
+-- equality on the data type d, read off its constructors' telescopes: a word field compares by
+-- %weq, a recursive field by the hypothesis the case provides, a field of another data type by that
+-- type's derived equality; constructors with dimensions (higher inductive types) and other field
+-- types are not covered (none). The code evaluates (eval-g) and quotes like any other.
+-- ---------------------------------------------------------------- shapes
+-- the kinds of a constructor's fields, by walking its telescope with fresh variables: a Lst of
+-- (kind , d2): kind 0 a word, 1 recursive, 2 a data type d2 without parameters; none otherwise
+-- (some kinds, or none)
+field-kind d A =
+  if is-rec-ty d A then some (#1 , d)
+  else (case A of tword → some (#0 , d); tdata d2 ps V → (case ps of lnil → some (#2 , d2); _ → none); _ → none)
+tel-kinds d tel acc =
+  case tel of
+    tx A nm r → (case field-kind d A of
+                   some k → (let Av = tval A in tel-kinds d (r (%var nm Av) Av) (lsnoc acc k))
+                   none → none)
+    ty nm r → none
+    tz e → some acc
+cshape d c = tel-kinds d (centry d c lnil) lnil
+nctors d = lst-count (ctors-at d lnil)
+lst-count l = case l of lnil → #0; lcons x xs → %wsucc (lst-count xs)
+count-rec ks = case ks of lnil → #0; lcons k r → %wadd (if %weq (fst k) #1 then #1 else #0) (count-rec r)
+-- ---------------------------------------------------------------- codes
+-- Bool is the first checked data type: true = con 0, false = con 1
+c-true = ccon #0 #0 lnil lnil
+c-false = ccon #0 #1 lnil lnil
+c-and a b = ccase #0 (lcons b (lcons c-false lnil)) a
+clams n b = if %weq n #0 then b else clam (clams (%wsub n #1) b)
+-- derive-eq d = λ x. case x of c (fields, hyps) → λ y. case y of c' (fields', hyps') → …
+derive-eq d =
+  case all-shapes d (nctors d) #0 of
+    none → none
+    some shapes → some (clam (ccase d (outer-branches d shapes shapes #0) (cvar #0)))
+all-shapes d n c =
+  if %weq c n then some lnil
+  else (case cshape d c of
+          none → none
+          some ks → (case all-shapes d n (%wsucc c) of none → none; some rest → some (lcons ks rest)))
+outer-branches d shapes rest c =
+  case rest of
+    lnil → lnil
+    lcons ks more →
+      lcons (clams (%wadd (lst-count ks) (count-rec ks)) (clam (ccase d (inner-branches d shapes ks shapes #0 c) (cvar #0))))
+            (outer-branches d shapes more (%wsucc c))
+-- the inner branch for constructor c2 against the outer constructor c with field kinds ks
+inner-branches d shapes ks rest c2 c =
+  case rest of
+    lnil → lnil
+    lcons ks2 more →
+      lcons (clams (%wadd (lst-count ks2) (count-rec ks2))
+               (if %weq c2 c then compare-fields d ks ks2 (lst-count ks) (count-rec ks) (lst-count ks2) (count-rec ks2) #0 #0
+                else c-false))
+            (inner-branches d shapes ks more (%wsucc c2) c)
+-- at the innermost body: inner hyps r2 (0..), inner fields n2, y, outer hyps r, outer fields n, x
+compare-fields d ks ks2 n r n2 r2 j t =
+  case ks of
+    lnil → c-true
+    lcons k kr →
+      let outer-f = cvar (%wadd (%wadd (%wadd r2 n2) (%wsucc r)) (%wsub (%wsub n #1) j))
+          inner-f = cvar (%wadd r2 (%wsub (%wsub n2 #1) j))
+          outer-h = cvar (%wadd (%wadd r2 n2) (%wsucc (%wsub (%wsub r #1) t)))
+          this = (if %weq (fst k) #0 then cwop #0 outer-f inner-f
+                  else if %weq (fst k) #1 then capp (cforce outer-h) inner-f
+                  else capp (capp (fromopt (derive-eq (snd k)) c-false) outer-f) inner-f)
+          rest = compare-fields d kr ks2 n r n2 r2 (%wsucc j) (if %weq (fst k) #1 then %wsucc t else t)
+      in (case kr of lnil → this; _ → c-and this rest)
+-- the data type's index from its code
+didx c = case c of cdata d ps → d; _ → #0
+-- ---------------------------------------------------------------- readings
+-- equality on Nat, derived and evaluated
+eqNat = eval-g lnil (fromopt (derive-eq (didx (code Nat))) c-false)
+#same eqNat (suc (suc zero)) (suc (suc zero)) = true
+#same eqNat (suc (suc zero)) (suc zero) = false
+#same eqNat zero (suc zero) = false
+#same eqNat zero zero = true
+-- on Bool
+eqBool = eval-g lnil (fromopt (derive-eq (didx (code Bool))) c-false)
+#same eqBool true true = true
+#same eqBool true false = false
+-- on a type with word fields and two recursive fields, declared here
+data Tree = leaf (w : Word) | node (l : Tree) (r : Tree)
+eqTree = eval-g lnil (fromopt (derive-eq (didx (code Tree))) c-false)
+#same eqTree (node (leaf #1) (leaf #2)) (node (leaf #1) (leaf #2)) = true
+#same eqTree (node (leaf #1) (leaf #2)) (node (leaf #1) (leaf #3)) = false
+#same eqTree (leaf #1) (node (leaf #1) (leaf #1)) = false
+-- a field of another data type: Nat inside
+data Box = box (n : Nat) (b : Bool)
+eqBox = eval-g lnil (fromopt (derive-eq (didx (code Box))) c-false)
+#same eqBox (box (suc zero) true) (box (suc zero) true) = true
+#same eqBox (box (suc zero) true) (box (suc zero) false) = false
+-- a higher inductive type is not covered (its constructors have dimensions)
+data Circ = cbase | cloop (i : I) [ i = 0 ↦ cbase , i = 1 ↦ cbase ]
+#same derive-eq (didx (code Circ)) = none
+-- the derived function quotes back at its type (η-expanded by the quote) and runs again
+eqNat2 = eval-g lnil (fromopt (quote-top (Nat → Nat → Bool) eqNat) cword)
+#same eqNat2 (suc zero) (suc zero) = true
+#same eqNat2 (suc zero) zero = false
