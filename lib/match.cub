@@ -1,0 +1,227 @@
+-- lib/match.cub — first-order matching and rewriting over codes. Loaded after lib/code.cub.
+-- The one operation behind the specializer's rewriting along marked theorems (plan 18.6 step
+-- 3) and the navigation layer's "available transports" (18.14): given an identity whose left
+-- side is a pattern, find every position in a term where the pattern matches, and replace it by
+-- the right side under the match. A pattern is a code whose variables above a bound are
+-- metavariables; matching binds them; the match is a list of (metavariable, code).
+-- Variables are de Bruijn indices (code.cub). A pattern with k bound variables (its own λs,
+-- counted from the outside) uses cvar n with n ≥ k as metavariables m = n − k. A metavariable
+-- that occurs under b binders of the pattern binds a subterm that is then shifted by b when
+-- instantiated under different binders.
+-- ---------------------------------------------------------------- codes: shifting
+-- shift-code d k c: add k to every free variable of c that is ≥ d (variables bound inside c are
+-- below their binders' depth and untouched)
+shift-code d k c =
+  case c of
+    cvar n → if %wlt n d then c else cvar (%wadd n k)
+    clam b → clam (shift-code (%wsucc d) k b)
+    capp f a → capp (shift-code d k f) (shift-code d k a)
+    cpair a b → cpair (shift-code d k a) (shift-code d k b)
+    cfst p → cfst (shift-code d k p)
+    csnd p → csnd (shift-code d k p)
+    cpi A B → cpi (shift-code d k A) (shift-code (%wsucc d) k B)
+    csigma A B → csigma (shift-code d k A) (shift-code (%wsucc d) k B)
+    cpathp A a b → cpathp (shift-code d k A) (shift-code d k a) (shift-code d k b)
+    cplam b → cplam (shift-code (%wsucc d) k b)
+    cpapp p r → cpapp (shift-code d k p) (shift-code d k r)
+    clet t b → clet (shift-code d k t) (shift-code (%wsucc d) k b)
+    cann t T → cann (shift-code d k t) (shift-code d k T)
+    ccon dd c2 fs ds → ccon dd c2 (shift-list d k fs) (shift-list d k ds)
+    ccase dd B x → ccase dd (shift-list d k B) (shift-code d k x)
+    cwsucc a → cwsucc (shift-code d k a)
+    cwop o a b → cwop o (shift-code d k a) (shift-code d k b)
+    cwelim w z s → cwelim (shift-code d k w) (shift-code d k z) (shift-code d k s)
+    _ → c
+shift-list d k l = case l of lnil → lnil; lcons x xs → lcons (shift-code d k x) (shift-list d k xs)
+-- ---------------------------------------------------------------- substitutions
+-- a match: metavariable → code, as an association list; lookup, extension with a consistency
+-- check (a metavariable met twice binds equal codes)
+data Match = mnil | mcons m c rest
+mlookup s m = case s of mnil → none; mcons m2 c r → if %weq m m2 then some c else mlookup r m
+-- structural equality of codes (the fragment matching covers)
+code-same a b =
+  case a of
+    cvar n → (case b of cvar m → %weq n m; _ → false)
+    cglob n → (case b of cglob m → %weq n m; _ → false)
+    clam x → (case b of clam y → code-same x y; _ → false)
+    capp f x → (case b of capp g y → andb (code-same f g) (code-same x y); _ → false)
+    cpair x y → (case b of cpair x2 y2 → andb (code-same x x2) (code-same y y2); _ → false)
+    cfst x → (case b of cfst y → code-same x y; _ → false)
+    csnd x → (case b of csnd y → code-same x y; _ → false)
+    clet t x → (case b of clet t2 y → andb (code-same t t2) (code-same x y); _ → false)
+    ccon d c fs ds → (case b of ccon d2 c2 fs2 ds2 → andb (%weq d d2) (andb (%weq c c2) (andb (list-same fs fs2) (list-same ds ds2))); _ → false)
+    ccase d B x → (case b of ccase d2 B2 y → andb (%weq d d2) (andb (list-same B B2) (code-same x y)); _ → false)
+    cwlit n → (case b of cwlit m → %weq n m; _ → false)
+    cwsucc x → (case b of cwsucc y → code-same x y; _ → false)
+    cwop o x y → (case b of cwop o2 x2 y2 → andb (%weq o o2) (andb (code-same x x2) (code-same y y2)); _ → false)
+    cwelim w z s → (case b of cwelim w2 z2 s2 → andb (code-same w w2) (andb (code-same z z2) (code-same s s2)); _ → false)
+    cann t T → (case b of cann t2 T2 → code-same t t2; _ → false)
+    _ → false
+list-same l m =
+  case l of
+    lnil → (case m of lnil → true; _ → false)
+    lcons x xs → (case m of lcons y ys → andb (code-same x y) (list-same xs ys); _ → false)
+andb a b = case a of true → b; false → false
+-- ---------------------------------------------------------------- matching
+-- match k b p t s: pattern p (with k pattern-bound variables above which are metavariables),
+-- under b binders inside the pattern so far, against t; s the match so far; none on failure.
+-- A metavariable binds t shifted down by b (t's variables bound inside the pattern's binders
+-- cannot escape: those below b make the match fail)
+match k b p t s =
+  case p of
+    cvar n →
+      if %wlt n (%wadd k b)
+        then (case t of cvar m → if %weq n m then some s else none; _ → none)
+        else (let m = %wsub n (%wadd k b)
+              in if mentions-below b t then none
+                 else (case mlookup s m of
+                         none → some (mcons m (unshift b t) s)
+                         some c → if code-same c (unshift b t) then some s else none))
+    cglob n → (case t of cglob m → if %weq n m then some s else none; _ → none)
+    clam x → (case t of clam y → match k (%wsucc b) x y s; _ → none)
+    capp f x → (case t of capp g y → (case match k b f g s of some s2 → match k b x y s2; none → none); _ → none)
+    cpair x y → (case t of cpair x2 y2 → (case match k b x x2 s of some s2 → match k b y y2 s2; none → none); _ → none)
+    cfst x → (case t of cfst y → match k b x y s; _ → none)
+    csnd x → (case t of csnd y → match k b x y s; _ → none)
+    clet a x → (case t of clet a2 y → (case match k b a a2 s of some s2 → match k (%wsucc b) x y s2; none → none); _ → none)
+    ccon d c fs ds → (case t of ccon d2 c2 fs2 ds2 → if andb (%weq d d2) (%weq c c2) then match-list k b fs fs2 s else none; _ → none)
+    cwlit n → (case t of cwlit m → if %weq n m then some s else none; _ → none)
+    cwsucc x → (case t of cwsucc y → match k b x y s; _ → none)
+    cwop o x y → (case t of cwop o2 x2 y2 → if %weq o o2 then (case match k b x x2 s of some s2 → match k b y y2 s2; none → none) else none; _ → none)
+    cann a T → match k b a t s
+    _ → none
+match-list k b ps ts s =
+  case ps of
+    lnil → (case ts of lnil → some s; _ → none)
+    lcons p pr → (case ts of lcons t tr → (case match k b p t s of some s2 → match-list k b pr tr s2; none → none); _ → none)
+-- does t mention a variable below depth b (bound inside the pattern's binders)?
+mentions-below b t = if %weq b #0 then false else mentions-lt #0 b t
+mentions-lt d b t =
+  case t of
+    cvar n → andb (notb (%wlt n d)) (%wlt n (%wadd d b))
+    clam x → mentions-lt (%wsucc d) b x
+    capp f x → orb (mentions-lt d b f) (mentions-lt d b x)
+    cpair x y → orb (mentions-lt d b x) (mentions-lt d b y)
+    cfst x → mentions-lt d b x
+    csnd x → mentions-lt d b x
+    clet a x → orb (mentions-lt d b a) (mentions-lt (%wsucc d) b x)
+    ccon dd c fs ds → mentions-any d b fs
+    ccase dd B x → orb (mentions-any d b B) (mentions-lt d b x)
+    cwsucc x → mentions-lt d b x
+    cwop o x y → orb (mentions-lt d b x) (mentions-lt d b y)
+    cwelim w z s → orb (mentions-lt d b w) (orb (mentions-lt d b z) (mentions-lt d b s))
+    cann a T → mentions-lt d b a
+    _ → false
+mentions-any d b l = case l of lnil → false; lcons x xs → orb (mentions-lt d b x) (mentions-any d b xs)
+orb a b = case a of true → true; false → b
+notb a = case a of true → false; false → true
+-- shifting down by b: every free variable ≥ b becomes n − b (none below b is present, checked)
+unshift b t = unshift-at #0 b t
+unshift-at d b c =
+  case c of
+    cvar n → if %wlt n d then c else cvar (%wsub n b)
+    clam x → clam (unshift-at (%wsucc d) b x)
+    capp f x → capp (unshift-at d b f) (unshift-at d b x)
+    cpair x y → cpair (unshift-at d b x) (unshift-at d b y)
+    cfst x → cfst (unshift-at d b x)
+    csnd x → csnd (unshift-at d b x)
+    clet a x → clet (unshift-at d b a) (unshift-at (%wsucc d) b x)
+    ccon dd c2 fs ds → ccon dd c2 (unshift-list d b fs) (unshift-list d b ds)
+    ccase dd B x → ccase dd (unshift-list d b B) (unshift-at d b x)
+    cwsucc x → cwsucc (unshift-at d b x)
+    cwop o x y → cwop o (unshift-at d b x) (unshift-at d b y)
+    cwelim w z s → cwelim (unshift-at d b w) (unshift-at d b z) (unshift-at d b s)
+    cann a T → cann (unshift-at d b a) (unshift-at d b T)
+    _ → c
+unshift-list d b l = case l of lnil → lnil; lcons x xs → lcons (unshift-at d b x) (unshift-list d b xs)
+-- ---------------------------------------------------------------- instantiation
+-- inst k b s p: the pattern p with its metavariables replaced from s, each bound code shifted by
+-- the binders b it is placed under
+inst k b s p =
+  case p of
+    cvar n →
+      if %wlt n (%wadd k b) then p
+      else (case mlookup s (%wsub n (%wadd k b)) of some c → shift-code #0 b c; none → p)
+    clam x → clam (inst k (%wsucc b) s x)
+    capp f x → capp (inst k b s f) (inst k b s x)
+    cpair x y → cpair (inst k b s x) (inst k b s y)
+    cfst x → cfst (inst k b s x)
+    csnd x → csnd (inst k b s x)
+    clet a x → clet (inst k b s a) (inst k (%wsucc b) s x)
+    ccon d c fs ds → ccon d c (inst-list k b s fs) (inst-list k b s ds)
+    ccase d B x → ccase d (inst-list k b s B) (inst k b s x)
+    cwsucc x → cwsucc (inst k b s x)
+    cwop o x y → cwop o (inst k b s x) (inst k b s y)
+    cwelim w z st → cwelim (inst k b s w) (inst k b s z) (inst k b s st)
+    cann a T → cann (inst k b s a) (inst k b s T)
+    _ → p
+inst-list k b s l = case l of lnil → lnil; lcons x xs → lcons (inst k b s x) (inst-list k b s xs)
+-- ---------------------------------------------------------------- rules and positions
+-- a rule: k metavariable-bound pattern depth, left side, right side
+data Rule = rule k lhs rhs
+-- a position: a list of child indices from the root (words); child order as the code's fields
+-- rewrite-at r t: the term with the rule applied at the root if it matches, else none
+rewrite-root r t =
+  case r of
+    rule k l rh → (case match k #0 l t mnil of some s → some (inst k #0 s rh); none → none)
+-- rewrite-anywhere r t: the first position in pre-order where the rule applies, rewritten; the
+-- binder depth is tracked so that a metavariable never captures (match refuses it)
+rewrite-first r t =
+  case rewrite-root r t of
+    some t2 → some t2
+    none →
+      (case t of
+         clam x → omap clam (rewrite-first r x)
+         capp f a → (case rewrite-first r f of some f2 → some (capp f2 a); none → omap (capp f) (rewrite-first r a))
+         cpair a b → (case rewrite-first r a of some a2 → some (cpair a2 b); none → omap (cpair a) (rewrite-first r b))
+         cfst p → omap cfst (rewrite-first r p)
+         csnd p → omap csnd (rewrite-first r p)
+         clet a b → (case rewrite-first r a of some a2 → some (clet a2 b); none → omap (clet a) (rewrite-first r b))
+         ccon d c fs ds → omap (λ fs2 → ccon d c fs2 ds) (rewrite-first-list r fs)
+         ccase d B x → (case rewrite-first r x of some x2 → some (ccase d B x2); none → omap (λ B2 → ccase d B2 x) (rewrite-first-list r B))
+         cwsucc a → omap cwsucc (rewrite-first r a)
+         cwop o a b → (case rewrite-first r a of some a2 → some (cwop o a2 b); none → omap (cwop o a) (rewrite-first r b))
+         _ → none)
+rewrite-first-list r l =
+  case l of
+    lnil → none
+    lcons x xs → (case rewrite-first r x of some x2 → some (lcons x2 xs); none → omap (lcons x) (rewrite-first-list r xs))
+omap f o = case o of none → none; some x → some (f x)
+-- count-applicable r t: how many positions the rule applies at (the size of "available" for one
+-- identity); navigation chooses among them
+count-applicable r t =
+  %wadd (case rewrite-root r t of some x → #1; none → #0)
+    (case t of
+       clam x → count-applicable r x
+       capp f a → %wadd (count-applicable r f) (count-applicable r a)
+       cpair a b → %wadd (count-applicable r a) (count-applicable r b)
+       cfst p → count-applicable r p
+       csnd p → count-applicable r p
+       clet a b → %wadd (count-applicable r a) (count-applicable r b)
+       ccon d c fs ds → count-list r fs
+       ccase d B x → %wadd (count-applicable r x) (count-list r B)
+       cwsucc a → count-applicable r a
+       cwop o a b → %wadd (count-applicable r a) (count-applicable r b)
+       _ → #0)
+count-list r l = case l of lnil → #0; lcons x xs → %wadd (count-applicable r x) (count-list r xs)
+-- ---------------------------------------------------------------- tests
+-- the rule  plus 0 ?x  →  ?x  (plus as the global 7; metavariable 0 is cvar 0 at depth k = 0)
+r-plus0 = rule #0 (capp (capp (cglob #7) (cwlit #0)) (cvar #0)) (cvar #0)
+#same rewrite-root r-plus0 (capp (capp (cglob #7) (cwlit #0)) (cwlit #5)) = some (cwlit #5)
+#same rewrite-root r-plus0 (capp (capp (cglob #7) (cwlit #1)) (cwlit #5)) = none
+-- under a binder: λ y → plus 0 y  →  λ y → y (the metavariable binds the bound variable y, which
+-- is under one binder of the term but none of the pattern: allowed, since the pattern's root is
+-- matched at that position and the result stays there)
+#same rewrite-first r-plus0 (clam (capp (capp (cglob #7) (cwlit #0)) (cvar #0))) = some (clam (cvar #0))
+-- map fusion: map ?f (map ?g ?xs) → map (λ x → ?f (?g x)) ?xs, map the global 3; metavariables
+-- 0 f, 1 g, 2 xs; on the right, under the λ, each bound code is shifted by one
+r-fuse = rule #0 (capp (capp (cglob #3) (cvar #0)) (capp (capp (cglob #3) (cvar #1)) (cvar #2)))
+                 (capp (capp (cglob #3) (clam (capp (cvar #1) (capp (cvar #2) (cvar #0))))) (cvar #2))
+t-fuse = capp (capp (cglob #3) (cglob #10)) (capp (capp (cglob #3) (cglob #11)) (cglob #12))
+#same rewrite-root r-fuse t-fuse = some (capp (capp (cglob #3) (clam (capp (cglob #10) (capp (cglob #11) (cvar #0))))) (cglob #12))
+-- a metavariable met twice binds equal codes: plus ?x ?x → double ?x (double the global 8)
+r-dbl = rule #0 (capp (capp (cglob #7) (cvar #0)) (cvar #0)) (capp (cglob #8) (cvar #0))
+#same rewrite-root r-dbl (capp (capp (cglob #7) (cwlit #2)) (cwlit #2)) = some (capp (cglob #8) (cwlit #2))
+#same rewrite-root r-dbl (capp (capp (cglob #7) (cwlit #2)) (cwlit #3)) = none
+-- how many positions a rule applies at
+#same count-applicable r-plus0 (cpair (capp (capp (cglob #7) (cwlit #0)) (cwlit #1)) (capp (capp (cglob #7) (cwlit #0)) (cwlit #2))) = #2
