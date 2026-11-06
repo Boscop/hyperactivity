@@ -153,10 +153,28 @@ static void x_layout(void) {
 }
 
 /* ---------------- implicit arguments: each definition's implicit parameters (a mask) ---------------- */
-typedef struct { char *name; uint64_t m; int len; } IMask;
+typedef struct { char *name; uint64_t m; int len; uint64_t inst; } IMask;   /* inst: the implicit positions found by instance search (E28) */
 static IMask *IM; static int nim, capim;
 static IMask *imask_of(const char *s) { for (int i = nim - 1; i >= 0; i--) if (!strcmp(IM[i].name, s)) return IM[i].m ? &IM[i] : NULL; return NULL; }
-static void imask_set(const char *s, uint64_t m, int len) { GROW(IM, capim, (size_t)nim + 1); IM[nim++] = (IMask){ strdup(s), m, len }; }
+static void imask_set(const char *s, uint64_t m, int len) { GROW(IM, capim, (size_t)nim + 1); IM[nim++] = (IMask){ strdup(s), m, len, 0 }; }
+/* the instance positions of a signature: its {{..}} binders */
+static uint64_t inst_bits(Node *sig) {
+    uint64_t b = 0; int q = 0;
+    for (Node *x = sig; x && q < 64; q++) {
+        bool im = false;
+        if (x->list && x->n == 2 && is(x->it[0], "%impPi")) { im = true; x = x->it[1]; }
+        if (!(x->list && x->n == 4 && is(x->it[0], "Pi"))) break;
+        if (im && bnd_inst(x->it[1])) b |= 1ull << q;
+        x = x->it[3];
+    }
+    return b;
+}
+static void imask_inst(const char *s, Node *sig) { uint64_t b = inst_bits(sig); if (b) for (int i = nim - 1; i >= 0; i--) if (!strcmp(IM[i].name, s)) { IM[i].inst = b; return; } }
+/* instance declarations (E28): `instance` before a signature; each is a candidate for an instance
+ * hole whose type its result type matches, the latest first */
+typedef struct { char *name; Node *sig; } Inst;
+static Inst *INST; static size_t capinst; static int ninst; static bool pending_instance;
+static void inst_add(const char *name, Node *sig) { GROW(INST, capinst, (size_t)ninst + 1); INST[ninst++] = (Inst){ strdup(name), sig }; }
 
 /* ---------------- operators ---------------- */
 typedef struct { char *op; int prec, assoc; } Fix;   /* assoc: 0 none, 1 left, 2 right */
@@ -182,13 +200,19 @@ static bool x_typed;              /* the checker is loaded: data fields are type
 static bool x_untyped_file;       /* converting a file that was loaded before the checker */
 static Tok *P0(void) { return &lt[xp]; }
 static Tok *P1(void) { return &lt[xp + 1 < nlt ? xp + 1 : nlt - 1]; }
+static Tok *P2(void) { return &lt[xp + 2 < nlt ? xp + 2 : nlt - 1]; }
+/* the records declared: their field names in order, for R { f = a ; ... } and R { r | f = v } (E28) */
+typedef struct { char *name; int nf; char **fn; } RecInfo;
+static RecInfo *RECS; static size_t caprecs; static int nrecs;
+static RecInfo *rec_of(const char *s) { for (int i = nrecs - 1; i >= 0; i--) if (!strcmp(RECS[i].name, s)) return &RECS[i]; return NULL; }
+
 static Tok *NX(void) { Tok *t = &lt[xp]; if (t->k != X_EOF) xp++; return t; }
 static void x_err(const char *m, Tok *t) { x_die(t->line, t->col, m, t->k == X_VS ? "(at a new line)" : t->k == X_VC ? "(at the end of a block)" : t->k == X_VO ? "(at a new block)" : t->s); }
 static bool at(const char *s) { return x_is(P0(), s); }
 static void want(const char *s) { if (!at(s)) { char m[64]; snprintf(m, sizeof m, "expected %s, found", s); x_err(m, P0()); } NX(); }
 static void wantk(int k, const char *what) { if (P0()->k != k) { char m[64]; snprintf(m, sizeof m, "expected %s, found", what); x_err(m, P0()); } NX(); }
 static const char *RESERVED[] = { "=", ":", "→", "λ", "↦", "|", "of", "where", "let", "in", "if", "then", "else", "case", "return",
-    "data", "codata", "record", "mutual", "postulate", "import", "infix", "infixl", "infixr", "by", "calc", "∀", "decreasing", "using", "▸", "primitive", ":0", ":1", "represent", NULL };
+    "data", "codata", "record", "mutual", "postulate", "import", "infix", "infixl", "infixr", "by", "calc", "∀", "decreasing", "using", "▸", "primitive", ":0", ":1", "represent", "instance", "module", "open", "deriving", "foreign", NULL };
 static bool reserved(const char *s) { for (int i = 0; RESERVED[i]; i++) if (!strcmp(RESERVED[i], s)) return true; return false; }
 static int nfresh_x;
 static Node *xfresh(const char *p) { char b[32]; snprintf(b, sizeof b, "%%%s%d", p, nfresh_x++); return nsym(b); }
@@ -202,6 +226,50 @@ static Node *lst(int n, ...) {
 static Node *sym2(const char *h, Node *a) { return lst(2, nsym(h), a); }
 static Node *sym3(const char *h, Node *a, Node *b) { return lst(3, nsym(h), a, b); }
 static Node *sym4(const char *h, Node *a, Node *b, Node *c) { return lst(4, nsym(h), a, b, c); }
+static Node *subst_sym(Node *t, const char *x, Node *e);
+static Node *subst_multi(Node *t, const char **ps, Node **vs, int n);
+static Node *syn_type(Node *a, int depth);
+static Node *wordn(long n);
+static Node *cn(Node *c);
+/* parameterized modules (E28): `module M (A : Type) (e : Eq A) where` a block of definitions; each
+ * is a definition M·f abstracted over the parameters (implicit ones {..} implicit), its references
+ * to the module's other definitions applied to the parameters; `open M a b` defines each f as
+ * M·f a b at the instantiated signature */
+typedef struct { Node *name, *ty; bool imp; } MPar;
+typedef struct { char *name; MPar *ps; int np; char **mem; Node **msig; bool *minst; int nmem; } Module;
+static Module *MODS; static size_t capmods; static int nmods;
+static Module *cur_mod;
+static Module *mod_of(const char *s) { for (int i = nmods - 1; i >= 0; i--) if (!strcmp(MODS[i].name, s)) return &MODS[i]; return NULL; }
+static char *mod_qual(Module *m, const char *f) { char *q = malloc(strlen(m->name) + strlen(f) + 4); sprintf(q, "%s·%s", m->name, f); return q; }
+/* a member's name in a term: the qualified name at the parameters */
+static Node *mod_ref(Module *m, int k) {
+    Node *r = nlist(m->np + 1); r->it[0] = nsym(m->mem[k] + strlen(m->name) + 2);   /* placeholder, replaced below */
+    r->it[0] = nsym(m->mem[k]);
+    for (int i = 0; i < m->np; i++) r->it[i + 1] = m->ps[i].imp ? sym2("%imp", m->ps[i].name) : m->ps[i].name;
+    return m->np ? r : r->it[0];
+}
+/* an application whose head became an application: one application */
+static Node *mod_flat(Node *t) {
+    if (!t->list || t->n == 0) return t;
+    Node *r = nlist(t->n); for (int i = 0; i < t->n; i++) r->it[i] = mod_flat(t->it[i]);
+    Node *h = r->it[0];
+    if (h->list && h->n > 0 && !h->it[0]->list && h->it[0]->s[0] != '%' && !reserved(h->it[0]->s) && strchr(h->it[0]->s, 0xC2) && strstr(h->it[0]->s, "·")) {
+        Node *f = nlist(h->n + r->n - 1);
+        for (int i = 0; i < h->n; i++) f->it[i] = h->it[i];
+        for (int i = 1; i < r->n; i++) f->it[h->n + i - 1] = r->it[i];
+        return f;
+    }
+    return r;
+}
+static Node *mod_subst(Module *m, Node *t) { for (int k = 0; k < m->nmem; k++) t = subst_sym(t, m->mem[k] + strlen(m->name) + 2, mod_ref(m, k)); return mod_flat(t); }
+static Node *mod_wrap_sig(Module *m, Node *sig) {
+    for (int i = m->np - 1; i >= 0; i--) { Node *P = sym4("Pi", m->ps[i].name, m->ps[i].ty, sig); sig = m->ps[i].imp ? sym2("%impPi", P) : P; }
+    return sig;
+}
+static void mod_member(Module *m, const char *q, Node *sig, bool inst) {
+    m->mem = realloc(m->mem, (size_t)(m->nmem + 1) * sizeof(char *)); m->msig = realloc(m->msig, (size_t)(m->nmem + 1) * sizeof(Node *)); m->minst = realloc(m->minst, (size_t)(m->nmem + 1) * sizeof(bool));
+    m->mem[m->nmem] = strdup(q); m->msig[m->nmem] = sig; m->minst[m->nmem] = inst; m->nmem++;
+}
 
 /* the primitives written as prefix functions: their number of operands (min, max) */
 static const struct { const char *n; int lo, hi; } PRIM[] = {
@@ -236,17 +304,18 @@ static int p_binders(Bnd *bs, int max, bool need_type) {
         Tok *t = P0();
         if (t->k == X_ID && !reserved(t->s) && !fix_of(t)) { if (n == max) x_err("too many binders", t); NX(); bs[n++] = (Bnd){ nsym(t->s), NULL, false, false }; continue; }
         if (t->k == X_LP || t->k == X_LC) {
-            /* (x y : A) */
+            /* (x y : A); {x : A} implicit; {{x : A}} an instance argument (E28) */
             int save = xp; bool imp = t->k == X_LC; NX();
+            bool inst = imp && P0()->k == X_LC; if (inst) NX();
             int k0 = n;
             while (P0()->k == X_ID && !reserved(P0()->s) && !fix_of(P0()) && x_colon_mult(P0()) < 0) { if (n == max) x_err("too many binders", P0()); bs[n++] = (Bnd){ nsym(NX()->s), NULL, false, imp }; }
             if (n > k0 && x_colon_mult(P0()) >= 0) {
                 int m = x_colon_mult(NX()); Node *A = p_expr(0);
-                wantk(imp ? X_RC : X_RP, imp ? "}" : ")");
-                for (int q = k0; q < n; q++) { bs[q].ty = A; bs[q].dim = is(A, "I"); if (m != 2 && !bs[q].dim) bnd_set_mult(bs[q].name, m); }
+                wantk(imp ? X_RC : X_RP, imp ? "}" : ")"); if (inst) wantk(X_RC, "}}");
+                for (int q = k0; q < n; q++) { bs[q].ty = A; bs[q].dim = is(A, "I"); if (m != 2 && !bs[q].dim) bnd_set_mult(bs[q].name, m); if (inst) bnd_set_inst(bs[q].name); }
                 continue;
             }
-            if (n > k0 && imp && P0()->k == X_RC) { NX(); continue; }
+            if (n > k0 && imp && !inst && P0()->k == X_RC) { NX(); continue; }
             n = k0; xp = save;
         }
         break;
@@ -396,7 +465,37 @@ static Node *p_atom(void) {
         wantk(X_RP, ")");
         return e;
     }
+    if (t->k == X_LC && P1()->k == X_LC) { NX(); NX(); Node *e = p_expr(0); wantk(X_RC, "}"); wantk(X_RC, "}}"); Node *r = sym2("%imp", e); bnd_set_inst(r->it[0]); return r; }   /* an instance argument given: an implicit one, marked, for an instance position */
     if (t->k == X_LC) { NX(); Node *e = p_expr(0); wantk(X_RC, "}"); return sym2("%imp", e); }
+    if (t->k == X_ID && !reserved(t->s) && rec_of(t->s) && P1()->k == X_LC && !(P2()->k == X_LC)) {
+        /* R { f = a ; g = b }: a value of the record, its fields by name, in any order, each once;
+         * R { r | f = v }: r with the fields given replaced (the others projected from r) */
+        int save = xp; RecInfo *R = rec_of(t->s); NX(); NX();
+        Node *base = NULL; bool named = P0()->k == X_ID && x_is(P1(), "=");
+        if (!named) {
+            base = p_expr(0);
+            if (!at("|")) { xp = save; goto plain; }
+            NX();
+        }
+        Node *vals[64] = { 0 };
+        while (P0()->k != X_RC) {
+            Tok *f = NX(); if (f->k != X_ID) x_err("a field's name, found", f);
+            int k; for (k = 0; k < R->nf && strcmp(R->fn[k], f->s); k++) ;
+            if (k == R->nf) x_err("not a field of the record:", f);
+            if (vals[k]) x_err("a field given twice:", f);
+            want("="); vals[k] = p_expr(0);
+            if (P0()->k == X_SEMI) NX(); else if (P0()->k != X_RC) x_err("expected ; or }, found", P0());
+        }
+        NX();
+        for (int k = 0; k < R->nf; k++) if (!vals[k]) {
+            if (!base) { char m[256]; snprintf(m, sizeof m, "%s { ... }: the field %s is not given", R->name, R->fn[k]); x_err(m, P0()); }
+            vals[k] = lst(2, nsym(R->fn[k]), base);
+        }
+        Node *r = vals[R->nf - 1];
+        for (int k = R->nf - 2; k >= 0; k--) r = sym3("pair", vals[k], r);
+        return r;
+    }
+    plain:
     if (t->k == X_ID && !reserved(t->s)) {
         NX();
         if (!strcmp(t->s, "i0")) return nsym("0");
@@ -788,6 +887,8 @@ static void x_top(Node *f);
 static Node *core(Node *t) { return resolve(t, false); }
 static Node *resolve_keep(Node *t) { return t; }
 typedef struct { int np; Node **pn, **pty; bool *imp, *rev; Node *R; } TSig;
+/* does the implicit argument a ({p}, or {{p}} marked for an instance position) stand at parameter q? */
+static bool imp_at(Node *a, Node *pn) { return a->list && a->n == 2 && is(a->it[0], "%imp") && (!bnd_inst(a->it[0]) || bnd_inst(pn)); }
 static TSig tsig;
 static Node *autobind(Node *sig);
 static void tele(Node *sig);
@@ -797,8 +898,10 @@ static void x_checked(const char *name, Node *sig, Node *body, bool expect, uint
 static Node *copattern_clauses(const char *f, Lhs *ls, Node **rhs, int n, bool typed);
 static Node *copattern_wrap(Node *b);
 static void x_record(const char *R, Node **ps, int np, Node **fn, Node **ft, int nf, bool expect);
+
 static void el_once(Node *sig, Node *body, Node **T, Node **t);
 static void x_primitive(const char *nm, bool tick, Node *sig, Node *b, Tok *nt);
+static void x_foreign(const char *nm, Tok *st, Node *sig, Tok *nt);
 static Node *x_solve_expr(Node *e);
 static bool has_hole(Node *t);
 static Node *strip_marks(Node *t);
@@ -990,6 +1093,81 @@ static void p_decl(void) {
     Tok *t = P0();
     bool fail = x_fail_next; x_fail_next = false;
     if (x_is(t, "#fail")) { NX(); x_fail_next = true; return; }
+    if (x_is(t, "instance")) { NX(); pending_instance = true; x_fail_next = fail; p_decl(); pending_instance = false; return; }   /* the next definition is an instance (E28) */
+    if (x_is(t, "deriving")) {
+        /* deriving eq D [as name]: a decidable equality on the data type D, its code derived by
+         * lib/derive.cub (derive-eq) over the data table, checked and defined at D → D → Bool as
+         * name (D·eq by default) (plan F31) */
+        NX(); Tok *what = NX(); Tok *dn = NX();
+        if (!x_is(what, "eq") && !x_is(what, "Eq")) x_err("deriving eq D is what can be derived; found", what);
+        if (dn->k != X_ID || data_lookup(dn->s) < 0) x_err("deriving: not a data type:", dn);
+        const char *nm = NULL;
+        if (x_is(P0(), "as")) { NX(); nm = NX()->s; }
+        if (global_lookup("derive-eq") < 0) x_err("deriving needs lib/derive.cub loaded, for", dn);
+        int di = -1; for (int i = 0; i < nchkdata; i++) if (CHKDATA[i] == data_lookup(dn->s)) di = i;
+        if (di < 0) x_err("deriving: the data type is not checked:", dn);
+        long steps = 0;
+        char *r = readback(nl2("%%derive-eq", wordn(di)), &steps);
+        const char *saved = src; src = r; Node *rn = read_node(); src = saved;
+        Node *code = rn && rn->list && rn->n == 2 && is(rn->it[0], "some") ? rn->it[1] : NULL;
+        ncn = 0; Node *term = code ? cn(code) : NULL;
+        free(r);
+        if (!term) x_err("deriving eq: not derivable (a higher inductive type, or a field of a kind not covered):", dn);
+        char *name = nm ? strdup(nm) : NULL;
+        if (!name) { name = malloc(strlen(dn->s) + 8); sprintf(name, "%s·eq", dn->s); }
+        Node *D = nsym(dn->s);
+        Node *sig = sym4("Pi", nsym("%x"), D, sym4("Pi", nsym("%y"), D, nsym("Bool")));
+        tsig.np = 0;
+        x_checked(name, sig, term, !fail, 0, 0);
+        decl_end(); return;
+    }
+    if (x_is(t, "module")) {
+        NX(); Tok *mn = NX(); if (mn->k != X_ID) x_err("a module's name, found", mn);
+        if (cur_mod) x_err("a module inside a module:", mn);
+        Bnd bs[64]; int nb = p_binders(bs, 64, true);
+        want("where"); wantk(X_VO, "a block of definitions");
+        GROW(MODS, capmods, (size_t)nmods + 1); Module *m = &MODS[nmods++];
+        memset(m, 0, sizeof *m); m->name = strdup(mn->s); m->np = nb; m->ps = calloc((size_t)nb + 1, sizeof(MPar));
+        for (int i = 0; i < nb; i++) m->ps[i] = (MPar){ bs[i].name, bs[i].ty, bs[i].imp };
+        cur_mod = m;
+        while (P0()->k != X_VC) { p_decl(); if (P0()->k == X_VS) NX(); }
+        NX();
+        cur_mod = NULL;
+        decl_end(); return;
+    }
+    if (x_is(t, "open")) {
+        /* open M a b: each member of M, at the arguments */
+        NX(); Tok *mn = NX(); Module *m = mod_of(mn->s); if (!m) x_err("not a module:", mn);
+        Node *given[64]; int ng = 0;
+        while (P0()->k != X_VS && P0()->k != X_VC && P0()->k != X_EOF && P0()->k != X_SEMI && ng < 64) given[ng++] = p_atom();
+        /* the arguments at the parameters: an implicit one {a} where given, else a hole */
+        Node *args[64]; int gi = 0;
+        for (int i = 0; i < m->np; i++) {
+            bool gimp = gi < ng && given[gi]->list && given[gi]->n == 2 && is(given[gi]->it[0], "%imp");
+            if (m->ps[i].imp) args[i] = gimp ? given[gi++]->it[1] : nsym("%hole");
+            else { if (gi >= ng || gimp) x_err("open: the module's parameters are not all given, after", mn); args[i] = given[gi++]; }
+        }
+        if (gi != ng) x_err("open: more arguments than the module's parameters, after", mn);
+        /* an implicit parameter not given: the type of an explicit argument whose parameter's type
+         * is that parameter (open Pair true: A is Bool) */
+        for (int i = 0; i < m->np; i++) if (m->ps[i].imp && !args[i]->list && !strcmp(args[i]->s, "%hole"))
+            for (int j = 0; j < m->np; j++) if (!m->ps[j].imp && !m->ps[j].ty->list && !strcmp(m->ps[j].ty->s, m->ps[i].name->s)) { Node *T = syn_type(args[j], 0); if (T) { args[i] = T; break; } }
+        for (int k = 0; k < m->nmem; k++) {
+            const char *nm = m->mem[k] + strlen(m->name) + 2;
+            Node *sig = m->msig[k];
+            const char *pn[64]; for (int i = 0; i < m->np; i++) pn[i] = m->ps[i].name->s;
+            sig = subst_multi(sig, pn, args, m->np);
+            Node *call = nlist(m->np + 1); call->it[0] = nsym(m->mem[k]);
+            for (int i = 0; i < m->np; i++) call->it[i + 1] = m->ps[i].imp ? sym2("%imp", args[i]) : args[i];
+            Lhs l = { nm, NULL, 0, NULL }; Node *rhs = m->np ? call : call->it[0];
+            Node *sg = autobind(resolve_keep(sig)); tele(sg);
+            uint64_t mask = 0; for (int q = 0; q < tsig.np && q < 64; q++) if (tsig.imp[q]) mask |= 1ull << q;
+            if (m->minst[k]) pending_instance = true;
+            x_checked(nm, sg, clauses_typed(nm, &l, &rhs, 1), true, mask, tsig.np);
+            pending_instance = false;
+        }
+        decl_end(); return;
+    }
     if (x_is(t, "import")) {
         NX(); Tok *f = NX();
         if (f->k != X_STR && f->k != X_ID) x_err("import needs a file, found", f);
@@ -1088,6 +1266,17 @@ static void p_decl(void) {
         x_primitive(nm, tick, sig, b, nt);
         decl_end(); return;
     }
+    if (x_is(t, "foreign")) {
+        /* foreign name "symbol" : T (D27): a C function of the running program as a primitive at T,
+         * a Π over arguments of primitive types (Int64, UInt32, Float64, Word, Bytes n; an argument
+         * at multiplicity 0 is not passed) to a primitive type or Word; trusted (#trusted: foreign) */
+        NX(); Tok *nt = NX(); if (nt->k != X_ID) x_err("foreign names something, found", nt);
+        const char *nm = strdup(nt->s);
+        Tok *st = NX(); if (st->k != X_STR) x_err("foreign: the C symbol, a string, found", st);
+        want(":"); Node *sig = p_expr(0);
+        x_foreign(nm, st, sig, nt);
+        decl_end(); return;
+    }
     if (x_is(t, "represent")) {
         /* represent T by R where ... (plan B12): a representation of the data type T by the type R: the
          * equivalence (to, from, to-from, from-to) and, per operation on T to run natively, op f : A
@@ -1160,6 +1349,10 @@ static void p_decl(void) {
     if (x_is(t, "#show")) { NX(); x_test("show", x_solve_expr(p_expr(0)), NULL); decl_end(); return; }
     if (x_is(t, "#usage")) { NX(); Tok *n = NX(); x_top(sym2("usage", nsym(n->s))); decl_end(); return; }
     if (x_is(t, "#trusted")) { NX(); x_top(lst(1, nsym("trusted"))); decl_end(); return; }
+    /* the store (F34): #key d, #names K, #history name, #unbind name, #gc */
+    if (x_is(t, "#key") || x_is(t, "#names") || x_is(t, "#history") || x_is(t, "#unbind") || x_is(t, "#safe")) { const char *c = NX()->s + 1; Tok *n = NX(); x_top(sym2(c, nsym(n->s))); decl_end(); return; }
+    if (x_is(t, "#gc")) { NX(); x_top(lst(1, nsym("gc"))); decl_end(); return; }
+    if (x_is(t, "#fo")) { NX(); x_top(sym2("fo", x_solve_expr(p_expr(0)))); decl_end(); return; }
     if (x_is(t, "#layout")) {
         /* #layout T [as R]: the layout of a type by its first representation, or by the named one */
         NX(); Tok *n = NX(); Node *r = NULL;
@@ -1206,6 +1399,27 @@ static void p_decl(void) {
         NX();
         ls = realloc(ls, (size_t)(n + 1) * sizeof(Lhs)); rs = realloc(rs, (size_t)(n + 1) * sizeof(Node *));
         ls[n] = l; rs[n] = p_rhs(); n++;
+    }
+    /* inside a module: the definition abstracted over the parameters, its name qualified, its
+     * references to the module's members applied to them */
+    if (cur_mod) {
+        Module *m = cur_mod;
+        if (!sig) x_err("a module's definitions have signatures:", P0());
+        if (l0.field) x_err("a copattern definition inside a module is not supported:", P0());
+        Node *osig = mod_subst(m, sig);
+        char *q = mod_qual(m, l0.f);
+        mod_member(m, q, osig, pending_instance);
+        sig = mod_wrap_sig(m, osig);
+        int ne = 0; for (int i = 0; i < m->np; i++) if (!m->ps[i].imp) ne++;
+        l0.f = q;
+        for (int i = 0; i < n; i++) {
+            ls[i].f = q;
+            Node **ps = calloc((size_t)(ls[i].np + ne + 1), sizeof(Node *)); int k = 0;
+            for (int j = 0; j < m->np; j++) if (!m->ps[j].imp) ps[k++] = m->ps[j].name;
+            for (int j = 0; j < ls[i].np; j++) ps[k++] = ls[i].ps[j];
+            ls[i].ps = ps; ls[i].np = k;
+            rs[i] = mod_subst(m, rs[i]);
+        }
     }
     /* recursion along a measure: decreasing by m [using L] */
     Node *dec_m = NULL, *dec_l = NULL;
@@ -2317,6 +2531,15 @@ static Node *cn(Node *c) {
         a = cn(c->it[3]); return a ? lst(2, nsym(FLD[DATA[CHKDATA[di]].flds[k]].name), a) : NULL;
     }
     if (!strcmp(h, "ceq0") || !strcmp(h, "ceq1")) { a = cn(c->it[1]); return a ? sym3("=", a, nsym(h[3] == '0' ? "0" : "1")) : NULL; }
+    /* words: literals, successor, the operations, the eliminator */
+    if (!strcmp(h, "cwlit") && c->n == 2 && !c->it[1]->list) return c->it[1];
+    if (!strcmp(h, "cwsucc") && c->n == 2) { a = cn(c->it[1]); return a ? lst(2, nsym("%wsucc"), a) : NULL; }
+    if (!strcmp(h, "cwop") && c->n == 4) {
+        static const char *WO[] = { "%weq", "%wlt", "%wadd", "%wmax", "%wsub" };
+        long k = cn_word(c->it[1]); if (k < 0 || k > 4) return NULL;
+        a = cn(c->it[2]); b = cn(c->it[3]); return a && b ? lst(3, nsym(WO[k]), a, b) : NULL;
+    }
+    if (!strcmp(h, "cwelim") && c->n == 4) { a = cn(c->it[1]); b = cn(c->it[2]); d = cn(c->it[3]); return a && b && d ? lst(5, nsym("%welimP"), nsym("%hole"), a, b, d) : NULL; }
     if (!strcmp(h, "csysc")) {
         /* a system: its branches in order */
         Node *bs[64]; int n = 0; Node *s = c;
@@ -2349,13 +2572,13 @@ static Node *cn(Node *c) {
  * the syntax does not tell is a guess (%guess #k #g t). The checker finds the holes and tells the
  * wrong guesses; holes and guesses are keyed by where they stand in the source, so a decision holds
  * from one run to the next. */
-typedef struct { Node *key; int idx; Node *sol; Node *syn; } EHole;   /* syn: found from the signatures (a surface term) */
+typedef struct { Node *key; int idx; Node *sol; Node *syn; bool inst, tent; int tried; } EHole;   /* syn: found from the signatures (a surface term); inst: an instance hole, tent: its solution a candidate under trial, tried: candidates given up (E28) */
 typedef struct { Node *key; int kind; } EGuess;
 static EHole *EH; static int neh, capeh;
 static EGuess *EG; static int neg, capeg;
 static int e_hole(Node *key, int idx) {
     for (int i = 0; i < neh; i++) if (EH[i].key == key && EH[i].idx == idx) return i;
-    GROW(EH, capeh, (size_t)neh + 1); EH[neh] = (EHole){ key, idx, NULL, NULL }; return neh++;
+    GROW(EH, capeh, (size_t)neh + 1); EH[neh] = (EHole){ key, idx, NULL, NULL, false, false, 0 }; return neh++;
 }
 static int e_guess(Node *key, int deflt) {
     for (int i = 0; i < neg; i++) if (EG[i].key == key) return i;
@@ -2379,6 +2602,7 @@ static SigE *SIGS; static int nsigs, capsigs;
 static Node *sig_of(const char *n) { for (int i = nsigs - 1; i >= 0; i--) if (!strcmp(SIGS[i].name, n)) return SIGS[i].sig; return NULL; }
 static void sig_set(const char *n, Node *s) { GROW(SIGS, capsigs, (size_t)nsigs + 1); SIGS[nsigs++] = (SigE){ strdup(n), s }; }
 static Node *subst_sym(Node *t, const char *x, Node *e);
+static Node *subst_multi(Node *t, const char **ps, Node **vs, int n);
 /* the syntactic type of a term, when its head's signature tells it: a variable of known type, a
  * definition applied (its signature's parameters replaced by the arguments, its implicit ones
  * found the same way); NULL when not told */
@@ -2490,7 +2714,7 @@ static Node *syn_lam_type(Node *a, Node *ty, const char **ps, Node **sol, int q,
 /* the implicit arguments of h applied to args, found from the arguments' syntactic types */
 static int syn_solve(const char *h, Node **args, int n, Node **sol, int depth) {
     Node *sg = sig_of(h); if (!sg || depth > 8) return 0;
-    const char *ps[256]; Node *ty[256]; bool imp[256]; Node *rest[257]; int np = 0;
+    const char *ps[256]; Node *ty[256]; bool imp[256], pinst[256]; Node *rest[257]; int np = 0;
     Node *t = sg;
     for (;;) {
         bool im = false;
@@ -2499,7 +2723,7 @@ static int syn_solve(const char *h, Node **args, int n, Node **sol, int depth) {
         /* the parameters named apart from the arguments' variables */
         char nm[64]; snprintf(nm, sizeof nm, "%%s%d.%s", np, t->it[1]->s); Node *fx = nsym(strdup(nm));
         const char *old = t->it[1]->s;
-        ps[np] = fx->s; ty[np] = t->it[2]; imp[np] = im; rest[np] = t; np++;
+        ps[np] = fx->s; ty[np] = t->it[2]; imp[np] = im; pinst[np] = im && bnd_inst(t->it[1]); rest[np] = t; np++;
         t = subst_multi(t->it[3], &old, &fx, 1);
     }
     rest[np] = t;
@@ -2509,6 +2733,7 @@ static int syn_solve(const char *h, Node **args, int n, Node **sol, int depth) {
         Node *a;
         if (imp[q]) {
             if (!(args[i]->list && args[i]->n == 2 && is(args[i]->it[0], "%imp"))) continue;
+            if (bnd_inst(args[i]->it[0]) && !pinst[q]) continue;   /* {{e}} waits for an instance position */
             a = args[i++]->it[1];
             if (!a->list && !strcmp(a->s, "%hole")) continue;
             if (!a->list && !strcmp(a->s, "_")) continue;
@@ -2584,6 +2809,7 @@ static int syn_solve(const char *h, Node **args, int n, Node **sol, int depth) {
 }
 static Node *syn_type(Node *a, int depth) {
     if (depth > 8) return NULL;
+    if (a->list && a->n == 2 && is(a->it[0], "%num") && data_lookup("Nat") >= 0 && !e_find("Nat")) return nsym("Nat");   /* a numeral (where no interval stands) is a natural number */
     if (a->list && a->n == 2 && is(a->it[0], "rec") && !a->it[1]->list) { char nm[256]; snprintf(nm, sizeof nm, "%%rec %s", a->it[1]->s); Sc *s = e_find(nm); return s ? s->ty : NULL; }
     if (!a->list && !e_find(a->s) && con_lookup(a->s) >= 0) {
         int c = con_lookup(a->s), d = CON[c].data;
@@ -2683,6 +2909,81 @@ static Node *hole_or_sol(Node *key, int idx, bool *pend) {
     if (EH[k].sol) return EH[k].sol;
     *pend = true;
     return sym2("%hole", wordn(k));
+}
+/* ---------------- instance search (E28) ----------------
+ * An instance hole's type, as far as the signature and the solutions so far tell it (unknown parts
+ * %? or holes), is matched against each instance's result type, the instance's own binders
+ * matching anything; the latest match is the candidate, elaborated in the hole's place (its own
+ * implicit and instance arguments then holes of their own). A candidate the checker rejects is
+ * given up for the next; none left, the hole stays and the checker reports it. */
+static bool inst_unknown(Node *t) { if (!t->list) return !strcmp(t->s, "%?") || !strcmp(t->s, "%hole") || !strcmp(t->s, "_"); return t->n >= 1 && !t->it[0]->list && (is(t->it[0], "%hole") || is(t->it[0], "%?")); }
+static bool inst_has_unknown(Node *t) { if (inst_unknown(t)) return true; if (!t->list) return false; for (int i = 0; i < t->n; i++) if (inst_has_unknown(t->it[i])) return true; return false; }
+/* an application as one list, (f a b), however it was nested */
+static Node *inst_flat(Node *t) {
+    if (!t->list || t->n == 0) return t;
+    if (t->it[0]->list && t->it[0]->n > 0 && !t->it[0]->it[0]->list && !e_head_kw(t->it[0]->it[0]->s)) {
+        Node *h = inst_flat(t->it[0]);
+        Node *r = nlist(h->n + t->n - 1);
+        for (int i = 0; i < h->n; i++) r->it[i] = h->it[i];
+        for (int i = 1; i < t->n; i++) r->it[h->n + i - 1] = inst_flat(t->it[i]);
+        return r;
+    }
+    Node *r = nlist(t->n); for (int i = 0; i < t->n; i++) r->it[i] = inst_flat(t->it[i]);
+    return r;
+}
+/* pat against t; a pattern variable (one of pv) binds to what it meets (bv; the first binding
+ * stands, the next must agree syntactically or be unknown) */
+static bool inst_match(Node *pat, Node *t, const char **pv, Node **bv, int npv) {
+    if (inst_unknown(t)) return true;
+    if (!pat->list) {
+        for (int i = 0; i < npv; i++) if (!strcmp(pv[i], pat->s)) { if (bv) { if (!bv[i]) bv[i] = t; else if (!node_eq(bv[i], t)) return false; } return true; }
+        return !t->list && !strcmp(pat->s, t->s);
+    }
+    if (!t->list) return false;
+    if (pat->n != t->n) return false;
+    for (int i = 0; i < pat->n; i++) if (!inst_match(pat->it[i], t->it[i], pv, bv, npv)) return false;
+    return true;
+}
+/* a candidate for want: a variable in scope of that type (a local instance), else the skip-th (from
+ * the latest) instance whose result type matches; NULL when there is none */
+static Node *inst_pick(Node *want, int skip) {
+    if (!want) return NULL;
+    want = inst_flat(want);
+    if (skip == 0) for (int i = nesc - 1; i >= 0; i--) if (esc[i].ty && !esc[i].dim && inst_match(inst_flat(esc[i].ty), want, NULL, NULL, 0) && inst_match(want, inst_flat(esc[i].ty), NULL, NULL, 0)) return nsym(esc[i].n);
+    for (int i = ninst - 1; i >= 0; i--) {
+        /* the instance's binders: implicit ones are pattern variables, given to the candidate as
+         * the match binds them ({A}); its own instance arguments are left to be found */
+        const char *pv[64]; Node *bv[64] = { 0 }; bool pinst[64]; int npv = 0; bool explicit_ = false;
+        Node *x = INST[i].sig;
+        for (;;) {
+            bool im = false;
+            if (x->list && x->n == 2 && is(x->it[0], "%impPi")) { im = true; x = x->it[1]; }
+            if (!(x->list && x->n == 4 && is(x->it[0], "Pi"))) break;
+            if (!im) explicit_ = true;
+            if (npv < 64) { pv[npv] = x->it[1]->s; pinst[npv] = bnd_inst(x->it[1]); npv++; }
+            x = x->it[3];
+        }
+        if (explicit_ || !inst_match(inst_flat(x), want, pv, bv, npv)) continue;
+        if (skip > 0) { skip--; continue; }
+        Node *c = nsym(INST[i].name); int na = 0;
+        for (int q = 0; q < npv; q++) if (!pinst[q] && bv[q]) na = q + 1;   /* up to the last bound one */
+        if (!na) return c;
+        Node *r = nlist(na + 1); r->it[0] = c;
+        for (int q = 0; q < na; q++) r->it[q + 1] = sym2("%imp", !pinst[q] && bv[q] ? bv[q] : nsym("%hole"));
+        return r;
+    }
+    return NULL;
+}
+/* an instance hole at position pos of an application t: solved by a candidate when its type is
+ * known enough (the head constant and its arguments' heads) */
+static Node *inst_hole(Node *t, int pos, Node *want, bool *pend) {
+    int k = e_hole(t, pos);
+    EH[k].inst = true;
+    if (!EH[k].sol && want && !inst_has_unknown(want)) {
+        Node *c = inst_pick(want, EH[k].tried);
+        if (c) { EH[k].sol = el(c); EH[k].tent = true; }
+    }
+    return hole_or_sol(t, pos, pend);
 }
 /* an application: the head's implicit arguments inserted (eagerly, up to the next explicit one),
  * each operand a function's or a path's by what it is */
@@ -2854,11 +3155,16 @@ static Node *el_app(Node *t, Node *h, Node **args, int n) {
         int pos = 0, i = 0;
         while (pos < im->len && no < 500) {
             if (im->m >> pos & 1) {
-                if (i < n && args[i]->list && args[i]->n == 2 && is(args[i]->it[0], "%imp") && !is(args[i]->it[1], "%hole")) { orig[no] = args[i]->it[1]; out[no++] = el(args[i]->it[1]); i++; }
-                else if (i < n && args[i]->list && args[i]->n == 2 && is(args[i]->it[0], "%imp")) { i++; orig[no] = NULL; out[no++] = pos < nss && ssol[pos] ? el(syn_once(t, pos, ssol[pos])) : hole_or_sol(t, pos, &pend); }
+                bool given = i < n && args[i]->list && args[i]->n == 2 && is(args[i]->it[0], "%imp") && (!bnd_inst(args[i]->it[0]) || (im->inst >> pos & 1));   /* {{e}} waits for an instance position */
+                if (given && !is(args[i]->it[1], "%hole")) { orig[no] = args[i]->it[1]; out[no++] = el(args[i]->it[1]); i++; }
+                else if (given) { i++; orig[no] = NULL; out[no++] = pos < nss && ssol[pos] ? el(syn_once(t, pos, ssol[pos])) : hole_or_sol(t, pos, &pend); }
                 else if (pos < nss && ssol[pos]) { orig[no] = NULL; out[no++] = el(syn_once(t, pos, ssol[pos])); }
                 else if (pos < npt && !pty[pos]->list && is(pty[pos], "Clock") && the_clock()) { orig[no] = NULL; out[no++] = the_clock(); }
-                else { orig[no] = NULL; out[no++] = hole_or_sol(t, pos, &pend); }
+                else if (im->inst >> pos & 1) {
+                    Node *vs[256]; Node *unk = nsym("%?");
+                    for (int r = 0; r < pos; r++) { int kr = e_hole(t, r); vs[r] = r < nss && ssol[r] ? ssol[r] : EH[kr].sol ? EH[kr].sol : unk; }
+                    orig[no] = NULL; out[no++] = inst_hole(t, pos, pos < npt ? subst_multi(pty[pos], pnm, vs, pos) : NULL, &pend);
+                } else { orig[no] = NULL; out[no++] = hole_or_sol(t, pos, &pend); }
             } else {
                 if (i >= n) break;
                 if (args[i]->list && args[i]->n == 2 && is(args[i]->it[0], "%imp")) die("an implicit argument {..} where an explicit one is due, applying", h->s);
@@ -3086,6 +3392,7 @@ typedef struct { const char *v; int gp; Node *E; Node **rf; int nrf; } Frame;   
 static CVar *cdefs; static int ncdefs, capcdefs;
 static Frame *frames; static int nframes, capframes;
 static Node *subst_sym(Node *t, const char *x, Node *e);
+static Node *subst_multi(Node *t, const char **ps, Node **vs, int n);
 static Node *ty_of(const char *v) { for (int i = ncdefs - 1; i >= 0; i--) if (!strcmp(cdefs[i].v, v)) return cdefs[i].ty; for (int i = 0; i < tsig.np; i++) if (!strcmp(tsig.pn[i]->s, v)) return tsig.pty[i]; return NULL; }
 /* the types of constructor c's fields, the variable it splits being of type T (D at its parameters):
  * the declaration's field types, its parameters and earlier fields replaced */
@@ -3145,7 +3452,7 @@ static Node *rec_call(Node *e, Node **args, int n) {
     /* the call's arguments at the parameters' positions (implicit ones not given) */
     Node *at[256] = { 0 }; int i = 0;
     for (int q = 0; q < tsig.np && i <= n; q++) {
-        if (tsig.imp[q]) { if (i < n && args[i]->list && args[i]->n == 2 && is(args[i]->it[0], "%imp")) at[q] = args[i++]->it[1]; continue; }
+        if (tsig.imp[q]) { if (i < n && imp_at(args[i], tsig.pn[q])) at[q] = args[i++]->it[1]; continue; }
         if (i < n) at[q] = args[i++];
     }
     if (guard_on) {
@@ -3528,7 +3835,7 @@ static bool uniform_in(Node *e, const char *f, int q, Node *pat) {
     if (e->n >= 1 && !e->it[0]->list && !strcmp(e->it[0]->s, f)) {
         int i = 1;
         for (int k = 0; k < tsig.np; k++) {
-            if (tsig.imp[k]) { if (i < e->n && e->it[i]->list && e->it[i]->n == 2 && is(e->it[i]->it[0], "%imp")) i++; continue; }
+            if (tsig.imp[k]) { if (i < e->n && imp_at(e->it[i], tsig.pn[k])) i++; continue; }
             if (k == q) { if (i >= e->n) return false; Node *a = e->it[i]; if (a->list || pat->list || pat_wild(pat) || strcmp(a->s, pat->s)) return false; }
             i++;
         }
@@ -3560,9 +3867,10 @@ static Node *clauses_typed(const char *f, Lhs *ls, Node **rhs, int n) {
     for (int i = 0; i < n; i++) {
         Node **ps = calloc((size_t)tsig.np + 64, sizeof(Node *)); int k = 0;
         for (int q = 0; q < tsig.np; q++) {
-            if (tsig.imp[q]) { if (k < ls[i].np && ls[i].ps[k]->list && ls[i].ps[k]->n == 2 && is(ls[i].ps[k]->it[0], "%imp")) ps[q] = pat_norm(ls[i].ps[k++]->it[1]); else ps[q] = tsig.pn[q]; continue; }
+            if (tsig.imp[q]) { if (k < ls[i].np && imp_at(ls[i].ps[k], tsig.pn[q])) ps[q] = pat_norm(ls[i].ps[k++]->it[1]); else ps[q] = tsig.pn[q]; continue; }
             if (k >= ls[i].np) die("a clause with fewer patterns than parameters:", f);
             ps[q] = ls[i].ps[k++];
+            if (ps[q]->list && pat_con(ps[q]) < 0 && !(ps[q]->n == 2 && is(ps[q]->it[0], "%num")) && !(ps[q]->n >= 1 && !ps[q]->it[0]->list && is(ps[q]->it[0], "rec"))) die("not a pattern (a variable, _, a numeral or a constructor at patterns), in a clause of", f);
         }
         int ex = ls[i].np - k;
         if (extra < 0) extra = ex; else if (extra != ex) die("clauses with different numbers of patterns:", f);
@@ -3768,7 +4076,9 @@ static void x_checked(const char *name, Node *sig, Node *body, bool expect, uint
     neh = neg = 0;
     /* its own calls (a copattern definition's) take implicit arguments as later uses do */
     if (name && mask) imask_set(name, mask, mlen);
+    if (name && mask) imask_inst(name, sig);
     if (name) sig_set(name, sig);
+    if (name && pending_instance) { inst_add(name, sig); pending_instance = false; }
     if (name) {
         Node *h = body;
         for (;;) {
@@ -3798,6 +4108,11 @@ static void x_checked(const char *name, Node *sig, Node *body, bool expect, uint
         if (trusted) break;
         if (getenv("CUBICAL_SHOW_ELAB") && !round) { fprintf(stderr, "[elab] %s : ", name ? name : "(check)"); print_node(stderr, T); fprintf(stderr, "\n  = "); print_node(stderr, t); fprintf(stderr, "\n"); }
         Node *dT = ds(T), *dt = ds(t);
+        /* a definition the store holds as checked (F34): its key found, the checker is not run */
+        if (name && expect && !copattern_body(dt) && !has_hole(T) && !has_hole(t)) {
+            char key[65]; key_def(ds(strip_marks(T)), ds(strip_marks(t)), key, NULL, NULL);   /* as the definition will be recorded */
+            if (store_checked(key)) { forced_result = strdup("ok"); forced_steps = -1; break; }
+        }
         Node *q;
         if (name && copattern_body(dt)) {
             /* a copattern definition: its body against its type, its own calls a variable */
@@ -3824,6 +4139,10 @@ static void x_checked(const char *name, Node *sig, Node *body, bool expect, uint
             long k = cn_word(rn->it[1]);
             if (k >= 0 && k < neg && round < 200) { EG[k].kind ^= 1; again = true; }
         }
+        if (!again && strcmp(r, "ok") && round < 400) {
+            /* an instance candidate under trial may be the fault: the latest is given up (E28) */
+            for (int k = neh - 1; k >= 0; k--) if (EH[k].inst && EH[k].tent && EH[k].sol) { EH[k].tried++; EH[k].sol = NULL; EH[k].tent = false; again = true; break; }
+        }
         if (again && round < 400) { free(r); continue; }
         forced_result = r; forced_steps = steps;
         if (name && copattern_body(dt) && !strcmp(r, "ok")) { free(r); forced_result = NULL; }
@@ -3840,6 +4159,7 @@ static void x_checked(const char *name, Node *sig, Node *body, bool expect, uint
 /* a record: R params = (f1 : A1) × ... × An, and each field's projection */
 static void x_record(const char *R, Node **ps, int np, Node **fn, Node **ft, int nf, bool expect) {
     if (!nf) die("a record needs a field:", R);
+    { GROW(RECS, caprecs, (size_t)nrecs + 1); RecInfo *ri = &RECS[nrecs++]; ri->name = strdup(R); ri->nf = nf; ri->fn = calloc((size_t)nf, sizeof(char *)); for (int k = 0; k < nf; k++) ri->fn[k] = strdup(fn[k]->s); }
     Node *S = ft[nf - 1];
     for (int i = nf - 2; i >= 0; i--) S = sym4("Sigma", fn[i], ft[i], S);
     Node *ty = nsym("U"), *body = S;
@@ -3868,6 +4188,46 @@ static void x_record(const char *R, Node **ps, int np, Node **fn, Node **ft, int
     }
 }
 static void el_once(Node *sig, Node *body, Node **T, Node **t) { neh = neg = 0; nesc = 0; *T = core(el(sig)); nesc = 0; *t = core(el(body)); }
+/* foreign name "symbol" : T (D27): see p_decl */
+static void x_foreign(const char *nm, Tok *st, Node *sig, Tok *nt) {
+    Node *sg = autobind(resolve_keep(sig)); tele(sg);
+    if (tsig.np && tsig.imp[0]) x_err("a foreign function's type has no implicit arguments:", nt);
+    neh = neg = 0; nesc = 0;
+    Node *T = strip_marks(core(el(sg)));
+    unsigned char kind[8]; int n = 0; Node *xs[8]; int nx = 0;
+    Node *x = T;
+    unsigned char passed[8];
+    for (;;) {
+        if (!(x->list && x->n == 4 && is(x->it[0], "Pi"))) break;
+        Node *xn = x->it[1], *A = x->it[2];
+        int m = bnd_mult(xn);
+        if (nx == 8) x_err("foreign: at most 8 arguments, in", nt);
+        passed[nx] = m != 0;
+        if (m != 0) {
+            int k = -1;
+            if (!A->list) k = !strcmp(A->s, "Int64") ? PT_I64 : !strcmp(A->s, "UInt32") ? PT_U32 : !strcmp(A->s, "Float64") ? PT_F64 : !strcmp(A->s, "Word") ? 4 : -1;
+            else if (A->n == 2 && is(A->it[0], "Bytes")) k = PT_BYTES;
+            if (k < 0) x_err("foreign: an argument's type is Int64, UInt32, Float64, Word or Bytes n (or at multiplicity 0), in", nt);
+            kind[n++] = (unsigned char)k;
+        }
+        xs[nx++] = xn;
+        x = x->it[3];
+    }
+    int ret = !x->list ? (!strcmp(x->s, "Int64") ? PT_I64 : !strcmp(x->s, "UInt32") ? PT_U32 : !strcmp(x->s, "Float64") ? PT_F64 : !strcmp(x->s, "Word") ? 4 : -1) : -1;
+    if (ret < 0) x_err("foreign: the result type is Int64, UInt32, Float64 or Word, in", nt);
+    if (n < 1 || n > 6) x_err("foreign: one to six arguments passed, in", nt);
+    bool dbl = ret == PT_F64; for (int i = 0; i < n; i++) if ((kind[i] == PT_F64) != dbl) x_err("foreign: every argument and the result are doubles, or none is, in", nt);
+    if (dbl && n > 4) x_err("foreign: at most four double arguments, in", nt);
+    char *sym = strdup(st->s[0] == '"' ? st->s + 1 : st->s); size_t sl = strlen(sym); if (sl && sym[sl - 1] == '"') sym[sl - 1] = 0;
+    int k = ffi_add(sym, n, kind, (unsigned char)ret);
+    /* the computation: λ over every argument, the call over the passed ones */
+    Node *call = nlist(n + 2); call->it[0] = nsym("%ffi"); call->it[1] = wordn(k);
+    { int j = 2; for (int i = 0; i < nx; i++) if (passed[i]) call->it[j++] = xs[i]; }
+    Node *body = call;
+    for (int i = nx - 1; i >= 0; i--) body = sym3("lam", xs[i], body);
+    sig_set(nm, sg);
+    x_top(lst(4, nsym("foreign"), nsym(nm), T, body));
+}
 static void x_primitive(const char *nm, bool tick, Node *sig, Node *b, Tok *nt) {
     Node *sg = autobind(resolve_keep(sig)); tele(sg);
     uint64_t mask = 0; for (int q = 0; q < tsig.np && q < 64; q++) if (tsig.imp[q]) mask |= 1ull << q;

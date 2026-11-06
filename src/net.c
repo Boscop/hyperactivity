@@ -1543,7 +1543,7 @@ static const char *const KIND_NAME[K_END] = {
     [O_NTYPE] = "NTYPE",
     [O_CALL] = "CALL",
     [O_WSUCC] = "WSUCC",
-    [O_PTY] = "PTY", [O_BYTESTY] = "BYTESTY", [O_PVAL] = "PVAL", [O_PVAL2] = "PVAL2", [O_POP1] = "POP1", [O_POP2] = "POP2", [O_POP2B] = "POP2B", [O_BYTES] = "BYTES", [O_LOAD] = "LOAD", [O_LOADB] = "LOADB", [O_STORE] = "STORE", [O_STOREB] = "STOREB", [O_STOREC] = "STOREC", [O_BLEN] = "BLEN",
+    [O_PTY] = "PTY", [O_BYTESTY] = "BYTESTY", [O_PVAL] = "PVAL", [O_PVAL2] = "PVAL2", [O_POP1] = "POP1", [O_POP2] = "POP2", [O_POP2B] = "POP2B", [O_BYTES] = "BYTES", [O_LOAD] = "LOAD", [O_LOADB] = "LOADB", [O_STORE] = "STORE", [O_STOREB] = "STOREB", [O_STOREC] = "STOREC", [O_BLEN] = "BLEN", [O_PTROF] = "PTROF", [O_REGAT] = "REGAT", [O_REGATA] = "REGATA", [O_FFI] = "FFI",
     [O_PIMULT] = "PIMULT", [O_PIM] = "PIM", [O_FMULT] = "FMULT", [O_FMULT2] = "FMULT2", [O_FMULT3] = "FMULT3", [O_LINEAR] = "LINEAR", [O_GUSAGE] = "GUSAGE", [O_GUSAGE2] = "GUSAGE2",
     [O_WEQ] = "WEQ",
     [O_WLT] = "WLT",
@@ -2351,7 +2351,7 @@ static void interact(Cell *o, Cell *v) {
         cell_free(o); cell_free(v);
         return;
     }
-    case O_BYTES: case O_LOADB: case O_STOREB: {
+    case O_BYTES: case O_LOADB: case O_STOREB: case O_REGAT: {
         /* a length or an offset: a word, or a numeral (zero, suc k): counted down to a word */
         long n = -1;
         if (vk == V_WORD && !v->p) n = (long)v->a;
@@ -2369,6 +2369,10 @@ static void interact(Cell *o, Cell *v) {
             Bytes *b = calloc(1, sizeof(Bytes) + (size_t)n); b->rc = 1; b->n = (size_t)n;
             Cell *c = cell(V_BYTES, 1); c->x = PT_BYTES; c->p = b;
             link(P(c, 0), o->port[1]);
+        } else if (o->kind == O_REGAT) {
+            /* the address next */
+            Cell *c = cell(O_REGATA, 1); c->a = (uint64_t)n;
+            mv(o, 1, P(c, 0)); mv(o, 2, P(c, 1));
         } else if (o->kind == O_LOADB) {
             Bytes *b = o->p; int w = (int)o->x; uint64_t r = 0;
             if (b && (size_t)n + (size_t)w <= b->n) memcpy(&r, b->b + n, (size_t)w);
@@ -2408,6 +2412,75 @@ static void interact(Cell *o, Cell *v) {
         if (vk != V_BYTES) { stuck(o, v); return; }
         link(word_of(v->p ? (uint64_t)((Bytes *)v->p)->n : 0), o->port[1]);
         era(P(v, 0)); cell_free(o);
+        return;
+    }
+    case O_FFI: {
+        /* a foreign call (D27): the arguments read in turn, each a primitive value, a word or a byte
+         * string (its address passed, the string kept until the call returns); then the call, by
+         * the entry's kinds: every argument and the result integers (or pointers), or every one a
+         * double */
+        typedef struct { int n; uint64_t v[8]; Bytes *keep[8]; } FfiArgs;
+        Ffi *e = &FFI[o->x];
+        FfiArgs *A = o->p; if (!A) { A = calloc(1, sizeof(FfiArgs)); }
+        o->p = NULL;
+        uint64_t bits;
+        if (vk == V_PVAL) bits = v->a;
+        else if (vk == V_WORD && !v->p) bits = v->a;
+        else if (vk == V_BYTES) { Bytes *b = v->p; v->p = NULL; A->keep[A->n] = b; bits = b ? (uint64_t)(uintptr_t)b->b : 0; }
+        else { o->p = A; stuck(o, v); return; }
+        A->v[A->n++] = bits;
+        cell_free(v);
+        if (o->n > 2) {
+            Cell *c = cell(O_FFI, o->n - 1); c->x = o->x; c->p = A;
+            for (int k = 1; k < o->n; k++) mv(o, k, P(c, k - 1));
+            cell_free(o);
+            return;
+        }
+        uint64_t r = 0; int n = A->n; uint64_t *a = A->v;
+        bool dbl = e->ret == PT_F64;
+        if (!dbl) {
+            typedef uint64_t (*F1)(uint64_t); typedef uint64_t (*F2)(uint64_t, uint64_t); typedef uint64_t (*F3)(uint64_t, uint64_t, uint64_t);
+            typedef uint64_t (*F4)(uint64_t, uint64_t, uint64_t, uint64_t); typedef uint64_t (*F5)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t); typedef uint64_t (*F6)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+            switch (n) {
+            case 1: r = ((F1)e->fn)(a[0]); break; case 2: r = ((F2)e->fn)(a[0], a[1]); break; case 3: r = ((F3)e->fn)(a[0], a[1], a[2]); break;
+            case 4: r = ((F4)e->fn)(a[0], a[1], a[2], a[3]); break; case 5: r = ((F5)e->fn)(a[0], a[1], a[2], a[3], a[4]); break; default: r = ((F6)e->fn)(a[0], a[1], a[2], a[3], a[4], a[5]); break;
+            }
+            if (e->ret == PT_U32) r = (uint32_t)r;
+        } else {
+            typedef double (*D1)(double); typedef double (*D2)(double, double); typedef double (*D3)(double, double, double); typedef double (*D4)(double, double, double, double);
+            double d[8], dr; for (int k = 0; k < n; k++) memcpy(&d[k], &a[k], 8);
+            switch (n) { case 1: dr = ((D1)e->fn)(d[0]); break; case 2: dr = ((D2)e->fn)(d[0], d[1]); break; case 3: dr = ((D3)e->fn)(d[0], d[1], d[2]); break; default: dr = ((D4)e->fn)(d[0], d[1], d[2], d[3]); break; }
+            memcpy(&r, &dr, 8);
+        }
+        for (int k = 0; k < n; k++) if (A->keep[k] && rcl_dec(&A->keep[k]->rc) == 0) free(A->keep[k]);
+        free(A);
+        Port out;
+        if (e->ret == 4) out = word_of(r);
+        else { Cell *c = cell(V_PVAL, 1); c->x = e->ret; c->a = r; out = P(c, 0); }
+        link(out, o->port[1]);
+        cell_free(o);
+        return;
+    }
+    case O_PTROF: {
+        /* the address of the bytes (C20): memory the program does not own is reached by it. The bytes
+         * whose address is taken are pinned (never freed), so the address stays valid; trusted: a
+         * store makes a copy, which the address does not see */
+        if (vk != V_BYTES) { stuck(o, v); return; }
+        if (v->p) rcl_inc(&((Bytes *)v->p)->rc);
+        link(word_of(v->p ? (uint64_t)(uintptr_t)((Bytes *)v->p)->b : 0), o->port[1]);
+        era(P(v, 0)); cell_free(o);
+        return;
+    }
+    case O_REGATA: {
+        /* the n bytes at an address, copied into a byte string (C20, trusted: the program vouches
+         * for the address) */
+        if (vk != V_WORD || v->p) { stuck(o, v); return; }
+        size_t n = (size_t)o->a;
+        Bytes *b = calloc(1, sizeof(Bytes) + n); b->rc = 1; b->n = n;
+        if (v->a && n) memcpy(b->b, (const void *)(uintptr_t)v->a, n);
+        Cell *c = cell(V_BYTES, 1); c->x = PT_BYTES; c->p = b;
+        link(P(c, 0), o->port[1]);
+        cell_free(o); cell_free(v);
         return;
     }
     case O_PIMULT: {
@@ -3162,7 +3235,7 @@ static Port build(Syn *t, Frame *f) {
         return P(c, 1);
     case S_PRIM:
         c = cell((int)t->x, t->n + 1);
-        if (t->x == O_POP1 || t->x == O_POP2 || t->x == O_LOAD || t->x == O_STORE) c->x = (uint32_t)t->id;   /* the operation, or the width */
+        if (t->x == O_POP1 || t->x == O_POP2 || t->x == O_LOAD || t->x == O_STORE || t->x == O_FFI) c->x = (uint32_t)t->id;   /* the operation, the width, or the foreign entry */
         for (int k = 0; k < t->n; k++) link(build(t->k[k], f), P(c, k));
         return P(c, t->n);
     case S_PLAM: {

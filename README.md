@@ -65,8 +65,9 @@ constructor of a higher inductive type. A definition is a signature and equation
 may match constructors at any depth, path constructors with their dimensions (`twist (loop i)`),
 and implicit arguments as `{p}`. A codata type lists its fields (`codata Stream A where head : A;
 tail : Stream A`), and a value of it is defined by copatterns: `(smap f s).head = f s.head`.
-`record R A = { f : A ; g : B }` is a Σ with named projections, and `record { f = a ; g = b }` or
-`(a , b)` a value of it; `x.f` projects. `mutual` groups definitions that call each other;
+`record R A = { f : A ; g : B }` is a Σ with named projections, and `R { f = a ; g = b }` (the
+fields by name, in any order), `record { f = a ; g = b }` or `(a , b)` a value of it; `R { r | g = c }`
+is `r` with the fields given replaced; `x.f` projects. `mutual` groups definitions that call each other;
 `postulate x y` declares names without values.
 
 **Recursion.** A call on a field of the matched argument is structural; a definition at a type with
@@ -124,10 +125,65 @@ representation, else the automatic one, a union of its constructors' structs of 
 `:0`, a recursive field a pointer; `#layout T as R` the layout of `R`. `#trusted` lists every
 postulate and primitive in scope.
 
+**The first-order criterion.** `lib/stage.cub` (plan B13) decides, for a code at a type, whether
+the region may be printed as native code: `first-order T c` is `fo` or `not-fo reason at`, the
+reasons `dim` (an interval binder or variable, a path abstraction), `dep-type` (a type at the
+boundary depending on an input other than through an erased `:0` binder), `higher` (a type with
+path constructors and no representation, a Glue or `%hcompU` type, a universe at the boundary),
+`kan` (a composition or transport in the region), `reflect`, `mult`. `#fo f` and `#fo (the T t)`
+run it on the normal form at the type (the specializer's normalization), so a closed transport
+has reduced. The schedule types (`Sched`, `Stage`, `Strictness`, …) are declared in `lib/code.cub`
+for the specializer to read.
+
+**Instance arguments.** A binder `{{e : C A}}` is an implicit argument found by instance search
+(plan E28): among the `instance` declarations in scope (`instance eqNat : Eq Nat` before a
+definition), the latest whose result type matches the argument's type, as far as the signature
+and the solutions so far tell it, is tried; the match binds the candidate's own implicit
+arguments and its instance arguments are searched in turn; a candidate the checker rejects
+is given up for the next; a variable in scope of the type (a function's own `{{e}}`) comes
+first. `{{e}}` gives one by hand, and names it in a clause.
+
+**Parameterized modules.** `module M (A : Type) (e : Eq A) where` a block of definitions (each
+with a signature): each is a definition `M·f` abstracted over the parameters (an implicit
+parameter `{A : Type}` an implicit argument), its references to the module's other
+definitions applied to them; `open M Nat eqNat` defines each `f` as `M·f Nat eqNat` at the
+instantiated signature (an implicit parameter not given is inferred from an explicit
+argument's type, or given as `{Nat}`).
+
+**Deriving.** `deriving eq D [as name]` defines a decidable equality on the data type `D` (plan
+F31): its code is computed by `lib/derive.cub` (`derive-eq`, a term over the data table), read
+back and checked at `D → D → Bool` as `D·eq` (or the name given).
+
+**Foreign functions.** `foreign name "symbol" : T` (plan D27) makes a C function of the running
+program (or of a shared library, `"lib.so:symbol"`) a primitive at `T`, a Π over arguments of
+primitive types (`Int64`, `UInt32`, `Float64`, `Word`, `Bytes n`, passed as an address; an
+argument at multiplicity 0 is not passed) to a primitive type or `Word`; the arguments are read
+in turn and the call made when the last is (`%ffi`). Trusted: `#trusted` and `#safe` list it as
+`foreign`.
+
+**Memory the program does not own.** `ptr-of n b` is the address of a byte string and
+`region-at a n` the `n` bytes at an address, copied in (plan C20; `%ptr-of`, `%region-at`,
+trusted). `#safe f` lists every trusted definition (postulate, primitive) that `f` reaches
+through what its type and term mention, or `nothing assumed`.
+
+**Codebase keys and the store.** A checked definition is named by its content (plan F34): its
+key is the SHA-256 of its elaborated type and term with binders nameless, holes solved, every
+checked definition it mentions replaced by that definition's key and every data type by its
+declaration's key, multiplicities kept — not its name, file, position or the machine's build.
+Renaming anything changes no key; a changed proof changes its key and its dependents' only
+(`src/store.c`). The store, `CUBICAL_STORE` (default `.cubical-store`; off under
+`CUBICAL_NOCACHE` unless set), keeps under each key `code`, `type`, `usage` and `check`, a line
+per checker that accepted it (the checker named by the hash of the library texts up to
+`chk-def`); a definition whose key the current checker has accepted is not checked again
+(`ok: checks f   [store]`), whatever file or name it comes from, however the machine was rebuilt.
+`names` logs each binding of a name to a key. `#key d`, `#names K` (a prefix will do),
+`#history name`, `#unbind name`, `#gc` (entries unreachable from the bound names, through the
+keys their code mentions, are removed).
+
 **Commands.** `#check e : T`, `#same a = b` (equal readings, at a type when either side has one),
 `#show e`, `#observe n e` (a codata value unfolded n levels), `#usage f`, `#layout T [as R]`,
-`#trusted`, `#input x` and `#supply x = e` (§6), `#fail` before a declaration or command (it must
-be rejected). `import "file.cub"` loads a module
+`#trusted`, `#safe f`, `#fo e`, `#key d`, `#names K`, `#history d`, `#unbind d`, `#gc`, `#input x` and `#supply x = e` (§6), `#fail` before a declaration or command
+(it must be rejected). `import "file.cub"` loads a module
 once. Results and failures print in the surface syntax. The core forms the language compiles to
 (`(lam x b)`, `(elim P e ((c x) b))`, …) are still read from files of other extensions, and
 `--print FILE` prints such a file in the surface syntax.

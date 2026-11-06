@@ -217,6 +217,10 @@ enum {
     O_LOAD, O_LOADB,   /* x=width (1,2,4,8): (%load b off): 0=b 1=off 2=out */
     O_STORE, O_STOREB, O_STOREC,   /* x=width: (%store b off v): a copy of b with v at off: 0=b 1=off 2=v 3=out */
     O_BLEN,     /* (%blen b): 0=b 1=out, the length */
+    O_PTROF,    /* (%ptr-of b): 0=b 1=out, the address of its bytes, a word (C20, trusted) */
+    O_REGAT,    /* (%region-at n a): 0=n 1=a 2=out, the n bytes at address a, copied (C20, trusted) */
+    O_REGATA,   /* its second step: 0=a 1=out, a = n */
+    O_FFI,      /* (%ffi k a1 .. an): x=the foreign table entry, 0..n-1=arguments, n=out; a=the arguments read so far, p=them (D27, trusted) */
     O_WEQ, O_WLT, O_WADD, O_WMAX, O_WSUB,  /* 0=a 1=b 2=out: on words; first a, then b. Equality,
                  * order, max and truncated subtraction recurse on both (cancelling successors), addition
                  * on b; a word with a neutral part leaves the operation stuck (V_NWOP) */
@@ -418,6 +422,10 @@ Port top_build(Syn *body, int nslots, const int *uses);
 /* globals: each definition's net is built once; a use copies its value */
 Port global_copy(long g, Key *as); /* 0 when the global is an unsupplied input; as: the key the copy carries (the name of the cell that referred to it; NULL: the definition's) */
 void global_park(long g, Cell *op, Cell *glob);
+/* foreign functions (D27): a C symbol at a primitive type; the arguments' kinds (PT_*, or 4 a word), its result's */
+typedef struct { const char *sym; void *fn; int n; unsigned char kind[8]; unsigned char ret; } Ffi;
+extern Ffi *FFI; extern int nffi;
+int ffi_add(const char *sym, int n, const unsigned char *kind, unsigned char ret);
 long global_lookup(const char *name);
 const char *name_of(long id);
 

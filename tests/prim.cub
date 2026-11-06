@@ -1,5 +1,5 @@
--- prim.cub — primitive types (Int64, UInt32, Float64, Bytes), representations and layouts (plan B12),
--- over lib/prim.cub
+-- prim.cub — primitive types (Int64, UInt32, Float64, Bytes), representations and layouts (plan B12)
+-- over lib/prim.cub, and the first-order criterion (plan B13) over lib/stage.cub
 
 -- ---------------------------------------------------------------- the operations compute
 #same i64toWord (i64add (i64 #5) (i64 #7)) = #12
@@ -60,12 +60,16 @@ tr2-from-to : (x : Tr2 Int) → P2 x
 tr2-from-to x = case x return (λ y → P2 y) of
     tr2 z → λ i → tr2 z
     sq2 a b p q i j → sqfill a b p q (rec a) (rec b) (rec p) (rec q) i j
+-- the first-order criterion (plan B13, lib/stage.cub): a region over a set truncation is not
+-- first-order (higher) until the truncation has a representation
+#fo (the (Tr2 Int → Int) (λ x → tr2toInt x))
 represent Tr2 by Int where
   to : Tr2 Int → Int = tr2toInt
   from : Int → Tr2 Int = tr2
   to-from : (z : Int) → to (from z) ≡ z = λ z → λ i → z
   from-to : (x : Tr2 Int) → from (to x) ≡ x = tr2-from-to
 #layout Tr2
+#fo (the (Tr2 Int → Int) (λ x → tr2toInt x))
 -- a wrong law is rejected at its type
 #fail
 represent Pt by Word where
@@ -75,3 +79,48 @@ represent Pt by Word where
   from-to : (p : Pt) → from (to p) ≡ p = λ p → λ i → p
 -- ---------------------------------------------------------------- the trusted surface
 #trusted
+
+-- ---------------------------------------------------------------- the first-order criterion (plan B13)
+-- plus on Nat (represented by Word) is first-order; a path is dim; a transport along ua is kan as
+-- written and first-order once normalized (the specializer's step 2); a universe at the boundary is
+-- higher; a word function is first-order
+#fo plus
+data C1 = cb | cl (i : I) [ i = 0 ↦ cb , i = 1 ↦ cb ]
+cloop : PathP (λ (i : I) → C1) cb cb
+cloop = λ i → cl i
+#fo cloop
+notnot : (b : Bool) → not (not b) ≡ b
+notnot b = case b return (λ y → not (not y) ≡ y) of true → λ i → true; false → λ i → false
+notEquiv : Equiv Bool Bool
+notEquiv = isoToEquiv not not notnot notnot
+trb : Bool
+trb = transport (ua notEquiv) true
+#same first-order Bool (code (comp (λ (i : I) → ua {lzero} {Bool} {Bool} notEquiv i) (λ (i : I) → []) true)) = not-fo kan (code (comp (λ (i : I) → ua {lzero} {Bool} {Bool} notEquiv i) (λ (i : I) → []) true))
+#fo trb
+#fo (the ((A : Type) → A → A) (λ A x → x))
+#fo (the (C1 → Nat) (λ c → zero))
+#fo (the (Word → Word) (λ w → wadd w #1))
+#fo (the ((n :0 Nat) → Bytes n → Nat) (λ n b → n))
+#fo (the ((n : Nat) → Bytes n → Nat) (λ n b → n))
+-- ---------------------------------------------------------------- memory the program does not own (plan C20)
+-- the bytes at the address of a byte string are its bytes
+rt : Bytes 8
+rt = region-at (ptr-of 8 (store64 8 (bytes 8) 0 (le-refl 8) (i64 #77))) 8
+#same load64 8 rt 0 (le-refl 8) = i64 #77
+-- #safe f: the trusted definitions f reaches, through its type and term
+#safe plus
+#safe rt
+#safe toNat-plusw
+safe-wrap : Int64 → Int64
+safe-wrap a = i64add a (i64 #1)
+#safe safe-wrap
+#safe Tr2
+-- ---------------------------------------------------------------- foreign functions (plan D27)
+foreign labs "labs" : Int64 → Int64
+#same labs (i64sub (i64 #0) (i64 #5)) = i64 #5
+foreign sqrt "sqrt" : Float64 → Float64
+#same sqrt (f64 #16) = f64 #4
+foreign strlen "strlen" : (n :0 Nat) → Bytes n → Int64
+#same strlen 8 (bytes 8) = i64 #0
+#same strlen 8 (store64 8 (bytes 8) 0 (le-refl 8) (i64 #16705)) = i64 #2
+#safe strlen

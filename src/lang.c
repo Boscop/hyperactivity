@@ -1,5 +1,6 @@
 #include <setjmp.h>
 #include <signal.h>
+#include <dlfcn.h>
 /* lang.c — reading terms, compiling them to binder records, definitions,
  * reading values back, and the driver. */
 #include "core.h"
@@ -95,13 +96,16 @@ static Node *nsyml(const char *lit) { Node *x = ar_alloc(sizeof(Node)); x->s = i
 #define IS(k, lit) ((k) == intern_lit(lit))   /* k: a symbol's interned string */
 /* the type written on a λ's binder, (x : A), kept on the binder's name node (a symbol's `it` is
  * otherwise unused), so it survives the passes that rebuild the λ around the name */
-static void bnd_slots(Node *x) { if (!x->it) x->it = ar_alloc(2 * sizeof(Node *)); }
+static void bnd_slots(Node *x) { if (!x->it) x->it = ar_alloc(3 * sizeof(Node *)); }
 static void bnd_set(Node *x, Node *A) { bnd_slots(x); x->it[0] = A; }
 static Node *bnd_ty(Node *x) { return !x->list && x->it ? x->it[0] : NULL; }
 /* a binder's multiplicity (B11): 0 erased, 1 linear, 2 unconstrained (ω, the default), kept on the
  * name node of a Π binder or a field, as a word symbol */
 static void bnd_set_mult(Node *x, int m) { bnd_slots(x); x->it[1] = m == 0 ? nsyml("0") : m == 1 ? nsyml("1") : NULL; }
 static int bnd_mult(Node *x) { return !x->list && x->it && x->it[1] ? (x->it[1]->s[0] == '0' ? 0 : 1) : 2; }
+/* an instance binder {{x : C A}} (E28): an implicit argument found by instance search */
+static void bnd_set_inst(Node *x) { bnd_slots(x); x->it[2] = nsyml("inst"); }
+static bool bnd_inst(Node *x) { return !x->list && x->it && x->it[2]; }
 static Node *nlist(int n) { Node *x = ar_alloc(sizeof(Node)); x->list = 1; x->n = n; x->it = ar_alloc(((size_t)n + 1) * sizeof(Node *)); return x; }
 static Node *nl2(const char *h, Node *a) { Node *x = nlist(2); x->it[0] = nsyml(h); x->it[1] = a; return x; }   /* h: a literal */
 static Node *nl3(const char *h, Node *a, Node *b) { Node *x = nlist(3); x->it[0] = nsyml(h); x->it[1] = a; x->it[2] = b; return x; }
@@ -191,7 +195,7 @@ static bool node_eq(Node *a, Node *b) {
 /* ---------------- desugaring to the core forms ---------------- */
 static const char *KW[] = { "%raw", "%welimP", "%rebuilt", "%hole", "%guess", "%spine", "lam", "thunk", "delay", "force", "case", "elim", "if", "rec", "the", "code", "%data", "%con", "hcompD", "%hcompF", "%transD", "%case", "%branches", "record", "%record", "plam", "forall", "let", "app", "pair", "fst", "snd", "Pi", "Sigma", "U",
     "PathP", "@", "~", "/\\", "\\/", "=", "&", "|", "faceof", "%fneg", "sys", "sys0", "sys+", "sysmap", "comp", "Glue", "%hcompU", "%unglueU", "glue",
-    "unglue", "%view", "%var", "%dim", "%ieq", "%feq", "%clauses", "%dnf", "%motive", "%restrict", "%gval", "%gty", "%dtab", "%dent", "%dtrans", "%rtab", "%abs", "%branch", "%clos", "%box", "%wsucc", "%weq", "%wlt", "%wadd", "%wmax", "%wsub", "%welim", "%pimult", "%pim", "%fmult", "%linear", "%gusage", "%pty", "%bytesty", "%pval", "%bytes", "%blen",
+    "unglue", "%view", "%var", "%dim", "%ieq", "%feq", "%clauses", "%dnf", "%motive", "%restrict", "%gval", "%gty", "%dtab", "%dent", "%dtrans", "%rtab", "%abs", "%branch", "%clos", "%box", "%wsucc", "%weq", "%wlt", "%wadd", "%wmax", "%wsub", "%welim", "%pimult", "%pim", "%fmult", "%linear", "%gusage", "%pty", "%bytesty", "%pval", "%bytes", "%blen", "%ptr-of", "%region-at", "%ffi",
     "%i64add", "%i64sub", "%i64mul", "%i64eq", "%i64lt", "%u32add", "%u32sub", "%u32mul", "%u32eq", "%u32lt", "%f64add", "%f64sub", "%f64mul", "%f64div", "%f64eq", "%f64lt",
     "%i64ofw", "%wofi64", "%u32ofw", "%wofu32", "%f64ofw", "%f64ofi64", "%i64off64", "%load8", "%load16", "%load32", "%load64", "%store8", "%store16", "%store32", "%store64", NULL };
 /* the keywords, in an open-addressed table (asked of every symbol the compiler walks) */
@@ -605,6 +609,27 @@ static int checked_index(const char *s) { for (int i = nchecked - 1; i >= 0; i--
 static int chk_index(int d) { for (int i = 0; i < nchkdata; i++) if (CHKDATA[i] == d) return i; return -1; }
 int data_checked_index(int d) { return chk_index(d); }
 /* the trusted surface (B12): every postulate and every primitive declared, in order; #trusted lists it */
+/* the foreign table (D27) */
+Ffi *FFI; int nffi; static size_t capffi;
+int ffi_add(const char *sym, int n, const unsigned char *kind, unsigned char ret) {
+    /* "sym" in the running program (its C library, and the math library), or "lib.so:sym" in that
+     * shared library, opened */
+    void *fn = NULL; const char *colon = strchr(sym, ':');
+    if (colon) {
+        char *lib = strndup(sym, (size_t)(colon - sym)); void *h = dlopen(lib, RTLD_LAZY | RTLD_GLOBAL);
+        if (!h) die("foreign: cannot open the library of", sym);
+        fn = dlsym(h, colon + 1); free(lib); sym = colon + 1;
+    } else {
+        static void *self, *libm; if (!self) self = dlopen(NULL, RTLD_LAZY);
+        fn = self ? dlsym(self, sym) : NULL;
+        if (!fn) { if (!libm) libm = dlopen("libm.so.6", RTLD_LAZY | RTLD_GLOBAL); if (libm) fn = dlsym(libm, sym); }
+    }
+    if (!fn) die("foreign: no such symbol in the running program or its libraries (write \"lib.so:sym\" for another):", sym);
+    GROW(FFI, capffi, (size_t)nffi + 1);
+    FFI[nffi] = (Ffi){ strdup(sym), fn, n, { 0 }, ret };
+    memcpy(FFI[nffi].kind, kind, (size_t)n);
+    return nffi++;
+}
 typedef struct { const char *name; const char *how; } Trusted;
 static Trusted *TRUSTED; static size_t captrusted; static int ntrusted;
 static void trusted_add(const char *name, const char *how) { GROW(TRUSTED, captrusted, (size_t)ntrusted + 1); TRUSTED[ntrusted++] = (Trusted){ intern(name), how }; }
@@ -739,6 +764,10 @@ static Node *to_code(Node *t) {
         if (!strcmp(s, "tt")) return K("cftt");
         if (!strcmp(s, "ff")) return K("cfff");
         if (!strcmp(s, "U")) return capp1("cuniv", K("clzero"));
+        if (!strcmp(s, "Word")) return K("cword");
+        if (!strcmp(s, "Level")) return K("clevel");
+        if (!strcmp(s, "lzero")) return K("clzero");
+        if (s[0] == '#' && s[1] >= '0' && s[1] <= '9') return capp1("cwlit", t);   /* a word literal */
         for (int i = ncscope - 1; i >= 0; i--) if (!strcmp(cscope[i], s)) return capp1("cvar", word(ncscope - 1 - i));
         for (int i = 0; i < nchecked; i++) if (!CHKHIDE[i] && !strcmp(CHECKED[i], s)) return capp1("cglob", word(i));
         die("code: not a bound variable or checked definition:", s);
@@ -799,6 +828,16 @@ static Node *to_code(Node *t) {
     }
     if (!strcmp(h, "hcompD")) return capp2("chcomp", to_code(t->it[1]), to_code(t->it[2]));
     if (!strcmp(h, "force")) return capp1("cforce", to_code(t->it[1]));
+    /* words and levels */
+    if (!strcmp(h, "%wsucc")) return capp1("cwsucc", to_code(t->it[1]));
+    { static const char *WO[] = { "%weq", "%wlt", "%wadd", "%wmax", "%wsub" };
+      for (int q = 0; q < 5; q++) if (!strcmp(h, WO[q])) return capp3("cwop", word(q), to_code(t->it[1]), to_code(t->it[2])); }
+    if (!strcmp(h, "%welimP") && t->n == 5) return capp3("cwelim", to_code(t->it[2]), to_code(t->it[3]), to_code(t->it[4]));
+    if (!strcmp(h, "lsuc")) return capp1("clsuc", to_code(t->it[1]));
+    if (!strcmp(h, "lmax")) return capp2("clmax", to_code(t->it[1]), to_code(t->it[2]));
+    if (!strcmp(h, "%pty")) return capp2("cpty", to_code(t->it[1]), K("clzero"));
+    if (!strcmp(h, "%bytesty")) return capp2("cpty", word(PT_BYTES), to_code(t->it[1]));
+    if (!strcmp(h, "%pval")) return capp2("cplit", to_code(t->it[1]), to_code(t->it[2]));
     if (!strcmp(h, "%case")) {
         /* (%case (%branches D b...) [P] x) */
         Node *B = t->it[1];
@@ -1810,7 +1849,7 @@ static Syn *compile(Node *t) {
             { "%wadd", O_WADD, 2 }, { "%wmax", O_WMAX, 2 }, { "%wsub", O_WSUB, 2 }, { "%welim", O_WELIM, 3 },
             { "%pimult", O_PIMULT, 1 }, { "%pim", O_PIM, 3 }, { "%fmult", O_FMULT, 3 }, { "%linear", O_LINEAR, 1 }, { "%gusage", O_GUSAGE, 2 },
             /* primitive types and values (B12) */
-            { "%pty", O_PTY, 1 }, { "%bytesty", O_BYTESTY, 1 }, { "%pval", O_PVAL, 2 }, { "%bytes", O_BYTES, 1 }, { "%blen", O_BLEN, 1 }, { NULL, 0, 0 } };
+            { "%pty", O_PTY, 1 }, { "%bytesty", O_BYTESTY, 1 }, { "%pval", O_PVAL, 2 }, { "%bytes", O_BYTES, 1 }, { "%blen", O_BLEN, 1 }, { "%ptr-of", O_PTROF, 1 }, { "%region-at", O_REGAT, 2 }, { NULL, 0, 0 } };
         /* the primitive operations, (%i64add a b) ...: O_POP1/O_POP2 with the operation in x; the loads and
          * stores by width */
         static const struct { const char *name; int op, n; } PO[] = {
@@ -1832,6 +1871,11 @@ static Syn *compile(Node *t) {
             if (t->n != na + 1) die("a load or store with its arguments:", h);
             Syn *s = compile_n(S_PRIM, t, 1, na); s->x = (uint32_t)PL[q].kind; s->id = PL[q].w;
             return s;
+        }
+        if (!strcmp(h, "%ffi")) {
+            /* (%ffi k a1 .. an): the foreign call of entry k (D27) */
+            if (t->n < 3 || t->it[1]->list || t->it[1]->s[0] != '#') die("(%ffi k a...)", NULL);
+            Syn *s = compile_n(S_PRIM, t, 2, t->n - 2); s->x = O_FFI; s->id = atoi(t->it[1]->s + 1); return s;
         }
         if (!strcmp(h, "%welimP")) {
             /* (%welimP P w z s): the elimination of a word with its motive, which is for the
@@ -2655,6 +2699,7 @@ static int sig_add(const char *name, long g, long tyg, bool hidden) {
     if (g >= 0) G[g].chk = nchecked;
     return nchecked++;
 }
+#include "store.c"
 /* a copattern definition: λs and lines over a record (desugared) */
 static bool copattern_body(Node *b) {
     for (;;) {
@@ -2710,8 +2755,18 @@ static void checked_group(Node **fs, int n, bool expect) {
         ix[i] = sig_add(fs[i]->it[1]->s, gs[i], tyg, false);
     }
     for (int i = 0; i < n; i++) cofix_body(gs[i], fs[i]->it[3]);
+    /* the group's keys (F34); a group the store holds as checked is not checked again */
+    SKey *ks = calloc((size_t)n + 1, sizeof(SKey));
+    { Node **Ts = calloc((size_t)n + 1, sizeof(Node *)), **ts = calloc((size_t)n + 1, sizeof(Node *));
+      for (int i = 0; i < n; i++) { Ts[i] = ds(fs[i]->it[2]); ts[i] = ds(fs[i]->it[3]); }
+      key_group(Ts, ts, n, ix[0], ks); free(Ts); free(ts); }
+    for (int i = 0; i < n; i++) { ckey_set(ix[i], ks[i]); if (i == 0) deps_take(&CDEPS, &capcdeps, ix[0]); else { if ((size_t)ix[i] >= capcdeps) { size_t o = capcdeps; GROW(CDEPS, capcdeps, (size_t)ix[i] + 1); memset(CDEPS + o, 0, (capcdeps - o) * sizeof(Deps)); } CDEPS[ix[i]].d = malloc(sizeof(int)); CDEPS[ix[i]].d[0] = ix[0]; CDEPS[ix[i]].n = 1; } }
+    bool stored = expect && !trusted;
+    for (int i = 0; i < n && stored; i++) if (!store_checked(ks[i])) stored = false;
     bool all = true;
-    if (!trusted) {
+    if (stored) {
+        for (int i = 0; i < n; i++) { passes++; printf("ok: checks %s   [store]\n", fs[i]->it[1]->s); names_bind(fs[i]->it[1]->s, ks[i]); }
+    } else if (!trusted) {
         Node **ws = calloc((size_t)n + 1, sizeof(Node *));
         for (int i = 0; i < n; i++) ws[i] = word(ix[i]);
         Node *grp = nl2("%raw", alist(ws, n)); free(ws);
@@ -2753,7 +2808,16 @@ static void checked_group(Node **fs, int n, bool expect) {
         free(rs); free(qs);
     } else if (!expect) all = false;
     if (!all) for (int i = 0; i < n; i++) cofix_hide(gs[i], ix[i]);
-    free(gs); free(ix); free(cT);
+    else if (!stored && expect) {
+        int saved = kgroup_base; kgroup_base = ix[0];
+        for (int i = 0; i < n; i++) {
+            SBuf c = { 0 }, y = { 0 }; canon(&c, ds(fs[i]->it[3])); canon(&y, ds(fs[i]->it[2]));
+            store_put(fs[i]->it[1]->s, ks[i], c.b, y.b, 0, trusted ? NULL : "");
+            free(c.b); free(y.b);
+        }
+        kgroup_base = saved;
+    }
+    free(ks); free(gs); free(ix); free(cT);
 }
 /* a codata declaration as a telescope: its parameters, then its fields' telescope */
 static Node *atel_cofields(Node *dd, int i) {
@@ -2901,9 +2965,10 @@ static void toplevel(Node *f) {
     }
     /* a module whose checks are cached: its definitions are made, its judgments and tests not rerun */
     if (trusted && (!strcmp(h, "check") || !strcmp(h, "check-fail") || !strcmp(h, "checked-data-fail") || !strcmp(h, "checked-fail")
-        || !strcmp(h, "checked-codata-fail") || !strcmp(h, "mutual-fail") || !strcmp(h, "same") || !strcmp(h, "show") || !strcmp(h, "same-watch") || !strcmp(h, "observe") || !strcmp(h, "usage") || !strcmp(h, "trusted") || !strcmp(h, "layout"))) return;
+        || !strcmp(h, "checked-codata-fail") || !strcmp(h, "mutual-fail") || !strcmp(h, "same") || !strcmp(h, "show") || !strcmp(h, "same-watch") || !strcmp(h, "observe") || !strcmp(h, "usage") || !strcmp(h, "trusted") || !strcmp(h, "layout") || !strcmp(h, "fo") || !strcmp(h, "key") || !strcmp(h, "names") || !strcmp(h, "history") || !strcmp(h, "gc") || !strcmp(h, "safe"))) return;
     if (!strcmp(h, "def")) {
         if (f->n != 3) die("(def name term)", NULL);
+        if (!chk_salt[0] && !f->it[1]->list && !strcmp(f->it[1]->s, "chk-def")) chk_salt_set();   /* the checker (%%chk-def) is defined here: its name (F34) */
         if (cc_next_is(f->it[1]->s)) {
             /* its compiled form is cached: made without desugaring or compiling */
             long g = global_lookup(f->it[1]->s);
@@ -2984,16 +3049,21 @@ static void toplevel(Node *f) {
         /* a copattern definition, which may call itself */
         if (define && copattern_body(ds(f->it[3]))) { checked_group(&f, 1, expect); return; }
         Node *T = f->it[at], *t = f->it[at + 1];
-        Node *cT = nl2("%raw", aclosed(ds(T))), *ct = trusted ? NULL : nl2("%raw", aclosed(ds(t)));
+        Node *dT = ds(T), *dt = ds(t);
+        /* its codebase key (F34): a definition the store holds as checked is not checked again */
+        char key[65]; char *kcode = NULL, *ktype = NULL;
+        key_def(dT, dt, key, &kcode, &ktype);
+        bool stored = define && expect && !trusted && (forced_result ? forced_steps < 0 : store_checked(key));
+        Node *cT = nl2("%raw", aclosed(dT)), *ct = trusted || stored ? NULL : nl2("%raw", aclosed(dt));
         long steps = 0;
-        char *r = trusted ? strdup("ok") : forced_result ? strdup(forced_result) : readback(nl3("%%chk-def", cT, ct), &steps), *tr = strdup("ok");
+        char *r = trusted || stored ? strdup("ok") : forced_result ? strdup(forced_result) : readback(nl3("%%chk-def", cT, ct), &steps), *tr = strdup("ok");
         if (forced_result) steps = forced_steps;
         bool accepted = !strcmp(r, tr), ok = accepted == expect;
         if (ok) passes++; else failures++;
         if (!trusted) {
             printf("%s: %s ", ok ? "ok" : "FAIL", expect ? "checks" : "rejected");
             if (define) printf("%s", f->it[1]->s); else out_term(t);
-            printf("   [%ld steps]\n", steps);
+            if (stored) printf("   [store]\n"); else printf("   [%ld steps]\n", steps);
         }
         if (!accepted && (expect || getenv("CUBICAL_WHY"))) explain(r, nl3("%%chk-def", cT, ct));
         free(r); free(tr);
@@ -3006,30 +3076,61 @@ static void toplevel(Node *f) {
             Node *td = nlist(3); td->it[0] = nsym("def"); td->it[1] = nsym(ty); td->it[2] = nl2("%%sig-type", cT);
             toplevel(td);
             int ck = sig_add(f->it[1]->s, global_lookup(f->it[1]->s), global_lookup(ty), false);
-            /* the parameters' computed usages (B11): asked of the checker, kept, and recorded with
-             * the module's forms so a cached load has them */
+            ckey_set(ck, key); deps_take(&CDEPS, &capcdeps, ck);
+            /* the parameters' computed usages (B11): asked of the checker (or read from the store),
+             * kept, and recorded with the module's forms so a cached load has them */
             if (!trusted) {
-                long us = 0; char *r2 = readback(nl3("%%usages", cT, ct), &us);
-                const char *saved = src; src = r2; Node *l = read_node(); src = saved;
                 const char *nm[256]; unsigned char u[256]; int n = 0;
-                for (Node *x = l; x && x->list && x->n == 3 && is(x->it[0], "lcons") && n < 256; x = x->it[2]) {
-                    Node *pr = x->it[1];
-                    if (!pr->list || pr->n != 3 || pr->it[1]->list || pr->it[2]->list || pr->it[1]->s[0] != '#' || pr->it[2]->s[0] != '#') break;
-                    nm[n] = srcname_of(atoi(pr->it[1]->s + 1)); u[n] = (unsigned char)atoi(pr->it[2]->s + 1); n++;
+                char *su = stored ? store_read(key, "usage") : NULL;
+                if (su) {
+                    for (char *p = su; *p && n < 256; ) {
+                        char *sp = strchr(p, ' '); if (!sp) break; *sp = 0;
+                        char *e = strchr(sp + 1, '\n'); if (e) *e = 0;
+                        nm[n] = intern(p); u[n] = (unsigned char)atoi(sp + 1); n++;
+                        p = e ? e + 1 : sp + 1 + strlen(sp + 1);
+                    }
+                    free(su);
+                } else {
+                    long us = 0; char *r2 = readback(nl3("%%usages", cT, ct ? ct : nl2("%raw", aclosed(dt))), &us);
+                    const char *saved = src; src = r2; Node *l = read_node(); src = saved;
+                    for (Node *x = l; x && x->list && x->n == 3 && is(x->it[0], "lcons") && n < 256; x = x->it[2]) {
+                        Node *pr = x->it[1];
+                        if (!pr->list || pr->n != 3 || pr->it[1]->list || pr->it[2]->list || pr->it[1]->s[0] != '#' || pr->it[2]->s[0] != '#') break;
+                        nm[n] = srcname_of(atoi(pr->it[1]->s + 1)); u[n] = (unsigned char)atoi(pr->it[2]->s + 1); n++;
+                    }
+                    free(r2);
                 }
-                free(r2);
                 usage_set(ck, n, nm, u);
+                { SBuf ub = { 0 }; for (int i = 0; i < n; i++) sb_fmt(&ub, "%s %d\n", nm[i], u[i]); store_put(f->it[1]->s, key, kcode, ktype, steps, ub.b ? ub.b : ""); free(ub.b); }
                 Node *rec = nlist(2 + 2 * n); rec->it[0] = nsym("usages"); rec->it[1] = f->it[1];
                 for (int i = 0; i < n; i++) { char b[32]; rec->it[2 + 2 * i] = nsym(nm[i]); snprintf(b, sizeof b, "#%d", u[i]); rec->it[3 + 2 * i] = nsym(b); }
                 x_rec_extra(rec);
-            }
+            } else store_put(f->it[1]->s, key, kcode, ktype, 0, NULL);
         }
+        free(kcode); free(ktype);
     } else if (!strcmp(h, "usages")) {
         /* a cached module's record of a checked definition's parameter usages */
         int ck = checked_index(f->it[1]->s); int n = (f->n - 2) / 2;
         const char *nm[256]; unsigned char u[256]; if (n > 256) n = 256;
         for (int i = 0; i < n; i++) { nm[i] = f->it[2 + 2 * i]->s; u[i] = (unsigned char)atoi(f->it[3 + 2 * i]->s + 1); }
         if (ck >= 0) usage_set(ck, n, nm, u);
+    } else if (!strcmp(h, "key")) {
+        if (f->n != 2 || f->it[1]->list) die("(key name)", NULL);
+        store_key_cmd(f->it[1]->s);
+    } else if (!strcmp(h, "names")) {
+        if (f->n != 2 || f->it[1]->list) die("(names key)", NULL);
+        store_names_cmd(f->it[1]->s);
+    } else if (!strcmp(h, "history")) {
+        if (f->n != 2 || f->it[1]->list) die("(history name)", NULL);
+        store_history_cmd(f->it[1]->s);
+    } else if (!strcmp(h, "unbind")) {
+        if (f->n != 2 || f->it[1]->list) die("(unbind name)", NULL);
+        store_unbind_cmd(f->it[1]->s);
+    } else if (!strcmp(h, "gc")) {
+        store_gc_cmd();
+    } else if (!strcmp(h, "safe")) {
+        if (f->n != 2 || f->it[1]->list) die("(safe name)", NULL);
+        store_safe_cmd(f->it[1]->s);
     } else if (!strcmp(h, "usage")) {
         /* #usage f: the parameters' computed usages */
         int ck = checked_index(f->it[1]->s);
@@ -3037,21 +3138,23 @@ static void toplevel(Node *f) {
         printf("usage %s:", f->it[1]->s);
         for (int i = 0; i < GUSAGE[ck].n; i++) printf(" %s %s", GUSAGE[ck].nm[i], GUSAGE[ck].u[i] == 0 ? "0" : GUSAGE[ck].u[i] == 1 ? "1" : "ω");
         printf("\n");
-    } else if (!strcmp(h, "primitive") || !strcmp(h, "primitive-tick")) {
+    } else if (!strcmp(h, "primitive") || !strcmp(h, "primitive-tick") || !strcmp(h, "foreign")) {
         /* (primitive name T t): a rule of the type theory as a constant: T is checked to be a type,
          * t (its computation) is trusted. (primitive-tick name T t): its value is its stuck call,
          * which unfolds (t applied to the arguments) only when its last parameter is given ⋄ */
         if ((f->n != 4 && !(f->n == 3 && !strcmp(h, "primitive"))) || f->it[1]->list) die("(primitive name T [t])", NULL);
         const char *nm = f->it[1]->s;
-        trusted_add(nm, f->n == 3 ? "primitive, no computation" : !strcmp(h, "primitive-tick") ? "primitive, tick" : "primitive");
+        trusted_add(nm, !strcmp(h, "foreign") ? "foreign" : f->n == 3 ? "primitive, no computation" : !strcmp(h, "primitive-tick") ? "primitive, tick" : "primitive");
         Node *cT = nl2("%raw", aclosed(ds(f->it[2])));
-        if (!trusted) {
+        char key[65]; char *ktype = NULL; key_named("primitive", nm, ds(f->it[2]), key, &ktype);
+        if (!trusted && store_checked(key)) { passes++; printf("ok: checks %s   [store]\n", nm); }
+        else if (!trusted) {
             long steps = 0;
             char *r = readback(nl2("%%chk-type", cT), &steps);
             bool acc = !strcmp(r, "ok");
             if (acc) passes++; else failures++;
             printf("%s: checks %s   [%ld steps]\n", acc ? "ok" : "FAIL", nm, steps);
-            if (!acc) { explain(r, nl2("%%chk-type", cT)); free(r); return; }
+            if (!acc) { explain(r, nl2("%%chk-type", cT)); free(r); free(ktype); return; }
             free(r);
         }
         char ty[32]; snprintf(ty, sizeof ty, "%%sty%d", nchecked);
@@ -3073,7 +3176,8 @@ static void toplevel(Node *f) {
             toplevel(d);
             g = global_lookup(nm);
         }
-        sig_add(nm, g, tyg, false);
+        int pk = sig_add(nm, g, tyg, false);
+        ckey_set(pk, key); deps_take(&CDEPS, &capcdeps, pk); store_put(nm, key, "", ktype, 0, NULL); free(ktype);
     } else if (!strcmp(h, "checked-data") || !strcmp(h, "checked-data-fail") || !strcmp(h, "check-data")) {
         bool expect = strcmp(h, "checked-data-fail") != 0;
         /* (checked-data (data ...)): declare the data type and check it with the
@@ -3113,14 +3217,17 @@ static void toplevel(Node *f) {
         table_set(TB_DENT, di, global_lookup(den));
         table_set(TB_DTAB, di, global_lookup(dtn));
         table_set(TB_TRANS, di, global_lookup(trn));
-        long steps;
-        char *r = trusted ? strdup("ok") : readback(nl3("%%chk-data", word(di), ent), &steps), *tr = strdup("ok");
+        long steps = 0;
+        char key[65]; char *kcode = NULL; key_decl(dd, key, &kcode);
+        bool stored = expect && !trusted && store_checked(key);
+        char *r = trusted || stored ? strdup("ok") : readback(nl3("%%chk-data", word(di), ent), &steps), *tr = strdup("ok");
         bool accepted = !strcmp(r, tr), ok = accepted == expect;
         if (ok) passes++; else failures++;
-        if (!trusted) printf("%s: %s data %s   [%ld steps]\n", ok ? "ok" : "FAIL", expect ? "checks" : "rejected", DATA[d].name, steps);
+        if (!trusted) { printf("%s: %s data %s   ", ok ? "ok" : "FAIL", expect ? "checks" : "rejected", DATA[d].name); if (stored) printf("[store]\n"); else printf("[%ld steps]\n", steps); }
         if (!accepted && (expect || getenv("CUBICAL_WHY"))) explain(r, nl3("%%chk-data", word(di), ent));
         free(r); free(tr);
-        if (!accepted) { nchkdata--; return; }
+        if (!accepted) { nchkdata--; free(kcode); return; }
+        dkey_set(di, key); deps_take(&DDEPS, &capddeps, di); store_put(DATA[d].name, key, kcode, "", steps, NULL); free(kcode);
         char dent[32]; snprintf(dent, sizeof dent, "%%dent%d", di);
         Node *ed = nlist(3); ed->it[0] = nsym("def"); ed->it[1] = nsym(dent); ed->it[2] = nl3("%%data-entry", word(di), ent);
         toplevel(ed);
@@ -3164,14 +3271,17 @@ static void toplevel(Node *f) {
         table_set(TB_DENT, di, global_lookup(den));
         table_set(TB_DTAB, di, global_lookup(dtn));
         table_set(TB_TRANS, di, global_lookup(cp));
-        long steps;
-        char *r = trusted ? strdup("ok") : readback(nl3("%%chk-codata", word(di), ent), &steps);
+        long steps = 0;
+        char key[65]; char *kcode = NULL; key_decl(dd, key, &kcode);
+        bool stored = expect && !trusted && store_checked(key);
+        char *r = trusted || stored ? strdup("ok") : readback(nl3("%%chk-codata", word(di), ent), &steps);
         bool accepted = !strcmp(r, "ok"), ok = accepted == expect;
         if (ok) passes++; else failures++;
-        if (!trusted) printf("%s: %s codata %s   [%ld steps]\n", ok ? "ok" : "FAIL", expect ? "checks" : "rejected", D, steps);
+        if (!trusted) { printf("%s: %s codata %s   ", ok ? "ok" : "FAIL", expect ? "checks" : "rejected", D); if (stored) printf("[store]\n"); else printf("[%ld steps]\n", steps); }
         if (!accepted && (expect || getenv("CUBICAL_WHY"))) explain(r, nl3("%%chk-codata", word(di), ent));
         free(r);
-        if (!accepted) { nchkdata--; return; }
+        if (!accepted) { nchkdata--; free(kcode); return; }
+        dkey_set(di, key); deps_take(&DDEPS, &capddeps, di); store_put(D, key, kcode, "", steps, NULL); free(kcode);
         char dent[32]; snprintf(dent, sizeof dent, "%%dent%d", di);
         Node *ed = nlist(3); ed->it[0] = nsym("def"); ed->it[1] = nsym(dent); ed->it[2] = nl3("%%codata-entry", word(di), ent);
         toplevel(ed);
@@ -3598,6 +3708,15 @@ static void toplevel(Node *f) {
         printf("layout %s", f->it[1]->s); if (f->n == 3) { printf(" as "); out_term(f->it[2]); }
         printf("\n  = "); if (l) out_term(l); else out_str(r); printf("\n");
         free(r);
+    } else if (!strcmp(h, "fo")) {
+        /* #fo f, #fo (the T t): the first-order criterion (lib/stage.cub) on the normal form at the type */
+        Node *T = reading_type(f->it[1]);
+        if (!T) { printf("fo: a checked definition, or (the T t)\n"); return; }
+        Node *t = f->it[1]->list ? f->it[1]->it[2] : f->it[1];
+        long steps = 0;
+        char *r = readback(nl3("%%fo-normal", T, nl2("code", t)), &steps);
+        printf("fo "); out_term(f->it[1]); printf("\n  = "); out_str(r); printf("   [%ld steps]\n", steps);
+        free(r);
     } else if (!strcmp(h, "trusted")) {
         /* #trusted: the postulates and primitives in scope */
         printf("trusted:");
@@ -3713,7 +3832,7 @@ static void load_file(const char *path, bool must) {
         char *dir = strdup(rp); char *sl = strrchr(dir, '/'); if (sl) *sl = 0;
         cur_dir = dir;
         load_surface(text, rp, true);
-        key_mix(text, strlen(text));
+        key_mix(text, strlen(text)); lib_mix(text);
         char key[40]; snprintf(key, sizeof key, "%016llx%016llx", (unsigned long long)run_key[0], (unsigned long long)run_key[1]);
         char *marker = malloc(strlen(cache_dir()) + 48); sprintf(marker, "%s/%s", cache_dir(), key);
         bool saved_trusted = trusted;
@@ -3772,7 +3891,7 @@ static void load_file(const char *path, bool must) {
         char *dir = strdup(rp); char *sl = strrchr(dir, '/'); if (sl) *sl = 0;
         cur_dir = dir;
         for (int i = 0; i < nf; i++) if (fs[i]->list && fs[i]->n >= 1 && is(fs[i]->it[0], "import")) toplevel(fs[i]);
-        key_mix(text, strlen(text));
+        key_mix(text, strlen(text)); lib_mix(text);
         char key[40]; snprintf(key, sizeof key, "%016llx%016llx", (unsigned long long)run_key[0], (unsigned long long)run_key[1]);
         char *marker = malloc(strlen(cache_dir()) + 48); sprintf(marker, "%s/%s", cache_dir(), key);
         bool saved_trusted = trusted;

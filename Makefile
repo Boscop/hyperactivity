@@ -6,13 +6,13 @@ SRC := src/dnf.c src/big.c src/net.c src/lang.c
 
 all: build/cubical
 
-build/cubical: $(SRC) src/core.h src/syntax.c
+build/cubical: $(SRC) src/core.h src/syntax.c src/store.c src/sha256.c
 	@mkdir -p build
-	$(CC) $(CFLAGS) -o $@ $(SRC) -lpthread
+	$(CC) $(CFLAGS) -o $@ $(SRC) -lpthread -lm -ldl
 
-build/cubical-asan: $(SRC) src/core.h src/syntax.c
+build/cubical-asan: $(SRC) src/core.h src/syntax.c src/store.c src/sha256.c
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(SAN) -o $@ $(SRC) -lpthread
+	$(CC) $(CFLAGS) $(SAN) -o $@ $(SRC) -lpthread -lm -ldl
 
 # tests check: the module cache is off, except in the cache test (a fresh directory, run twice)
 test: export CUBICAL_NOCACHE = 1
@@ -35,10 +35,21 @@ test: build/cubical build/cubical-asan
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub lib/linproof.cub lib/eqproof.cub lib/ring.cub lib/autodiff.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/recursion.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/fo.cub lib/check.cub lib/std.cub lib/lower.cub lib/derive.cub
+	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/instance.cub
+	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/elab.cub
+	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub lib/derive.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub lib/linproof.cub lib/prim.cub lib/decode.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub lib/proc.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/guarded.cub
-	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub lib/prim.cub tests/prim.cub
+	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub lib/prim.cub lib/stage.cub tests/prim.cub
+	# the store (F34): a fresh one, run twice: the second run checks nothing, the answers agree, renaming changes no key
+	rm -rf build/store; for r in 1 2; do CUBICAL_STORE=build/store ./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/store.cub > build/store-$$r.out || exit 1; done; \
+	grep -q "ok: checks .*\[[0-9]* steps\]" build/store-2.out && { echo "store: the second run checked a definition"; grep "ok: checks .*steps" build/store-2.out | head; exit 1; }; \
+	for r in 1 2; do sed 's/ *\[[0-9]* steps[^]]*\]//; s/ *\[store\]//; /^[0-9]* passed/d' build/store-$$r.out > build/store-$$r.cmp; done; \
+	cmp -s build/store-1.cmp build/store-2.cmp || { echo "store: the two runs differ"; diff build/store-1.cmp build/store-2.cmp | head; exit 1; }; \
+	[ "$$(grep '^key twice = ' build/store-2.out | cut -d= -f2)" = "$$(grep '^key double = ' build/store-2.out | cut -d= -f2)" ] || { echo "store: renaming changed a key"; exit 1; }; \
+	[ "$$(grep '^key twice-zero = ' build/store-2.out | cut -d= -f2)" != "$$(grep "^key twice-zero' = " build/store-2.out | cut -d= -f2)" ] || { echo "store: a different proof kept its key"; exit 1; }; \
+	echo "store: the second run checked nothing; keys as expected"
 	# Brunerie's number (Ljungström's brunerie', an untyped port): -2, with one and with four workers
 	for w in 0 4; do CUBICAL_WORKERS=$$w ./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub \
 	  experiments/brunerie/brunerie.cub experiments/brunerie/run-brunerie.cub | grep -A1 -x brunerie | grep -q "= negsuc (suc zero) " \
@@ -59,7 +70,7 @@ test: build/cubical build/cubical-asan
 	set -e; for s in "tests/cubical.cub" "lib/code.cub tests/code.cub" "tests/hit.cub" "tests/memo.cub" \
 	    "lib/code.cub lib/check.cub tests/check.cub" "lib/code.cub lib/check.cub lib/std.cub tests/reject.cub tests/quote.cub" \
 	    "lib/code.cub lib/check.cub lib/std.cub tests/codata.cub" "lib/code.cub lib/check.cub lib/std.cub tests/guarded.cub" \
-	    "lib/code.cub lib/check.cub lib/std.cub lib/prim.cub tests/prim.cub"; do \
+	    "lib/code.cub lib/check.cub lib/std.cub lib/prim.cub lib/stage.cub tests/prim.cub"; do \
 	  CUBICAL_NOMEMO=1 CUBICAL_WORKERS=0 ./build/cubical lib/prelude.cub $$s > build/workers-0.out; \
 	  for w in 1 2 4 8 16; do CUBICAL_NOMEMO=1 CUBICAL_WORKERS=$$w ./build/cubical lib/prelude.cub $$s > build/workers-$$w.out; \
 	    cmp -s build/workers-0.out build/workers-$$w.out || { echo "differs with $$w workers: $$s"; diff build/workers-0.out build/workers-$$w.out | head; exit 1; }; done; \

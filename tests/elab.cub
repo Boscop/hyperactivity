@@ -1,0 +1,46 @@
+-- tests/elab.cub — elaboration conveniences (plan E28): records built by field name and updated
+-- (R { f = a }, R { r | f = v }), parameterized modules (module M params where ...; open M args).
+-- Loaded after lib/std.cub.
+record Pt3 = { x : Nat ; y : Nat ; z : Nat }
+origin : Pt3
+origin = Pt3 { x = 0 ; y = 0 ; z = 0 }
+p1 : Pt3
+p1 = Pt3 { z = 3 ; x = 1 ; y = 2 }
+#same x p1 = 1
+#same z p1 = 3
+p2 : Pt3
+p2 = Pt3 { p1 | y = 7 }
+#same y p2 = 7
+#same x p2 = 1
+#same p2 = (1 , 7 , 3)
+#same p2.z = 3
+record Box (A : Type) = { val : A ; tag : Nat }
+b1 : Box Bool
+b1 = Box { val = true ; tag = 4 }
+#same val b1 = true
+#same (Box { b1 | tag = 5 }).tag = 5
+-- ---------------------------------------------------------------- parameterized modules
+record Eq (A : Type) = { eq : A → A → Bool ; eqid : Unit }
+instance eqNat : Eq Nat
+eqNat = (eqb , unit)
+module Dup (A : Type) (e : Eq A) where
+  same : A → A → Bool
+  same x y = eq e x y
+  has : A → List A → Bool
+  has x nil = false
+  has x (cons y ys) = if same x y then true else has x ys
+  dup : List A → Bool
+  dup nil = false
+  dup (cons x xs) = if has x xs then true else dup xs
+#same Dup·same Nat eqNat 2 2 = true
+open Dup Nat eqNat
+#same has 2 (cons 1 (cons 2 nil)) = true
+#same dup (cons 1 (cons 2 (cons 1 nil))) = true
+#same dup (cons 1 (cons 2 nil)) = false
+module Pair {A : Type} (x : A) where
+  twice : List A
+  twice = cons x (cons x nil)
+  thrice : List A
+  thrice = cons x twice
+open Pair true
+#same thrice = cons true (cons true (cons true nil))
