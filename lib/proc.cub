@@ -30,15 +30,16 @@ Handler S W = (c : Cmd S) → Proc {lzero} W (Resp S c)
 handle : {S W : Sig} {A : Type} → Handler S W → Proc {lsuc lzero} S A → Proc {lzero} W A
 handle hd p = p (Proc {lzero} W A) (ret {lzero} {W} {A}) (λ c k → bind {lzero} {W} {Resp S c} {A} (hd c) k)
 -- ---------------------------------------------------------------- worlds and running
--- a world with state St answers a command, or refuses it (none): the response and the next state
+-- a world with state St answers a command (the response and the next state) or refuses it (the
+-- state after the refusal)
 World : Sig → Type → Type
-World S St = (c : Cmd S) → St → Sum (Resp S c × St) Unit
+World S St = (c : Cmd S) → St → Sum (Resp S c × St) St
 data Outcome (A : Type) = done (a : A) | stopped
 -- runp p w st: the process interpreted in the state monad over St with refusal
 runp : {S : Sig} {A : Type} {St : Type} → Proc S A → World S St → St → Outcome A × St
 runp p w st =
   p (St → Outcome A × St) (λ a s → (done a , s))
-    (λ c k s → case w c s of inl r → k (fst r) (snd r); inr u → (stopped , s))
+    (λ c k s → case w c s of inl r → k (fst r) (snd r); inr s2 → (stopped , s2))
     st
 -- ---------------------------------------------------------------- readings: a key-value world
 -- commands: get k, put k v; responses: a word for get, unit for put
@@ -51,9 +52,9 @@ KVS = (KV , kv-resp)
 -- refuses puts at key 0
 kv-world : World KVS (Word → Word)
 kv-world c st =
-  case c return (λ x → Sum (kv-resp x × (Word → Word)) Unit) of
+  case c return (λ x → Sum (kv-resp x × (Word → Word)) (Word → Word)) of
     get k → inl (st k , st)
-    put k v → (case weq k #0 of true → inr unit; false → inl (unit , (λ j → case weq j k of true → v; false → st j)))
+    put k v → (case weq k #0 of true → inr st; false → inl (unit , (λ j → case weq j k of true → v; false → st j)))
 -- a process: put 1 := 5, put 2 := 7, then get 1 and get 2, returning their sum
 pr1 : {l : Level} → Proc {l} KVS Word
 pr1 {l} = bind {l} {KVS} {Unit} {Word} (cmd {l} {KVS} (put #1 #5)) (λ u →
@@ -88,10 +89,61 @@ logging c =
 -- the world: the store and a log count
 kvl-world : World KVLS ((Word → Word) × Word)
 kvl-world c st =
-  case c return (λ x → Sum (kvl-resp x × ((Word → Word) × Word)) Unit) of
-    kv c2 → (case kv-world c2 (fst st) of inl r → inl (fst r , (snd r , snd st)); inr u → inr unit)
+  case c return (λ x → Sum (kvl-resp x × ((Word → Word) × Word)) ((Word → Word) × Word)) of
+    kv c2 → (case kv-world c2 (fst st) of inl r → inl (fst r , (snd r , snd st)); inr s2 → inr (s2 , snd st))
     log k → inl (unit , (fst st , %wsucc (snd st)))
 pr1-logged : Proc {lzero} KVLS Word
 pr1-logged = handle {KVS} {KVLS} {Word} logging (pr1 {lsuc lzero})
 #same fst (runp {KVLS} {Word} {(Word → Word) × Word} pr1-logged kvl-world (empty-st , #0)) = done #12
 #same snd (snd (runp {KVLS} {Word} {(Word → Word) × Word} pr1-logged kvl-world (empty-st , #0))) = #2
+-- ---------------------------------------------------------------- supervision (D25)
+-- a restart strategy: given the outcome and the number of runs so far, restart or give up
+data Action = restart | give-up
+Strategy : Type → Type
+Strategy A = Outcome A → Nat → Action
+-- supervise fuel s p w st: run p; when the strategy answers restart, run it again from the state
+-- the world was left in; the outcome, the state and the number of runs
+supervise : {S : Sig} {A : Type} {St : Type} → Nat → Strategy A → Proc {lzero} S A → World S St → St → Outcome A × (St × Nat)
+supervise fuel s p w st =
+  (case fuel return (λ f → St → Nat → Outcome A × (St × Nat)) of
+     zero → λ st2 n → (stopped , (st2 , n))
+     suc k → λ st2 n →
+       (let r = runp {S} {A} {St} p w st2
+        in case s (fst r) (suc n) of
+             restart → rec k (snd r) (suc n)
+             give-up → (fst r , (snd r , suc n))))
+  st zero
+lt3 : Nat → Action
+lt3 n = case n of zero → restart; suc k → (case k of zero → restart; suc k2 → (case k2 of zero → restart; suc k3 → give-up))
+-- restart on stopped while fewer than three runs; never on done
+upto3 : {A : Type} → Strategy A
+upto3 o n = case o of done a → give-up; stopped → lt3 n
+lt2 : Nat → Bool
+lt2 n = case n of zero → true; suc k → (case k of zero → true; suc k2 → false)
+andb2 : Bool → Bool → Bool
+andb2 a b = case a of true → b; false → false
+-- a world that refuses the first two puts at key 0, counting its refusals in its state
+flaky : World KVS ((Word → Word) × Nat)
+flaky c st =
+  case c return (λ x → Sum (kv-resp x × ((Word → Word) × Nat)) ((Word → Word) × Nat)) of
+    get k → inl (fst st k , st)
+    put k v →
+      (case andb2 (weq k #0) (lt2 (snd st)) of
+         true → inr (fst st , suc (snd st))
+         false → inl (unit , ((λ j → case weq j k of true → v; false → fst st j) , snd st)))
+-- a process putting at key 0 then reading it: stopped twice, done on the third run, with the
+-- world's refusal count at two
+pr3 : {l : Level} → Proc {l} KVS Word
+pr3 {l} = bind {l} {KVS} {Unit} {Word} (cmd {l} {KVS} (put #0 #9)) (λ u → bind {l} {KVS} {Word} {Word} (cmd {l} {KVS} (get #0)) (λ a → ret {l} {KVS} {Word} a))
+sup3 : Outcome Word × (((Word → Word) × Nat) × Nat)
+sup3 = supervise {KVS} {Word} {(Word → Word) × Nat} 5 (upto3 {Word}) (pr3 {lzero}) flaky (empty-st , zero)
+#same fst sup3 = done #9
+#same snd (snd sup3) = 3
+#same snd (fst (snd sup3)) = 2
+-- a world that always refuses: three runs, then the strategy gives up, stopped
+always-refusing : World KVS Unit
+always-refusing c st = case c return (λ x → Sum (kv-resp x × Unit) Unit) of get k → inl (#0 , unit); put k v → inr unit
+sup-bad : Outcome Word × (Unit × Nat)
+sup-bad = supervise {KVS} {Word} {Unit} 5 (upto3 {Word}) (pr3 {lzero}) always-refusing unit
+#same fst sup-bad = stopped
+#same snd (snd sup-bad) = 3
