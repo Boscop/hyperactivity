@@ -98,18 +98,21 @@ static inline bool trylock(Cell *c) {
     return __atomic_compare_exchange_n(&c->lk, &z, mytag, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED) || z == mytag;
 }
 
-/* ---------------- active pairs: per-worker queues ----------------
- * Each worker owns a queue it pushes to; any worker pops from any queue (its own first). A queue is
- * a ring of pairs taken in arrival order: the owner pushes at the tail (a plain store, published
- * with release), a popper takes the head with a compare-and-swap. The ring is replaced whole when
- * full: the owner copies the live pairs into a bigger one and publishes it; a popper holding the
- * old ring still reads the same pair at the same index (a pair's slot is never rewritten before the
- * head has passed it), and the head it competes for is shared. No lock anywhere. */
+/* ---------------- active pairs: per-worker deques ----------------
+ * Each worker owns a deque (Chase and Lev): it pushes and pops at the bottom, so it continues with
+ * the pairs its own rewrites just made (their cells are in its cache, and they are each other's
+ * neighbours, so one worker holding them meets no other worker's locks); other workers steal at
+ * the top, the oldest pairs, far from where the owner works. Pairs made by the same rewrite are
+ * neighbours, so two workers taking consecutive pairs of one queue contend for the same cells:
+ * that was most of the time with 2 workers when pairs were taken in arrival order. A full ring is
+ * replaced whole (a thief holding the old one reads the same pair at the same index). No lock. */
 typedef struct { size_t cap; Redex it[]; } Ring;
-typedef struct { Ring *ring; char pad0[56]; size_t head; char pad1[56]; size_t tail; char pad2[56]; int busy; char pad3[60]; } Queue;
+typedef struct { Ring *ring; char pad0[56]; size_t top; char pad1[56]; size_t bottom; char pad2[56]; } Queue;
 static Queue *Q; static int NQ;
 static __thread int myq;
-static long pending;                       /* one thread: queued pairs */
+static long pending;                       /* pairs queued or being rewritten: counted at the push, uncounted when the
+                                            * rewrite is done (or the pair found stale). Zero means nothing is in flight:
+                                            * every finish follows its own push, so equal counts mean every push finished */
 static Ring *ring_new(size_t cap) { Ring *r = malloc(sizeof(Ring) + cap * sizeof(Redex)); r->cap = cap; return r; }
 static void queues_init(int n) {
     NQ = n; Q = calloc((size_t)n, sizeof(Queue));
@@ -135,54 +138,57 @@ void net_push(Cell *op, Cell *v) {
     if (net_solo) { ring_push(op, v); return; }
     if (!Q) queues_init(1);
     Queue *q = &Q[myq];
-    size_t t = q->tail, h = __atomic_load_n(&q->head, __ATOMIC_ACQUIRE);
+    size_t b = q->bottom, t = __atomic_load_n(&q->top, __ATOMIC_ACQUIRE);
     Ring *r = q->ring;
-    if (t - h == r->cap) {
+    if (b - t == r->cap) {
         Ring *n = ring_new(r->cap * 2);
-        for (size_t i = h; i < t; i++) n->it[i & (n->cap - 1)] = r->it[i & (r->cap - 1)];
-        __atomic_store_n(&q->ring, n, __ATOMIC_RELEASE);   /* the old ring is kept: a popper may hold it */
+        for (size_t i = t; i < b; i++) n->it[i & (n->cap - 1)] = r->it[i & (r->cap - 1)];
+        __atomic_store_n(&q->ring, n, __ATOMIC_RELEASE);   /* the old ring is kept: a thief may hold it */
         r = n;
     }
-    r->it[t & (r->cap - 1)] = (Redex){ op, v };
-    __atomic_store_n(&q->tail, t + 1, __ATOMIC_RELEASE);
+    r->it[b & (r->cap - 1)] = (Redex){ op, v };
+    ADD(pending, 1);
+    __atomic_store_n(&q->bottom, b + 1, __ATOMIC_RELEASE);
 }
-static bool pop_from(Queue *q, Redex *out) {
-    for (;;) {
-        size_t h = __atomic_load_n(&q->head, __ATOMIC_ACQUIRE);
-        size_t t = __atomic_load_n(&q->tail, __ATOMIC_ACQUIRE);
-        if (h >= t) return false;
-        Ring *r = __atomic_load_n(&q->ring, __ATOMIC_ACQUIRE);
-        Redex x = r->it[h & (r->cap - 1)];
-        if (__atomic_compare_exchange_n(&q->head, &h, h + 1, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) { *out = x; return true; }
+/* the owner takes the newest pair */
+static bool pop_own(Queue *q, Redex *out) {
+    size_t b = q->bottom;
+    if (b == 0) return false;
+    b--;
+    __atomic_store_n(&q->bottom, b, __ATOMIC_RELAXED);
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    size_t t = __atomic_load_n(&q->top, __ATOMIC_RELAXED);
+    if (t > b) { __atomic_store_n(&q->bottom, b + 1, __ATOMIC_RELAXED); return false; }
+    Ring *r = q->ring;
+    Redex x = r->it[b & (r->cap - 1)];
+    if (t == b) {
+        /* the last pair: a thief may be taking it */
+        bool won = __atomic_compare_exchange_n(&q->top, &t, t + 1, false, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
+        __atomic_store_n(&q->bottom, b + 1, __ATOMIC_RELAXED);
+        if (!won) return false;
     }
+    *out = x;
+    return true;
+}
+/* a thief takes the oldest */
+static bool steal(Queue *q, Redex *out) {
+    size_t t = __atomic_load_n(&q->top, __ATOMIC_ACQUIRE);
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    size_t b = __atomic_load_n(&q->bottom, __ATOMIC_ACQUIRE);
+    if (t >= b) return false;
+    Ring *r = __atomic_load_n(&q->ring, __ATOMIC_ACQUIRE);
+    Redex x = r->it[t & (r->cap - 1)];
+    if (!__atomic_compare_exchange_n(&q->top, &t, t + 1, false, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED)) return false;
+    *out = x;
+    return true;
 }
 static bool pop(Redex *r) {
     if (net_solo) return ring_pop(r);
     if (!Q) queues_init(1);
-    if (pop_from(&Q[myq], r)) return true;
-    for (int k = 1; k < NQ; k++) if (pop_from(&Q[(myq + k) % NQ], r)) return true;
+    if (pop_own(&Q[myq], r)) return true;
+    for (int k = 1; k < NQ; k++) if (steal(&Q[(myq + k) % NQ], r)) return true;
     return false;
 }
-/* Nothing left anywhere. A worker is busy from before it pops until after it has published what
- * its rewrite made. Quiet means: every queue was empty (its tail noted), then no worker was busy,
- * then no tail has moved. A pair pushed after the first look moves a tail; a pair pushed before
- * it was in its queue at the first look, or had been popped by a worker whose busy flag was set
- * before that pop and is therefore seen set (the first look read the head the pop advanced).
- * Looking at the queues again instead of the tails is not enough: a pair pushed after the first
- * look and popped before the last by a worker read as idle in between would be missed. */
-static bool all_quiet(void) {
-    size_t tails[256];
-    if (NQ > 256) return false;
-    for (int k = 0; k < NQ; k++) {
-        size_t h = __atomic_load_n(&Q[k].head, __ATOMIC_ACQUIRE), t = __atomic_load_n(&Q[k].tail, __ATOMIC_ACQUIRE);
-        if (h != t) return false;
-        tails[k] = t;
-    }
-    for (int k = 0; k < NQ; k++) if (__atomic_load_n(&Q[k].busy, __ATOMIC_ACQUIRE)) return false;
-    for (int k = 0; k < NQ; k++) if (__atomic_load_n(&Q[k].tail, __ATOMIC_ACQUIRE) != tails[k]) return false;
-    return true;
-}
-
 void link(Port a, Port b) {
     if (net_solo) { if (a) PC(a)->port[PI(a)] = b; if (b) PC(b)->port[PI(b)] = a; }
     else {
@@ -2445,6 +2451,7 @@ restart:
     { Cell *x = o < v ? o : v, *y = o < v ? v : o; lock(x); lock(y); }
     if (o->port[0] != P(v, 0) || v->port[0] != P(o, 0) || !is_value(v->kind) || is_value(o->kind)) {
         unlock(o); unlock(v);
+        ADD(pending, -1);
         return;
     }
     /* With the pair held no neighbour's wire to it can change: a rule on a neighbour would have to
@@ -2486,6 +2493,7 @@ restart:
     flush_frees();
     publish();
     if (cap > 64) free(S);
+    ADD(pending, -1);
 }
 
 /* ---------------- workers ---------------- */
@@ -2505,9 +2513,7 @@ static void *worker(void *arg) {
             pthread_mutex_unlock(&wmu);
         }
         Redex r;
-        __atomic_store_n(&Q[myq].busy, 1, __ATOMIC_RELEASE);
-        if (pop(&r)) { rewrite(r); __atomic_store_n(&Q[myq].busy, 0, __ATOMIC_RELEASE); }
-        else { __atomic_store_n(&Q[myq].busy, 0, __ATOMIC_RELEASE); sched_yield(); }
+        if (pop(&r)) rewrite(r); else sched_yield();
     }
     return NULL;
 }
@@ -2542,7 +2548,7 @@ bool net_observe(Cell *root, long limit) {
     for (;;) {
         if ((ok = observed(root))) break;
         if (limit >= 0 && n >= limit) break;
-        if (net_solo ? pending == 0 : all_quiet()) break;
+        if (net_solo ? pending == 0 : __atomic_load_n(&pending, __ATOMIC_ACQUIRE) == 0) break;
         Redex r;
         if (pop(&r)) { rewrite(r); n++; } else sched_yield();
     }
