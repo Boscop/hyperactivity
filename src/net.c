@@ -15,9 +15,22 @@ bool net_solo = true;
  * Freed cells go to the freeing thread's list after its locks are released. */
 #define MAXFREE 4096
 typedef struct { Cell *op, *v; } Redex;
-typedef struct { Cell *free[MAXFREE + 1]; Cell *defer; Redex *made; size_t nmade, capmade; struct Box **dead; size_t ndead, capdead; } Local;
+typedef struct Local { Cell *free[MAXFREE + 1]; Cell *defer; Redex *made; size_t nmade, capmade; struct Box **dead; size_t ndead, capdead; long steps, kind[K_END], cells; struct Local *next; } Local;
 static __thread Local *L;
-static Local *local(void) { if (!L) L = calloc(1, sizeof(Local)); return L; }
+static Local *ALL; static pthread_mutex_t allmu = PTHREAD_MUTEX_INITIALIZER;
+static Local *local(void) {
+    if (!L) { L = calloc(1, sizeof(Local)); pthread_mutex_lock(&allmu); L->next = ALL; ALL = L; pthread_mutex_unlock(&allmu); }
+    return L;
+}
+/* the counts over every thread, into the globals a reading reports (threads are parked when read) */
+void stat_gather(void) {
+    long st = 0, cells = 0; static long kinds[K_END];
+    memset(kinds, 0, sizeof kinds);
+    pthread_mutex_lock(&allmu);
+    for (Local *l = ALL; l; l = l->next) { st += l->steps; cells += l->cells; for (int k = 0; k < K_END; k++) kinds[k] += l->kind[k]; }
+    pthread_mutex_unlock(&allmu);
+    stat_steps = st; stat_cells = cells; memcpy(stat_kind, kinds, sizeof kinds);
+}
 
 Cell *cell(int kind, int n) {
     Local *l = local();
@@ -34,7 +47,7 @@ Cell *cell(int kind, int n) {
     if (net_solo) memset(c->port, 0, (size_t)n * sizeof(Port));
     else for (int k = 0; k < n; k++) __atomic_store_n(&c->port[k], 0, __ATOMIC_RELAXED);
     c->kind = (uint16_t)kind; c->x = 0; c->ty = 0; c->a = 0; c->p = NULL; c->key = NULL; c->e = NULL;
-    ADD(stat_cells, 1);
+    l->cells++;
     return c;
 }
 /* the payload a cell owns */
@@ -55,7 +68,7 @@ static void payload_release(Cell *c) {
     c->p = NULL;
 }
 static void memo_leave(Cell *c);
-void cell_free(Cell *c) { if (c->e) memo_leave(c); if (c->key) { key_release(c->key); c->key = NULL; } payload_release(c); Local *l = local(); c->a = (uint64_t)(uintptr_t)l->defer; l->defer = c; ADD(stat_cells, -1); }
+void cell_free(Cell *c) { if (c->e) memo_leave(c); if (c->key) { key_release(c->key); c->key = NULL; } payload_release(c); Local *l = local(); c->a = (uint64_t)(uintptr_t)l->defer; l->defer = c; l->cells--; }
 static void flush_frees(void) {
     Local *l = local();
     while (l->defer) {
@@ -74,6 +87,7 @@ static void lock(Cell *c) {
         while (__atomic_load_n(&c->lk, __ATOMIC_RELAXED)) __builtin_ia32_pause();
 }
 static void unlock(Cell *c) { if (!net_solo) __atomic_store_n(&c->lk, 0, __ATOMIC_RELEASE); }
+static inline bool trylock(Cell *c) { return !__atomic_exchange_n(&c->lk, 1, __ATOMIC_ACQUIRE); }
 
 /* ---------------- active pairs: per-worker queues ---------------- */
 typedef struct { pthread_mutex_t mu; Redex *q; size_t head, len, cap; } Queue;
@@ -1282,7 +1296,7 @@ static void interact(Cell *o, Cell *v) {
         rule_dup(o, v);
         return;
     }
-    ADD(stat_steps, 1); ADD(stat_kind[o->kind], 1);
+    { Local *l = local(); l->steps++; l->kind[o->kind]++; }
     if (trace_out) trace_step(o, v);
     if (prof_on) {
         long a = (long)o->a;
@@ -2373,9 +2387,9 @@ static int lockset(Cell *o, Cell *v, Cell **S, int cap) {
 #undef ADDPARTS
 #undef ADDC
     if (n > cap) return -n;
-    qsort(S, (size_t)n, sizeof(Cell *), cell_cmp);
+    /* distinct (a cell is locked once); the order no longer matters */
     int m = 0;
-    for (int i = 0; i < n; i++) if (m == 0 || S[m - 1] != S[i]) S[m++] = S[i];
+    for (int i = 0; i < n; i++) { bool seen = false; for (int j = 0; j < m; j++) if (S[j] == S[i]) { seen = true; break; } if (!seen) S[m++] = S[i]; }
     return m;
 }
 static void rewrite(Redex r) {
@@ -2402,48 +2416,45 @@ restart:
         ADD(pending, -1);
         return;
     }
+    /* With the pair held no neighbour's wire to it can change: a rule on a neighbour would have to
+     * lock this pair's cell first. So the lock set is read once, and the other cells are taken with
+     * try-lock in any order (no lock is waited for while others are held, so no deadlock); a cell
+     * held by another worker means the pair is released and taken again after a pause. */
     int cap = o->n + v->n + 8;
     if (o->kind == O_WOP2 || o->kind == O_CLOS2) { Port p = rd(o, 1); if (p) cap += PC(p)->n; }
     if (v->kind == V_REF || v->kind == V_GLOBAL) {
-        /* room for the stored value's parts (read again under the locks) */
         Cell *rt = v->kind == V_REF ? ((Box *)v->p)->root : global_res((long)v->a);
         Port p = rd(rt, 0);
         if (p) cap += PC(p)->n + 2;
     }
-    Cell *buf1[64], *buf2[64];
+    Cell *buf1[64];
     Cell **S = cap <= 64 ? buf1 : malloc((size_t)cap * sizeof(Cell *));
-    Cell **T = cap <= 64 ? buf2 : malloc((size_t)cap * sizeof(Cell *));
     int n;
     for (;;) {
         n = lockset(o, v, S, cap);
-        if (n < 0) {
-            /* more cells than estimated: room for them, and the set read again */
-            if (cap > 64) { free(S); free(T); }
-            cap = -n;
-            S = cap <= 64 ? buf1 : malloc((size_t)cap * sizeof(Cell *));
-            T = cap <= 64 ? buf2 : malloc((size_t)cap * sizeof(Cell *));
-            continue;
+        if (n >= 0) break;
+        if (cap > 64) free(S);
+        cap = -n;
+        S = cap <= 64 ? buf1 : malloc((size_t)cap * sizeof(Cell *));
+    }
+    {
+        int i;
+        for (i = 0; i < n; i++) { if (S[i] == o || S[i] == v) continue; if (!trylock(S[i])) break; }
+        if (i < n) {
+            for (int j = i - 1; j >= 0; j--) if (S[j] != o && S[j] != v) unlock(S[j]);
+            unlock(o); unlock(v);
+            if (cap > 64) free(S);
+            __builtin_ia32_pause();
+            goto restart;
         }
-        break;
     }
-    unlock(o); unlock(v);
-    for (;;) {
-        for (int i = 0; i < n; i++) lock(S[i]);
-        bool live = o->port[0] == P(v, 0) && v->port[0] == P(o, 0) && is_value(v->kind) && !is_value(o->kind);
-        int m = live ? lockset(o, v, T, cap) : 0, j = 0;
-        bool ok = live && m >= 0;
-        for (int i = 0; i < m && ok; i++) { while (j < n && S[j] < T[i]) j++; if (j == n || S[j] != T[i]) ok = false; }
-        if (ok) break;
-        for (int i = n - 1; i >= 0; i--) unlock(S[i]);
-        if (cap > 64) { free(S); free(T); }
-        goto restart;
-    }
+    Cell **T = S;   /* the set, for the unlocking below */
     interact(o, v);
-    for (int i = n - 1; i >= 0; i--) unlock(S[i]);
+    for (int i = n - 1; i >= 0; i--) unlock(T[i]);
     retire_boxes();
     flush_frees();
     publish();
-    if (cap > 64) { free(S); free(T); }
+    if (cap > 64) free(S);
     ADD(pending, -1);
 }
 
@@ -2508,6 +2519,7 @@ bool net_observe(Cell *root, long limit) {
         while (parked < nworkers) pthread_cond_wait(&pcv, &wmu);
         pthread_mutex_unlock(&wmu);
     }
+    stat_gather();
     if (!ok && root && limit < 0 && key_trace) {
         /* the reading stopped short of a value: what the root waits on, operation by operation */
         Port q = root->port[0]; Cell *c = q ? PC(q) : NULL;
