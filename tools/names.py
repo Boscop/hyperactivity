@@ -27,6 +27,9 @@ for f in sorted(glob.glob(os.path.join(ROOT, 'lib', '*.cub'))):
         m = re.match(r'^\s*[|=]\s*([^\s|()]+)', line)   # a constructor on its own line
         if m and not line.startswith(' ' * 4) or (m and re.match(r'^\s*\|', line)):
             names[m.group(1)].add(base); continue
+        if line.startswith('represent '): continue   # declares T·R·name lines
+        m = re.match(r'^(?:primitive|postulate)\s+(\S+)', line)   # keyword declarations
+        if m: names[m.group(1)].add(base); continue
         m = re.match(r'^([^\s#:(][^\s]*)\s', line)
         if m: names[m.group(1)].add(base)
 bad = [(n, sorted(fs)) for n, fs in names.items() if len(fs) > 1 and n not in ALLOWED]
