@@ -62,3 +62,38 @@ msg : Bytes 16
 msg = store64 16 (store32 16 (bytes 16) 4 (8 , λ i → 16) (u32 #258)) 4 (4 , λ i → 16) (i64 #7)
 #same snd (decode 16 msg 4 (4 , λ i → 16)) = i64 #7
 #same u32toWord (fst (decode 16 msg 4 (4 , λ i → 16))) = #7
+-- ---------------------------------------------------------------- a loop over messages
+-- count messages of 16 bytes in n bytes (count·16 ≤ n): the 8-byte field of message k is at
+-- k·16, and its bound k·16 + 8 ≤ n follows from (k+1)·16 ≤ n, which is 16 + k·16 ≤ n by the
+-- recursion of times. The offset k·16 is an atom of the linear fragment (variable 0), n variable 1
+hyp-m : Hyps
+hyp-m = hcons (lc-add (lc-lit #16) (lc-var #0)) (lc-var #1) hnil
+goal-m : LinCode
+goal-m = lc-add (lc-var #0) (lc-lit #8)
+#same cert-check hyp-m cert1 goal-m goal-r = true
+holds-m : (o n : Nat) → le (plus 16 o) n → Holds (env2 o n) hyp-m
+holds-m o n h =
+  (le-transport (plusw #16 (fromNat o)) (fromNat n) (fromNat (plus 16 o)) (fromNat n)
+     (fromNat-plus 16 o) (λ j → fromNat n) (le-to-lew (plus 16 o) n h) , unit)
+bound-m : (o n : Nat) → le (plus 16 o) n → le (plus o 8) n
+bound-m o n h =
+  lew-to-le (plus o 8) n
+    (le-transport (fromNat (plus o 8)) (fromNat n) (plusw (fromNat o) #8) (fromNat n)
+       (symw (fromNat-plus o 8)) (λ j → fromNat n)
+       (cert-sound (env2 o n) hyp-m cert1 goal-m goal-r (holds-m o n h) (λ j → true)))
+-- the sum of the fields of count messages, each bound discharged by the certificate at its offset
+-- (the hypothesis for k is the recursion of times on (suc k)·16, definitionally plus 16 (k·16));
+-- the bound for the rest is the same certificate's hypothesis weakened: k·16 ≤ n from 16 + k·16 ≤ n
+weaken-m : (o n : Nat) → le (plus 16 o) n → le o n
+weaken-m o n h = (plus (fst h) 16 , transN (plus-assoc (fst h) 16 o) (snd h))
+sum-msgs : (n : Nat) → Bytes n → (count : Nat) → le (times count 16) n → Word
+sum-msgs n b count h =
+  (case count return (λ c → le (times c 16) n → Word) of
+     zero → λ h → #0
+     suc k → λ h → %wadd (i64toWord (load64 n b (times k 16) (bound-m (times k 16) n h))) (rec k (weaken-m (times k 16) n h)))
+  h
+-- readings: two messages of 16 bytes, fields 5 and 9 at 0 and 16; their sum
+msgs : Bytes 32
+msgs = store64 32 (store64 32 (bytes 32) 0 (24 , λ i → 32) (i64 #5)) 16 (8 , λ i → 32) (i64 #9)
+#same sum-msgs 32 msgs 2 (0 , λ i → 32) = #14
+#same sum-msgs 32 msgs 1 (16 , λ i → 32) = #5
