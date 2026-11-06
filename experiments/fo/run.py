@@ -61,6 +61,13 @@ prog = emit-prog (lcons (#0 , (#0 , fcall #99999 (lcons (fcon (didx (code LW)) #
  'process': ("""proc-defs = case lift #100 spec4 of lifted t2 ds k → lcons (#0 , (#0 , fapply t2 (lcons (flam (flit #40)) lnil))) ds
 prog = case lift #200 (snd (snd (fromopt (lnth proc-defs #0) (#0 , (#0 , flit #0))))) of lifted m ds k → emit-prog (lcons (#0 , (#0 , m)) (lapp2 ds (ltail proc-defs)))
 ltail l = case l of lnil → lnil; lcons x xs → xs""", "41"),
+ # fib by word elimination over a pair, specialized under an unknown argument to a loop; fib 90
+ 'fib': ("""fibp : Word → Word × Word
+fibp n = %welimP (λ v → Word × Word) n (#0 , #1) (λ k p → (snd p , %wadd (fst p) (snd p)))
+fibw : Word → Word
+fibw n = fst (fibp n)
+lam-body2 f = case f of flam b → b; _ → f
+defs = lcons (#0 , (#0 , fcall #1 (lcons (flit #90) lnil))) (lcons (#1 , (#1 , lam-body2 (specialize (Word → Word) lnil (code (λ w → fibw w))))) lnil)""", "2880067194370816120"),
  'let-if': ("""defs = lcons (#0 , (#0 , flet (flit #3) (fif (fprim P-lt (lcons (fvar #0) (lcons (flit #5) lnil))) (fprim P-mul (lcons (fvar #0) (lcons (fvar #0) lnil))) (flit #0)))) lnil""", "9"),
 }
 def run(name, defs, expect, contains=None):
