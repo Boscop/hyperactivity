@@ -1,0 +1,82 @@
+-- lib/repr.cub — the back end consuming the representations (plan B12/B14: the table %rtab and
+-- the primitive definitions of lib/prim.cub). Loaded after lib/specialize.cub and lib/prim.cub.
+-- consume-reps t: a first-order program after lower, with (1) calls of the byte primitives
+-- (load64 n b off pf, …) replaced by the native primitives on the arguments that carry
+-- information (the length n and the proof pf are at multiplicity 0 and are dropped), the
+-- conversions i64/i64toWord/u32/u32toWord the identity (FO holds words), and (2) closed
+-- constructor trees of a type represented by Word (%rtab) replaced by the word they represent.
+g-load64 = gidx (code load64)
+g-store64 = gidx (code store64)
+g-load32 = gidx (code load32)
+g-store32 = gidx (code store32)
+g-bytes = gidx (code bytes)
+g-i64 = gidx (code i64)
+g-i64toWord = gidx (code i64toWord)
+g-u32 = gidx (code u32)
+g-u32toWord = gidx (code u32toWord)
+-- the word operations of lib/std.cub are the native ones by definition (plusw≡wadd, ...), and
+-- plus on Nat is plusw by its representation's op line
+g-plusw = gidx (code plusw)
+g-wadd = gidx (code wadd)
+g-wsub = gidx (code wsub)
+g-weq = gidx (code weq)
+g-wlt = gidx (code wlt)
+g-plus = gidx (code plus)
+nat-d = didx (code Nat)
+nat-rep = case %rtab nat-d of some R → true; none → false
+-- a closed Nat tree as a word (the representation's `to`, fromNat, by counting)
+nat-lit t =
+  case t of
+    fcon d c fs → if %weq d nat-d then (if %weq c #0 then some #0 else (case fs of lcons x r → omap (λ n → %wsucc n) (nat-lit x); _ → none)) else none
+    _ → none
+consume-reps t =
+  case t of
+    fcall g args →
+      let as = consume-list args
+      in if %weq g g-load64 then fprim P-load64 (lcons (lst-nth as #1) (lcons (lst-nth as #2) lnil))
+         else if %weq g g-load32 then fprim P-load32 (lcons (lst-nth as #1) (lcons (lst-nth as #2) lnil))
+         else if %weq g g-store64 then fprim P-store64 (lcons (lst-nth as #1) (lcons (lst-nth as #2) (lcons (lst-nth as #4) lnil)))
+         else if %weq g g-store32 then fprim P-store32 (lcons (lst-nth as #1) (lcons (lst-nth as #2) (lcons (lst-nth as #4) lnil)))
+         else if %weq g g-bytes then fprim P-bytes (lcons (lst-nth as #0) lnil)
+         else if %weq g g-i64 then lst-nth as #0
+         else if %weq g g-i64toWord then lst-nth as #0
+         else if %weq g g-u32 then lst-nth as #0
+         else if %weq g g-u32toWord then lst-nth as #0
+         else if %weq g g-plusw then fprim P-add as
+         else if %weq g g-wadd then fprim P-add as
+         else if %weq g g-wsub then fprim P-sub as
+         else if %weq g g-weq then fprim P-eq as
+         else if %weq g g-wlt then fprim P-lt as
+         else if andb nat-rep (%weq g g-plus) then fprim P-add as
+         else fcall g as
+    fcon d c fs → (case (if nat-rep then nat-lit t else none) of some n → flit n; none → fcon d c (consume-list fs))
+    fswitch x alts → fswitch (consume-reps x) (consume-alts alts)
+    fproj d c k x → fproj d c k (consume-reps x)
+    fprim p args → fprim p (consume-list args)
+    flet a b → flet (consume-reps a) (consume-reps b)
+    fif c a b → fif (consume-reps c) (consume-reps a) (consume-reps b)
+    floop init body → floop (consume-list init) (consume-reps body)
+    fclos g env → fclos g (consume-list env)
+    flam b → flam (consume-reps b)
+    fapply f args → fapply (consume-reps f) (consume-list args)
+    fthunk a → fthunk (consume-reps a)
+    fforce a → fforce (consume-reps a)
+    fassume fact b → fassume fact (consume-reps b)
+    _ → t
+consume-list l = case l of lnil → lnil; lcons x xs → lcons (consume-reps x) (consume-list xs)
+consume-alts l = case l of lnil → lnil; lcons a r → lcons (fst a , (fst (snd a) , consume-reps (snd (snd a)))) (consume-alts r)
+-- specialize, then consume: the pipeline with representations
+specialize-r T rules c = consume-reps (specialize T rules c)
+-- ---------------------------------------------------------------- readings
+-- two loads at literal offsets from an unknown buffer, as the decoder's loop computes them: the
+-- Nat lengths and offsets (constructor trees in the code) become words, the bound proofs are gone,
+-- the conversions are gone. (sum-msgs itself, applied to the unknown buffer, is not unfolded by
+-- normalization and its call has no first-order form: a finding for B15, plan 18.6.)
+two-loads = code (λ b → plusw (i64toWord (load64 32 b 16 (8 , λ i → 32))) (i64toWord (load64 32 b 0 (24 , λ i → 32))))
+sum2 = specialize-r (Bytes 32 → Word) lnil two-loads
+ld16 = fprim P-load64 (lcons (fvar #0) (lcons (flit #16) lnil))
+ld0 = fprim P-load64 (lcons (fvar #0) (lcons (flit #0) lnil))
+#same sum2 = flam (fprim P-add (lcons ld16 (lcons ld0 lnil)))
+-- it runs natively on a buffer built by the same primitives
+buf2 = fprim P-store64 (lcons (fprim P-store64 (lcons (fprim P-bytes (lcons (flit #32) lnil)) (lcons (flit #0) (lcons (flit #5) lnil)))) (lcons (flit #16) (lcons (flit #9) lnil)))
+#same eval-fo (λ g → flit #0) lnil (fapply sum2 (lcons buf2 lnil)) = vw #14

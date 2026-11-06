@@ -4,7 +4,7 @@ list of bytes, decoded here, compiled with gcc, run, and its output compared wit
 import re, subprocess, sys, tempfile, os
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(os.path.dirname(HERE))
 CUB = os.path.join(ROOT, 'build', 'cubical')
-LIBS = [os.path.join(ROOT, 'lib', f) for f in ('prelude.cub', 'code.cub', 'fo.cub', 'match.cub', 'nav.cub', 'emitc.cub', 'check.cub', 'specialize.cub', 'std.cub', 'linproof.cub', 'rules.cub', 'emitt.cub')]
+LIBS = [os.path.join(ROOT, 'lib', f) for f in ('prelude.cub', 'code.cub', 'fo.cub', 'match.cub', 'nav.cub', 'emitc.cub', 'check.cub', 'specialize.cub', 'std.cub', 'linproof.cub', 'prim.cub', 'decode.cub', 'rules.cub', 'derive.cub', 'emitt.cub', 'repr.cub')]
 PROGS = {
  # name: (definitions as .cub text building a Lst of (g , (arity , body)), expected output)
  'fact': ("""defs = lcons (#0 , (#0 , fcall #1 (lcons (flit #5) lnil)))
@@ -31,6 +31,13 @@ defs = lcons (#0 , (#0 , fcall #1 (lcons (flit #7) lnil))) (lcons (#1 , (#1 , la
  # the tag and the larger alternative, two pointers
  'types': ("""data Tr = lf (w : Word) | nd (l : Tr) (r : Tr)
 prog = sizeof-prog (data-idx (code Tr))""", "24", "struct { void *f0; void *f1; } c1;"),
+ # the byte layer: a 32-byte buffer, 9 stored at 16 (64 bits) and 258 at 4 (32 bits), read back
+ 'bytes': ("""defs = lcons (#0 , (#0 , flet (fprim P-store32 (lcons (fprim P-store64 (lcons (fprim P-bytes (lcons (flit #32) lnil)) (lcons (flit #16) (lcons (flit #9) lnil)))) (lcons (flit #4) (lcons (flit #258) lnil))))
+  (fprim P-add (lcons (fprim P-load64 (lcons (fvar #0) (lcons (flit #16) lnil))) (lcons (fprim P-load32 (lcons (fvar #0) (lcons (flit #4) lnil))) lnil))))) lnil""", "267"),
+ # a code over the byte layer (two loads from an unknown buffer, with their bound proofs and Nat
+ # lengths) lowered with the representations consumed (lib/repr.cub), compiled, run on a buffer
+ 'loads': ("""lam-body f = case f of flam b → b; _ → f
+defs = lcons (#0 , (#0 , fcall #1 (lcons buf2 lnil))) (lcons (#1 , (#1 , lam-body sum2)) lnil)""", "14", "ld64(v0, mkw(16)->n)"),
  'let-if': ("""defs = lcons (#0 , (#0 , flet (flit #3) (fif (fprim P-lt (lcons (fvar #0) (lcons (flit #5) lnil))) (fprim P-mul (lcons (fvar #0) (lcons (fvar #0) lnil))) (flit #0)))) lnil""", "9"),
 }
 def run(name, defs, expect, contains=None):

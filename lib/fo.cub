@@ -31,6 +31,7 @@ data FV
   | vlam (b : FO) (env : Lst)
   | vthunk (t : FO) (env : Lst)
   | vnet (k : Word) (args : Lst)
+  | vbytes (b : Word)                        -- a machine byte string (B12's Bytes; the field's type is nominal: FO is untyped)
 -- first-order types (the FT of the plan), for the printers; eval-fo does not consult them
 data FT
   = ftword
@@ -50,6 +51,25 @@ P-lt = #4
 P-and = #5
 P-or = #6
 P-not = #7
+-- the byte layer (B12): load64 b off, store64 b off v, load32, store32, bytes n, blen b; words in
+-- and out (the machine's Int64/UInt32 converted at the boundary)
+P-load64 = #8
+P-store64 = #9
+P-load32 = #10
+P-store32 = #11
+P-bytes = #12
+P-blen = #13
+bof v = case v of vbytes b → b; _ → %bytes #0
+prim-bytes p args =
+  case args of
+    lcons a r →
+      (case r of
+         lnil → (if %weq p P-bytes then vbytes (%bytes (wof a)) else vw (%blen (bof a)))
+         lcons b r2 →
+           (case r2 of
+              lnil → (if %weq p P-load64 then vw (%wofi64 (%load64 (bof a) (wof b))) else vw (%wofu32 (%load32 (bof a) (wof b))))
+              lcons c r3 → (if %weq p P-store64 then vbytes (%store64 (bof a) (wof b) (%i64ofw (wof c))) else vbytes (%store32 (bof a) (wof b) (%u32ofw (wof c))))))
+    lnil → vw #0
 prim-ap p a b =
   if %weq p P-add then %wadd a b
   else if %weq p P-sub then %wsub a b
@@ -85,6 +105,7 @@ eval-fo G e t =
     fproj d c k x → (case eval-fo G e x of vcon d2 c2 fs → lst-nth fs k; _ → vw #0)
     fcall g args → eval-fo G (push-all (eval-list G e args) lnil) (G g)
     fprim p args →
+      if %wlt #7 p then prim-bytes p (eval-list G e args) else
       (case eval-list G e args of
          lcons a r →
            (case r of
@@ -345,3 +366,7 @@ t-clo = flet (flit #10) (fapply (flam (fprim P-add (lcons (fvar #0) (lcons (fvar
 #same (case lift #1 t-clo of lifted t2 ds k → k) = #2
 -- the lifted definition captures one variable: arity 2
 #same (case lift #1 t-clo of lifted t2 ds k → (case ds of lcons d r → fst (snd d); lnil → #0)) = #2
+-- the byte layer in the evaluator: a store then a load, 64 and 32 bits, and the length
+#same eval-fo (λ g → flit #0) lnil (fprim P-load64 (lcons (fprim P-store64 (lcons (fprim P-bytes (lcons (flit #16) lnil)) (lcons (flit #8) (lcons (flit #9) lnil)))) (lcons (flit #8) lnil))) = vw #9
+#same eval-fo (λ g → flit #0) lnil (fprim P-load32 (lcons (fprim P-store32 (lcons (fprim P-bytes (lcons (flit #16) lnil)) (lcons (flit #4) (lcons (flit #258) lnil)))) (lcons (flit #4) lnil))) = vw #258
+#same eval-fo (λ g → flit #0) lnil (fprim P-blen (lcons (fprim P-bytes (lcons (flit #16) lnil)) lnil)) = vw #16

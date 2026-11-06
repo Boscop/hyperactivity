@@ -26,6 +26,7 @@ test: build/cubical build/cubical-asan
 	./build/cubical lib/prelude.cub lib/code.cub lib/match.cub lib/lin.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/fo.cub lib/match.cub lib/check.cub lib/specialize.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/fo.cub lib/match.cub lib/nav.cub lib/emitc.cub lib/check.cub lib/specialize.cub lib/std.cub lib/rules.cub
+	./build/cubical lib/prelude.cub lib/code.cub lib/fo.cub lib/match.cub lib/nav.cub lib/emitc.cub lib/check.cub lib/specialize.cub lib/std.cub lib/linproof.cub lib/prim.cub lib/decode.cub lib/rules.cub lib/derive.cub lib/repr.cub
 	./build/cubical lib/prelude.cub tests/hit.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub tests/check.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/reject.cub tests/quote.cub
