@@ -51,6 +51,11 @@ prog = emit-prog len-prog""", "3", "V *v3 = f_10(v2); f_2(v3);"),
 deq-main t2 = fprim P-add (lcons (fprim P-mul (lcons (flit #10) (lcons (as-word (fapply t2 (lcons n2 (lcons n2 lnil)))) lnil))) (lcons (as-word (fapply t2 (lcons n2 (lcons n1 lnil)))) lnil))
 deq-prog = case lift #10 eq-fo of lifted t2 ds k → lcons (#0 , (#0 , deq-main t2)) ds
 prog = emit-prog deq-prog""", "10"),
+ # a whole program from the store: the code calls lenw, a recursive definition of lib/lower.cub;
+ # program-of lowers the code and then lenw from the quote of its value; lifted; compiled; the
+ # main applies definition 0 to a three-element list
+ 'program': ("""prog-defs = lift-program #100000 (program-at #99999 #10 (code (λ (l : LW) → lenw l)))
+prog = emit-prog (lcons (#0 , (#0 , fcall #99999 (lcons (fcon (didx (code LW)) #1 (lcons (flit #7) (lcons lw3 lnil))) lnil))) prog-defs)""", "3"),
  'let-if': ("""defs = lcons (#0 , (#0 , flet (flit #3) (fif (fprim P-lt (lcons (fvar #0) (lcons (flit #5) lnil))) (fprim P-mul (lcons (fvar #0) (lcons (fvar #0) lnil))) (flit #0)))) lnil""", "9"),
 }
 def run(name, defs, expect, contains=None):
