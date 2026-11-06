@@ -476,6 +476,34 @@ evaluation.
 Every top-level name in `lib/` is unique (`tools/names.py`, first in `make test`): a later module's
 name rebinds the references of every module parsed after it.
 
+The back end, as it stands (all libraries, each with readings; `experiments/fo/run.py` compiles
+fourteen programs with gcc and runs them):
+
+- **`lib/lower.cub`** (after the checker): codes to the first-order form, with the data table's
+  shapes: a `case`/`rec` becomes a recursion form (`frec`: the fields pushed, then a suspended
+  recursion per recursive field), which `lift` turns into a definition that calls itself on the
+  field. The length of a list written with `rec` is a C function calling itself on the tail.
+- **`lib/specialize.cub`** also inlines (`specialize-i`): every definition whose value quotes is
+  replaced by its code to a depth before normalizing, since normalization keeps a definition's call
+  under a neutral argument; `program-of` lowers a code and, transitively, the definitions it calls;
+  `fo-report` lists the forms of a code outside the fragment.
+- **`lib/repr.cub`** consumes the representations: calls of `load64`, `store64`, … become native
+  primitives on the arguments that carry information (the length and the bound proof dropped, the
+  proof becoming an `ASSUME` around the access), the conversions vanish, the word operations and
+  `plus` on represented `Nat` go native, closed `Nat` trees become words by `%rtab`. Two loads from
+  an unknown buffer, written with their proofs, compile and run.
+- **`lib/derive.cub`**: `derive-eq d`, a decidable equality as a code read off the data table;
+  evaluated, quoted back at its type, lowered and compiled (the derived equality on `Nat` prints
+  10 for eq(2,2), eq(2,1)).
+- **`lib/decode.cub`**: a byte decoder whose access bounds are certificates checked by
+  evaluation (`cert-sound` of `lib/linproof.cub` across `Word ≃ Nat`), including a loop over
+  messages with one certificate serving every offset.
+- **`lib/proc.cub`**: processes over a signature in Church form, worlds as state handlers that may
+  refuse, outcomes, handlers between signatures, supervision with restart strategies, and replay
+  (a recording world and a replaying world). A process run against its world with the store
+  unknown specializes to a function of the store and compiles.
+- **`lib/emitt.cub`**: C type declarations from the layouts.
+
 ## Measurements
 
 Every reading reports the steps taken. The sorted list of 9.15 reads in 1.6k steps (eight words).
