@@ -101,9 +101,20 @@ answers with solutions or a request to redo; an undetermined level is `lzero`. A
 where a type is expected takes that type as its motive, so its stuck values read back with their
 type. `{_}` asks for a hole where an argument must be given positionally.
 
+**Multiplicities.** A Π binder or a constructor field may carry a multiplicity: `(x :0 A) → B`
+(erased: `x` is used only in positions the back end erases, which is every type), `(x :1 A) → B`
+(linear: consumed exactly once), and `(x : A) → B` (no constraint). The checker computes every
+binder's usage (0, 1 or ω) after a definition checks, with the rules of plan §18.1 — an argument
+counts as many times as the function's binder says, a type counts nothing, a line of types a
+transport runs along and a Glue system count ω — and reports a binder annotated `:0` that is used
+or `:1` that is dropped or duplicated. A data type with a field at `:1` is linear: its values are
+linear wherever they are bound, and its constructors are applied only in a `primitive`. `#usage f`
+prints a checked definition's binder usages (the back end erases the binders at 0, annotated or
+not).
+
 **Commands.** `#check e : T`, `#same a = b` (equal readings, at a type when either side has one),
-`#show e`, `#observe n e` (a codata value unfolded n levels), `#input x` and `#supply x = e` (§6),
-`#fail` before a declaration or command (it must be rejected). `import "file.cub"` loads a module
+`#show e`, `#observe n e` (a codata value unfolded n levels), `#usage f`, `#input x` and
+`#supply x = e` (§6), `#fail` before a declaration or command (it must be rejected). `import "file.cub"` loads a module
 once. Results and failures print in the surface syntax. The core forms the language compiles to
 (`(lam x b)`, `(elim P e ((c x) b))`, …) are still read from files of other extensions, and
 `--print FILE` prints such a file in the surface syntax.

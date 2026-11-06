@@ -188,7 +188,7 @@ static bool at(const char *s) { return x_is(P0(), s); }
 static void want(const char *s) { if (!at(s)) { char m[64]; snprintf(m, sizeof m, "expected %s, found", s); x_err(m, P0()); } NX(); }
 static void wantk(int k, const char *what) { if (P0()->k != k) { char m[64]; snprintf(m, sizeof m, "expected %s, found", what); x_err(m, P0()); } NX(); }
 static const char *RESERVED[] = { "=", ":", "→", "λ", "↦", "|", "of", "where", "let", "in", "if", "then", "else", "case", "return",
-    "data", "codata", "record", "mutual", "postulate", "import", "infix", "infixl", "infixr", "by", "calc", "∀", "decreasing", "using", "▸", "primitive", NULL };
+    "data", "codata", "record", "mutual", "postulate", "import", "infix", "infixl", "infixr", "by", "calc", "∀", "decreasing", "using", "▸", "primitive", ":0", ":1", NULL };
 static bool reserved(const char *s) { for (int i = 0; RESERVED[i]; i++) if (!strcmp(RESERVED[i], s)) return true; return false; }
 static int nfresh_x;
 static Node *xfresh(const char *p) { char b[32]; snprintf(b, sizeof b, "%%%s%d", p, nfresh_x++); return nsym(b); }
@@ -228,6 +228,8 @@ static bool atom_start(Tok *t) {
 }
 /* the binders of λ: x, _, (x y : A), (i : I), {x} */
 typedef struct { Node *name; Node *ty; bool dim, imp; } Bnd;
+/* a binder's colon: ":", or ":0" / ":1" with its multiplicity (B11); -1 when not a colon */
+static int x_colon_mult(Tok *t) { return x_is(t, ":") ? 2 : x_is(t, ":0") ? 0 : x_is(t, ":1") ? 1 : -1; }
 static int p_binders(Bnd *bs, int max, bool need_type) {
     int n = 0;
     for (;;) {
@@ -237,11 +239,11 @@ static int p_binders(Bnd *bs, int max, bool need_type) {
             /* (x y : A) */
             int save = xp; bool imp = t->k == X_LC; NX();
             int k0 = n;
-            while (P0()->k == X_ID && !reserved(P0()->s) && !fix_of(P0())) { if (n == max) x_err("too many binders", P0()); bs[n++] = (Bnd){ nsym(NX()->s), NULL, false, imp }; }
-            if (n > k0 && at(":")) {
-                NX(); Node *A = p_expr(0);
+            while (P0()->k == X_ID && !reserved(P0()->s) && !fix_of(P0()) && x_colon_mult(P0()) < 0) { if (n == max) x_err("too many binders", P0()); bs[n++] = (Bnd){ nsym(NX()->s), NULL, false, imp }; }
+            if (n > k0 && x_colon_mult(P0()) >= 0) {
+                int m = x_colon_mult(NX()); Node *A = p_expr(0);
                 wantk(imp ? X_RC : X_RP, imp ? "}" : ")");
-                for (int q = k0; q < n; q++) { bs[q].ty = A; bs[q].dim = is(A, "I"); }
+                for (int q = k0; q < n; q++) { bs[q].ty = A; bs[q].dim = is(A, "I"); if (m != 2 && !bs[q].dim) bnd_set_mult(bs[q].name, m); }
                 continue;
             }
             if (n > k0 && imp && P0()->k == X_RC) { NX(); continue; }
@@ -1027,8 +1029,9 @@ static void p_decl(void) {
         if (block) wantk(X_VO, "a block of fields"); else wantk(X_LC, "{");
         while (P0()->k != (block ? X_VC : X_RC)) {
             Tok *f = NX(); if (f->k != X_ID) x_err("a field's name, found", f);
-            want(":"); if (nf == 64) x_err("too many fields", f);
-            fn[nf] = nsym(f->s); ft[nf++] = p_expr(0);
+            int fm = x_colon_mult(P0()); if (fm < 0) want(":"); else NX();
+            if (nf == 64) x_err("too many fields", f);
+            fn[nf] = nsym(f->s); if (fm == 0 || fm == 1) bnd_set_mult(fn[nf], fm); ft[nf++] = p_expr(0);
             if (P0()->k == X_VS || P0()->k == X_SEMI) NX(); else if (P0()->k != (block ? X_VC : X_RC)) x_err("expected a new field, found", P0());
         }
         NX();
@@ -1102,6 +1105,7 @@ static void p_decl(void) {
         decl_end(); return;
     }
     if (x_is(t, "#show")) { NX(); x_test("show", x_solve_expr(p_expr(0)), NULL); decl_end(); return; }
+    if (x_is(t, "#usage")) { NX(); Tok *n = NX(); x_top(sym2("usage", nsym(n->s))); decl_end(); return; }
     if (x_is(t, "#observe")) { NX(); Tok *n = NX(); x_test("observe", nsym(n->s), x_solve_expr(p_expr(0))); decl_end(); return; }
     if (x_is(t, "#same")) { NX(); Node *a = p_expr(0); want("="); Node *b = p_expr(0); x_test("same", x_solve_expr(a), x_solve_expr(b)); decl_end(); return; }
     if (x_is(t, "#check")) {
@@ -2078,6 +2082,7 @@ static bool x_same_decl(Node *a, Node *b) {
     if (a->n > 1 && b->n > 1 && !a->it[1]->list && !b->it[1]->list) return !strcmp(a->it[1]->s, b->it[1]->s);
     return true;
 }
+static void x_rec_extra(Node *f) { if (xrec) x_rec_form(f); }
 static void x_top(Node *f) {
     if (x_collecting) { GROW(xcollect, capxcollect, (size_t)nxcollect + 1); xcollect[nxcollect++] = f; return; }
     if (xrec) x_rec_form(f);
@@ -2088,6 +2093,8 @@ static void x_top(Node *f) {
     }
     shadow_decl(f);
     toplevel(f);
+    /* the record's extra forms after this one (a checked definition's usages) */
+    if (xrep) while (ixrep < nxrep && xrep[ixrep]->list && xrep[ixrep]->n >= 2 && is(xrep[ixrep]->it[0], "usages")) toplevel(xrep[ixrep++]);
 }
 /* print a file of core forms in the surface language; with check, each form's printing is parsed
  * back and compared with it (desugared, up to the names of bound variables) as the form is loaded */
@@ -2222,7 +2229,8 @@ static Node *cn(Node *c) {
     if (!strcmp(h, "clam") || !strcmp(h, "cdlam")) { b = cn_bound("q", c->it[1], &x); return b ? sym3("lam", x, b) : NULL; }
     if (!strcmp(h, "cplam")) { b = cn_bound("j", c->it[1], &x); return b ? sym3("plam", x, b) : NULL; }
     if (!strcmp(h, "cforall")) { b = cn_bound("j", c->it[1], &x); return b ? sym3("forall", x, b) : NULL; }
-    if (!strcmp(h, "cpi") || !strcmp(h, "csigma")) { a = cn(c->it[1]); if (!a) return NULL; b = cn_bound("q", c->it[2], &x); return b ? sym4(h[1] == 'p' ? "Pi" : "Sigma", x, a, b) : NULL; }
+    if (!strcmp(h, "cpi")) { long m = cn_word(c->it[1]); a = cn(c->it[2]); if (!a) return NULL; b = cn_bound("q", c->it[3], &x); if (!b) return NULL; if (m == 0 || m == 1) bnd_set_mult(x, (int)m); return sym4("Pi", x, a, b); }
+    if (!strcmp(h, "csigma")) { a = cn(c->it[1]); if (!a) return NULL; b = cn_bound("q", c->it[2], &x); return b ? sym4("Sigma", x, a, b) : NULL; }
     if (!strcmp(h, "clet")) { a = cn(c->it[1]); if (!a) return NULL; b = cn_bound("q", c->it[2], &x); return b ? sym4("let", x, a, b) : NULL; }
     if (!strcmp(h, "cuniv")) { a = cn(c->it[1]); if (!a) return NULL; return is(a, "lzero") ? nsym("U") : sym2("U", a); }
     if (!strcmp(h, "cdata")) {

@@ -199,6 +199,11 @@ enum {
     O_CALL,     /* 0=a definition 1..n=arguments out: a definition applied to its arguments; with all
                  * its parameters, its body is built in one interaction */
     O_WSUCC,    /* 0=w 1=out: w + 1 */
+    O_PIMULT,   /* 0=T 1=out: the multiplicity (a word 0, 1, 2) of a Π type's binder; 2 for anything else (B11) */
+    O_PIM,      /* 0=m (word) 1=A 2=B 3=out: a Π type with its binder's multiplicity m */
+    O_FMULT, O_FMULT2, O_FMULT3,   /* (%fmult d c k): the multiplicity of field k of constructor c of checked data type d; words in turn */
+    O_LINEAR,   /* 0=d (word) 1=out: is the checked data type d linear (a constructor with a field at 1)? a Bool */
+    O_GUSAGE, O_GUSAGE2,   /* (%gusage n k): the computed usage (word) of parameter k of checked definition n; 2 when unknown */
     O_WEQ, O_WLT, O_WADD, O_WMAX, O_WSUB,  /* 0=a 1=b 2=out: on words; first a, then b. Equality,
                  * order, max and truncated subtraction recurse on both (cancelling successors), addition
                  * on b; a word with a neutral part leaves the operation stuck (V_NWOP) */
@@ -299,13 +304,13 @@ Cell *global_res(long g);          /* the cell holding a definition's value */
 
 /* data types (higher inductive types, Coquand–Huber–Mörtberg): declared by
  * (data ...); the net's rules are generic over these tables */
-typedef struct { char *name; int data, index, nfields, ndims; long bdy, trans; int nrec; uint64_t recmask; unsigned char rdim[64]; } ConInfo;
+typedef struct { char *name; int data, index, nfields, ndims; long bdy, trans; int nrec; uint64_t recmask; unsigned char rdim[64], fmult[64]; } ConInfo;
 /* bdy, trans: globals or -1; recmask: the recursive fields (of type the data type itself, or a path line into it,
  * rdim[k] dimensions deep), nrec of them */
 typedef struct { char *name; int nparams, ncons; int *cons; long comp, transh; void *decl; int co, nflds; int *flds; } DataInfo;
 /* decl: the (data ...) form. co: a codata type (no constructors): its fields flds (indices into FLD);
  * comp its composition, a copattern definition */
-typedef struct { char *name; int data, index; long fty; } FldInfo;   /* fty: λ params x. the field's type at x */
+typedef struct { char *name; int data, index; long fty; int mult; } FldInfo;   /* fty: λ params x. the field's type at x */
 extern FldInfo *FLD;
 extern ConInfo *CON;
 extern DataInfo *DATA;
@@ -315,7 +320,9 @@ extern long case_hcomp_global;
  * variables the branches share, supplied once by the case cell's ports */
 /* variables and dimensions at de Bruijn levels, made by %var and %dim and read by %view */
 #define LVL_TAG (1ull << 62)
-int data_checked_index(int d);     /* a data type's index in the checker's signature, or -1 */
+int data_checked_index(int d);
+int checked_data(long k);   /* the data type of checked index k, or -1 */
+int global_usage(long n, long k);   /* the computed usage of parameter k of checked definition n (0, 1, 2); 2 unknown */     /* a data type's index in the checker's signature, or -1 */
 int con_index(const char *name);   /* a constructor by name, or -1 */
 enum { TB_VAL, TB_TY, TB_DTAB, TB_DENT, TB_TRANS, TB_N };   /* TB_TRANS: a data type's transport as a function */
 long table_global(int table, long i);  /* the global holding entry i of a checker table, or -1 */

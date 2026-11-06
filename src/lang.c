@@ -83,10 +83,6 @@ static char *intern(const char *s) {
 static inline unsigned sym_mark(const char *x) { return ((const unsigned *)x)[-2]; }
 static inline void sym_mark_set(const char *x, unsigned e) { ((unsigned *)x)[-2] = e; }
 static Node *nsym(const char *s) { Node *x = ar_alloc(sizeof(Node)); x->s = intern(s); return x; }
-/* the type written on a λ's binder, (x : A), kept on the binder's name node (a symbol's `it` is
- * otherwise unused), so it survives the passes that rebuild the λ around the name */
-static void bnd_set(Node *x, Node *A) { x->it = ar_alloc(sizeof(Node *)); x->it[0] = A; }
-static Node *bnd_ty(Node *x) { return !x->list && x->it ? x->it[0] : NULL; }
 /* a string literal's interned pointer, by the literal's address (a literal's contents never
  * change, so the address identifies it); not for buffers */
 static const char *intern_lit(const char *lit) {
@@ -97,6 +93,15 @@ static const char *intern_lit(const char *lit) {
 }
 static Node *nsyml(const char *lit) { Node *x = ar_alloc(sizeof(Node)); x->s = intern_lit(lit); return x; }
 #define IS(k, lit) ((k) == intern_lit(lit))   /* k: a symbol's interned string */
+/* the type written on a λ's binder, (x : A), kept on the binder's name node (a symbol's `it` is
+ * otherwise unused), so it survives the passes that rebuild the λ around the name */
+static void bnd_slots(Node *x) { if (!x->it) x->it = ar_alloc(2 * sizeof(Node *)); }
+static void bnd_set(Node *x, Node *A) { bnd_slots(x); x->it[0] = A; }
+static Node *bnd_ty(Node *x) { return !x->list && x->it ? x->it[0] : NULL; }
+/* a binder's multiplicity (B11): 0 erased, 1 linear, 2 unconstrained (ω, the default), kept on the
+ * name node of a Π binder or a field, as a word symbol */
+static void bnd_set_mult(Node *x, int m) { bnd_slots(x); x->it[1] = m == 0 ? nsyml("0") : m == 1 ? nsyml("1") : NULL; }
+static int bnd_mult(Node *x) { return !x->list && x->it && x->it[1] ? (x->it[1]->s[0] == '0' ? 0 : 1) : 2; }
 static Node *nlist(int n) { Node *x = ar_alloc(sizeof(Node)); x->list = 1; x->n = n; x->it = ar_alloc(((size_t)n + 1) * sizeof(Node *)); return x; }
 static Node *nl2(const char *h, Node *a) { Node *x = nlist(2); x->it[0] = nsyml(h); x->it[1] = a; return x; }   /* h: a literal */
 static Node *nl3(const char *h, Node *a, Node *b) { Node *x = nlist(3); x->it[0] = nsyml(h); x->it[1] = a; x->it[2] = b; return x; }
@@ -186,7 +191,7 @@ static bool node_eq(Node *a, Node *b) {
 /* ---------------- desugaring to the core forms ---------------- */
 static const char *KW[] = { "%raw", "%welimP", "%rebuilt", "%hole", "%guess", "%spine", "lam", "thunk", "delay", "force", "case", "elim", "if", "rec", "the", "code", "%data", "%con", "hcompD", "%hcompF", "%transD", "%case", "%branches", "record", "%record", "plam", "forall", "let", "app", "pair", "fst", "snd", "Pi", "Sigma", "U",
     "PathP", "@", "~", "/\\", "\\/", "=", "&", "|", "faceof", "%fneg", "sys", "sys0", "sys+", "sysmap", "comp", "Glue", "%hcompU", "%unglueU", "glue",
-    "unglue", "%view", "%var", "%dim", "%ieq", "%feq", "%clauses", "%dnf", "%motive", "%restrict", "%gval", "%gty", "%dtab", "%dent", "%dtrans", "%abs", "%branch", "%clos", "%box", "%wsucc", "%weq", "%wlt", "%wadd", "%wmax", "%wsub", "%welim", NULL };
+    "unglue", "%view", "%var", "%dim", "%ieq", "%feq", "%clauses", "%dnf", "%motive", "%restrict", "%gval", "%gty", "%dtab", "%dent", "%dtrans", "%abs", "%branch", "%clos", "%box", "%wsucc", "%weq", "%wlt", "%wadd", "%wmax", "%wsub", "%welim", "%pimult", "%pim", "%fmult", "%linear", "%gusage", NULL };
 /* the keywords, in an open-addressed table (asked of every symbol the compiler walks) */
 static size_t kw_hash(const char *s);
 static size_t kw_hash(const char *s) { size_t h = 1469598103934665603ull; for (; *s; s++) h = (h ^ (unsigned char)*s) * 1099511628211ull; return h; }
@@ -597,6 +602,17 @@ static bool *CHKHIDE; static size_t capchkhide;
 static int checked_index(const char *s) { for (int i = nchecked - 1; i >= 0; i--) if (!CHKHIDE[i] && (CHECKED[i] == s || !strcmp(CHECKED[i], s))) return i; return -1; }
 static int chk_index(int d) { for (int i = 0; i < nchkdata; i++) if (CHKDATA[i] == d) return i; return -1; }
 int data_checked_index(int d) { return chk_index(d); }
+/* the computed usages of each checked definition's parameters (B11): names (srcname words) and
+ * words 0, 1, 2, from the checker after a definition is accepted, or from a cached module's record */
+typedef struct { int n; const char **nm; unsigned char *u; } Usages;
+static Usages *GUSAGE; static size_t capgusage;
+static void usage_set(int k, int n, const char **nm, const unsigned char *u) {
+    if ((size_t)k >= capgusage) { size_t c = capgusage ? capgusage : 256; while (c <= (size_t)k) c *= 2; GUSAGE = realloc(GUSAGE, c * sizeof(Usages)); memset(GUSAGE + capgusage, 0, (c - capgusage) * sizeof(Usages)); capgusage = c; }
+    GUSAGE[k].n = n; GUSAGE[k].nm = malloc((size_t)n * sizeof(char *)); GUSAGE[k].u = malloc((size_t)n);
+    for (int i = 0; i < n; i++) { GUSAGE[k].nm[i] = intern(nm[i]); GUSAGE[k].u[i] = u[i]; }
+}
+int global_usage(long n, long k) { return n >= 0 && (size_t)n < capgusage && k >= 0 && k < GUSAGE[n].n ? GUSAGE[n].u[k] : 2; }
+int checked_data(long k) { return k >= 0 && k < nchkdata ? CHKDATA[k] : -1; }
 /* the checker's tables: entry i of each is a global, so a lookup is a reference */
 static long *TABLE[TB_N]; static size_t TABCAP[TB_N]; static long TABN[TB_N];
 static void table_set(int t, long i, long g) {
@@ -733,7 +749,12 @@ static Node *to_code(Node *t) {
     if (!strcmp(h, "snd")) return capp1("csnd", to_code(t->it[1]));
     if (!strcmp(h, "Pi") || !strcmp(h, "Sigma")) {
         Node *B = t->it[2];   /* (lam x body) */
-        return capp2(!strcmp(h, "Pi") ? "cpi" : "csigma", to_code(t->it[1]), code_bound(B->it[1]->s, B->it[2]));
+        if (!strcmp(h, "Pi")) {
+            /* (cpi m A B): the binder's multiplicity first (B11) */
+            char w[8]; snprintf(w, sizeof w, "#%d", bnd_mult(B->it[1]));
+            return nl3("app", capp2("cpi", nsym(w), to_code(t->it[1])), code_bound(B->it[1]->s, B->it[2]));
+        }
+        return capp2("csigma", to_code(t->it[1]), code_bound(B->it[1]->s, B->it[2]));
     }
     if (!strcmp(h, "U")) {
         if (t->n == 2 && !t->it[1]->list && t->it[1]->s[0] >= '0' && t->it[1]->s[0] <= '9') {
@@ -1150,6 +1171,8 @@ static Node *atel_params(Node *dd, int d, int k) {
 }
 
 static void toplevel(Node *f);
+static void x_rec_extra(Node *f);   /* syntax.c: a form added to a module's record */
+static Node *cn(Node *c); static int ncn;   /* syntax.c: a code as a surface term */
 static size_t name_hash(const char *s);
 /* ---------------- definitions ---------------- */
 /* G_COFIX: a copattern definition, whose value is its stuck head; unf the definition holding its body */
@@ -1766,7 +1789,7 @@ static Syn *compile(Node *t) {
     if (!strcmp(h, "pair")) return compile_lazy_n(S_PAIR, t, 1, 2);
     if (!strcmp(h, "fst")) return compile_n(S_FST, t, 1, 1);
     if (!strcmp(h, "snd")) return compile_n(S_SND, t, 1, 1);
-    if (!strcmp(h, "Pi")) return compile_lazy_n(S_PI, t, 1, 2);
+    if (!strcmp(h, "Pi")) { Syn *s = compile_lazy_n(S_PI, t, 1, 2); Node *l = t->it[2]; s->x = (uint32_t)(l->list && l->n == 3 && !l->it[1]->list ? bnd_mult(l->it[1]) : 2); return s; }
     if (!strcmp(h, "Sigma")) return compile_lazy_n(S_SIGMA, t, 1, 2);
     if (!strcmp(h, "U")) {
         if (t->n == 1) return syn(S_U, 0);
@@ -1777,7 +1800,8 @@ static Syn *compile(Node *t) {
     {
         static const struct { const char *name; int kind, n; } PR[] = { { "%view", O_VIEW, 1 }, { "%ieq", O_IEQ, 2 }, { "%feq", O_FEQL, 2 }, { "%clauses", O_CLAUSES, 1 }, { "%dnf", O_DNF, 1 }, { "%motive", O_MOTIVE, 1 },
             { "%restrict", O_RESTRICT, 2 }, { "%abs", O_ABS, 2 }, { "%branch", O_BRANCH, 3 }, { "%clos", O_CLOS, 2 }, { "%wsucc", O_WSUCC, 1 }, { "%weq", O_WEQ, 2 }, { "%wlt", O_WLT, 2 },
-            { "%wadd", O_WADD, 2 }, { "%wmax", O_WMAX, 2 }, { "%wsub", O_WSUB, 2 }, { "%welim", O_WELIM, 3 }, { NULL, 0, 0 } };
+            { "%wadd", O_WADD, 2 }, { "%wmax", O_WMAX, 2 }, { "%wsub", O_WSUB, 2 }, { "%welim", O_WELIM, 3 },
+            { "%pimult", O_PIMULT, 1 }, { "%pim", O_PIM, 3 }, { "%fmult", O_FMULT, 3 }, { "%linear", O_LINEAR, 1 }, { "%gusage", O_GUSAGE, 2 }, { NULL, 0, 0 } };
         if (!strcmp(h, "%welimP")) {
             /* (%welimP P w z s): the elimination of a word with its motive, which is for the
              * checker: the machine runs (%welim w z s) */
@@ -2263,8 +2287,13 @@ static void pcode(FILE *o, Port p) {
         cnm_push("i", cdc++);
         fprintf(o, "(%s %s ", h[1] == 'p' ? "plam" : "forall", cnm[ncnm - 1]); pcode(o, c->port[1]); fputc(')', o); cnm_pop(1);
     }
-    else if (!strcmp(h, "cpi") || !strcmp(h, "csigma")) {
-        fprintf(o, "(%s ", h[1] == 'p' ? "Pi" : "Sigma"); pcode(o, c->port[1]);
+    else if (!strcmp(h, "cpi")) {
+        /* (cpi m A B): read back as the Π (its multiplicity is for #usage) */
+        fputs("(Pi ", o); pcode(o, c->port[2]);
+        cnm_push("x", cvc++); fprintf(o, " %s ", cnm[ncnm - 1]); pcode(o, c->port[3]); fputc(')', o); cnm_pop(1);
+    }
+    else if (!strcmp(h, "csigma")) {
+        fputs("(Sigma ", o); pcode(o, c->port[1]);
         cnm_push("x", cvc++); fprintf(o, " %s ", cnm[ncnm - 1]); pcode(o, c->port[2]); fputc(')', o); cnm_pop(1);
     }
     else if (!strcmp(h, "clet")) {
@@ -2500,14 +2529,23 @@ static void explain(const char *r, Node *q) {
         /* 33 */ { "applied to a tick, but it uses a variable bound after the tick (a later value used now)", NULL, NULL },
         /* 34 */ { "a tick here is not a tick variable (ticks are bound by λ only)", "its type", NULL },
         /* 35 */ { "clocks and ticks are not types in a universe (only the domain of a Π)", NULL, NULL },
-        /* 36 */ { "a formal composition in a type without path constructors must cover every closed point (its tube's face has a complement)", "the type", NULL } };
+        /* 36 */ { "a formal composition in a type without path constructors must cover every closed point (its tube's face has a complement)", "the type", NULL },
+        /* 37 */ { "a binder at multiplicity 0 (erased) is used", NULL, NULL },
+        /* 38 */ { "a linear binder (multiplicity 1) is not used", NULL, NULL },
+        /* 39 */ { "a linear binder (multiplicity 1) is used more than once", NULL, NULL },
+        /* 40 */ { "a constructor of a linear type (a field at multiplicity 1) is applied outside a primitive", NULL, NULL } };
     const char *saved = src; src = r;
     Node *n = read_node();
     src = saved;
     if (!n || !n->list || n->n != 5 || !is(n->it[0], "no")) { printf("   reason: %s\n", r); return; }
     int why = n->it[2]->list ? -1 : atoi(n->it[2]->s + 1);
     bool known = why >= 0 && why < (int)(sizeof M / sizeof *M);
-    if (!is(n->it[1], "opq")) { printf("   at: "); out_term(rb_src(n->it[1])); printf("\n"); }
+    if (!is(n->it[1], "opq")) {
+        /* the location is the term's shape as a code: shown as source when it reads as one */
+        Node *at = n->it[1], *sfc = NULL;
+        if (at->list && at->n >= 1 && !at->it[0]->list && at->it[0]->s[0] == 'c') { ncn = 0; sfc = cn(at); }
+        printf("   at: "); out_term(sfc ? sfc : rb_src(at)); printf("\n");
+    }
     printf("   reason: %s\n", known ? M[why][0] : "rejected");
     if (why == 28) {
         /* the field whose term is not guarded: (no opq 28 d k), d the codata type, k the field */
@@ -2808,7 +2846,7 @@ static void toplevel(Node *f) {
     }
     /* a module whose checks are cached: its definitions are made, its judgments and tests not rerun */
     if (trusted && (!strcmp(h, "check") || !strcmp(h, "check-fail") || !strcmp(h, "checked-data-fail") || !strcmp(h, "checked-fail")
-        || !strcmp(h, "checked-codata-fail") || !strcmp(h, "mutual-fail") || !strcmp(h, "same") || !strcmp(h, "show") || !strcmp(h, "same-watch") || !strcmp(h, "observe"))) return;
+        || !strcmp(h, "checked-codata-fail") || !strcmp(h, "mutual-fail") || !strcmp(h, "same") || !strcmp(h, "show") || !strcmp(h, "same-watch") || !strcmp(h, "observe") || !strcmp(h, "usage"))) return;
     if (!strcmp(h, "def")) {
         if (f->n != 3) die("(def name term)", NULL);
         if (cc_next_is(f->it[1]->s)) {
@@ -2912,8 +2950,38 @@ static void toplevel(Node *f) {
             char ty[32]; snprintf(ty, sizeof ty, "%%sty%d", nchecked);
             Node *td = nlist(3); td->it[0] = nsym("def"); td->it[1] = nsym(ty); td->it[2] = nl2("%%sig-type", cT);
             toplevel(td);
-            sig_add(f->it[1]->s, global_lookup(f->it[1]->s), global_lookup(ty), false);
+            int ck = sig_add(f->it[1]->s, global_lookup(f->it[1]->s), global_lookup(ty), false);
+            /* the parameters' computed usages (B11): asked of the checker, kept, and recorded with
+             * the module's forms so a cached load has them */
+            if (!trusted) {
+                long us = 0; char *r2 = readback(nl3("%%usages", cT, ct), &us);
+                const char *saved = src; src = r2; Node *l = read_node(); src = saved;
+                const char *nm[256]; unsigned char u[256]; int n = 0;
+                for (Node *x = l; x && x->list && x->n == 3 && is(x->it[0], "lcons") && n < 256; x = x->it[2]) {
+                    Node *pr = x->it[1];
+                    if (!pr->list || pr->n != 3 || pr->it[1]->list || pr->it[2]->list || pr->it[1]->s[0] != '#' || pr->it[2]->s[0] != '#') break;
+                    nm[n] = srcname_of(atoi(pr->it[1]->s + 1)); u[n] = (unsigned char)atoi(pr->it[2]->s + 1); n++;
+                }
+                free(r2);
+                usage_set(ck, n, nm, u);
+                Node *rec = nlist(2 + 2 * n); rec->it[0] = nsym("usages"); rec->it[1] = f->it[1];
+                for (int i = 0; i < n; i++) { char b[32]; rec->it[2 + 2 * i] = nsym(nm[i]); snprintf(b, sizeof b, "#%d", u[i]); rec->it[3 + 2 * i] = nsym(b); }
+                x_rec_extra(rec);
+            }
         }
+    } else if (!strcmp(h, "usages")) {
+        /* a cached module's record of a checked definition's parameter usages */
+        int ck = checked_index(f->it[1]->s); int n = (f->n - 2) / 2;
+        const char *nm[256]; unsigned char u[256]; if (n > 256) n = 256;
+        for (int i = 0; i < n; i++) { nm[i] = f->it[2 + 2 * i]->s; u[i] = (unsigned char)atoi(f->it[3 + 2 * i]->s + 1); }
+        if (ck >= 0) usage_set(ck, n, nm, u);
+    } else if (!strcmp(h, "usage")) {
+        /* #usage f: the parameters' computed usages */
+        int ck = checked_index(f->it[1]->s);
+        if (ck < 0 || (size_t)ck >= capgusage) { printf("usage %s: not a checked definition\n", f->it[1]->s); return; }
+        printf("usage %s:", f->it[1]->s);
+        for (int i = 0; i < GUSAGE[ck].n; i++) printf(" %s %s", GUSAGE[ck].nm[i], GUSAGE[ck].u[i] == 0 ? "0" : GUSAGE[ck].u[i] == 1 ? "1" : "ω");
+        printf("\n");
     } else if (!strcmp(h, "primitive") || !strcmp(h, "primitive-tick")) {
         /* (primitive name T t): a rule of the type theory as a constant: T is checked to be a type,
          * t (its computation) is trusted. (primitive-tick name T t): its value is its stuck call,
@@ -3078,7 +3146,7 @@ static void toplevel(Node *f) {
             if (!it->list || it->n != 2 || it->it[0]->list) die("a field of a codata type is (f A) in", D);
             fn[k] = it->it[0]; ft[k] = it->it[1];
             GROW(FLD, capfld, (size_t)nfld + 1);
-            FLD[nfld] = (FldInfo){ strdup(fn[k]->s), d, k, -1 };
+            FLD[nfld] = (FldInfo){ strdup(fn[k]->s), d, k, -1, bnd_mult(fn[k]) };
             DATA[d].flds[k] = nfld++;
         }
         char *buf; size_t len; FILE *m;
@@ -3202,6 +3270,7 @@ static void toplevel(Node *f) {
             if (x->nf > 64) die("more than 64 fields in", cd->it[0]->s);
             CON[ncon] = (ConInfo){ intern(cd->it[0]->s), d, ci, x->nf, x->nd, -1, -1, nr, rm };
             memcpy(CON[ncon].rdim, rd, sizeof rd);
+            for (int k = 0; k < x->nf; k++) CON[ncon].fmult[k] = (unsigned char)bnd_mult(x->fn[k]);   /* (B11) */
             ncon++;
         }
         char *buf; size_t len; FILE *m;

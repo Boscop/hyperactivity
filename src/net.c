@@ -1536,6 +1536,7 @@ static const char *const KIND_NAME[K_END] = {
     [O_NTYPE] = "NTYPE",
     [O_CALL] = "CALL",
     [O_WSUCC] = "WSUCC",
+    [O_PIMULT] = "PIMULT", [O_PIM] = "PIM", [O_FMULT] = "FMULT", [O_FMULT2] = "FMULT2", [O_FMULT3] = "FMULT3", [O_LINEAR] = "LINEAR", [O_GUSAGE] = "GUSAGE", [O_GUSAGE2] = "GUSAGE2",
     [O_WEQ] = "WEQ",
     [O_WLT] = "WLT",
     [O_WADD] = "WADD",
@@ -2261,6 +2262,60 @@ static void interact(Cell *o, Cell *v) {
         cell_free(o);
         return;
     }
+    case O_PIMULT: {
+        /* the multiplicity of a Π type's binder, a word: 2 (ω) for anything that is not a Π */
+        link(word_of(vk == V_PI ? (uint64_t)v->x : 2), o->port[1]);
+        era(P(v, 0)); cell_free(o);
+        return;
+    }
+    case O_PIM: {
+        /* (%pim m A B): a Π type whose binder's multiplicity is the word m */
+        if (vk != V_WORD || v->p) { fprintf(stderr, "%%pim: a multiplicity is a word 0, 1 or 2\n"); exit(2); }
+        Cell *c = cell(V_PI, 3); c->x = (uint32_t)(v->a > 2 ? 2 : v->a);
+        mv(o, 1, P(c, 1)); mv(o, 2, P(c, 2)); link(P(c, 0), o->port[3]);
+        cell_free(o); cell_free(v);
+        return;
+    }
+    case O_FMULT: case O_FMULT2: {
+        /* (%fmult d c k): the words in turn, kept in a (d) and x (c) */
+        if (vk != V_WORD || v->p) { fprintf(stderr, "%%fmult: an index is a word\n"); exit(2); }
+        Cell *c = cell(o->kind + 1, o->n - 1);
+        if (o->kind == O_FMULT) { c->a = v->a; } else { c->a = o->a; c->x = (uint32_t)v->a; }
+        for (int k = 1; k < o->n; k++) mv(o, k, P(c, k - 1));
+        cell_free(o); cell_free(v);
+        return;
+    }
+    case O_FMULT3: {
+        if (vk != V_WORD || v->p) { fprintf(stderr, "%%fmult: an index is a word\n"); exit(2); }
+        int D = checked_data((long)o->a); unsigned m = 2;
+        if (D >= 0 && (long)o->x < DATA[D].ncons) { ConInfo *ci = &CON[DATA[D].cons[o->x]]; if ((long)v->a < ci->nfields) m = ci->fmult[v->a]; }
+        link(word_of(m), o->port[1]);
+        cell_free(o); cell_free(v);
+        return;
+    }
+    case O_GUSAGE: {
+        if (vk != V_WORD || v->p) { fprintf(stderr, "%%gusage: an index is a word\n"); exit(2); }
+        Cell *c = cell(O_GUSAGE2, 2); c->a = v->a;
+        mv(o, 1, P(c, 0)); mv(o, 2, P(c, 1));
+        cell_free(o); cell_free(v);
+        return;
+    }
+    case O_GUSAGE2: {
+        if (vk != V_WORD || v->p) { fprintf(stderr, "%%gusage: an index is a word\n"); exit(2); }
+        link(word_of((uint64_t)global_usage((long)o->a, (long)v->a)), o->port[1]);
+        cell_free(o); cell_free(v);
+        return;
+    }
+    case O_LINEAR: {
+        /* is the checked data type linear: a constructor with a field at multiplicity 1 */
+        if (vk != V_WORD || v->p) { fprintf(stderr, "%%linear: an index is a word\n"); exit(2); }
+        need_bool();
+        int D = checked_data((long)v->a); bool lin = false;
+        if (D >= 0) for (int ci = 0; ci < DATA[D].ncons && !lin; ci++) { ConInfo *c = &CON[DATA[D].cons[ci]]; for (int k = 0; k < c->nfields; k++) if (c->fmult[k] == 1) lin = true; }
+        link(con_build(lin ? B_TRUE : B_FALSE, NULL, NULL), o->port[1]);
+        cell_free(o); cell_free(v);
+        return;
+    }
     case O_WSUCC: {
         WN k; Port b; Cell *fr = wsplit(v, &k, &b);
         WN k1 = wn_succ(&k); wn_drop(&k);
@@ -2918,7 +2973,7 @@ static Port build(Syn *t, Frame *f) {
         c->key = synkey(t, f); if (c->key) memo_register(c);
         return P(c, 2);
     case S_PAIR: c = cell(V_PAIR, 3); goto fields;
-    case S_PI: c = cell(V_PI, 3); goto fields;
+    case S_PI: c = cell(V_PI, 3); c->x = t->x; goto fields;
     case S_SIGMA: c = cell(V_SIGMA, 3); goto fields;
     case S_PATHP: c = cell(V_PATHP, 4); goto fields;
     fields:
