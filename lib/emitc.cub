@@ -1,0 +1,127 @@
+-- lib/emitc.cub — the C printer for the first-order form (plan 18.7, B16, milestone 1: the residue
+-- printer). Loaded after lib/fo.cub. emit-prog defs: the C source, as a list of bytes, of a program
+-- whose definitions are (g , (arity , body)) and whose main prints f_0's word. Every value is a
+-- boxed V (a word, or a constructor with its fields): the layout of B12's representations comes
+-- later; this printer is for agreement with eval-fo. let, switch and loops print as GNU statement
+-- expressions, so every form is an expression. Closures, thunks and calls into the net print as
+-- unsupported(): milestone 2.
+-- ---------------------------------------------------------------- bytes
+lapp l m = case l of lnil → m; lcons x xs → lcons x (lapp xs m)
+cat3 a b c = lapp a (lapp b c)
+cat4 a b c d = lapp a (cat3 b c d)
+cat5 a b c d e = lapp a (cat4 b c d e)
+cat6 a b c d e f = lapp a (cat5 b c d e f)
+cat7 a b c d e f g = lapp a (cat6 b c d e f g)
+-- decimal digits of a word, by repeated subtraction of 10 (small numbers: tags, indices, arities)
+dec w = if %wlt w #10 then lcons (%wadd #48 w) lnil else lapp (dec (div10 w)) (lcons (%wadd #48 (mod10 w)) lnil)
+div10 w = fst (divmod10 w)
+mod10 w = snd (divmod10 w)
+divmod10 w = %welim w (#0 , #0) (λ n qr → if %weq (snd qr) #9 then (%wsucc (fst qr) , #0) else (fst qr , %wsucc (snd qr)))
+s-runtime = (lcons #35 (lcons #105 (lcons #110 (lcons #99 (lcons #108 (lcons #117 (lcons #100 (lcons #101 (lcons #32 (lcons #60 (lcons #115 (lcons #116 (lcons #100 (lcons #105 (lcons #110 (lcons #116 (lcons #46 (lcons #104 (lcons #62 (lcons #10 (lcons #35 (lcons #105 (lcons #110 (lcons #99 (lcons #108 (lcons #117 (lcons #100 (lcons #101 (lcons #32 (lcons #60 (lcons #115 (lcons #116 (lcons #100 (lcons #108 (lcons #105 (lcons #98 (lcons #46 (lcons #104 (lcons #62 (lcons #10 (lcons #35 (lcons #105 (lcons #110 (lcons #99 (lcons #108 (lcons #117 (lcons #100 (lcons #101 (lcons #32 (lcons #60 (lcons #115 (lcons #116 (lcons #100 (lcons #97 (lcons #114 (lcons #103 (lcons #46 (lcons #104 (lcons #62 (lcons #10 (lcons #35 (lcons #105 (lcons #110 (lcons #99 (lcons #108 (lcons #117 (lcons #100 (lcons #101 (lcons #32 (lcons #60 (lcons #115 (lcons #116 (lcons #100 (lcons #105 (lcons #111 (lcons #46 (lcons #104 (lcons #62 (lcons #10 (lcons #116 (lcons #121 (lcons #112 (lcons #101 (lcons #100 (lcons #101 (lcons #102 (lcons #32 (lcons #115 (lcons #116 (lcons #114 (lcons #117 (lcons #99 (lcons #116 (lcons #32 (lcons #86 (lcons #32 (lcons #123 (lcons #32 (lcons #117 (lcons #105 (lcons #110 (lcons #116 (lcons #54 (lcons #52 (lcons #95 (lcons #116 (lcons #32 (lcons #116 (lcons #97 (lcons #103 (lcons #59 (lcons #32 (lcons #117 (lcons #105 (lcons #110 (lcons #116 (lcons #54 (lcons #52 (lcons #95 (lcons #116 (lcons #32 (lcons #110 (lcons #59 (lcons #32 (lcons #115 (lcons #116 (lcons #114 (lcons #117 (lcons #99 (lcons #116 (lcons #32 (lcons #86 (lcons #32 (lcons #42 (lcons #102 (lcons #91 (lcons #93 (lcons #59 (lcons #32 (lcons #125 (lcons #32 (lcons #86 (lcons #59 (lcons #10 (lcons #115 (lcons #116 (lcons #97 (lcons #116 (lcons #105 (lcons #99 (lcons #32 (lcons #86 (lcons #32 (lcons #42 (lcons #109 (lcons #107 (lcons #119 (lcons #40 (lcons #117 (lcons #105 (lcons #110 (lcons #116 (lcons #54 (lcons #52 (lcons #95 (lcons #116 (lcons #32 (lcons #119 (lcons #41 (lcons #32 (lcons #123 (lcons #32 (lcons #86 (lcons #32 (lcons #42 (lcons #118 (lcons #32 (lcons #61 (lcons #32 (lcons #109 (lcons #97 (lcons #108 (lcons #108 (lcons #111 (lcons #99 (lcons #40 (lcons #115 (lcons #105 (lcons #122 (lcons #101 (lcons #111 (lcons #102 (lcons #40 (lcons #86 (lcons #41 (lcons #41 (lcons #59 (lcons #32 (lcons #118 (lcons #45 (lcons #62 (lcons #116 (lcons #97 (lcons #103 (lcons #32 (lcons #61 (lcons #32 (lcons #48 (lcons #59 (lcons #32 (lcons #118 (lcons #45 (lcons #62 (lcons #110 (lcons #32 (lcons #61 (lcons #32 (lcons #119 (lcons #59 (lcons #32 (lcons #114 (lcons #101 (lcons #116 (lcons #117 (lcons #114 (lcons #110 (lcons #32 (lcons #118 (lcons #59 (lcons #32 (lcons #125 (lcons #10 (lcons #115 (lcons #116 (lcons #97 (lcons #116 (lcons #105 (lcons #99 (lcons #32 (lcons #86 (lcons #32 (lcons #42 (lcons #109 (lcons #107 (lcons #99 (lcons #40 (lcons #117 (lcons #105 (lcons #110 (lcons #116 (lcons #54 (lcons #52 (lcons #95 (lcons #116 (lcons #32 (lcons #99 (lcons #44 (lcons #32 (lcons #117 (lcons #105 (lcons #110 (lcons #116 (lcons #54 (lcons #52 (lcons #95 (lcons #116 (lcons #32 (lcons #110 (lcons #44 (lcons #32 (lcons #46 (lcons #46 (lcons #46 (lcons #41 (lcons #32 (lcons #123 (lcons #32 (lcons #86 (lcons #32 (lcons #42 (lcons #118 (lcons #32 (lcons #61 (lcons #32 (lcons #109 (lcons #97 (lcons #108 (lcons #108 (lcons #111 (lcons #99 (lcons #40 (lcons #115 (lcons #105 (lcons #122 (lcons #101 (lcons #111 (lcons #102 (lcons #40 (lcons #86 (lcons #41 (lcons #32 (lcons #43 (lcons #32 (lcons #110 (lcons #32 (lcons #42 (lcons #32 (lcons #115 (lcons #105 (lcons #122 (lcons #101 (lcons #111 (lcons #102 (lcons #40 (lcons #86 (lcons #32 (lcons #42 (lcons #41 (lcons #41 (lcons #59 (lcons #32 (lcons #118 (lcons #45 (lcons #62 (lcons #116 (lcons #97 (lcons #103 (lcons #32 (lcons #61 (lcons #32 (lcons #99 (lcons #32 (lcons #43 (lcons #32 (lcons #49 (lcons #59 (lcons #32 (lcons #118 (lcons #45 (lcons #62 (lcons #110 (lcons #32 (lcons #61 (lcons #32 (lcons #110 (lcons #59 (lcons #32 (lcons #118 (lcons #97 (lcons #95 (lcons #108 (lcons #105 (lcons #115 (lcons #116 (lcons #32 (lcons #97 (lcons #59 (lcons #32 (lcons #118 (lcons #97 (lcons #95 (lcons #115 (lcons #116 (lcons #97 (lcons #114 (lcons #116 (lcons #40 (lcons #97 (lcons #44 (lcons #32 (lcons #110 (lcons #41 (lcons #59 (lcons #32 (lcons #102 (lcons #111 (lcons #114 (lcons #32 (lcons #40 (lcons #117 (lcons #105 (lcons #110 (lcons #116 (lcons #54 (lcons #52 (lcons #95 (lcons #116 (lcons #32 (lcons #105 (lcons #32 (lcons #61 (lcons #32 (lcons #48 (lcons #59 (lcons #32 (lcons #105 (lcons #32 (lcons #60 (lcons #32 (lcons #110 (lcons #59 (lcons #32 (lcons #105 (lcons #43 (lcons #43 (lcons #41 (lcons #32 (lcons #118 (lcons #45 (lcons #62 (lcons #102 (lcons #91 (lcons #105 (lcons #93 (lcons #32 (lcons #61 (lcons #32 (lcons #118 (lcons #97 (lcons #95 (lcons #97 (lcons #114 (lcons #103 (lcons #40 (lcons #97 (lcons #44 (lcons #32 (lcons #86 (lcons #32 (lcons #42 (lcons #41 (lcons #59 (lcons #32 (lcons #118 (lcons #97 (lcons #95 (lcons #101 (lcons #110 (lcons #100 (lcons #40 (lcons #97 (lcons #41 (lcons #59 (lcons #32 (lcons #114 (lcons #101 (lcons #116 (lcons #117 (lcons #114 (lcons #110 (lcons #32 (lcons #118 (lcons #59 (lcons #32 (lcons #125 (lcons #10 (lcons #115 (lcons #116 (lcons #97 (lcons #116 (lcons #105 (lcons #99 (lcons #32 (lcons #86 (lcons #32 (lcons #42 (lcons #117 (lcons #110 (lcons #115 (lcons #117 (lcons #112 (lcons #112 (lcons #111 (lcons #114 (lcons #116 (lcons #101 (lcons #100 (lcons #40 (lcons #118 (lcons #111 (lcons #105 (lcons #100 (lcons #41 (lcons #32 (lcons #123 (lcons #32 (lcons #102 (lcons #112 (lcons #114 (lcons #105 (lcons #110 (lcons #116 (lcons #102 (lcons #40 (lcons #115 (lcons #116 (lcons #100 (lcons #101 (lcons #114 (lcons #114 (lcons #44 (lcons #32 (lcons #34 (lcons #117 (lcons #110 (lcons #115 (lcons #117 (lcons #112 (lcons #112 (lcons #111 (lcons #114 (lcons #116 (lcons #101 (lcons #100 (lcons #32 (lcons #102 (lcons #111 (lcons #114 (lcons #109 (lcons #92 (lcons #110 (lcons #34 (lcons #41 (lcons #59 (lcons #32 (lcons #97 (lcons #98 (lcons #111 (lcons #114 (lcons #116 (lcons #40 (lcons #41 (lcons #59 (lcons #32 (lcons #125 (lcons #10 lnil))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+s-mkw = (lcons #109 (lcons #107 (lcons #119 (lcons #40 lnil))))
+s-mkc = (lcons #109 (lcons #107 (lcons #99 (lcons #40 lnil))))
+s-comma = (lcons #44 (lcons #32 lnil))
+s-close = (lcons #41 lnil)
+s-v = (lcons #118 lnil)
+s-f = (lcons #102 (lcons #95 lnil))
+s-open = (lcons #40 lnil)
+s-arrow = (lcons #45 (lcons #62 (lcons #102 (lcons #91 lnil))))
+s-rb = (lcons #93 lnil)
+s-plus = (lcons #45 (lcons #62 (lcons #110 (lcons #32 (lcons #43 (lcons #32 lnil))))))
+s-minus = (lcons #45 (lcons #62 (lcons #110 (lcons #32 (lcons #45 (lcons #32 lnil))))))
+s-times = (lcons #45 (lcons #62 (lcons #110 (lcons #32 (lcons #42 (lcons #32 lnil))))))
+s-eq = (lcons #45 (lcons #62 (lcons #110 (lcons #32 (lcons #61 (lcons #61 (lcons #32 lnil)))))))
+s-lt = (lcons #45 (lcons #62 (lcons #110 (lcons #32 (lcons #60 (lcons #32 lnil))))))
+s-and = (lcons #45 (lcons #62 (lcons #110 (lcons #32 (lcons #38 (lcons #38 (lcons #32 lnil)))))))
+s-or = (lcons #45 (lcons #62 (lcons #110 (lcons #32 (lcons #124 (lcons #124 (lcons #32 lnil)))))))
+s-not = (lcons #33 lnil)
+s-n = (lcons #45 (lcons #62 (lcons #110 lnil)))
+s-bsx = (lcons #40 (lcons #123 (lcons #32 lnil)))
+s-bsend = (lcons #59 (lcons #32 (lcons #125 (lcons #41 lnil))))
+s-vstar = (lcons #86 (lcons #32 (lcons #42 lnil)))
+s-assign = (lcons #32 (lcons #61 (lcons #32 lnil)))
+s-semi = (lcons #59 (lcons #32 lnil))
+s-xbind = (lcons #86 (lcons #32 (lcons #42 (lcons #120 (lcons #32 (lcons #61 (lcons #32 lnil)))))))
+s-switchx = (lcons #59 (lcons #32 (lcons #115 (lcons #119 (lcons #105 (lcons #116 (lcons #99 (lcons #104 (lcons #32 (lcons #40 (lcons #120 (lcons #45 (lcons #62 (lcons #116 (lcons #97 (lcons #103 (lcons #32 (lcons #45 (lcons #32 (lcons #49 (lcons #41 (lcons #32 (lcons #123 (lcons #32 lnil))))))))))))))))))))))))
+s-switch = (lcons #115 (lcons #119 (lcons #105 (lcons #116 (lcons #99 (lcons #104 (lcons #32 (lcons #40 lnil))))))))
+s-tagm1 = (lcons #45 (lcons #62 (lcons #116 (lcons #97 (lcons #103 (lcons #32 (lcons #45 (lcons #32 (lcons #49 (lcons #41 (lcons #32 (lcons #123 (lcons #32 lnil)))))))))))))
+s-case = (lcons #99 (lcons #97 (lcons #115 (lcons #101 (lcons #32 lnil)))))
+s-colon = (lcons #58 (lcons #32 lnil))
+s-rr = (lcons #114 (lcons #32 (lcons #61 (lcons #32 lnil))))
+s-break = (lcons #32 (lcons #98 (lcons #114 (lcons #101 (lcons #97 (lcons #107 (lcons #59 (lcons #32 lnil))))))))
+s-default = (lcons #100 (lcons #101 (lcons #102 (lcons #97 (lcons #117 (lcons #108 (lcons #116 (lcons #58 (lcons #32 (lcons #114 (lcons #32 (lcons #61 (lcons #32 (lcons #109 (lcons #107 (lcons #119 (lcons #40 (lcons #48 (lcons #41 (lcons #59 (lcons #32 (lcons #125 (lcons #32 lnil)))))))))))))))))))))))
+s-rdecl = (lcons #86 (lcons #32 (lcons #42 (lcons #114 (lcons #59 (lcons #32 lnil))))))
+s-if = (lcons #40 (lcons #40 lnil))
+s-ifm = (lcons #45 (lcons #62 (lcons #110 (lcons #32 (lcons #33 (lcons #61 (lcons #32 (lcons #48 (lcons #41 (lcons #32 (lcons #63 (lcons #32 (lcons #40 lnil)))))))))))))
+s-ifs = (lcons #41 (lcons #32 (lcons #58 (lcons #32 (lcons #40 lnil)))))
+s-ifend = (lcons #41 (lcons #41 lnil))
+s-for = (lcons #102 (lcons #111 (lcons #114 (lcons #32 (lcons #40 (lcons #59 (lcons #59 (lcons #41 (lcons #32 (lcons #123 (lcons #32 (lcons #86 (lcons #32 (lcons #42 (lcons #98 (lcons #32 (lcons #61 (lcons #32 lnil))))))))))))))))))
+s-fortest = (lcons #59 (lcons #32 (lcons #105 (lcons #102 (lcons #32 (lcons #40 (lcons #98 (lcons #45 (lcons #62 (lcons #116 (lcons #97 (lcons #103 (lcons #32 (lcons #61 (lcons #61 (lcons #32 (lcons #49 (lcons #41 (lcons #32 (lcons #123 (lcons #32 lnil)))))))))))))))))))))
+s-forelse = (lcons #125 (lcons #32 (lcons #101 (lcons #108 (lcons #115 (lcons #101 (lcons #32 (lcons #123 (lcons #32 (lcons #114 (lcons #32 (lcons #61 (lcons #32 (lcons #98 (lcons #45 (lcons #62 (lcons #102 (lcons #91 (lcons #48 (lcons #93 (lcons #59 (lcons #32 (lcons #98 (lcons #114 (lcons #101 (lcons #97 (lcons #107 (lcons #59 (lcons #32 (lcons #125 (lcons #32 (lcons #125 (lcons #32 lnil)))))))))))))))))))))))))))))))))
+s-unsup = (lcons #117 (lcons #110 (lcons #115 (lcons #117 (lcons #112 (lcons #112 (lcons #111 (lcons #114 (lcons #116 (lcons #101 (lcons #100 (lcons #40 (lcons #41 lnil)))))))))))))
+s-fnhead = (lcons #115 (lcons #116 (lcons #97 (lcons #116 (lcons #105 (lcons #99 (lcons #32 (lcons #86 (lcons #32 (lcons #42 (lcons #102 (lcons #95 lnil))))))))))))
+s-body = (lcons #41 (lcons #32 (lcons #123 (lcons #32 (lcons #114 (lcons #101 (lcons #116 (lcons #117 (lcons #114 (lcons #110 (lcons #32 lnil)))))))))))
+s-fnend = (lcons #59 (lcons #32 (lcons #125 (lcons #10 lnil))))
+s-main = (lcons #105 (lcons #110 (lcons #116 (lcons #32 (lcons #109 (lcons #97 (lcons #105 (lcons #110 (lcons #40 (lcons #118 (lcons #111 (lcons #105 (lcons #100 (lcons #41 (lcons #32 (lcons #123 (lcons #32 (lcons #112 (lcons #114 (lcons #105 (lcons #110 (lcons #116 (lcons #102 (lcons #40 (lcons #34 (lcons #37 (lcons #108 (lcons #108 (lcons #117 (lcons #92 (lcons #110 (lcons #34 (lcons #44 (lcons #32 (lcons #40 (lcons #117 (lcons #110 (lcons #115 (lcons #105 (lcons #103 (lcons #110 (lcons #101 (lcons #100 (lcons #32 (lcons #108 (lcons #111 (lcons #110 (lcons #103 (lcons #32 (lcons #108 (lcons #111 (lcons #110 (lcons #103 (lcons #41 (lcons #32 (lcons #102 (lcons #95 (lcons #48 (lcons #40 (lcons #41 (lcons #45 (lcons #62 (lcons #110 (lcons #41 (lcons #59 (lcons #32 (lcons #114 (lcons #101 (lcons #116 (lcons #117 (lcons #114 (lcons #110 (lcons #32 (lcons #48 (lcons #59 (lcons #32 (lcons #125 (lcons #10 lnil))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+s-void = (lcons #118 (lcons #111 (lcons #105 (lcons #100 lnil))))
+-- ---------------------------------------------------------------- expressions
+-- emit d t: the C expression for t at binder depth d (variables v0 .. v(d-1), fvar n is v(d-1-n))
+var d n = lapp s-v (dec (%wsub (%wsub d #1) n))
+emit d t =
+  case t of
+    fvar n → var d n
+    flit w → cat3 s-mkw (dec w) s-close
+    fcon dd c fs → cat7 s-mkc (dec c) s-comma (dec (lst-len fs)) (args-rest d fs) s-close lnil
+    fswitch x alts → cat6 s-bsx s-rdecl (cat3 s-xbind (emit d x) s-switchx) (alts-c d alts) s-default (lapp (lcons #114 lnil) s-bsend)
+    fproj dd c k x → cat4 (emit d x) s-arrow (dec k) s-rb
+    fcall g args → cat4 s-f (dec g) s-open (lapp (args-c d args) s-close)
+    fprim p args → prim-c d p args
+    flet a b → cat7 s-bsx s-vstar (var (%wsucc d) #0) s-assign (emit d a) s-semi (lapp (emit (%wsucc d) b) s-bsend)
+    fif c a b → cat6 s-if (emit d c) s-ifm (emit d a) s-ifs (lapp (emit d b) s-ifend)
+    floop init body → loop-c d init body
+    _ → s-unsup
+lst-len l = case l of lnil → #0; lcons x xs → %wsucc (lst-len xs)
+-- ", a, b, c" for the fields of a constructor
+args-rest d fs = case fs of lnil → lnil; lcons x xs → cat3 s-comma (emit d x) (args-rest d xs)
+-- "a, b, c" for call arguments
+args-c d l = case l of lnil → lnil; lcons x xs → (case xs of lnil → emit d x; _ → cat3 (emit d x) s-comma (args-c d xs))
+-- a switch alternative: case c: { V *v_d = x->f[0]; ... r = body; break; } (x is re-evaluated:
+-- the scrutinee is bound first as a let in the enclosing expression by the caller of emit when
+-- it is not a variable; here it is read as the statement expression's x)
+alts-c d alts =
+  case alts of
+    lnil → lnil
+    lcons a r → lapp (alt-c d (fst a) (fst (snd a)) (snd (snd a))) (alts-c d r)
+alt-c d c n body = cat6 s-case (dec c) s-colon (fields-c d n #0) (cat3 s-rr (emit (%wadd d n) body) s-semi) s-break
+-- the fields of the scrutinee bound as v_d .. v_(d+n-1): the scrutinee is x, kept in a local
+-- named x by the switch's statement expression
+fields-c d n i = if %weq i n then lnil else cat7 s-vstar (var (%wsucc (%wadd d i)) #0) s-assign (lcons #120 lnil) s-arrow (dec i) (lapp s-rb (lapp s-semi (fields-c d n (%wsucc i))))
+prim-c d p args =
+  case args of
+    lcons a r →
+      (case r of
+         lcons b r2 → cat4 s-mkw (emit d a) (op-c p) (lapp (emit d b) (lapp s-n s-close))
+         lnil → cat5 s-mkw s-not (emit d a) s-n s-close)
+    lnil → cat3 s-mkw (dec #0) s-close
+op-c p = if %weq p #0 then s-plus else if %weq p #1 then s-minus else if %weq p #2 then s-times else if %weq p #3 then s-eq else if %weq p #4 then s-lt else if %weq p #5 then s-and else s-or
+-- a loop: state locals v_d .. v_(d+k-1) initialized, then for(;;) { b = body; continue: reassign; break: r }
+loop-c d init body =
+  let k = lst-len init
+  in cat6 s-bsx s-rdecl (inits-c d init #0) (cat3 s-for (emit (%wadd d k) body) s-fortest) (reassign-c d k #0) (lapp s-forelse (lapp (lcons #114 lnil) s-bsend))
+inits-c d l i = case l of lnil → lnil; lcons x xs → cat7 s-vstar (var (%wsucc (%wadd d i)) #0) s-assign (emit d x) s-semi (inits-c d xs (%wsucc i)) lnil
+reassign-c d k i = if %weq i k then lnil else cat6 (var (%wsucc (%wadd d i)) #0) s-assign (lcons #98 lnil) s-arrow (dec i) (lapp s-rb (lapp s-semi (reassign-c d k (%wsucc i))))
+-- ---------------------------------------------------------------- definitions and programs
+-- a definition: static V *f_g(V *v0, ..., V *v(n-1)) { return body; }
+params-c n i = if %weq i n then lnil else (case %weq (%wsucc i) n of true → cat3 s-vstar (var (%wsucc i) #0) lnil; false → cat4 s-vstar (var (%wsucc i) #0) s-comma (params-c n (%wsucc i)))
+emit-def g n body = cat6 s-fnhead (dec g) s-open (if %weq n #0 then s-void else params-c n #0) s-body (lapp (emit n body) s-fnend)
+-- prototypes first, so definitions may call each other in any order
+proto-c g n = cat6 s-fnhead (dec g) s-open (if %weq n #0 then s-void else params-c n #0) (lcons #41 lnil) (lapp s-semi (lcons #10 lnil))
+emit-prog defs = cat3 s-runtime (protos defs) (lapp (defs-c defs) s-main)
+protos defs = case defs of lnil → lnil; lcons d r → lapp (proto-c (fst d) (fst (snd d))) (protos r)
+defs-c defs = case defs of lnil → lnil; lcons d r → lapp (emit-def (fst d) (fst (snd d)) (snd (snd d))) (defs-c r)
+-- ---------------------------------------------------------------- readings
+-- the bytes of mkw(7)
+#same emit #0 (flit #7) = (lcons #109 (lcons #107 (lcons #119 (lcons #40 (lcons #55 (lcons #41 lnil))))))
+-- a switch binds its fields in the statement expression; the scrutinee is x: a switch is emitted
+-- by the caller wrapping x; the test below is on the fswitch form's shape through #show
+-- (the compile-and-run check is experiments/fo/run.py, which decodes a program and runs gcc)
