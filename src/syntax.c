@@ -2863,7 +2863,10 @@ static Node *el_alts(Node *t, int from) {
                 if (from == 3 && q - 1 < CON[c].nfields && (CON[c].recmask >> (q - 1) & 1)) {
                     char nm[256]; snprintf(nm, sizeof nm, "%%rec %s", p->it[q]->s);
                     const char *x = "%m"; Node *P = t->it[1];
-                    e_pusht(strdup(nm), subst_multi(lst(2, P, p->it[q]), &x, NULL, 0));
+                    /* a path-typed field's hypothesis is a line over the motive: its type is the
+                     * checker's to state */
+                    if (CON[c].rdim[q - 1]) e_push(strdup(nm), false);
+                    else e_pusht(strdup(nm), subst_multi(lst(2, P, p->it[q]), &x, NULL, 0));
                 }
             }
         }
@@ -3124,12 +3127,18 @@ static Node *rec_call(Node *e, Node **args, int n) {
         for (int q = 0; q < p && ok; q++) if (at[q] && !(!at[q]->list && !strcmp(at[q]->s, tsig.pn[q]->s))) ok = false;
         if (!ok) continue;
         Node *want = expand(rec_xform(at[p]));
+        /* a call on a path-typed field applied to dimensions, f (p @ m ...): the field's hypothesis
+         * is a line, applied to the same dimensions (18.17) */
+        Node *dims[16]; int ndm = 0; Node *head = want;
+        while (head->list && head->n == 3 && !head->it[0]->list && is(head->it[0], "@") && ndm < 16) { dims[ndm++] = head->it[2]; head = head->it[1]; }
         for (int r = 0; r < f->nrf; r++) {
             Node *cand = expand(subst_sym(f->E, f->v, f->rf[r]));
-            if (!node_eq(cand, want)) continue;
+            bool whole = node_eq(cand, want);
+            if (!whole && !(ndm && node_eq(cand, head))) continue;
             /* the hypothesis at the later parameters */
             int nl = 0; for (int q = p + 1; q < tsig.np; q++) if (tsig.rev[q]) nl++;
             Node *call = lst(2, nsym("rec"), f->rf[r]);
+            if (!whole) for (int k = ndm - 1; k >= 0; k--) call = sym3("@", call, dims[k]);
             if (!nl) return call;
             Node *ap = nlist(nl + 1); ap->it[0] = call; int k = 1;
             for (int q = p + 1; q < tsig.np; q++) if (tsig.rev[q]) {

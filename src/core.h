@@ -299,8 +299,9 @@ Cell *global_res(long g);          /* the cell holding a definition's value */
 
 /* data types (higher inductive types, Coquand–Huber–Mörtberg): declared by
  * (data ...); the net's rules are generic over these tables */
-typedef struct { char *name; int data, index, nfields, ndims; long bdy, trans; int nrec; uint64_t recmask; } ConInfo;
-/* bdy, trans: globals or -1; recmask: the fields of type the data type itself (recursive), nrec of them */
+typedef struct { char *name; int data, index, nfields, ndims; long bdy, trans; int nrec; uint64_t recmask; unsigned char rdim[64]; } ConInfo;
+/* bdy, trans: globals or -1; recmask: the recursive fields (of type the data type itself, or a path line into it,
+ * rdim[k] dimensions deep), nrec of them */
 typedef struct { char *name; int nparams, ncons; int *cons; long comp, transh; void *decl; int co, nflds; int *flds; } DataInfo;
 /* decl: the (data ...) form. co: a codata type (no constructors): its fields flds (indices into FLD);
  * comp its composition, a copattern definition */

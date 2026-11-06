@@ -221,6 +221,21 @@ params-fresh tel pvs =
     tz e → (pvs , e)
     _ → (pvs , lnil)
 is-data-d d c = case c of tdata d2 ps V → %weq d d2; _ → false
+-- a recursive field: of the data type itself, or of a path line into it, at any dimension (18.17)
+is-rec-ty d c =
+  case c of
+    tdata d2 ps V → %weq d d2
+    tpathp L a b V → is-rec-line d L
+    tguess k g t V → is-rec-ty d t
+    _ → false
+is-rec-line d L = case L of tplam nm b V → is-rec-ty d (b (%dim nm)); tguess k g t V → is-rec-line d t; _ → false
+-- the induction hypothesis of a recursive field f of type T, F the elimination, Pv the motive: for a
+-- path line, the line of the hypotheses of its points, λ m → F (f @ m), over the motive at them
+hyp-val F f T = case %view T of wpath L a b → (let i = %dim in %abs i (hyp-val F (f @ i) (L @ i))); _ → F f
+hyp-ty Pv F f T =
+  case %view T of
+    wpath L a b → (let i = %dim in PathP (%abs i (hyp-ty Pv F (f @ i) (L @ i))) (hyp-val F (f @ 0) (L @ 0)) (hyp-val F (f @ 1) (L @ 1)))
+    _ → Pv f
 -- D itself, D some ticks later (a guarded field), or a path in D (a truncation's argument, of any
 -- dimension): at level lzero in D's own level
 later-rec d c =
@@ -478,7 +493,7 @@ elim-fields d f g c tel nr prm =
     tx A nm r → 
       let Av = tval A
           x = %var nm Av
-      in elim-fields d f g c (r x Av) (if is-data-d d A then %wsucc nr else nr) (lsnoc prm x)
+      in elim-fields d f g c (r x Av) (if is-rec-ty d A then %wsucc nr else nr) (lsnoc prm x)
     _ → elim-hyps f g c nr tel prm
 conv-elims d f g lnil c = true
 conv-elims d f g (lcons tel rest) c =
@@ -977,7 +992,7 @@ br-infer tel b =
         _ → none
     ty nm r → (case b of bi nm b1 → let i = %dim nm in br-infer (r i) (b1 i); _ → none)
     tz bdy → (case b of be t → infer t; _ → none)
-tel-rec d tel = case tel of tx A nm r → orb (is-data-d d A) (tel-rec d (r (%var Uw) Uw)); _ → false
+tel-rec d tel = case tel of tx A nm r → orb (is-rec-ty d A) (tel-rec d (r (%var Uw) Uw)); _ → false
 case-type d lnil Bs = none
 case-type d (lcons tel rest) Bs =
   case Bs of
@@ -1040,7 +1055,7 @@ branch-dims e d Pv F c tel b fs ds =
     _ → err e E-ctor opq opq
 branch-hyps e d Pv F c tel b fs (lcons f rest) =
   case b of
-    bx nm b1 → branch-hyps e d Pv F c tel (b1 (F f) (Pv f)) fs rest
+    bx nm b1 → branch-hyps e d Pv F c tel (b1 (hyp-val F (fst f) (snd f)) (hyp-ty Pv F (fst f) (snd f))) fs rest
     _ → err e E-ctor opq opq
 branch-hyps e d Pv F c tel b fs lnil = branch-dims e d Pv F c tel b fs lnil
 branch-fields e d Pv F c tel b fs rs =
@@ -1051,7 +1066,7 @@ branch-fields e d Pv F c tel b fs rs =
           let Av = tval A
               x = %var nm Av
           in branch-fields e d Pv F c (r x Av) (b1 x Av) (lsnoc fs x)
-               (if is-data-d d A then lsnoc rs x else rs)
+               (if is-rec-ty d A then lsnoc rs (x , Av) else rs)
         _ → err e E-ctor opq opq
     _ → branch-hyps e d Pv F c tel b fs rs
 check-branch e d Pv F c tel b = branch-fields e d Pv F c tel b lnil lnil
@@ -1765,11 +1780,12 @@ q-br bs E d f mo c tel prm recs =
           x = %var nm Av
       in omap clam
            (q-br (lcons (qv (var-level x)) bs) E d f mo c (r x Av) (lsnoc prm x)
-              (if is-data-d d A then lsnoc recs x else recs))
+              (if is-rec-ty d A then lsnoc recs (x , Av) else recs))
     _ → q-hyps bs E d f mo c tel prm recs prm
 q-hyps bs E d f mo c tel prm lnil fs = q-dims bs E d f mo c tel prm fs lnil
 q-hyps bs E d f mo c tel prm (lcons y rest) fs =
-  let h = %var (case mo of some P → P y; none → fromopt E Uw)
+  -- (a path-typed field's hypothesis, a line over the motive, is a variable of unstated type)
+  let h = %var (case %view (snd y) of wpath L a b → Uw; _ → (case mo of some P → P (fst y); none → fromopt E Uw))
   in omap clam (q-hyps (lcons (qh (var-level h)) bs) E d f mo c tel (lsnoc prm h) rest fs)
 q-dims bs E d f mo c tel prm fs ds =
   case tel of

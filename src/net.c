@@ -2197,17 +2197,23 @@ static void interact(Cell *o, Cell *v) {
                         Port fa, fb; split2(v->port[1 + j], &fa, &fb);
                         prm[j] = fa;
                         /* 1=field [2=motive] then the environment */
+                        /* a path-typed field (rdim dimensions deep): the hypothesis is the line of
+                         * the eliminations of its points, λ m ... → F (p @ m ...) (18.17) */
+                        int rd = ci->rdim[j]; Dim ds[16];
+                        for (int t = 0; t < rd; t++) { ds[t] = fresh_dim(); fb = papp_at(fb, iv_atom(ds[t])); }
                         Cell *h = cell(V_SUSP, ne + 2 + mb); h->x = o->x; h->p = tb;
                         link(fb, P(h, 1));
                         if (mb) link(mc[q], P(h, 2));
                         for (int e = 0; e < ne; e++) link(ec[e][q + 1], P(h, 2 + mb + e));
                         /* its key: the case term on the field (the motive is not part of the term) */
-                        { Key **ck = malloc(((size_t)ne + 2) * sizeof(Key *)); ck[0] = key_of_port(fb);
+                        if (!rd) { Key **ck = malloc(((size_t)ne + 2) * sizeof(Key *)); ck[0] = key_of_port(fb);
                           for (int e = 0; e < ne; e++) ck[1 + e] = key_of_port(ec[e][q + 1]);
                           h->key = key(K_CASE, 0, tb, ne + 1, ck);
                           for (int e = 0; e < ne + 1; e++) if (ck[e]) key_release(ck[e]);
                           free(ck); }
-                        prm[nf + q] = P(h, 0);
+                        Port hp = P(h, 0);
+                        for (int t = rd - 1; t >= 0; t--) { Cell *m = cell(O_MKPLAM, 2); m->a = ds[t]; link(hp, P(m, 0)); hp = P(m, 1); }
+                        prm[nf + q] = hp;
                         q++;
                     } else prm[j] = v->port[1 + j];
                 }

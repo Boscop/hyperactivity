@@ -42,10 +42,8 @@ HopfS2 x = case x return (λ y → Type) of
     surf i j → Glue S1 [ i = 0 ↦ (S1 , idEquiv {lzero} {S1}) , i = 1 ↦ (S1 , idEquiv {lzero} {S1}) , j = 0 ↦ (S1 , idEquiv {lzero} {S1}) , j = 1 ↦ (S1 , (λ z → mulS1 (loop i) z , rotIsEquiv (loop i))) ]
 
 -- ---------------------------------------------------------------- truncations
--- The data types check. Their recursors are primitives: their computation is the untyped one,
--- because a branch takes no induction hypothesis for a path-typed field (p : PathP (λ m → T2 A) x y),
--- and the recursor on squash needs the recursion on p and q as paths. (That hypothesis is a gap of
--- the elaborator and the machine's elimination, recorded for E28.)
+-- The recursors: a branch takes an induction hypothesis for a path-typed field too, the line of
+-- the eliminations of its points (rec p : PathP (λ m → B) (rec x) (rec y)).
 isGroupoid : {l : Level} → Type l → Type l
 isGroupoid A = (a b : A) → isSet (a ≡ b)
 is2Groupoid : {l : Level} → Type l → Type l
@@ -66,25 +64,18 @@ data K2 = tinc (a : S2)
       (i : I) (j : I) (k : I) (l : I)
       [ i = 0 ↦ t @ j @ k @ l , i = 1 ↦ u @ j @ k @ l , j = 0 ↦ r @ k @ l , j = 1 ↦ s @ k @ l
       , k = 0 ↦ p @ l , k = 1 ↦ q @ l , l = 0 ↦ x , l = 1 ↦ y ]
-primitive rec2 : {l : Level} {A : Type} {B : Type l} → isSet {l} B → (A → B) → T2 A → B =
-  λ l A B g f x → case x return (λ w → B) of
+rec2 : {l : Level} {A : Type} {B : Type l} → isSet B → (A → B) → T2 A → B
+rec2 g f x = case x return (λ w → B) of
     t2inc a → f a
-    squash2 x1 y1 p q i j → g (rec2 l A B g f x1) (rec2 l A B g f y1) (λ (m : I) → rec2 l A B g f (p @ m)) (λ (m : I) → rec2 l A B g f (q @ m)) @ i @ j
-primitive rec3 : {l : Level} {A : Type} {B : Type l} → isGroupoid {l} B → (A → B) → T3 A → B =
-  λ l A B g f x → case x return (λ w → B) of
+    squash2 x1 y1 p q i j → g (rec x1) (rec y1) (rec p) (rec q) i j
+rec3 : {l : Level} {A : Type} {B : Type l} → isGroupoid B → (A → B) → T3 A → B
+rec3 g f x = case x return (λ w → B) of
     t3inc a → f a
-    squash3 x1 y1 p q r s i j k →
-      g (rec3 l A B g f x1) (rec3 l A B g f y1) (λ (m : I) → rec3 l A B g f (p @ m)) (λ (m : I) → rec3 l A B g f (q @ m))
-        (λ (m : I) (n : I) → rec3 l A B g f (r @ m @ n)) (λ (m : I) (n : I) → rec3 l A B g f (s @ m @ n)) @ i @ j @ k
-primitive rec4 : {l : Level} {B : Type l} → is2Groupoid {l} B → (S2 → B) → K2 → B =
-  λ l B g f x → case x return (λ w → B) of
+    squash3 x1 y1 p q r s i j k → g (rec x1) (rec y1) (rec p) (rec q) (rec r) (rec s) i j k
+rec4 : {l : Level} {B : Type l} → is2Groupoid B → (S2 → B) → K2 → B
+rec4 g f x = case x return (λ w → B) of
     tinc a → f a
-    squash4 x1 y1 p q r s t u i j k l →
-      g (rec4 l B g f x1) (rec4 l B g f y1) (λ (m : I) → rec4 l B g f (p @ m)) (λ (m : I) → rec4 l B g f (q @ m))
-        (λ (m : I) (n : I) → rec4 l B g f (r @ m @ n)) (λ (m : I) (n : I) → rec4 l B g f (s @ m @ n))
-        (λ (m : I) (n : I) (o : I) → rec4 l B g f (t @ m @ n @ o)) (λ (m : I) (n : I) (o : I) → rec4 l B g f (u @ m @ n @ o))
-        @ i @ j @ k @ l
-
+    squash4 x1 y1 p q r s t u i j k l → g (rec x1) (rec y1) (rec p) (rec q) (rec r) (rec s) (rec t) (rec u) i j k l
 -- ---------------------------------------------------------------- h-levels (the untyped proofs, typed)
 -- isProp→isSet is std's; a proposition's paths are propositions
 propPathProp : {X : Type} → isProp X → (a b : X) → isProp (a ≡ b)
@@ -208,18 +199,13 @@ fill4OverSets {A} B setB {x} {y} {p} {q} {r} {s} {t} {u} c {b0} {b1} {bp} {bq} {
       propSq = isPropPathP (λ k → PathP (λ l → B (s k l)) b0 b1) (isProp→isSet propDp) bp bq
       propC3 = isPropPathP (λ j → PathP (λ k → PathP (λ l → B (u j k l)) b0 b1) bp bq) (isProp→isSet propSq) br bs
   in isProp→PathP (λ i → PathP (λ j → PathP (λ k → PathP (λ l → B (c i j k l)) b0 b1) bp bq) br bs) propC3 bt bu
--- surfc on squash₄: the dependent 4-cube over it, Ω² being a family of sets (a primitive: the
--- recursion on the path-typed fields, as for the recursors)
-primitive surfc : (x : K2) → Om2 x =
-  λ x → case x return (λ y → Om2 y) of
+-- surfc on squash₄: the dependent 4-cube over it, Ω² being a family of sets
+surfc : (x : K2) → Om2 x
+surfc x = case x return (λ y → Om2 y) of
     tinc a → S2SetElim a
     squash4 x1 y1 p q r s t u i j k l →
-      fill4OverSets K2 Om2 setOm2y x1 y1 p q r s t u
-        (λ (i : I) (j : I) (k : I) (l : I) → squash4 x1 y1 p q r s t u i j k l)
-        (surfc x1) (surfc y1) (λ (m : I) → surfc (p @ m)) (λ (m : I) → surfc (q @ m))
-        (λ (m : I) (n : I) → surfc (r @ m @ n)) (λ (m : I) (n : I) → surfc (s @ m @ n))
-        (λ (m : I) (n : I) (o : I) → surfc (t @ m @ n @ o)) (λ (m : I) (n : I) (o : I) → surfc (u @ m @ n @ o))
-        @ i @ j @ k @ l
+      fill4OverSets {K2} Om2 setOm2y {x1} {y1} {p} {q} {r} {s} {t} {u} (λ i j k l → squash4 x1 y1 p q r s t u i j k l)
+        {rec x1} {rec y1} {rec p} {rec q} {rec r} {rec s} (rec t) (rec u) i j k l
 plus2 : K2 → K2 → K2
 plus2 x = rec4 P4 (λ a → case a return (λ w → K2 → K2) of base2 → (λ z → z) ; surf i j → (λ z → surfc z i j)) x
 help : (a : S2) → isEquiv (λ (y : K2) → plus2 (tinc a) y)

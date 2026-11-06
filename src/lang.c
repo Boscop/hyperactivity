@@ -201,6 +201,17 @@ static bool keyword(const char *s) {
     return false;
 }
 static Node *param_name(Node *p) { return p->list ? p->it[0] : p; }
+/* a field's type is the data type D (0), or a path line whose fibre is, k dimensions deep (k); -1 otherwise */
+static int rec_depth(Node *A, const char *D) {
+    if (!A) return -1;
+    if (!A->list) return !strcmp(A->s, D) ? 0 : -1;
+    if (A->n >= 1 && !A->it[0]->list && !strcmp(A->it[0]->s, D)) return 0;
+    if (A->n == 4 && !A->it[0]->list && !strcmp(A->it[0]->s, "PathP")) {
+        Node *L = A->it[1];
+        if (L->list && L->n == 3 && !L->it[0]->list && (!strcmp(L->it[0]->s, "plam") || !strcmp(L->it[0]->s, "lam"))) { int r = rec_depth(L->it[2], D); return r < 0 ? -1 : r + 1; }
+    }
+    return -1;
+}
 
 /* data types: higher inductive types (Coquand–Huber–Mörtberg), declared by
  * (data ...) below; constructors are values, eliminated by %case */
@@ -3181,14 +3192,17 @@ static void toplevel(Node *f) {
             if (x->nb && !x->nd) die("a boundary needs dimensions in", cd->it[0]->s);
             GROW(CON, capcon, (size_t)ncon + 1);
             DATA[d].cons[ci] = ncon;
-            /* a field of type D itself is recursive: its branch may take its induction hypothesis */
-            uint64_t rm = 0; int nr = 0;
+            /* a field of type D itself, or of a path line into D (at any dimension), is recursive:
+             * its branch may take its induction hypothesis (18.17) */
+            uint64_t rm = 0; int nr = 0; unsigned char rd[64] = { 0 };
             for (int k = 0; k < x->nf; k++) {
-                Node *A = x->ft[k];
-                if (A && ((!A->list && !strcmp(A->s, D)) || (A->list && A->n >= 1 && !A->it[0]->list && !strcmp(A->it[0]->s, D)))) { rm |= 1ull << k; nr++; }
+                int depth = rec_depth(x->ft[k], D);
+                if (depth >= 0) { rm |= 1ull << k; nr++; rd[k] = (unsigned char)depth; }
             }
             if (x->nf > 64) die("more than 64 fields in", cd->it[0]->s);
-            CON[ncon++] = (ConInfo){ intern(cd->it[0]->s), d, ci, x->nf, x->nd, -1, -1, nr, rm };
+            CON[ncon] = (ConInfo){ intern(cd->it[0]->s), d, ci, x->nf, x->nd, -1, -1, nr, rm };
+            memcpy(CON[ncon].rdim, rd, sizeof rd);
+            ncon++;
         }
         char *buf; size_t len; FILE *m;
 #define OPEN() (m = open_memstream(&buf, &len))
