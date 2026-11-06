@@ -60,9 +60,10 @@ consume-reps t =
          else if %weq g g-weq then fprim P-eq as
          else if %weq g g-wlt then fprim P-lt as
          else if andb nat-rep (%weq g g-plus) then fprim P-add as
-         else fcall g as
+         else (case as of lnil → (case unfold g of some cd → (case cd of cwlit n → flit n; _ → fcall g as); none → fcall g as); _ → fcall g as)
     fcon d c fs → (case (if nat-rep then nat-lit t else none) of some n → flit n; none → fcon d c (consume-list fs))
     fswitch x alts → fswitch (consume-reps x) (consume-alts alts)
+    frec d x alts → frec d (consume-reps x) (consume-ralts alts)
     fproj d c k x → fproj d c k (consume-reps x)
     fprim p args → fprim p (consume-list args)
     flet a b → flet (consume-reps a) (consume-reps b)
@@ -76,6 +77,7 @@ consume-reps t =
     fassume fact b → fassume fact (consume-reps b)
     _ → t
 consume-list l = case l of lnil → lnil; lcons x xs → lcons (consume-reps x) (consume-list xs)
+consume-ralts l = case l of lnil → lnil; lcons a r → lcons (fst a , (fst (snd a) , (fst (snd (snd a)) , consume-reps (snd (snd (snd a)))))) (consume-ralts r)
 consume-alts l = case l of lnil → lnil; lcons a r → lcons (fst a , (fst (snd a) , consume-reps (snd (snd a)))) (consume-alts r)
 -- specialize, then consume: the pipeline with representations
 specialize-r T rules c = consume-reps (specialize T rules c)
@@ -92,6 +94,17 @@ ld0 = fprim P-load64 (lcons (fvar #0) (lcons (flit #0) lnil))
 -- it runs natively on a buffer built by the same primitives
 buf2 = fprim P-store64 (lcons (fprim P-store64 (lcons (fprim P-bytes (lcons (flit #32) lnil)) (lcons (flit #0) (lcons (flit #5) lnil)))) (lcons (flit #16) (lcons (flit #9) lnil)))
 #same eval-fo (λ g → flit #0) lnil (fapply sum2 (lcons buf2 lnil)) = vw #14
+-- the tagged message decoder of lib/decode.cub, lowered from its code: a switch on the loaded
+-- tag, loads at literal offsets, each under its assumed bound (a word constant of the store, one-w,
+-- becomes its literal)
+one-w : Word
+one-w = #1
+dm-code = code (λ (b : Bytes 32) → case weq (u32toWord (load32 32 b 0 (28 , λ i → 32))) one-w of true → i64toWord (load64 32 b 8 (16 , λ i → 32)); false → i64toWord (load64 32 b 16 (8 , λ i → 32)))
+dm-fo = specialize-r (Bytes 32 → Word) lnil dm-code
+mb1 = fprim P-store64 (lcons (fprim P-store32 (lcons (fprim P-bytes (lcons (flit #32) lnil)) (lcons (flit #0) (lcons (flit #1) lnil)))) (lcons (flit #8) (lcons (flit #500) lnil)))
+mb2 = fprim P-store64 (lcons (fprim P-store32 (lcons (fprim P-bytes (lcons (flit #32) lnil)) (lcons (flit #0) (lcons (flit #2) lnil)))) (lcons (flit #16) (lcons (flit #7) lnil)))
+#same eval-fo (λ g → flit #0) lnil (fapply dm-fo (lcons mb1 lnil)) = vw #500
+#same eval-fo (λ g → flit #0) lnil (fapply dm-fo (lcons mb2 lnil)) = vw #7
 -- ---------------------------------------------------------------- processes specialized (D24 with B15)
 -- a process run against its world, with the initial state unknown, specializes by normalization: pr1 puts before it gets, so its run is the constant 12
 -- whatever the store; pr4 reads key 3 of the store, so its run is a function of the store

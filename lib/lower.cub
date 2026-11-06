@@ -1,4 +1,4 @@
--- lib/lower.cub — lowering from codes to the first-order form (plan B14, B15 step 6). Loaded after
+-- lib/lower.cub — lowering from codes to the first-order form (plan B14, B15 step 6). Loaded after lib/std.cub,
 -- lib/check.cub (it reads the data table for the shapes of constructors) and lib/fo.cub.
 -- ---------------------------------------------------------------- shapes
 -- the kinds of a constructor's fields, by walking its telescope with fresh variables: a Lst of
@@ -16,6 +16,10 @@ cshape d c = tel-kinds d (fromopt (lnth (snd (params-fresh (dtel (%dent d)) lnil
 rec-fields ks i = case ks of lnil → lnil; lcons k r → if %weq (fst k) #1 then lcons i (rec-fields r (%wsucc i)) else rec-fields r (%wsucc i)
 lst-count l = case l of lnil → #0; lcons x xs → %wsucc (lst-count xs)
 -- ---------------------------------------------------------------- lowering
+-- Bool is a word in the first-order form (true 1, false 0, as the native comparisons answer):
+-- its constructors are literals and a case on it is an if
+bool-idx = case code Bool of cdata d ps → d; _ → #0
+lower-bool B x = case B of lcons t r → (case r of lcons f r2 → fif x (lower (strip-n #0 t)) (lower (strip-n #0 f)); _ → fnet #0 lnil); _ → fnet #0 lnil
 -- lower c: the first-order form of a code in the first-order fragment: variables, words and
 -- their operations, constructors and case, pairs, λ and application, let, word elimination as a
 -- loop. Any other form becomes a call into the net on the code itself (fnet, the code as its
@@ -33,9 +37,9 @@ lower c =
     csnd p → fproj #0 #0 #1 (lower p)
     clet t b → flet (lower t) (lower b)
     cann t T → lower t
-    ccon d k fs ds → fcon d k (lower-list fs)
-    ccase d B x → frec d (lower x) (lower-ralts d B #0)
-    celim d P B x → frec d (lower x) (lower-ralts d B #0)
+    ccon d k fs ds → if %weq d bool-idx then flit (if %weq k #0 then #1 else #0) else fcon d k (lower-list fs)
+    ccase d B x → if %weq d bool-idx then lower-bool B (lower x) else frec d (lower x) (lower-ralts d B #0)
+    celim d P B x → if %weq d bool-idx then lower-bool B (lower x) else frec d (lower x) (lower-ralts d B #0)
     cforce t → fforce (lower t)
     cwlit n → flit n
     cwsucc a → fprim P-add (lcons (lower a) (lcons (flit #1) lnil))

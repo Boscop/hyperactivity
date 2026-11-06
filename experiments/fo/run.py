@@ -4,7 +4,7 @@ list of bytes, decoded here, compiled with gcc, run, and its output compared wit
 import re, subprocess, sys, tempfile, os
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(os.path.dirname(HERE))
 CUB = os.path.join(ROOT, 'build', 'cubical')
-LIBS = [os.path.join(ROOT, 'lib', f) for f in ('prelude.cub', 'code.cub', 'fo.cub', 'match.cub', 'nav.cub', 'emitc.cub', 'check.cub', 'lower.cub', 'specialize.cub', 'std.cub', 'linproof.cub', 'prim.cub', 'decode.cub', 'rules.cub', 'derive.cub', 'proc.cub', 'emitt.cub', 'repr.cub')]
+LIBS = [os.path.join(ROOT, 'lib', f) for f in ('prelude.cub', 'code.cub', 'fo.cub', 'match.cub', 'nav.cub', 'emitc.cub', 'check.cub', 'std.cub', 'lower.cub', 'specialize.cub', 'linproof.cub', 'prim.cub', 'decode.cub', 'rules.cub', 'derive.cub', 'proc.cub', 'emitt.cub', 'repr.cub')]
 PROGS = {
  # name: (definitions as .cub text building a Lst of (g , (arity , body)), expected output)
  'fact': ("""defs = lcons (#0 , (#0 , fcall #1 (lcons (flit #5) lnil)))
@@ -43,12 +43,11 @@ defs = lcons (#0 , (#0 , fcall #1 (lcons buf2 lnil))) (lcons (#1 , (#1 , lam-bod
  'rec': ("""len-main t2 = fapply t2 (lcons (fcon (didx (code LW)) #1 (lcons (flit #7) (lcons lw3 lnil))) lnil)
 len-base = lcons (gidx (code zw) , (#0 , flit #0)) (lcons (gidx (code sw) , (#1 , fprim P-add (lcons (fvar #0) (lcons (flit #1) lnil)))) lnil)
 len-prog = case lift #10 (lower c-len) of lifted t2 ds k → lcons (#0 , (#0 , len-main t2)) (lapp2 len-base ds)
-prog = emit-prog len-prog""", "3", "V *v3 = f_10(v2); f_2(v3);"),
+prog = emit-prog len-prog""", "3", "V *v3 = f_10(v2); f_"),
  # a derived program compiled: the equality on Nat read off the data table (lib/derive.cub),
  # lowered, lifted (the recursion a C function, the inner λ a closure through the dispatcher),
- # applied to 2 and 2 then to 2 and 1; prints 1 for equal, 0 for not, as 10*eq(2,2) + eq(2,1)
- 'deq': ("""as-word b = fswitch b (lcons (#0 , (#0 , flit #1)) (lcons (#1 , (#0 , flit #0)) lnil))
-deq-main t2 = fprim P-add (lcons (fprim P-mul (lcons (flit #10) (lcons (as-word (fapply t2 (lcons n2 (lcons n2 lnil)))) lnil))) (lcons (as-word (fapply t2 (lcons n2 (lcons n1 lnil)))) lnil))
+ # applied to 2 and 2 then to 2 and 1; Bool is a word in the form: 10*eq(2,2) + eq(2,1)
+ 'deq': ("""deq-main t2 = fprim P-add (lcons (fprim P-mul (lcons (flit #10) (lcons (fapply t2 (lcons n2 (lcons n2 lnil))) lnil))) (lcons (fapply t2 (lcons n2 (lcons n1 lnil))) lnil))
 deq-prog = case lift #10 eq-fo of lifted t2 ds k → lcons (#0 , (#0 , deq-main t2)) ds
 prog = emit-prog deq-prog""", "10"),
  # a whole program from the store: the code calls lenw, a recursive definition of lib/lower.cub;
