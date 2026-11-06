@@ -1,0 +1,134 @@
+-- lib/lin.cub — linear arithmetic over codes: normal forms, equality, and certificate checking
+-- (plan 18.13, F32). Loaded after lib/code.cub, before lib/check.cub.
+-- The fragment: words built from literals (cwlit), variables (cvar), addition (cwop #2) and
+-- successor (cwsucc). A linear form is a constant and a list of (variable, coefficient) sorted by
+-- variable, coefficients nonzero. Two codes of the fragment denote equal words exactly when their
+-- forms are equal (the normalizer is complete for the commutative monoid of words under
+-- addition). For order over naturals: a ≤ b holds whenever b's form dominates a's pointwise
+-- (constant and every coefficient), since every variable is ≥ 0; a Farkas certificate for a goal
+-- under hypotheses h_i : l_i ≤ r_i is a list of nonnegative multipliers c_i, and the goal a ≤ b
+-- follows when a + Σ c_i r_i ≤ b + Σ c_i l_i pointwise. The checker verifies that; it does not
+-- search for the multipliers (18.13: search is unverified and separate). Soundness of the check
+-- is a theorem about these definitions (to be stated in lib/std.cub against the ring laws of
+-- plusw); the checker is the small verified part, the search the unverified part.
+-- ---------------------------------------------------------------- forms
+-- a form: constant, then the sorted coefficient list
+data Lin = lin (k : Word) (cs : Lst)
+-- coefficient lists: Lst of (variable , coefficient), sorted by variable, coefficients nonzero
+coef-add cs ds =
+  case cs of
+    lnil → ds
+    lcons p cr →
+      (case ds of
+         lnil → cs
+         lcons q dr →
+           if %wlt (fst p) (fst q) then lcons p (coef-add cr ds)
+           else if %wlt (fst q) (fst p) then lcons q (coef-add cs dr)
+           else lcons (fst p , %wadd (snd p) (snd q)) (coef-add cr dr))
+coef-scale c cs = if %weq c #0 then lnil else scale-go c cs
+scale-go c cs = case cs of lnil → lnil; lcons p r → lcons (fst p , wmulw c (snd p)) (scale-go c r)
+-- multiplication of words by repeated addition (B12 brings %wmul); coefficients are small
+wmulw a b = %welim a #0 (λ n h → %wadd h b)
+lin-add a b = case a of lin k cs → (case b of lin m ds → lin (%wadd k m) (coef-add cs ds))
+lin-scale c a = case a of lin k cs → lin (wmulw c k) (coef-scale c cs)
+lin-const k = lin k lnil
+lin-var v = lin #0 (lcons (v , #1) lnil)
+-- the form of a code of the fragment; none outside it
+linearize c =
+  case c of
+    cwlit n → some (lin-const n)
+    cvar v → some (lin-var v)
+    cwsucc a → omap (lin-add (lin-const #1)) (linearize a)
+    cwop o a b →
+      if %weq o #2
+        then obind (linearize a) (λ la → omap (lin-add la) (linearize b))
+        else none
+    cann t T → linearize t
+    _ → none
+obind o f = case o of none → none; some x → f x
+-- ---------------------------------------------------------------- equality and order
+coef-same cs ds =
+  case cs of
+    lnil → (case ds of lnil → true; _ → false)
+    lcons p r → (case ds of lcons q s → andb (%weq (fst p) (fst q)) (andb (%weq (snd p) (snd q)) (coef-same r s)); _ → false)
+lin-same a b = case a of lin k cs → (case b of lin m ds → andb (%weq k m) (coef-same cs ds))
+-- a ≤ b pointwise: every coefficient of a is ≤ b's (a variable absent from b has coefficient 0)
+coef-le cs ds =
+  case cs of
+    lnil → true
+    lcons p r →
+      (case ds of
+         lnil → false
+         lcons q s →
+           if %wlt (fst p) (fst q) then false
+           else if %wlt (fst q) (fst p) then coef-le cs s
+           else andb (notb (%wlt (snd q) (snd p))) (coef-le r s))
+lin-le a b = case a of lin k cs → (case b of lin m ds → andb (notb (%wlt m k)) (coef-le cs ds))
+-- decide a = b and a ≤ b on codes of the fragment, with no hypotheses
+dec-eq a b = case linearize a of some la → (case linearize b of some lb → lin-same la lb; none → false); none → false
+dec-le a b = case linearize a of some la → (case linearize b of some lb → lin-le la lb; none → false); none → false
+-- ---------------------------------------------------------------- certificates
+-- hypotheses: a Lst of (l , r) codes meaning l ≤ r; a certificate: a Lst of multipliers, one per
+-- hypothesis, in order. check-cert hs cert a b: a ≤ b follows
+sum-scaled hs cert pick =
+  case hs of
+    lnil → some (lin-const #0)
+    lcons h hr →
+      (case cert of
+         lnil → none
+         lcons c cr →
+           obind (linearize (pick h)) (λ lh →
+             obind (sum-scaled hr cr pick) (λ rest → some (lin-add (lin-scale c lh) rest))))
+check-cert hs cert a b =
+  case linearize a of
+    none → false
+    some la →
+      (case linearize b of
+         none → false
+         some lb →
+           (case sum-scaled hs cert (λ h → snd h) of
+              none → false
+              some sr →
+                (case sum-scaled hs cert (λ h → fst h) of
+                   none → false
+                   some sl → lin-le (lin-add la sr) (lin-add lb sl))))
+-- ---------------------------------------------------------------- search (unverified)
+-- find a certificate with multipliers up to m per hypothesis, by enumeration: small problems
+-- only (the validity facts of a decoder have a handful of hypotheses). What it returns is checked
+-- by check-cert before use, so nothing here is trusted
+find-cert m hs a b = search-cert m (lst-len hs) hs a b lnil
+lst-len l = case l of lnil → #0; lcons x xs → %wsucc (lst-len xs)
+-- enumerate multiplier lists of length n over 0..m, left to right, checking each complete one
+search-cert m n hs a b acc =
+  if %weq n #0
+    then (if check-cert hs (lst-rev acc) a b then some (lst-rev acc) else none)
+    else try-from #0 m n hs a b acc
+try-from c m n hs a b acc =
+  if %wlt m c then none
+  else (case search-cert m (%wsub n #1) hs a b (lcons c acc) of
+          some r → some r
+          none → try-from (%wsucc c) m n hs a b acc)
+lst-rev l = rev-onto l lnil
+rev-onto l acc = case l of lnil → acc; lcons x xs → rev-onto xs (lcons x acc)
+-- ---------------------------------------------------------------- readings
+-- x + (1 + x) = 2x + 1 as codes (x is variable 0)
+e1 = cwop #2 (cvar #0) (cwsucc (cvar #0))
+e2 = cwop #2 (cwop #2 (cvar #0) (cvar #0)) (cwlit #1)
+#same dec-eq e1 e2 = true
+#same dec-eq e1 (cwop #2 (cvar #0) (cvar #0)) = false
+-- order: x + 4 ≤ x + 64 ; x + 4 ≤ y + 64 is not decided without a hypothesis
+#same dec-le (cwop #2 (cvar #0) (cwlit #4)) (cwop #2 (cvar #0) (cwlit #64)) = true
+#same dec-le (cwop #2 (cvar #0) (cwlit #4)) (cwop #2 (cvar #1) (cwlit #64)) = false
+-- the decoder's obligation: off + 4 ≤ n from the hypotheses off ≤ i and i + 8 ≤ n (variables:
+-- off 0, i 1, n 2), with multipliers 1 and 1:
+--   off + 4 + (i + (i + 8)) ≤ n + (off + i)  pointwise? left: off + 2i + 12 ; right: off + i + n:
+--   no. With the hypothesis i + 8 ≤ n alone (multiplier 1): off + 4 + n ≤ n + i + 8 needs off ≤ i;
+--   both hypotheses, multipliers 1 and 1: off + 4 + i + n ≤ n + off + i + 8: yes (4 ≤ 8)
+hs1 = lcons (cvar #0 , cvar #1) (lcons (cwop #2 (cvar #1) (cwlit #8) , cvar #2) lnil)
+#same check-cert hs1 (lcons #1 (lcons #1 lnil)) (cwop #2 (cvar #0) (cwlit #4)) (cvar #2) = true
+#same check-cert hs1 (lcons #0 (lcons #1 lnil)) (cwop #2 (cvar #0) (cwlit #4)) (cvar #2) = false
+-- a wrong certificate (too few multipliers) is refused
+#same check-cert hs1 (lcons #1 lnil) (cwop #2 (cvar #0) (cwlit #4)) (cvar #2) = false
+-- the search finds the certificate above, and finds none when the goal does not follow
+#same find-cert #2 hs1 (cwop #2 (cvar #0) (cwlit #4)) (cvar #2) = some (lcons #1 (lcons #1 lnil))
+#same find-cert #2 hs1 (cwop #2 (cvar #0) (cwlit #9)) (cvar #2) = none
