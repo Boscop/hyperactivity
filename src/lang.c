@@ -23,40 +23,80 @@ static void die(const char *m, const char *x) {
 }
 
 /* ---------------- s-expressions ---------------- */
-typedef struct Node { int list; char *s; int n; struct Node **it; char *cmt; short hk; } Node;   /* hk: a symbol's binder/head class, once found (hk_of) */   /* hk: a symbol's binder/head class, once found (hk_of) */
+typedef struct Node { int list; char *s; int n; struct Node **it; char *cmt; short hk; struct Names *fv; } Node;   /* hk: a symbol's binder/head class, once found (hk_of); fv: the free names of a desugared term, once found (free_vars). s: interned, one pointer per spelling */
 /* nodes are never freed: they come from a bump arena of zeroed chunks */
 /* The node arena: bump allocation in 1 MB chunks. Compiling a term makes nodes nothing keeps
  * (desugaring, generated binders; the compiled form is Syn and Records, which hold no node): a
  * mark taken before and released after frees them. Parsed source and elaborated forms, which
  * tables and the module cache keep, are made outside any mark */
-typedef struct Chunk { struct Chunk *prev; size_t cap; char data[]; } Chunk;
+typedef struct Chunk { struct Chunk *prev; size_t cap, used; char data[]; } Chunk;   /* used: how far this chunk was ever filled */
 typedef struct { Chunk *c; char *p; } ArMark;
-static Chunk *ar_cur; static char *ar_p, *ar_end;
+static Chunk *ar_cur, *ar_spare; static char *ar_p, *ar_end;
 static void *ar_alloc(size_t n) {
     n = (n + 15) & ~(size_t)15;
     if ((size_t)(ar_end - ar_p) < n) {
-        size_t c = n > (1u << 20) ? n : (1u << 20);
-        Chunk *k = calloc(1, sizeof(Chunk) + c); if (!k) { fputs("out of memory\n", stderr); exit(2); }
-        k->prev = ar_cur; k->cap = c; ar_cur = k;
-        ar_p = k->data; ar_end = ar_p + c;
+        if (ar_cur) ar_cur->used = (size_t)(ar_p - ar_cur->data);
+        Chunk *k = NULL;
+        if (n <= (1u << 20) && ar_spare) { k = ar_spare; ar_spare = k->prev; }   /* a released chunk: zeroed where it was used */
+        else {
+            size_t c = n > (1u << 20) ? n : (1u << 20);
+            k = calloc(1, sizeof(Chunk) + c); if (!k) { fputs("out of memory\n", stderr); exit(2); }
+            k->cap = c;
+        }
+        k->prev = ar_cur; k->used = 0; ar_cur = k;
+        ar_p = k->data; ar_end = ar_p + k->cap;
     }
     void *r = ar_p; ar_p += n; return r;
 }
 static ArMark ar_mark(void) { return (ArMark){ ar_cur, ar_p }; }
+/* nodes are made from zeroed memory, so what was used since the mark is zeroed again: the mark's
+ * chunk from the mark to where its use reached, and each later chunk over what it used; those
+ * chunks are kept for the next allocations (a chunk a megabyte wide is not zeroed whole again) */
 static void ar_release(ArMark m) {
-    /* nodes are made from zeroed memory: what was used since the mark is zeroed again (the mark's
-     * chunk from the mark to where its use reached; later chunks are freed) */
-    char *used_to = ar_cur == m.c ? ar_p : (m.c ? m.c->data + m.c->cap : NULL);
-    while (ar_cur != m.c) { Chunk *k = ar_cur; ar_cur = k->prev; free(k); }
+    if (ar_cur) ar_cur->used = (size_t)(ar_p - ar_cur->data);
+    while (ar_cur != m.c) {
+        Chunk *k = ar_cur; ar_cur = k->prev;
+        if (k->cap > (1u << 20)) free(k);   /* an oversized one-off */
+        else { memset(k->data, 0, k->used); k->used = 0; k->prev = ar_spare; ar_spare = k; }
+    }
     ar_p = m.p; ar_end = ar_cur ? ar_cur->data + ar_cur->cap : NULL;
-    if (ar_cur && used_to > ar_p) memset(ar_p, 0, (size_t)(used_to - ar_p));
+    if (ar_cur && ar_cur->data + ar_cur->used > ar_p) memset(ar_p, 0, (size_t)(ar_cur->data + ar_cur->used - ar_p));
 }
 static char *ar_strdup(const char *s) { size_t l = strlen(s) + 1; char *r = ar_alloc(l); memcpy(r, s, l); return r; }
-static Node *nsym(const char *s) { Node *x = ar_alloc(sizeof(Node)); x->s = ar_strdup(s); return x; }
+/* Symbols are interned: one copy of each spelling, kept for the run, so names compare by
+ * pointer (the binder lookups, the name sets of free_vars and local_free) */
+static size_t kw_hash(const char *s);
+static char **SYMS; static size_t symcap, symn;
+static char *intern(const char *s) {
+    if (symn * 2 >= symcap) {
+        size_t nc = symcap ? symcap * 2 : 4096; char **nt = calloc(nc, sizeof(char *));
+        for (size_t i = 0; i < symcap; i++) if (SYMS[i]) { size_t q = kw_hash(SYMS[i]) & (nc - 1); while (nt[q]) q = (q + 1) & (nc - 1); nt[q] = SYMS[i]; }
+        free(SYMS); SYMS = nt; symcap = nc;
+    }
+    size_t q = kw_hash(s) & (symcap - 1);
+    for (; SYMS[q]; q = (q + 1) & (symcap - 1)) if (SYMS[q] == s || (SYMS[q][0] == s[0] && !strcmp(SYMS[q], s))) return SYMS[q];
+    size_t l = strlen(s) + 1; unsigned *m = malloc(sizeof(unsigned) * 2 + l); m[0] = 0; m[1] = 0; char *r = (char *)(m + 2); memcpy(r, s, l);
+    SYMS[q] = r; symn++;
+    return r;
+}
+/* a mark on an interned name (kept just before its characters): the merge of name sets */
+static inline unsigned sym_mark(const char *x) { return ((const unsigned *)x)[-2]; }
+static inline void sym_mark_set(const char *x, unsigned e) { ((unsigned *)x)[-2] = e; }
+static Node *nsym(const char *s) { Node *x = ar_alloc(sizeof(Node)); x->s = intern(s); return x; }
+/* a string literal's interned pointer, by the literal's address (a literal's contents never
+ * change, so the address identifies it); not for buffers */
+static const char *intern_lit(const char *lit) {
+    static const char *K[1024], *V[1024];
+    size_t i = ((uintptr_t)lit >> 3) & 1023;
+    for (int k = 0; k < 8; k++, i = (i + 1) & 1023) { if (K[i] == lit) return V[i]; if (!K[i]) { K[i] = lit; return V[i] = intern(lit); } }
+    return intern(lit);
+}
+static Node *nsyml(const char *lit) { Node *x = ar_alloc(sizeof(Node)); x->s = intern_lit(lit); return x; }
+#define IS(k, lit) ((k) == intern_lit(lit))   /* k: a symbol's interned string */
 static Node *nlist(int n) { Node *x = ar_alloc(sizeof(Node)); x->list = 1; x->n = n; x->it = ar_alloc(((size_t)n + 1) * sizeof(Node *)); return x; }
-static Node *nl2(const char *h, Node *a) { Node *x = nlist(2); x->it[0] = nsym(h); x->it[1] = a; return x; }
-static Node *nl3(const char *h, Node *a, Node *b) { Node *x = nlist(3); x->it[0] = nsym(h); x->it[1] = a; x->it[2] = b; return x; }
-static Node *nl4(const char *h, Node *a, Node *b, Node *c) { Node *x = nlist(4); x->it[0] = nsym(h); x->it[1] = a; x->it[2] = b; x->it[3] = c; return x; }
+static Node *nl2(const char *h, Node *a) { Node *x = nlist(2); x->it[0] = nsyml(h); x->it[1] = a; return x; }   /* h: a literal */
+static Node *nl3(const char *h, Node *a, Node *b) { Node *x = nlist(3); x->it[0] = nsyml(h); x->it[1] = a; x->it[2] = b; return x; }
+static Node *nl4(const char *h, Node *a, Node *b, Node *c) { Node *x = nlist(4); x->it[0] = nsyml(h); x->it[1] = a; x->it[2] = b; x->it[3] = c; return x; }
 
 static const char *src;
 /* comments, kept (for printing a file in the surface language) when asked */
@@ -109,7 +149,7 @@ static Node *read_node(void) {
         o->items[o->n++] = x;
     }
 }
-static bool is(Node *x, const char *s) { return x && !x->list && strcmp(x->s, s) == 0; }
+static bool is(Node *x, const char *s) { return x && !x->list && (x->s == s || strcmp(x->s, s) == 0); }
 /* the head classes the compiler's walks dispatch on, found once per symbol node (not by a chain of
  * strcmp at every visit) */
 enum { H_NONE = 1, H_LAM, H_PLAM, H_FORALL, H_LET, H_THE, H_CON, H_DATA, H_TRANSD, H_RECORD, H_BRANCHES, H_EQ, H_VAR, H_DIM, H_HOLE };
@@ -117,8 +157,10 @@ static int hk_of(Node *h) {
     if (h->list) return H_NONE;
     if (!h->hk) {
         static const char *nm[] = { "lam", "plam", "forall", "let", "the", "%con", "%data", "%transD", "%record", "%branches", "=", "%var", "%dim", "%hole" };
+        static const char *in[sizeof nm / sizeof *nm]; static bool built;
+        if (!built) { for (int i = 0; i < (int)(sizeof nm / sizeof *nm); i++) in[i] = intern(nm[i]); built = true; }
         int k = H_NONE;
-        for (int i = 0; i < (int)(sizeof nm / sizeof *nm); i++) if (!strcmp(h->s, nm[i])) { k = H_LAM + i; break; }
+        for (int i = 0; i < (int)(sizeof nm / sizeof *nm); i++) if (h->s == in[i]) { k = H_LAM + i; break; }   /* symbols are interned */
         h->hk = (short)k;
     }
     return h->hk;
@@ -183,7 +225,7 @@ static int con_lookup(const char *s) {
         }
         conh_built = ncon;
     }
-    for (size_t j = kw_hash(s) & (capCONH - 1); CONH[j] >= 0; j = (j + 1) & (capCONH - 1)) if (!strcmp(CON[CONH[j]].name, s)) return CONH[j];
+    for (size_t j = kw_hash(s) & (capCONH - 1); CONH[j] >= 0; j = (j + 1) & (capCONH - 1)) if (CON[CONH[j]].name == s || !strcmp(CON[CONH[j]].name, s)) return CONH[j];
     return -1;
 }
 int con_index(const char *name) { return con_lookup(name); }
@@ -198,44 +240,58 @@ long global_lookup(const char *name);
 static bool constant_sym(const char *s);
 /* the local variables free in a desugared term, in order of first occurrence: symbols not
  * bound within it, not global, not constants, not keywords */
-typedef struct { const char **v; int n, cap; } Names;
-static bool names_has(const Names *s, const char *x) { for (int i = 0; i < s->n; i++) if (s->v[i][0] == x[0] && !strcmp(s->v[i], x)) return true; return false; }
-static void names_add(Names *s, const char *x) { if (names_has(s, x)) return; if (s->n == s->cap) { s->cap = s->cap ? s->cap * 2 : 8; s->v = realloc(s->v, (size_t)s->cap * sizeof(char *)); } s->v[s->n++] = x; }
-static void free_vars(Node *t, Names *bound, Names *out) {
+typedef struct Names { const char **v; int n, cap; } Names;   /* interned names: compared by pointer */
+static bool names_has_i(const Names *s, const char *x) { for (int i = 0; i < s->n; i++) if (s->v[i] == x) return true; return false; }   /* x interned */
+static bool names_has(const Names *s, const char *x) { return names_has_i(s, intern(x)); }
+static void names_add(Names *s, const char *x) { x = intern(x); for (int i = 0; i < s->n; i++) if (s->v[i] == x) return; if (s->n == s->cap) { s->cap = s->cap ? s->cap * 2 : 8; s->v = realloc(s->v, (size_t)s->cap * sizeof(char *)); } s->v[s->n++] = x; }
+/* the free names of t in order of first occurrence, found once per node (fv) from its parts'
+ * sets: a term nested in several case branches is walked once, not once per enclosing case.
+ * Names bound inside t are left out; which free names a binder outside t covers is the caller's
+ * (free_vars) */
+static Names *fvs(Node *t) {
+    if (t->fv) return t->fv;
+    Names *r = ar_alloc(sizeof(Names));
     if (!t->list) {
         const char *x = t->s;
-        if (names_has(bound, x) || constant_sym(x) || keyword(x) || global_lookup(x) >= 0) return;
-        if ((x[0] >= '0' && x[0] <= '9') || x[0] == '-') return;
-        names_add(out, x);
-        return;
+        if (!(constant_sym(x) || keyword(x) || global_lookup(x) >= 0 || (x[0] >= '0' && x[0] <= '9') || x[0] == '-')) {
+            r->v = ar_alloc(sizeof(char *)); r->v[0] = x; r->n = r->cap = 1;
+        }
+        return t->fv = r;
     }
-    if (t->n == 0) return;
-    Node *h = t->it[0];
-    if (!h->list) {
+    const char *skip[2] = { NULL, NULL }; int from = 0, to = t->n;
+    Node *h = t->n ? t->it[0] : NULL;
+    if (h && !h->list) {
         int hk = hk_of(h);
-        if ((hk == H_LAM || hk == H_PLAM || hk == H_FORALL) && t->n == 3) {
-            int save = bound->n; names_add(bound, param_name(t->it[1])->s);
-            bool added = bound->n > save;
-            free_vars(t->it[2], bound, out);
-            if (added) bound->n = save;
-            return;
-        }
-        if (hk == H_LET && t->n == 4) {
-            free_vars(t->it[2], bound, out);
-            int save = bound->n; names_add(bound, t->it[1]->s);
-            bool added = bound->n > save;
-            free_vars(t->it[3], bound, out);
-            if (added) bound->n = save;
-            return;
-        }
-        int from = 1;
-        if (hk == H_CON || hk == H_DATA || hk == H_TRANSD || hk == H_RECORD) from = 2;
-        if (hk == H_BRANCHES) from = 4;
-        if (hk == H_EQ) { free_vars(t->it[1], bound, out); return; }
-        for (int i = from; i < t->n; i++) free_vars(t->it[i], bound, out);
-        return;
+        from = 1;
+        if ((hk == H_LAM || hk == H_PLAM || hk == H_FORALL) && t->n == 3) { skip[0] = param_name(t->it[1])->s; from = 2; }
+        else if (hk == H_LET && t->n == 4) { skip[1] = t->it[1]->s; from = 2; }   /* bound in the body only */
+        else if (hk == H_CON || hk == H_DATA || hk == H_TRANSD || hk == H_RECORD) from = 2;
+        else if (hk == H_BRANCHES) from = 4;
+        else if (hk == H_EQ) to = 2;
     }
-    for (int i = 0; i < t->n; i++) free_vars(t->it[i], bound, out);
+    /* merge the parts' sets, first occurrence first (a mark per name for this merge) */
+    int cnt = 0;
+    for (int i = from; i < to; i++) cnt += fvs(t->it[i])->n;
+    const char **v = cnt ? ar_alloc((size_t)cnt * sizeof(char *)) : NULL; int n = 0;
+    if (cnt) {
+        static unsigned epoch; unsigned e = ++epoch;
+        for (int i = from; i < to; i++) {
+            const Names *f = fvs(t->it[i]);
+            bool body = skip[1] && i == 3;
+            for (int k = 0; k < f->n; k++) {
+                const char *x = f->v[k];
+                if (x == skip[0] || (body && x == skip[1])) continue;
+                if (sym_mark(x) == e) continue;
+                sym_mark_set(x, e); v[n++] = x;
+            }
+        }
+    }
+    r->v = v; r->n = r->cap = n;
+    return t->fv = r;
+}
+static void free_vars(Node *t, Names *bound, Names *out) {
+    const Names *f = fvs(t);
+    for (int k = 0; k < f->n; k++) if (!names_has_i(bound, f->v[k])) names_add(out, f->v[k]);
 }
 /* does t refer to the free name x (not rebound inside)? */
 static bool mentions_name(Node *t, const char *x) {
@@ -270,17 +326,17 @@ static Node *ds(Node *t) {
     Node *h = t->it[0];
     if (!h->list && keyword(h->s)) {
         const char *k = h->s;
-        if (!strcmp(k, "delay")) { arity(t, 1); return nl2("thunk", ds(t->it[1])); }
+        if (IS(k, "delay")) { arity(t, 1); return nl2("thunk", ds(t->it[1])); }
         /* a term already desugared (an annotated code) */
-        if (!strcmp(k, "%raw")) { arity(t, 1); return t->it[1]; }
-        if (!strcmp(k, "force")) { arity(t, 1); return nl2("force", ds(t->it[1])); }
-        if (!strcmp(k, "%rebuilt")) { arity(t, 1); return nl2("%rebuilt", ds(t->it[1])); }
+        if (IS(k, "%raw")) { arity(t, 1); return t->it[1]; }
+        if (IS(k, "force")) { arity(t, 1); return nl2("force", ds(t->it[1])); }
+        if (IS(k, "%rebuilt")) { arity(t, 1); return nl2("%rebuilt", ds(t->it[1])); }
         /* elaboration: a hole (an implicit argument to find), a guessed λ or application, a spine
          * with holes */
-        if (!strcmp(k, "%hole")) { arity(t, 1); return t; }
-        if (!strcmp(k, "%guess")) { arity(t, 3); return nl4("%guess", t->it[1], t->it[2], ds(t->it[3])); }
-        if (!strcmp(k, "%spine")) { arity(t, 1); return nl2("%spine", ds(t->it[1])); }
-        if (!strcmp(k, "record")) {
+        if (IS(k, "%hole")) { arity(t, 1); return t; }
+        if (IS(k, "%guess")) { arity(t, 3); return nl4("%guess", t->it[1], t->it[2], ds(t->it[3])); }
+        if (IS(k, "%spine")) { arity(t, 1); return nl2("%spine", ds(t->it[1])); }
+        if (IS(k, "record")) {
             /* (record [D] (f t)...): a copattern, one term per field of the codata type D, in any
              * order; desugared to (%record D t...) in the declared order */
             int from = 1, d = -1;
@@ -305,12 +361,12 @@ static Node *ds(Node *t) {
             if (t->n - from != nf) die("record: a field given twice", NULL);
             return r;
         }
-        if (!strcmp(k, "rec")) {
+        if (IS(k, "rec")) {
             arity(t, 1);
             if (!t->it[1]->list) for (int i = nrs - 1; i >= 0; i--) if (!strcmp(rs_field[i], t->it[1]->s)) return nl2("force", nsym(rs_ih[i]));
             die("rec of a name that is not a recursive field of its branch:", t->it[1]->list ? "(...)" : t->it[1]->s);
         }
-        if (!strcmp(k, "if")) {
+        if (IS(k, "if")) {
             /* elimination of Bool */
             arity(t, 3);
             Node *c = nlist(4); c->it[0] = nsym("case"); c->it[1] = t->it[1];
@@ -319,10 +375,10 @@ static Node *ds(Node *t) {
             c->it[2] = bt; c->it[3] = bf;
             return ds(c);
         }
-        if (!strcmp(k, "case") || !strcmp(k, "elim")) {
+        if (IS(k, "case") || IS(k, "elim")) {
             /* (case e branch...) and (elim P e branch...): one branch per constructor,
              * a λ over its fields and dimensions returning a thunk of the body */
-            bool el = !strcmp(k, "elim");
+            bool el = IS(k, "elim");
             int first = el ? 3 : 2;
             if (t->n < first + 1) die(el ? "(elim P e branch...)" : "(case e branch...)", NULL);
             int d = -1; Node *dflt = NULL; Node *dname = NULL;
@@ -454,10 +510,10 @@ static Node *ds(Node *t) {
             if (el) { Node *r = nlist(5); r->it[0] = nsym("%case"); r->it[1] = B; r->it[2] = ds(t->it[1]); r->it[3] = env; r->it[4] = ds(t->it[2]); return r; }
             return nl4("%case", B, env, ds(t->it[1]));
         }
-        if (!strcmp(k, "lam") || !strcmp(k, "plam")) { if (t->n < 3) die("binder without body", NULL); return ds_lam(t->it + 1, t->n - 2, t->it[t->n - 1], k); }
-        if (!strcmp(k, "forall")) { arity(t, 2); return nl3("forall", t->it[1], ds(t->it[2])); }
-        if (!strcmp(k, "let")) { arity(t, 3); return nl4("let", t->it[1], ds(t->it[2]), ds(t->it[3])); }
-        if ((!strcmp(k, "Pi") || !strcmp(k, "Sigma")) && t->n == 3 && t->it[1]->list && t->it[1]->n >= 1 && t->it[1]->it[0]->list) {
+        if (IS(k, "lam") || IS(k, "plam")) { if (t->n < 3) die("binder without body", NULL); return ds_lam(t->it + 1, t->n - 2, t->it[t->n - 1], k); }
+        if (IS(k, "forall")) { arity(t, 2); return nl3("forall", t->it[1], ds(t->it[2])); }
+        if (IS(k, "let")) { arity(t, 3); return nl4("let", t->it[1], ds(t->it[2]), ds(t->it[3])); }
+        if ((IS(k, "Pi") || IS(k, "Sigma")) && t->n == 3 && t->it[1]->list && t->it[1]->n >= 1 && t->it[1]->it[0]->list) {
             /* a telescope: (Pi ((x A) (y B) ...) C) */
             Node *tel = t->it[1], *r = t->it[2];
             for (int q = tel->n - 1; q >= 0; q--) {
@@ -467,14 +523,14 @@ static Node *ds(Node *t) {
             }
             return ds(r);
         }
-        if (!strcmp(k, "Pi") || !strcmp(k, "Sigma")) {
+        if (IS(k, "Pi") || IS(k, "Sigma")) {
             Node *x, *A, *B;
             if (t->n == 4) { x = t->it[1]; A = t->it[2]; B = t->it[3]; }
             else if (t->n == 3 && t->it[1]->list && t->it[1]->n == 2) { x = t->it[1]->it[0]; A = t->it[1]->it[1]; B = t->it[2]; }
             else die("malformed", k);
             return nl3(k, ds(A), nl3("lam", x, ds(B)));
         }
-        if (!strcmp(k, "sys")) {
+        if (IS(k, "sys")) {
             Node *r = nlist(1); r->it[0] = nsym("sys0");
             for (int i = t->n - 1; i >= 1; i--) {
                 Node *br = t->it[i];
@@ -483,16 +539,16 @@ static Node *ds(Node *t) {
             }
             return r;
         }
-        if (!strcmp(k, "sys+")) { arity(t, 3); return nl4("sys+", ds(t->it[1]), nl2("thunk", ds(t->it[2])), ds(t->it[3])); }
-        if (!strcmp(k, "U")) {
+        if (IS(k, "sys+")) { arity(t, 3); return nl4("sys+", ds(t->it[1]), nl2("thunk", ds(t->it[2])), ds(t->it[3])); }
+        if (IS(k, "U")) {
             /* the level is kept for codes: a numeral, or a level expression */
             if (t->n > 2) die("(U [level])", NULL);
             if (t->n == 2 && !(t->it[1]->s && t->it[1]->s[0] >= '0' && t->it[1]->s[0] <= '9')) return nl2("U", ds(t->it[1]));
             return t;
         }
-        if (!strcmp(k, "the")) { arity(t, 2); return nl3("the", ds(t->it[1]), ds(t->it[2])); }
-        if (!strcmp(k, "code")) { arity(t, 1); return to_code(ds(t->it[1])); }
-        if (!strcmp(k, "/\\") || !strcmp(k, "\\/") || !strcmp(k, "&") || !strcmp(k, "|")) {
+        if (IS(k, "the")) { arity(t, 2); return nl3("the", ds(t->it[1]), ds(t->it[2])); }
+        if (IS(k, "code")) { arity(t, 1); return to_code(ds(t->it[1])); }
+        if (IS(k, "/\\") || IS(k, "\\/") || IS(k, "&") || IS(k, "|")) {
             if (t->n < 3) die("too few operands for", k);
             Node *r = ds(t->it[1]);
             for (int i = 2; i < t->n; i++) r = nl3(k, r, ds(t->it[i]));
@@ -501,10 +557,10 @@ static Node *ds(Node *t) {
         static const struct { const char *k; int n; } AR[] = { { "pair", 2 }, { "fst", 1 }, { "snd", 1 }, { "PathP", 3 },
             { "~", 1 }, { "=", 2 }, { "faceof", 1 }, { "sysmap", 2 }, { "comp", 3 }, { "Glue", 2 }, { "glue", 2 },
             { "unglue", 2 }, { "app", 2 }, { "hcompD", 2 }, { NULL, 0 } };
-        if (!strcmp(k, "@")) { if (t->n != 3 && t->n != 5) die("@ takes a path, an interval and optionally both endpoints", NULL); }
+        if (IS(k, "@")) { if (t->n != 3 && t->n != 5) die("@ takes a path, an interval and optionally both endpoints", NULL); }
         else for (int i = 0; AR[i].k; i++) if (!strcmp(AR[i].k, k)) arity(t, AR[i].n);
         Node *r = nlist(t->n); r->it[0] = h;
-        for (int i = 1; i < t->n; i++) r->it[i] = (!strcmp(k, "=") && i == 2) ? t->it[i] : ds(t->it[i]);
+        for (int i = 1; i < t->n; i++) r->it[i] = (IS(k, "=") && i == 2) ? t->it[i] : ds(t->it[i]);
         return r;
     }
     Node *f = ds(h);
@@ -523,7 +579,7 @@ static int *CHKDATA; static size_t capchkdata; static int nchkdata;   /* checked
 /* hidden: an entry no source name refers to (a rejected definition, a codata type's generated
  * composition and record) */
 static bool *CHKHIDE; static size_t capchkhide;
-static int checked_index(const char *s) { for (int i = nchecked - 1; i >= 0; i--) if (!CHKHIDE[i] && !strcmp(CHECKED[i], s)) return i; return -1; }
+static int checked_index(const char *s) { for (int i = nchecked - 1; i >= 0; i--) if (!CHKHIDE[i] && (CHECKED[i] == s || !strcmp(CHECKED[i], s))) return i; return -1; }
 static int chk_index(int d) { for (int i = 0; i < nchkdata; i++) if (CHKDATA[i] == d) return i; return -1; }
 int data_checked_index(int d) { return chk_index(d); }
 /* the checker's tables: entry i of each is a global, so a lookup is a reference */
@@ -1198,7 +1254,7 @@ static Level *levels; static size_t caplevels; static int nlevels;
 static const char **shadow; static size_t capshadow; static int nshadow;
 
 static Syn *syn(int tag, int n) { Syn *s = calloc(1, sizeof(Syn)); s->tag = tag; s->n = n; s->k = calloc((size_t)n + 1, sizeof(Syn *)); return s; }
-static Bind *lookup(const char *name) { size_t h = kw_hash(name); for (int i = nbinds - 1; i >= 0; i--) if (binds[i].h == h && !strcmp(binds[i].name, name)) return &binds[i]; return NULL; }
+static Bind *lookup(const char *name) { size_t h = kw_hash(name); for (int i = nbinds - 1; i >= 0; i--) if (binds[i].h == h && (binds[i].name == name || !strcmp(binds[i].name, name))) return &binds[i]; return NULL; }
 static bool constant_sym(const char *s);
 static void push_bind(const char *name, int level, int slot) {
     if (constant_sym(name)) die("a constant cannot be bound:", name);
@@ -1228,7 +1284,7 @@ static int ml_cut = 1 << 30;
 static int maxlev(Node *t) {
     if (!t->list) {
         if (constant_sym(t->s)) return -1;
-        for (int i = nshadow - 1; i >= 0; i--) if (shadow[i][0] == t->s[0] && !strcmp(shadow[i], t->s)) return -1;
+        for (int i = nshadow - 1; i >= 0; i--) if (shadow[i] == t->s) return -1;   /* interned */
         Bind *b = lookup(t->s);
         return b ? b->level : -1;
     }
@@ -1794,16 +1850,21 @@ static Syn *compile(Node *t) {
 }
 /* compile a closed top-level term into a frame of its own */
 static bool top_lazy;    /* a definition's body: built when first used */
-static Syn *compile_top(Node *t, int *nslots, int **uses) {
+/* a desugared term compiled at the top level (the caller holds the arena mark) */
+static Syn *compile_top_ds(Node *d, int *nslots, int **uses) {
     nbinds = 0; nlevels = 1;
     GROW(levels, caplevels, 1);
     levels[0] = (Level){ 0 };
-    ArMark m = ar_mark();   /* the desugared term and the binders made for it live until compiled */
-    Syn *s = top_lazy ? compile_lazy(ds(t)) : compile(ds(t));
-    ar_release(m);
+    Syn *s = top_lazy ? compile_lazy(d) : compile(d);
     *nslots = levels[0].nslots; *uses = levels[0].uses;
     if (!*uses) *uses = calloc(1, sizeof(int));
     nlevels = 0;
+    return s;
+}
+static Syn *compile_top(Node *t, int *nslots, int **uses) {
+    ArMark m = ar_mark();   /* the desugared term and the binders made for it live until compiled */
+    Syn *s = compile_top_ds(ds(t), nslots, uses);
+    ar_release(m);
     return s;
 }
 static Port build_top(Node *t) { int ns; int *u; Syn *s = compile_top(t, &ns, &u); return top_build(s, ns, u); }
@@ -2481,7 +2542,7 @@ static int sig_add(const char *name, long g, long tyg, bool hidden) {
     table_set(TB_TY, nchecked, tyg);
     GROW(CHECKED, capchecked, (size_t)nchecked + 1);
     GROW(CHKHIDE, capchkhide, (size_t)nchecked + 1);
-    CHECKED[nchecked] = strdup(name); CHKHIDE[nchecked] = hidden;
+    CHECKED[nchecked] = intern(name); CHKHIDE[nchecked] = hidden;
     if (g >= 0) G[g].chk = nchecked;
     return nchecked++;
 }
@@ -2629,8 +2690,11 @@ static void toplevel(Node *f) {
         || !strcmp(h, "checked-codata-fail") || !strcmp(h, "mutual-fail") || !strcmp(h, "same") || !strcmp(h, "show") || !strcmp(h, "same-watch") || !strcmp(h, "observe"))) return;
     if (!strcmp(h, "def")) {
         if (f->n != 3) die("(def name term)", NULL);
-        if (!plain_def && copattern_body(ds(f->it[2]))) {
+        ArMark dm = ar_mark();
+        Node *dsb = ds(f->it[2]);   /* desugared once: the copattern test, the strictness analysis, the body and its n-ary form read it */
+        if (!plain_def && copattern_body(dsb)) {
             /* a copattern definition: its value is its stuck head */
+            ar_release(dm);
             long g = cofix_declare(f->it[1]->s, -1);
             cofix_body(g, f->it[2]);
             return;
@@ -2643,7 +2707,7 @@ static void toplevel(Node *f) {
         prof_enter(f->it[1]->s);
         {
             /* the parameters its body always reads */
-            Node *b = ds(f->it[2]); int np = 0; const char *pn[64];
+            Node *b = dsb; int np = 0; const char *pn[64];
             G[g].nparams = 0; G[g].strict = 0;
             while (b->list && b->n == 3 && is(b->it[0], "lam") && np < 64) { pn[np++] = param_name(b->it[1])->s; b = b->it[2]; }
             uint64_t m = 0;
@@ -2658,12 +2722,12 @@ static void toplevel(Node *f) {
             G[g].nparams = np; G[g].strict = m;
         }
         top_lazy = true;
-        Syn *s = compile_top(f->it[2], &ns, &u);
+        Syn *s = compile_top_ds(dsb, &ns, &u);
         top_lazy = false;
         G[g].body = s; G[g].nslots = ns; G[g].uses = u;
         {
             /* the body with all its parameters at once */
-            Node *b = ds(f->it[2]); int np = 0;
+            Node *b = dsb; int np = 0;
             Node *pn[256];
             while (b->list && b->n == 3 && is(b->it[0], "lam") && np < 256) { pn[np++] = param_name(b->it[1]); b = b->it[2]; }
             if (np >= 1) {
@@ -2673,6 +2737,7 @@ static void toplevel(Node *f) {
                 nlevels = 0;
             }
         }
+        ar_release(dm);
         prof_cur = 0;
         link(top_build(s, ns, u), P(G[g].res, 0));
         if (!strcmp(G[g].name, "%case-hcomp")) case_hcomp_global = g;
@@ -2995,7 +3060,7 @@ static void toplevel(Node *f) {
                 if (A && ((!A->list && !strcmp(A->s, D)) || (A->list && A->n >= 1 && !A->it[0]->list && !strcmp(A->it[0]->s, D)))) { rm |= 1ull << k; nr++; }
             }
             if (x->nf > 64) die("more than 64 fields in", cd->it[0]->s);
-            CON[ncon++] = (ConInfo){ strdup(cd->it[0]->s), d, ci, x->nf, x->nd, -1, -1, nr, rm };
+            CON[ncon++] = (ConInfo){ intern(cd->it[0]->s), d, ci, x->nf, x->nd, -1, -1, nr, rm };
         }
         char *buf; size_t len; FILE *m;
 #define OPEN() (m = open_memstream(&buf, &len))
