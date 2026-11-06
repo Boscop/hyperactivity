@@ -477,7 +477,7 @@ Every top-level name in `lib/` is unique (`tools/names.py`, first in `make test`
 name rebinds the references of every module parsed after it.
 
 The back end, as it stands (all libraries, each with readings; `experiments/fo/run.py` compiles
-fourteen programs with gcc and runs them):
+seventeen programs with gcc and runs them, with both printers):
 
 - **`lib/lower.cub`** (after the checker): codes to the first-order form, with the data table's
   shapes: a `case`/`rec` becomes a recursion form (`frec`: the fields pushed, then a suspended
@@ -501,6 +501,14 @@ fourteen programs with gcc and runs them):
   (a recording world and a replaying world). A process run against its world with the store
   unknown specializes to a function of the store and compiles.
 - **`lib/emitt.cub`**: C type declarations from the layouts.
+- **`lib/emitu.cub`**: the C printer with words, pairs and flat data unboxed. Every local,
+  parameter and return is typed by inference (a parameter by its uses, a return by its body, calls
+  by their callees); a loop of `lower-welim`'s shape is a `for` over typed state; pairs are structs
+  by value; a data type whose layout is a union of structs of words is its typedef by value, with
+  `box_d`/`unbox_d` generated where a boxed value meets an unboxed one. Two loads from a buffer
+  print as `uint64_t f(V *b) { return ld64(b, 16) + ld64(b, 0); }` under their `ASSUME`s; `fib` by
+  word elimination over a pair is a `for` over a `uint64_t` and a `Pr0` with no allocation.
+  `run.py` runs every program with both printers (`UNBOXED=1`).
 
 ## Measurements
 
