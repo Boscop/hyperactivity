@@ -5,6 +5,187 @@ Each revision replaces the last. Section 17 records changes and retractions.
 
 ---
 
+## Start here: catching up before touching anything
+
+This section exists because an agent that reads the queue first and the rest never will make
+confident wrong decisions. The owner spent many sessions building the context below; the
+queue in section 12 is the last thing to read, not the first. Budget: reading this document
+end to end is ~60k tokens; the library files named in the reading order are ~40k more. Do
+that before writing a line. There is no deadline that justifies skipping it; a wrong
+decision made quickly costs more than the reading.
+
+### What this is
+
+A cubical type theory (CCHM) whose runtime is an interaction net, whose checker is a term on
+that same runtime, and whose claim is foundational: computation has one correct form —
+substitution along identities — and every existing language is an approximation to it made
+without equality as a primitive. The project is not "a dependently typed language with a
+compiler"; it is the position that compilation, memory layout, concurrency, build systems,
+versioning and contracts are all *derived* here from the one theory (section 16's ledger of
+~90 frontier-language features says, row by row, what each is a consequence of). Sections
+0–11 are the content; read them as a mathematician reads definitions, not as marketing. The
+owner regards all of it as research scope and all of it as current scope: nothing
+implementable is deferred to "later".
+
+### Who works on it
+
+Two agents, both Claude, in separate sessions, on the same repo (`avikj/math`, directory
+`scoped-machine`), pulling often:
+- the **builder** changes the machine (`src/*.c`, `lib/check.cub`, `lib/prelude.cub`,
+  `lib/code.cub`) and lands the ★ items; its commits carry
+  `Claude-Session: …session_019CdfGcL8YbfbiCH37R9UoY`;
+- the **side agent** (the role this document was last written from) writes
+  dependency-free library code, specs, reviews the builder's commits against this plan, and
+  keeps this document current; commits with `…session_01WfrbRsdQ3rXCwxPvyw3a7e`.
+The owner relays messages between them. The builder's reports are to be taken with a grain of
+salt and checked against the code; so are this document's claims — every status line names a
+commit, and the test suite is the arbiter (`make test`).
+
+### How the owner works, and what they will not accept
+
+These are standing instructions, learned the hard way; each one has been violated once and
+corrected.
+- Everything is research; the plan stays full. Do not "cut the plan back", do not propose
+  reduced scope, do not plan in sprints. "Future work" means the trajectory after finishing.
+- No subagents: they start cold, fill gaps as they please, and their decisions are contagious.
+  Do the work in the main context.
+- Time estimates are derived (lines × token rate + machine time), never guessed; the owner
+  finds estimates habitually two to three orders of magnitude too high. Write the code
+  correctly and test once at the end; never serialize work on test rounds.
+- Never write "the final" anything. Nothing here is final.
+- One document: this one. No notes files, no second plan, no scratch documents committed.
+- The owner will not read a draft that needs a critical read: do the critical review
+  yourself and proceed. Drafts should say what is so, at full strength, with no hedging and
+  no slogans.
+- State the complete list of remaining changes, each with why it matters, before continuing
+  long work; otherwise scope drifts.
+- Do not ask questions that more work on your side would answer. Do not hand decisions back.
+- When a report from the other agent arrives, check it against the code before acting on it.
+- Commits: attribution lines as in the git log; push after every commit; pull before.
+
+### The decisions already made, with their reasons (do not reopen these)
+
+- **Wires as variables** (`9b94b43`): reading a held value locks nothing; retention is
+  structural (counted references, last holder erases). *No retention policy* (LRU or any
+  other) is ever added: an entry lives exactly while reachable. The builder once proposed an
+  LRU; rejected.
+- **Keys by content**: a producer is named by its body over the keys of what it binds; equal
+  work reached by two routes is done once while the first is retained. The schedule decides
+  retention; nothing else does.
+- **Work proportional to result size** is the performance claim (A8), not "linear in
+  nesting" — a term open in k dimensions has 2^k faces. "Linear" was claimed once and
+  retracted. Benchmarks (Brunerie's number) are measurements of this, never the goal; the
+  owner explicitly does not want fixation on them.
+- **Binding times** now / C++-build / run-known / run with one back end; the **first-order
+  criterion** (no dimensions, types fixed, path-free data at the boundary, no open Kan
+  operations, no live reflection) decides what is native code. The checker's own decision is
+  *not* first-order (it reflects). B13 built it (`lib/stage.cub`).
+- **Multiplicities** 0 / 1-affine / 1-linear / ω: usage is *computed* after a definition
+  checks; erasure is by computed usage, never by the binder's annotation; linear values are
+  introduced only in `primitive` definitions (the memo invariant); dynamic uniqueness is
+  structural (box holder counts), not a static analysis.
+- **Representations are equivalences** only (`represent T by R where to/from/laws`); layouts
+  are computed from them; floats are exact IEEE values with their own laws, *not*
+  approximations of reals — the owner rejected the "lossy representation" framing outright.
+- **Laws are consumed by the specializer before erasure** and never emitted as comments; the
+  only things that survive into the C/C++ image are `[[assume]]`/`ASSUME` facts and
+  consumer-boundary contracts. "Laws become comments" was proposed once; the owner called it
+  insane; it is gone.
+- **The C++ image** (10.1): the export preserves abstraction and factoring; binding time
+  "as late as C++ can express"; the emitted fragment has its own semantics, so re-import and
+  translation validation are the check, not trust.
+- **The store is the codebase** (F34, built): keys are hashes of elaborated code with names
+  outside; retention by reachability; no versions, no branches as primitives.
+- **Verified certificate checking** (F32): search is unverified, the checker is a verified
+  term, applied by evaluation. Built three times over (`linproof`, `eqproof`, `ring`).
+- **Processes** are guarded trees over a signature; worlds are handlers; replay reproduces
+  a run from the responses alone. The inductive part is built in Church form (`lib/proc.cub`);
+  the guarded form waits on positivity under Π codomains (18.18).
+- **Navigation** (F33): a view is a set of identities; applicability is first-order matching
+  on normal forms; validity is never a step; choice is by cost and purpose.
+
+### Vocabulary you must have before reading code
+
+`%view`/quote/eval (reflection: a value read as a code and back), `celim`/`ccase` (eliminations
+with hypotheses for recursive fields, the hypothesis a suspended recursion read with
+`cforce`), `cwelim` (word elimination; what every word function normalizes to), `cglob` (a
+checked definition by index; `(code name)` quotes to it), `%gty`/`%gval`/`%gusage` (a
+global's type, value, usages), `%dent`/`%dtab`/`%rtab` (the data, case and representation
+tables), telescopes `tx/ty/tz`, `Lst`/`lcons`/`lnil` (the untyped list used everywhere before
+the checker), `some`/`none` (`Opt`), "typed" versus "untyped" definitions (a definition with
+a signature is checked; one without is not, and a checked definition may not mention an
+unchecked one), the first-order form `FO` (`lib/fo.cub`: `fvar/flit/fcon/fswitch/frec/fprim/
+flet/fif/floop/fclos/flam/fapply/fassume`), `lower` (codes → FO), `lift` (closure conversion
+and recursions to definitions), `specialize` (normalize, rewrite along rules, lower),
+`emit-prog` (boxed C) and `emit-prog-u` (unboxed C), `Lew`/`le` (order as a witnessed sum,
+over Word and over Nat), `fromNat`/`toNat` (the Word ≃ Nat used to carry proofs across).
+
+### The elaborator's current behaviour (these cost hours each when unknown)
+
+1. Definitions must be declared before use; a mutually recursive pair is written with the
+   later function passed as an argument.
+2. A name declared by a later module rebinds the references of every module parsed *after*
+   it — silently. `tools/names.py` (first in `make test`) keeps every top-level name and
+   constructor in `lib/` unique. Run it before every commit.
+3. A checked definition may not mention an untyped one (stderr: `not a bound variable or
+   checked definition`, while stdout continues — a test reading stdout sees a silent exit).
+4. `data` after the checker needs typed fields; untyped data goes before `lib/check.cub`.
+5. `(code …)` does not accept word literals (`#0`) or `Word` as a motive; put the constant in
+   a checked definition and name it.
+6. Composed paths (`catw`, `transN`) need their endpoints from a signature: write step lemmas
+   with explicit arguments rather than nesting implicits; λ-paths in argument positions have
+   their endpoints evaluated, so use congruence lemmas (`congw`, `cong2N`).
+7. `Empty-rec` in a copattern or step needs its implicits explicit (`{lzero} {T}`).
+8. No Π over `Level` inside a type's body; level polymorphism lives in signatures, so a
+   level-polymorphic type takes the level as a parameter (`Proc {l} S A`).
+9. Positivity: a recursive occurrence under a Π codomain (`psend (n : Word → Pr)`) is
+   rejected until 18.18 lands.
+10. The store (`CUBICAL_STORE`, default `.cubical-store`) skips definitions the current
+    checker already accepted; `CUBICAL_NOCACHE=1` turns it off, and the tests set it.
+
+### The state in one picture
+
+Machine (builder): the net, composition, the checker as a term, keys, structural retention,
+multiplicities (B11), representations and the byte layer (B12), the first-order criterion
+(B13), content keys and the store (F34), `#safe`, instance arguments, records, modules,
+`deriving eq`, `foreign` C calls, stuck primitive operations as neutrals (no code for them
+yet), C22 arrays. Library (side agent): verified checkers for linear arithmetic, equational
+rewriting and the semiring of Nat, with autodiff's Taylor theorem by reflection; the store's
+theorems as rewrite rules; the back end from codes through the first-order form (recursion,
+closures, the byte layer, representations consumed) to C, boxed and unboxed (words, pairs
+and flat records by value; `fib` and a two-load decoder print as the C an engineer writes);
+decidable equality derived from the data table and compiled; a byte decoder with its bounds
+discharged by certificates; processes with handlers, supervision and replay. Seventeen
+programs compile with gcc and run under both printers; `make test` is green at the commit
+in the header.
+
+### Reading order
+
+1. This section, then sections 0–3 (value, core, principle, machine state): the premises.
+2. Sections 4–7 (semantics, compilation, representations, world) and 10–11 (the C++ image,
+   the store): what is being built and why in that form.
+3. Section 12 (the build list with statuses) and section 13 (the trusted surface).
+4. Section 18's status paragraphs (18.1, 18.2, 18.3, 18.5, 18.6, 18.7, 18.13, 18.14) and
+   18.12's elaborator findings; the full specs only for the item you take on.
+5. `README.md` §9 and these files, in this order, each with its readings at the end:
+   `lib/code.cub` (the Code type), `lib/fo.cub`, `lib/lower.cub`, `lib/specialize.cub`,
+   `lib/repr.cub`, `lib/emitu.cub`, `lib/linproof.cub` (how proofs are written in this
+   elaborator), `lib/proc.cub`, `tests/prim.cub` and `lib/prim.cub` (B12), `lib/stage.cub`
+   (B13).
+6. Run `make test` once (it takes a while and is the arbiter). Then the queue.
+
+### Before taking an item, you should be able to answer these without looking
+
+Why is no retention policy added? Why is erasure by usage and not by binder? Why are floats
+not approximations? Why do laws never reach the emitted image as comments, and what does?
+Why does a stuck primitive operation without a code block specialization of anything over the
+byte layer? Why is the checker's decision not first-order? What does "work proportional to
+result size" promise and not promise? Why is the inductive process type in Church form, and
+what exactly waits on 18.18? What does `tools/names.py` protect against, and why is it in
+`make test`? If any answer is missing, read the section that holds it.
+
+---
+
 ## 0. The value
 
 One language holds the specification, the implementation, the memory layout, the proof that
