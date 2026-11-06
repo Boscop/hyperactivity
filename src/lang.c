@@ -1742,7 +1742,7 @@ static Cell *observe(Port prov) {
     Cell *r = cell(O_ROOT, 1);
     link(prov, P(r, 0));
     if (!net_observe(r, -1)) return NULL;
-    return PC(r->port[0]);
+    return PC(net_peek(r->port[0]));
 }
 static long *unfolding; static size_t capunfold; static int nunfold;
 static void rb(FILE *o, Port prov);

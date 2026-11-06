@@ -252,11 +252,25 @@ Key *key_con0(int c);              /* a constructor with no fields */
 void key_release(Key *k);
 extern long stat_hits, stat_keys;  /* readings: memo hits; keys with a shared value made */
 
+/* A port names a principal port (cell, 0), an auxiliary port (cell, k ≥ 1; named only while a cell
+ * is wired up), or a variable: a slot standing for a wire between two auxiliary ports, or for a
+ * value not yet produced. Each side of a wire links what it has into the slot; the second to arrive
+ * finds the first there, links the two directly and frees the slot. A cell's slots hold what its
+ * auxiliary ports are wired to: a principal port or a variable. Cells carry no back pointers, so a
+ * cell is written only by its maker (its slots, once, before it is reachable), by the rule
+ * consuming it, or by a compare-and-swap on a slot of a held value (copy_top); rules take no locks. */
+typedef struct Var { Port p; struct Var *next; Key *key; } Var;   /* key: what the wire's producer is named (key_of_port) */
+#define VARI 0xffff
+static inline bool is_var(Port p) { return (p & 0xffff) == VARI; }
+static inline Var *PV(Port p) { return (Var *)(uintptr_t)(p >> 16); }
+static inline Port VARP(Var *v) { return ((uint64_t)(uintptr_t)v << 16) | VARI; }
+Port net_peek(Port p);            /* what a port leads to: a principal port, or 0 while nothing is there yet */
+
 typedef struct Cell {
     uint16_t kind, n;             /* n = number of ports */
     uint32_t x;
-    uint32_t lk, ty;              /* lk: the cell's lock (HANDOFF §20), never reset; ty: TY_KNOWN a neutral's type is
-                                   * known, TY_COFIX its head is a copattern definition (it unfolds under projection) */
+    uint32_t ty;                  /* ty: TY_KNOWN a neutral's type is known, TY_COFIX its head is a copattern definition
+                                   * (it unfolds under projection) */
     uint64_t a;
     void *p;
     Key *key;                     /* the term this cell is (a value) or will produce (a thunk, a call, an
@@ -310,7 +324,7 @@ Port cofix_head(long g, long tyg);   /* the stuck head of copattern definition g
 /* a definition's body as one record taking all its parameters (NULL when it is not a λ) */
 struct Record *global_nary(long g);
 /* key: the name of what the box holds (a reference's identity). e: the memo entry whose value this is */
-typedef struct Box { struct Cell *root; long rc; Key *key; struct Entry *e; } Box;
+typedef struct Box { struct Cell *root; long rc; Key *key; struct Entry *e; Port in; } Box;   /* in: the wire its value is built into (memo) */
 /* motive: the elimination's motive as a record over the same environment, or NULL. It is not a port:
  * only the two rules that read it (a formal hcomp met, and a stuck elimination typing its neutral)
  * build it, from the environment */

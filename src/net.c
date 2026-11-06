@@ -11,12 +11,12 @@ long stat_steps, stat_kind[K_END], stat_cells;
 bool net_solo = true;
 
 /* ---------------- type-stable cells ----------------
- * A cell's memory is never returned: a thread holding a stale pointer can
- * still take the lock word, and revalidation then finds the wire changed.
- * Freed cells go to the freeing thread's list after its locks are released. */
+ * A cell's memory is never returned: a reader following a stale handle (a variable freed and
+ * reused, net_peek) lands on a cell, not on freed memory. Freed cells go to the freeing thread's
+ * list once the rule is done. */
 #define MAXFREE 4096
 typedef struct { Cell *op, *v; } Redex;
-typedef struct Local { Cell *free[MAXFREE + 1]; Cell *defer; Redex *made; size_t nmade, capmade; struct Box **dead; size_t ndead, capdead; long steps, kind[K_END], cells, hits, keys; long pushed, done; struct Local *next; } Local;   /* pushed, done: pairs this thread queued, and pairs it finished (its own or stolen); written by it alone */
+typedef struct Local { Cell *free[MAXFREE + 1]; Cell *defer; Redex *made; size_t nmade, capmade; struct Box **dead; size_t ndead, capdead; Var *vfree; struct Wire *wires; size_t nwires, capwires; long steps, kind[K_END], cells, hits, keys; long pushed, done; struct Local *next; } Local;   /* pushed, done: pairs this thread queued, and pairs it finished (its own or stolen); written by it alone */
 static __thread Local *L;
 static Local *ALL; static pthread_mutex_t allmu = PTHREAD_MUTEX_INITIALIZER;
 static Local *local_make(void) { L = calloc(1, sizeof(Local)); pthread_mutex_lock(&allmu); L->next = ALL; ALL = L; pthread_mutex_unlock(&allmu); return L; }
@@ -44,13 +44,9 @@ Cell *cell(int kind, int n) {
     else {
         c = malloc(sizeof(Cell) + (size_t)n * sizeof(Port));
         if (!c) { fputs("out of memory\n", stderr); exit(2); }
-        __atomic_store_n(&c->lk, 0, __ATOMIC_RELAXED);
         c->n = (uint16_t)n;   /* never changes: a freed cell is reused only for a cell of the same size */
     }
-    /* other workers read ports without locks (a lock set is read, then read again under the
-     * locks), and a cell they read may be reused here: its ports are cleared atomically */
-    if (net_solo) memset(c->port, 0, (size_t)n * sizeof(Port));
-    else for (int k = 0; k < n; k++) __atomic_store_n(&c->port[k], 0, __ATOMIC_RELAXED);
+    memset(c->port, 0, (size_t)n * sizeof(Port));
     c->kind = (uint16_t)kind; c->x = 0; c->ty = 0; c->a = 0; c->p = NULL; c->key = NULL; c->e = NULL;
     l->cells++;
     return c;
@@ -83,38 +79,53 @@ static void flush_frees(void) {
 }
 static Cell *clone(const Cell *v) { Cell *c = cell(v->kind, v->n); c->x = v->x; c->ty = v->ty; c->a = v->a; c->p = v->p; c->key = v->key ? key_retain(v->key) : NULL; payload_retain(c); return c; }
 
-/* a wire is published with release and read with acquire, so a cell is
- * initialized before any thread reaching it through a wire touches it */
-static inline Port rd(Cell *c, int k) { return __atomic_load_n(&c->port[k], __ATOMIC_ACQUIRE); }
-/* A cell's lock word holds its holder's tag (1 + the worker's queue index), so a holder meeting a
- * cell it already holds passes (a lock set may name a cell twice), and an unlock releases only a
- * cell this holder holds (the second unlock of a cell named twice does nothing). */
-static __thread uint32_t mytag = 1;
-static void lock(Cell *c) {
-    if (net_solo) return;
-    for (;;) {
-        uint32_t z = 0;
-        if (__atomic_compare_exchange_n(&c->lk, &z, mytag, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) return;
-        if (z == mytag) return;
-        while (__atomic_load_n(&c->lk, __ATOMIC_RELAXED)) __builtin_ia32_pause();
+/* ---------------- variables: the wires ----------------
+ * (core.h Var.) A slot is written by exchange: the first side leaves what it has, the second takes
+ * it. Reads of a slot (net_peek) are acquire loads, so a cell reached through one is initialized. */
+static Var *var_new(void) {
+    Local *l = local();
+    Var *v = l->vfree;
+    if (v) l->vfree = v->next;
+    else {
+        Var *chunk = malloc(1024 * sizeof(Var));
+        for (int i = 1; i < 1023; i++) chunk[i].next = &chunk[i + 1];
+        chunk[1023].next = NULL; l->vfree = &chunk[1]; v = chunk;
     }
+    v->p = 0; v->key = NULL;
+    return v;
 }
-/* a plain store: only the holder stores its own tag's release, and a second unlock of a cell named
- * twice in a lock set finds 0 (or another holder's tag, taken since) and leaves it */
-static inline void unlock(Cell *c) { if (!net_solo && __atomic_load_n(&c->lk, __ATOMIC_RELAXED) == mytag) __atomic_store_n(&c->lk, 0, __ATOMIC_RELEASE); }
-static inline bool trylock(Cell *c) {
-    uint32_t z = 0;
-    return __atomic_compare_exchange_n(&c->lk, &z, mytag, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED) || z == mytag;
+/* never returned to malloc, and emptied: a reader following a stale handle finds 0 or a port */
+static void var_free(Var *v) {
+    if (v->key) { key_release(v->key); v->key = NULL; }
+    if (net_solo) v->p = 0; else __atomic_store_n(&v->p, 0, __ATOMIC_RELAXED);
+    Local *l = local(); v->next = l->vfree; l->vfree = v;
+}
+static inline Port vload(const Var *v) { return net_solo ? v->p : __atomic_load_n(&v->p, __ATOMIC_ACQUIRE); }
+static inline Port vxchg(Var *v, Port x) { if (net_solo) { Port g = v->p; v->p = x; return g; } return __atomic_exchange_n(&v->p, x, __ATOMIC_ACQ_REL); }
+static inline Port sload(const Port *s) { return net_solo ? *s : __atomic_load_n(s, __ATOMIC_ACQUIRE); }
+static inline void sstore(Port *s, Port x) { if (net_solo) *s = x; else __atomic_store_n(s, x, __ATOMIC_RELEASE); }
+/* a slot of a held value, changed by the one reader that sees it unchanged */
+static inline bool claim(Port *s, Port old, Port x) {
+    if (net_solo) { if (*s != old) return false; *s = x; return true; }
+    return __atomic_compare_exchange_n(s, &old, x, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+}
+Port net_peek(Port p) { while (p && is_var(p)) p = vload(PV(p)); return p; }
+#define peek net_peek
+static inline Cell *cell_at(Port p) { p = peek(p); return p ? PC(p) : NULL; }
+/* a slot's value taken out of a wire whose producer has delivered it (the slots, both sides done, freed) */
+static Port take(Port p) {
+    while (is_var(p)) { Var *v = PV(p); Port got = vxchg(v, 0); var_free(v); p = got; }
+    return p;
 }
 
 /* ---------------- active pairs: per-worker deques ----------------
  * Each worker owns a deque (Chase and Lev): it pushes and pops at the bottom, so it continues with
  * the pairs its own rewrites just made (their cells are in its cache, and they are each other's
- * neighbours, so one worker holding them meets no other worker's locks); other workers steal at
- * the top, the oldest pairs, far from where the owner works. Pairs made by the same rewrite are
- * neighbours, so two workers taking consecutive pairs of one queue contend for the same cells:
- * that was most of the time with 2 workers when pairs were taken in arrival order. A full ring is
- * replaced whole (a thief holding the old one reads the same pair at the same index). No lock. */
+ * neighbours); other workers steal at the top, the oldest pairs, far from where the owner works.
+ * Pairs made by the same rewrite are neighbours, so two workers taking consecutive pairs of one
+ * queue pull the same cache lines back and forth: that was most of the time with 2 workers when
+ * pairs were taken in arrival order. A full ring is replaced whole (a thief holding the old one
+ * reads the same pair at the same index). No lock. */
 typedef struct { size_t cap; Redex it[]; } Ring;
 typedef struct { Ring *ring; char pad0[56]; size_t top; char pad1[56]; size_t bottom; char pad2[56]; } Queue;
 static Queue *Q; static int NQ;
@@ -194,11 +205,10 @@ static bool pop_own(Queue *q, Redex *out) {
 /* a thief takes the oldest, and only from a queue holding STEAL_AT pairs or more, unless it has
  * been idle a while. The pairs of one rewrite are pushed together and are neighbours: from a short
  * queue the thief takes a neighbour of what the owner is doing (both cores then miss on the same
- * cells and meet on the same locks: 609K restarts in checking the library at 2, 15K at 32), and on
- * a sequential stretch, where the queue holds one pair at a time, it moves every step to the other
- * core. From a long queue the oldest pair is several rewrites away. But a thread can wait, inside
- * a rewrite, for a box whose builder's pairs sit in its own queue, so anything is taken once
- * nothing else has turned up for LONE_AT iterations (by then the thief is yielding) */
+ * cells), and on a sequential stretch, where the queue holds one pair at a time, it moves every
+ * step to the other core. From a long queue the oldest pair is several rewrites away. A thief idle
+ * for LONE_AT iterations (by then it is yielding) takes anything, so no pair waits on a busy owner
+ * for long */
 #define STEAL_AT 32
 #define LONE_AT 1024
 static bool steal(Queue *q, Redex *out, bool lone) {
@@ -220,31 +230,69 @@ static bool pop(Redex *r, int idle) {
     for (int k = 1; k < NQ; k++) if (steal(&Q[(myq + k) % NQ], r, lone)) return true;
     return false;
 }
+/* two principal ports meet: an active pair, queued once the rule making it is complete */
+static void redex(Port a, Port b) {
+    Cell *x = PC(a), *y = PC(b);
+    Cell *op = NULL, *val = NULL;
+    if (is_value(x->kind) && !is_value(y->kind)) { op = y; val = x; }
+    else if (is_value(y->kind) && !is_value(x->kind)) { op = x; val = y; }
+    if (!op) return;   /* two values, or two operations: a wire nothing reads */
+    /* one thread: nothing pops before the replacement is complete, so the pair is queued now
+     * (in the order it would have been published) */
+    if (net_solo) { ring_push(op, val); return; }
+    /* held until the replacement creating it is complete */
+    Local *l = local();
+    if (l->nmade == l->capmade) { l->capmade = l->capmade ? l->capmade * 2 : 64; l->made = realloc(l->made, l->capmade * sizeof(Redex)); }
+    l->made[l->nmade++] = (Redex){ op, val };
+}
+static Key *key_of_aux(Port p);
+/* an auxiliary port named here is a slot of a cell being wired (or an observation's root) */
+static inline bool is_aux(Port p) { return PI(p) >= 1 || PC(p)->kind == O_ROOT; }
+static inline void slot_set(Port a, Port x) { sstore(&PC(a)->port[PI(a)], x); }
+typedef struct Wire { Port a, b; } Wire;
+/* a and b are each a principal port or a variable: a variable is exchanged with the other side, and
+ * what the exchange finds (the far side, arrived first) is linked on; two principal ports meet */
+static void link_now(Port a, Port b) {
+    for (;;) {
+        if (is_var(a)) { Var *v = PV(a); Port got = vxchg(v, b); if (!got) return; var_free(v); a = got; continue; }
+        if (is_var(b)) { Var *v = PV(b); Port got = vxchg(v, a); if (!got) return; var_free(v); b = got; continue; }
+        redex(a, b);
+        return;
+    }
+}
+/* wire a to b. Two auxiliary ports get a fresh variable; an auxiliary port takes the other side into
+ * its slot; otherwise each side is a principal port or a variable: a variable is exchanged with the
+ * other side, and what the exchange finds (the far side, arrived first) is linked on; two principal
+ * ports are an active pair */
 void link(Port a, Port b) {
-    if (net_solo) { if (a) PC(a)->port[PI(a)] = b; if (b) PC(b)->port[PI(b)] = a; }
-    else {
-        if (a) __atomic_store_n(&PC(a)->port[PI(a)], b, __ATOMIC_RELEASE);
-        if (b) __atomic_store_n(&PC(b)->port[PI(b)], a, __ATOMIC_RELEASE);
+    if (!a || !b) {
+        if (a && !is_var(a) && is_aux(a)) slot_set(a, 0);
+        if (b && !is_var(b) && is_aux(b)) slot_set(b, 0);
+        return;
     }
-    if (a && b && PI(a) == 0 && PI(b) == 0) {
-        Cell *x = PC(a), *y = PC(b);
-        Cell *op = NULL, *val = NULL;
-        if (is_value(x->kind) && !is_value(y->kind)) { op = y; val = x; }
-        else if (is_value(y->kind) && !is_value(x->kind)) { op = x; val = y; }
-        if (op && op->kind != O_ROOT) {
-            /* one thread: nothing pops before the replacement is complete, so the pair is queued now
-             * (in the order it would have been published) */
-            if (net_solo) { ring_push(op, val); return; }
-            /* held until the replacement creating it is complete */
-            Local *l = local();
-            if (l->nmade == l->capmade) { l->capmade = l->capmade ? l->capmade * 2 : 64; l->made = realloc(l->made, l->capmade * sizeof(Redex)); }
-            l->made[l->nmade++] = (Redex){ op, val };
-        }
+    bool aa = !is_var(a) && is_aux(a), ab = !is_var(b) && is_aux(b);
+    if (aa && ab) {
+        Var *v = var_new();
+        v->key = key_of_aux(a); if (!v->key) v->key = key_of_aux(b);
+        slot_set(a, VARP(v)); slot_set(b, VARP(v));
+        return;
     }
+    if (aa) { slot_set(a, b); return; }
+    if (ab) { slot_set(b, a); return; }
+    if (net_solo) { link_now(a, b); return; }
+    /* Deferred to the end of the rule (publish): a cell's principal port left in a variable is
+     * found there by the other side, which may form the pair and publish it on another thread
+     * while this rule is still writing the cell's slots. At the rule's end every cell it made is
+     * complete */
+    Local *l = local();
+    if (l->nwires == l->capwires) { l->capwires = l->capwires ? l->capwires * 2 : 64; l->wires = realloc(l->wires, l->capwires * sizeof(Wire)); }
+    l->wires[l->nwires++] = (Wire){ a, b };
 }
 /* publish the active pairs this thread has made */
 static void publish(void) {
     Local *l = local();
+    for (size_t i = 0; i < l->nwires; i++) link_now(l->wires[i].a, l->wires[i].b);   /* may make pairs */
+    l->nwires = 0;
     for (size_t i = 0; i < l->nmade; i++) net_push(l->made[i].op, l->made[i].v);
     l->nmade = 0;
 }
@@ -431,16 +479,23 @@ static Key *eff_key(Cell *c) {
     }
     return key_retain(k);
 }
-/* the key of what a port provides: a value or reference at its principal port, or the output of a
- * keyed operation (a duplicator's outputs carry their input's key). The cell is a neighbour of the
- * firing pair or made by this thread, so it is locked or owned. The caller owns the result */
-static Key *key_of_port(Port p) {
-    if (!p) return NULL;
+/* the key the output port of a keyed operation carries (a duplicator's outputs carry their input's
+ * key); the caller owns the result */
+static Key *key_of_aux(Port p) {
     Cell *c = PC(p);
-    if (PI(p) == 0) return is_value(c->kind) ? eff_key(c) : NULL;
     if (!c->key) return NULL;
     if (c->kind == O_DUP || c->kind == O_FWD || c->kind == O_SHARE) return (PI(p) == 1 || PI(p) == 2) ? key_retain(c->key) : NULL;
     return PI(p) == c->n - 1 ? key_retain(c->key) : NULL;
+}
+/* the key of what a port provides: a value or reference at its principal port, the output of a
+ * keyed operation, or a wire made from one (the variable keeps it). A variable is read by a holder
+ * of one of its sides, so it is live. The caller owns the result */
+static Key *key_of_port(Port p) {
+    if (!p) return NULL;
+    if (is_var(p)) { Key *k = PV(p)->key; return k ? key_retain(k) : NULL; }
+    Cell *c = PC(p);
+    if (PI(p) == 0) return is_value(c->kind) ? eff_key(c) : NULL;
+    return key_of_aux(p);
 }
 
 /* ---------------- memo: one value per live key ----------------
@@ -533,11 +588,10 @@ static Port memo_begin(Cell *c, Box **out, bool builder) {
         if (gone) key_destroy(gone);
         return 0;
     }
-    /* others wait for this value: it is held once and read by reference. Its root is locked until the
-     * value is linked into it (memo_end): a reader locks the root, so none reads the box before its
-     * wire exists (the root is fresh, so taking its lock here never waits) */
+    /* others wait for this value: it is held once and read by reference. Its root holds the wire
+     * the value will be linked into (memo_end); a reader finding nothing there yet waits on it */
     Box *b = malloc(sizeof(Box)); b->rc = 2; b->root = cell(O_ROOT, 1); b->key = key_retain(e->k); b->e = e;
-    lock(b->root);
+    { Var *t = var_new(); t->key = key_retain(e->k); b->in = VARP(t); b->root->port[0] = VARP(t); }
     e->box = b; e->hold = true;
     kunlock(s);
     local()->keys++;
@@ -580,7 +634,7 @@ long prof_odup[65536], prof_oera[65536], prof_rdup[256], prof_rera[256];
 static void box_hold(Box *b);
 static Key *key_of_port(Port p);
 static Box *box_new(Port val) {
-    Box *b = malloc(sizeof(Box)); b->rc = 1; b->root = cell(O_ROOT, 1); b->e = NULL;
+    Box *b = malloc(sizeof(Box)); b->rc = 1; b->root = cell(O_ROOT, 1); b->e = NULL; b->in = 0;
     b->key = key_of_port(val);
     link(val, P(b->root, 0));
     return b;
@@ -588,8 +642,10 @@ static Box *box_new(Port val) {
 static Cell *ref_to(Box *b) { Cell *r = cell(V_REF, 1); r->p = b; r->key = b->key ? key_retain(b->key) : NULL; return r; }
 /* reading a stored value (held by root): its top cell is copied, each part a reference to the
  * stored part (wrapped in a box when first read), so a part is copied only when an operation
- * reads it, one level per interaction. A reader of a value not yet there waits for it (O_FWD)
- * and gets the same copy when it arrives. The rewrite holds the stored value and its neighbours (lockset). */
+ * reads it, one level per interaction. A reader of a value not yet there (or held unbuilt) waits
+ * for it (O_FWD) and gets the same copy when it arrives. No lock: the root's slot and the stored
+ * value's slots are changed by compare-and-swap, by the one reader that sees them unchanged;
+ * another sees the change and reads what it finds */
 static void box_hold(Box *b) { rcl_inc(&b->rc); }
 Port thunk_build(Cell *v);
 Port unbuilt_build(Cell *v);
@@ -598,51 +654,66 @@ static Port sub(Port prov, Subst *s);
 static Port copy_top(Key *as, Cell *v);
 /* as: the key of what is held (the box's; a definition's name): a copy carries it */
 Port lazy_copy(Key *as, Cell *root) {
-    Port p = root->port[0];
-    Cell *v = p ? PC(p) : NULL;
-    if (v && PI(p) == 0 && unbuilt(v->kind)) {
-        /* held unbuilt: built in place, once; this and later readers wait for its value */
-        link(unbuilt_build(v), P(root, 0));
-        p = root->port[0]; v = PC(p);
-    }
-    if (!v || PI(p) != 0 || !is_value(v->kind)) {
-        /* the value is not there yet: the reader waits on the wire for it (O_FWD), and is served
-         * the same one-level copy when it arrives. Waiting costs no step, so what a read costs does
-         * not depend on whether the value had arrived */
+    for (;;) {
+        Port p = sload(&root->port[0]);
+        Cell *v = cell_at(p);
+        if (v && is_value(v->kind) && !unbuilt(v->kind)) return copy_top(as, v);
+        /* the value is not there yet, or is held unbuilt: the reader waits on the wire for it
+         * (O_FWD), and is served the same one-level copy when it arrives; an unbuilt value is built
+         * by that read, in place, once. Waiting costs no step, so what a read costs does not depend
+         * on whether the value had arrived */
         Cell *d = cell(O_FWD, 3); d->key = as ? key_retain(as) : NULL;
-        link(root->port[0], P(d, 0)); link(P(d, 1), P(root, 0));
+        Var *t = var_new(); if (d->key) t->key = key_retain(d->key);
+        d->port[1] = VARP(t);
+        if (!claim(&root->port[0], p, VARP(t))) { var_free(t); cell_free(d); continue; }
+        link(p, P(d, 0));
         return P(d, 2);
     }
-    return copy_top(as, v);
 }
 /* one level of a stored value: its top cell copied, each part with parts of its own a reference to a
- * box around the stored part (the stored value's port then refers to that box too). The copy is
+ * box around the stored part (the stored value's slot then refers to that box too). The copy is
  * named by what is held (as) */
 static Port copy_top(Key *as, Cell *v) {
     Cell *c = clone(v);
     if (as && c->key != as) { if (c->key) key_release(c->key); c->key = key_retain(as); }
-    for (int k = 1; k < v->n; k++) {
-        Port q = v->port[k];
-        Cell *qc = q ? PC(q) : NULL;
-        if (qc && PI(q) == 0 && is_value(qc->kind) && qc->n == 1 && !unbuilt(qc->kind)) {
+    for (int k = 1; k < v->n; k++) for (;;) {
+        Port q = sload(&v->port[k]);
+        Port r = peek(q);
+        Cell *qc = r ? PC(r) : NULL;
+        if (!q) { break; }
+        if (qc && is_value(qc->kind) && qc->n == 1 && !unbuilt(qc->kind)) {
             /* a part with no parts of its own (a reference, a word, a constant): itself */
             Cell *q2 = clone(qc);
-            link(P(q2, 0), P(c, k));
-            continue;
+            c->port[k] = P(q2, 0);
+            break;
         }
-        if (q && !(PI(q) == 0 && is_value(qc->kind))) {
+        if (!qc || !is_value(qc->kind)) {
             /* a part not there yet: shared as it will be when it arrives (O_SHARE) — copied if it
              * has no parts, else held once with a reference on each side — so the copy does not
-             * depend on whether it had arrived */
-            Cell *d = cell(O_SHARE, 3);
-            link(q, P(d, 0)); link(P(d, 1), P(v, k)); link(P(d, 2), P(c, k));
+             * depend on whether it had arrived. The stored value's slot is pointed at the sharer's
+             * output first, then the sharer is put on the part's wire */
+            Cell *d = cell(O_SHARE, 3); d->key = key_of_port(q);
+            Var *t = var_new(); if (d->key) t->key = key_retain(d->key);
+            d->port[1] = VARP(t);
+            if (!claim(&v->port[k], q, VARP(t))) { var_free(t); cell_free(d); continue; }
+            link(q, P(d, 0));
+            link(P(d, 2), P(c, k));
+            break;
+        }
+        /* a part with parts: held once in a box, a reference on each side */
+        Box *b = malloc(sizeof(Box)); b->rc = 2; b->root = cell(O_ROOT, 1); b->e = NULL; b->in = 0;
+        b->key = eff_key(qc);
+        b->root->port[0] = r;
+        Cell *r1 = ref_to(b), *r2 = ref_to(b);
+        if (!claim(&v->port[k], q, P(r1, 0))) {
+            /* another reader got there first: it holds the part now */
+            r1->p = NULL; r2->p = NULL; cell_free(r1); cell_free(r2);
+            cell_free(b->root); if (b->key) key_release(b->key); free(b);
             continue;
         }
-        Box *b = box_new(q);
-        Cell *r1 = ref_to(b);
-        Cell *r2 = ref_to(b); box_hold(b);
-        link(P(r1, 0), P(v, k));
-        link(P(r2, 0), P(c, k));
+        if (is_var(q)) take(q);   /* the wire delivered the part; now the box holds it */
+        c->port[k] = P(r2, 0);
+        break;
     }
     return P(c, 0);
 }
@@ -661,7 +732,7 @@ static Port memo_begin(Cell *c, Box **out, bool builder);
 /* a pending producer's result: built into the memo's box when the value is shared */
 static Port memo_end(Port shared, Box *box, Port built) {
     if (!shared) return built;
-    if (box) { link(built, P(box->root, 0)); unlock(box->root); }
+    if (box) link(built, box->in);
     return shared;
 }
 Port thunk_build(Cell *v) {
@@ -691,10 +762,8 @@ Port wsusp_force(Cell *c) {
 }
 static Port ref_of(Port val) { Cell *c = ref_to(box_new(val)); return P(c, 0); }
 static void era(Port prov);
-/* The last reference to a box gone: what it holds is erased. Not here: the release can happen where
- * the box's root and the cell its value comes from are not locked (a substitution holding the box
- * freed by an unrelated rule), and erasing rewires that cell. So the box is retired after the
- * rewrite's locks are released (retire_boxes), under the locks of exactly the two cells involved. */
+/* The last reference to a box gone: what it holds is erased, once the rule that dropped it is done
+ * (retire_boxes): the root is then private to this thread */
 static void memo_box_gone(Box *b);
 static void box_release(Box *b) {
     if (rcl_dec(&b->rc)) return;
@@ -703,23 +772,13 @@ static void box_release(Box *b) {
     if (l->ndead == l->capdead) { l->capdead = l->capdead ? l->capdead * 2 : 16; l->dead = realloc(l->dead, l->capdead * sizeof(Box *)); }
     l->dead[l->ndead++] = b;
 }
-static void lock(Cell *c);
-static void unlock(Cell *c);
 static void retire_boxes(void) {
     Local *l = local();
     while (l->ndead) {
         Box *b = l->dead[--l->ndead];
-        Cell *r = b->root, *w;
-        Port p;
-        for (;;) {
-            p = __atomic_load_n(&r->port[0], __ATOMIC_ACQUIRE);
-            w = p ? PC(p) : NULL;
-            if (w && w < r) { lock(w); lock(r); } else { lock(r); if (w) lock(w); }
-            if (__atomic_load_n(&r->port[0], __ATOMIC_ACQUIRE) == p) break;
-            unlock(r); if (w) unlock(w);
-        }
+        Cell *r = b->root;
+        Port p = r->port[0];
         if (p) era(p);
-        unlock(r); if (w) unlock(w);
         cell_free(r);
         if (b->key) key_release(b->key);
         free(b);
@@ -2483,107 +2542,18 @@ static void interact(Cell *o, Cell *v) {
     }
 }
 
-/* ---------------- rewriting one active pair (HANDOFF §20) ----------------
- * Lock the pair and every cell whose port the rule may rewrite (the pair's
- * neighbours; for a definition, the cell holding its value and that value's
- * cell), in address order; revalidate that the neighbours are unchanged;
- * rewrite; release; then retire the consumed cells. */
-/* the cells to lock, sorted and distinct; when they do not fit in cap, minus the number needed (the
- * stored value read without locks may have been replaced by a larger one since cap was estimated) */
-static int lockset(Cell *o, Cell *v, Cell **S, int cap) {
-    int n = 0;
-#define ADDC(c) do { Cell *c_ = (c); if (n < cap) S[n] = c_; n++; } while (0)
-#define ADDPARTS(w) do { for (int k = 1; k < (w)->n; k++) { Port q = rd((w), k); if (q) ADDC(PC(q)); } } while (0)
-    ADDC(o); ADDC(v);
-    for (int k = 1; k < o->n; k++) { Port p = rd(o, k); if (p) ADDC(PC(p)); }
-    for (int k = 1; k < v->n; k++) { Port p = rd(v, k); if (p) ADDC(PC(p)); }
-    if (v->kind == V_GLOBAL) { Cell *r = global_res((long)v->a); ADDC(r); Port p = rd(r, 0); if (p) ADDC(PC(p)); }
-    if (o->kind == O_WOP2 || o->kind == O_CLOS2) {
-        /* the first operand's value, held at port 1: its parts are moved */
-        Port p = rd(o, 1);
-        if (p) { Cell *w = PC(p); ADDPARTS(w); }
-    }
-    if (v->kind == V_REF || v->kind == V_GLOBAL) {
-        /* the stored value and its parts' neighbours: reading it may wrap a part in a box */
-        Cell *r = v->kind == V_REF ? ((Box *)v->p)->root : global_res((long)v->a);
-        if (v->kind == V_REF) ADDC(r);
-        Port p = rd(r, 0);
-        if (p) {
-            Cell *w = PC(p);
-            if (v->kind == V_REF) ADDC(w);
-            ADDPARTS(w);
-        }
-    }
-#undef ADDPARTS
-#undef ADDC
-    if (n > cap) return -n;
-    return n;   /* a cell may be named twice: the locks are held by tag, so that is harmless */
-}
+/* ---------------- rewriting one active pair ----------------
+ * The pair's two cells are reachable from nothing but the pair (their principal ports met, and a
+ * principal port is held in one place), and a rule writes only them, cells it makes, variables (by
+ * exchange) and held values' slots (by compare-and-swap): so no lock, and a popped pair is never
+ * stale. The pairs a rule makes are published when it is done. */
 static inline void finished(void) { Local *l = local(); __atomic_store_n(&l->done, l->done + 1, __ATOMIC_RELEASE); }
 static void rewrite(Redex r) {
-    Cell *o = r.op, *v = r.v;
-    if (net_solo) {
-        /* one thread: no other rewrite can touch the neighbours, so no lock set */
-        interact(o, v);
-        retire_boxes(); flush_frees(); publish();
-        pending--;
-        return;
-    }
-    /* The pair may be stale: a redex is queued when its wire is made, and the cells can have been
-     * consumed by another worker's rule (and their memory reused) before it is popped. Nothing
-     * below may be read through the pair's pointers (a reference's box in particular, which is
-     * freed when its last reference goes) until the two cells are held and still wired to each
-     * other: so they are locked first, in address order, and the redex dropped if the wire is gone.
-     * The lock set is then estimated under those two locks, they are released (every lock below is
-     * taken in address order, so none may be held across it), and the set is taken and read again
-     * under all of them: a change in between fails that comparison and the whole thing restarts. */
-restart:
-    { Cell *x = o < v ? o : v, *y = o < v ? v : o; lock(x); lock(y); }
-    if (o->port[0] != P(v, 0) || v->port[0] != P(o, 0) || !is_value(v->kind) || is_value(o->kind)) {
-        unlock(o); unlock(v);
-        finished();
-        return;
-    }
-    /* With the pair held no neighbour's wire to it can change: a rule on a neighbour would have to
-     * lock this pair's cell first. So the lock set is read once, and the other cells are taken with
-     * try-lock in any order (no lock is waited for while others are held, so no deadlock); a cell
-     * held by another worker means the pair is released and taken again after a pause. */
-    int cap = o->n + v->n + 8;
-    if (o->kind == O_WOP2 || o->kind == O_CLOS2) { Port p = rd(o, 1); if (p) cap += PC(p)->n; }
-    if (v->kind == V_REF || v->kind == V_GLOBAL) {
-        Cell *rt = v->kind == V_REF ? ((Box *)v->p)->root : global_res((long)v->a);
-        Port p = rd(rt, 0);
-        if (p) cap += PC(p)->n + 2;
-    }
-    Cell *buf1[64];
-    Cell **S = cap <= 64 ? buf1 : malloc((size_t)cap * sizeof(Cell *));
-    int n;
-    for (;;) {
-        n = lockset(o, v, S, cap);
-        if (n >= 0) break;
-        if (cap > 64) free(S);
-        cap = -n;
-        S = cap <= 64 ? buf1 : malloc((size_t)cap * sizeof(Cell *));
-    }
-    {
-        int i;
-        for (i = 0; i < n; i++) { if (S[i] == o || S[i] == v) continue; if (!trylock(S[i])) break; }
-        if (i < n) {
-            for (int j = i - 1; j >= 0; j--) if (S[j] != o && S[j] != v) unlock(S[j]);
-            unlock(o); unlock(v);
-            if (cap > 64) free(S);
-            __builtin_ia32_pause();
-            goto restart;
-        }
-    }
-    Cell **T = S;   /* the set, for the unlocking below */
-    interact(o, v);
-    for (int i = n - 1; i >= 0; i--) unlock(T[i]);
+    interact(r.op, r.v);
     retire_boxes();
     flush_frees();
-    publish();
-    if (cap > 64) free(S);
-    finished();
+    if (net_solo) pending--;
+    else { publish(); finished(); }
 }
 
 /* ---------------- workers ---------------- */
@@ -2601,7 +2571,7 @@ static void idle_wait(int *idle) {
     else { struct timespec ts = { 0, k < 4096 ? 20000 : 200000 }; nanosleep(&ts, NULL); }
 }
 static void *worker(void *arg) {
-    myq = (int)(intptr_t)arg; mytag = (uint32_t)myq + 1;
+    myq = (int)(intptr_t)arg;
     int idle = 0;
     for (;;) {
         if (!__atomic_load_n(&running, __ATOMIC_ACQUIRE)) {
@@ -2632,11 +2602,8 @@ void net_start(int n) {
 }
 static bool observed(Cell *root) {
     if (!root) return false;
-    lock(root);
-    Port q = root->port[0];
-    bool ok = q && PI(q) == 0 && is_value(PC(q)->kind);
-    unlock(root);
-    return ok;
+    Cell *v = cell_at(sload(&root->port[0]));
+    return v && is_value(v->kind);
 }
 /* an observation: reduce, every worker taking pairs in arrival order, until
  * the observed port holds a value; the rest of the net stands */
@@ -2671,17 +2638,12 @@ bool net_observe(Cell *root, long limit) {
     }
     stat_gather();
     if (!ok && root && limit < 0 && key_trace) {
-        /* the reading stopped short of a value: what the root waits on, operation by operation */
-        Port q = root->port[0]; Cell *c = q ? PC(q) : NULL;
-        fprintf(stderr, "stuck: root -> kind %d port %d\n", c ? c->kind : -1, q ? PI(q) : -1);
-        for (int d = 0; d < 12 && c && PI(q) != 0; d++) {
-            if (c->kind == O_FWD && c->key) { fprintf(stderr, "  a read waiting for the value of "); key_print(stderr, c->key); fputc('\n', stderr); }
-            q = c->port[0]; c = q ? PC(q) : NULL;
-            fprintf(stderr, "  waits on kind %d port %d", c ? c->kind : -1, q ? PI(q) : -1);
-            if (c && c->key) { fputc(' ', stderr); key_print(stderr, c->key); }
-            if (c && PI(q) == 0 && c->kind == V_REF) { Box *b = c->p; Port r = b->root->port[0]; fprintf(stderr, " -> the box of "); if (b->key) key_print(stderr, b->key); q = r; c = q ? PC(q) : NULL; }
-            fputc('\n', stderr);
-        }
+        /* the reading stopped short of a value: what is at the root (an operation waiting there, or
+         * nothing yet) */
+        Port q = peek(root->port[0]); Cell *c = q ? PC(q) : NULL;
+        fprintf(stderr, "stuck: root -> kind %d", c ? c->kind : -1);
+        if (c && c->key) { fputc(' ', stderr); key_print(stderr, c->key); }
+        fputc('\n', stderr);
     }
     return ok || observed(root);
 }
