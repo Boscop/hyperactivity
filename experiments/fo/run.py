@@ -37,7 +37,7 @@ prog = sizeof-prog (data-idx (code Tr))""", "24", "struct { void *f0; void *f1; 
  # a code over the byte layer (two loads from an unknown buffer, with their bound proofs and Nat
  # lengths) lowered with the representations consumed (lib/repr.cub), compiled, run on a buffer
  'loads': ("""lam-body f = case f of flam b → b; _ → f
-defs = lcons (#0 , (#0 , fcall #1 (lcons buf2 lnil))) (lcons (#1 , (#1 , lam-body sum2)) lnil)""", "14", "ld64(v0, mkw(16)->n)"),
+defs = lcons (#0 , (#0 , fcall #1 (lcons buf2 lnil))) (lcons (#1 , (#1 , lam-body sum2)) lnil)""", "14", "ASSUME(((16 + 8) < (32 + 1))); mkw(ld64(v0, mkw(16)->n))"),
  # structural recursion: the length of a list, written as a case with rec, lowered to a recursion
  # form, lifted to a C function that calls itself on the field, run on a three-element list
  'rec': ("""len-main t2 = fapply t2 (lcons (fcon (didx (code LW)) #1 (lcons (flit #7) (lcons lw3 lnil))) lnil)

@@ -29,14 +29,26 @@ nat-lit t =
   case t of
     fcon d c fs → if %weq d nat-d then (if %weq c #0 then some #0 else (case fs of lcons x r → omap (λ n → %wsucc n) (nat-lit x); _ → none)) else none
     _ → none
+-- the dropped proof becomes an assumed fact for the C compiler: off + w ≤ n, as a Bool word code
+-- (off + w < n + 1) over the first-order variables, when off and n are in the word fragment
+fact-of-fo t =
+  case t of
+    fvar n → some (cvar n)
+    flit w → some (cwlit w)
+    fprim p args → (if %weq p P-add then (case args of lcons a r → (case r of lcons b r2 → (case fact-of-fo a of some ca → (case fact-of-fo b of some cb → some (cwop #2 ca cb); none → none); none → none); _ → none); _ → none) else none)
+    _ → none
+with-bound w off n body =
+  case fact-of-fo off of
+    some co → (case fact-of-fo n of some cn → fassume (cwop #1 (cwop #2 co (cwlit w)) (cwsucc cn)) body; none → body)
+    none → body
 consume-reps t =
   case t of
     fcall g args →
       let as = consume-list args
-      in if %weq g g-load64 then fprim P-load64 (lcons (lst-nth as #1) (lcons (lst-nth as #2) lnil))
-         else if %weq g g-load32 then fprim P-load32 (lcons (lst-nth as #1) (lcons (lst-nth as #2) lnil))
-         else if %weq g g-store64 then fprim P-store64 (lcons (lst-nth as #1) (lcons (lst-nth as #2) (lcons (lst-nth as #4) lnil)))
-         else if %weq g g-store32 then fprim P-store32 (lcons (lst-nth as #1) (lcons (lst-nth as #2) (lcons (lst-nth as #4) lnil)))
+      in if %weq g g-load64 then with-bound #8 (lst-nth as #2) (lst-nth as #0) (fprim P-load64 (lcons (lst-nth as #1) (lcons (lst-nth as #2) lnil)))
+         else if %weq g g-load32 then with-bound #4 (lst-nth as #2) (lst-nth as #0) (fprim P-load32 (lcons (lst-nth as #1) (lcons (lst-nth as #2) lnil)))
+         else if %weq g g-store64 then with-bound #8 (lst-nth as #2) (lst-nth as #0) (fprim P-store64 (lcons (lst-nth as #1) (lcons (lst-nth as #2) (lcons (lst-nth as #4) lnil))))
+         else if %weq g g-store32 then with-bound #4 (lst-nth as #2) (lst-nth as #0) (fprim P-store32 (lcons (lst-nth as #1) (lcons (lst-nth as #2) (lcons (lst-nth as #4) lnil))))
          else if %weq g g-bytes then fprim P-bytes (lcons (lst-nth as #0) lnil)
          else if %weq g g-i64 then lst-nth as #0
          else if %weq g g-i64toWord then lst-nth as #0
@@ -70,13 +82,13 @@ specialize-r T rules c = consume-reps (specialize T rules c)
 -- ---------------------------------------------------------------- readings
 -- two loads at literal offsets from an unknown buffer, as the decoder's loop computes them: the
 -- Nat lengths and offsets (constructor trees in the code) become words, the bound proofs are gone,
--- the conversions are gone. (sum-msgs itself, applied to the unknown buffer, is not unfolded by
+-- the conversions are gone, and each dropped proof is an assumed fact around its load. (sum-msgs itself, applied to the unknown buffer, is not unfolded by
 -- normalization and its call has no first-order form: a finding for B15, plan 18.6.)
 two-loads = code (λ b → plusw (i64toWord (load64 32 b 16 (8 , λ i → 32))) (i64toWord (load64 32 b 0 (24 , λ i → 32))))
 sum2 = specialize-r (Bytes 32 → Word) lnil two-loads
 ld16 = fprim P-load64 (lcons (fvar #0) (lcons (flit #16) lnil))
 ld0 = fprim P-load64 (lcons (fvar #0) (lcons (flit #0) lnil))
-#same sum2 = flam (fprim P-add (lcons ld16 (lcons ld0 lnil)))
+#same sum2 = flam (fprim P-add (lcons (fassume (cwop #1 (cwop #2 (cwlit #16) (cwlit #8)) (cwsucc (cwlit #32))) ld16) (lcons (fassume (cwop #1 (cwop #2 (cwlit #0) (cwlit #8)) (cwsucc (cwlit #32))) ld0) lnil)))
 -- it runs natively on a buffer built by the same primitives
 buf2 = fprim P-store64 (lcons (fprim P-store64 (lcons (fprim P-bytes (lcons (flit #32) lnil)) (lcons (flit #0) (lcons (flit #5) lnil)))) (lcons (flit #16) (lcons (flit #9) lnil)))
 #same eval-fo (λ g → flit #0) lnil (fapply sum2 (lcons buf2 lnil)) = vw #14
