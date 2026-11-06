@@ -6,42 +6,40 @@
 -- projections, calls of compiled definitions by key, native primitives, lets, loops, closures,
 -- thunks for lazy positions, and calls into the net for regions that stay symbolic.
 data FO
-  = fvar n                 -- de Bruijn index into the environment
-  | flit w                 -- a word
-  | fcon d c fs            -- constructor c of data type d, its fields (a Lst of FO)
-  | fswitch x alts         -- case on x's constructor tag: alts a Lst of (c , body), body over the fields pushed
-  | fproj d c k x          -- field k of constructor c of x
-  | fcall g args           -- a compiled definition g (a key, a word) on arguments
-  | fprim p args           -- a native primitive p (a word naming it) on arguments
-  | flet t b               -- let: t pushed, b over it
-  | fif c t e              -- a word condition: nonzero is true
-  | floop init body        -- a loop: state init (a Lst) pushed; body returns (fcontinue new-state) or (fbreak result)
-  | fcontinue st
-  | fbreak r
-  | fclos g env            -- a closure: definition g over captured values env
-  | flam b                 -- a λ as a value over the environment at its creation (closure conversion is the printer's)
-  | fapply f args          -- call through a closure
-  | fthunk t               -- a lazy position: evaluated on force
-  | fforce x
-  | fnet k args            -- a call into the net (B18)
-  | fassume fact b         -- a proven fact at this point (for [[assume]]); b the body
+  = fvar (n : Word)                          -- de Bruijn index into the environment
+  | flit (w : Word)                          -- a word
+  | fcon (d : Word) (c : Word) (fs : Lst)    -- constructor c of data type d, its fields (a Lst of FO)
+  | fswitch (x : FO) (alts : Lst)            -- case on x's tag: alts a Lst of (c , body), body over the fields pushed
+  | fproj (d : Word) (c : Word) (k : Word) (x : FO)   -- field k of constructor c of x
+  | fcall (g : Word) (args : Lst)            -- a compiled definition g (a key) on arguments
+  | fprim (p : Word) (args : Lst)            -- a native primitive p on arguments
+  | flet (t : FO) (b : FO)                   -- let: t pushed, b over it
+  | fif (c : FO) (t : FO) (e : FO)           -- a word condition: nonzero is true
+  | floop (init : Lst) (body : FO)           -- a loop: state pushed; body returns continue (tag 0) or break (tag 1)
+  | fclos (g : Word) (env : Lst)             -- a closure: definition g over captured values env
+  | flam (b : FO)                            -- a λ as a value over the environment at its creation
+  | fapply (f : FO) (args : Lst)             -- call through a function value
+  | fthunk (t : FO)                          -- a lazy position: evaluated on force
+  | fforce (x : FO)
+  | fnet (k : Word) (args : Lst)             -- a call into the net (B18)
+  | fassume (fact : Code) (b : FO)           -- a proven fact at this point (for [[assume]]); b the body
 -- values of first-order programs: words, constructor trees, closures, thunks
 data FV
-  = vw w
-  | vcon d c fs
-  | vclos g env
-  | vlam b env
-  | vthunk t env
-  | vnet k args
+  = vw (w : Word)
+  | vcon (d : Word) (c : Word) (fs : Lst)
+  | vclos (g : Word) (env : Lst)
+  | vlam (b : FO) (env : Lst)
+  | vthunk (t : FO) (env : Lst)
+  | vnet (k : Word) (args : Lst)
 -- first-order types (the FT of the plan), for the printers; eval-fo does not consult them
 data FT
   = tword
   | ti64
   | tf64
-  | tbytes n
-  | tdata d ps rep
-  | tfun args ret
-  | tlazy t
+  | tbytes (n : Word)
+  | tdata (d : Word) (ps : Lst) (rep : Word)
+  | tfun (args : Lst) (ret : FT)
+  | tlazy (t : FT)
 -- ---------------------------------------------------------------- primitives
 -- the native primitives, by number; a printer maps each to its C operator or call
 P-add = #0
