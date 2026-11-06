@@ -2671,6 +2671,111 @@ static Node *atel_coparams(Node *dd, int d, int k) {
     }
     return kapp("tz", atel_cofields(dd, 2), NULL);
 }
+
+/* ---------------- the compiled-form cache ----------------
+ * A module whose checks are cached (load_file) replays its recorded core forms; compiling them was
+ * most of a cached load. So a module's compiled forms are kept too, beside its recorded forms,
+ * in the order its definitions are made: the Syn, records and case tables of each plain
+ * definition, with its slot count, uses, parameter count, strictness and n-ary record. Globals,
+ * constructors and data types are referred to by index, which the replay reproduces. A module
+ * read from this store compiles nothing; on any mismatch (an entry that is not the definition
+ * being made) the rest of the module compiles as before. */
+static FILE *cc_out;                                   /* recording */
+static const unsigned char *cc_in, *cc_end; static bool cc_bad;   /* replaying */
+static void cc_w(const void *p, size_t n) { fwrite(p, 1, n, cc_out); }
+static void cc_wu8(unsigned v) { unsigned char b = (unsigned char)v; cc_w(&b, 1); }
+static void cc_wi32(int32_t v) { cc_w(&v, 4); }
+static void cc_wu64(uint64_t v) { cc_w(&v, 8); }
+static void cc_wstr(const char *x) { uint32_t n = (uint32_t)strlen(x); cc_w(&n, 4); cc_w(x, n); }
+static bool cc_r(void *p, size_t n) { if (cc_bad || (size_t)(cc_end - cc_in) < n) { cc_bad = true; return false; } memcpy(p, cc_in, n); cc_in += n; return true; }
+static unsigned cc_ru8(void) { unsigned char b = 0; cc_r(&b, 1); return b; }
+static int32_t cc_ri32(void) { int32_t v = 0; cc_r(&v, 4); return v; }
+static uint64_t cc_ru64(void) { uint64_t v = 0; cc_r(&v, 8); return v; }
+static char *cc_rstr(void) { uint32_t n = 0; if (!cc_r(&n, 4) || (size_t)(cc_end - cc_in) < n) { cc_bad = true; return NULL; } char *x = malloc(n + 1); memcpy(x, cc_in, n); x[n] = 0; cc_in += n; return x; }
+static void cc_wrec(const Record *r);
+static Record *cc_rrec(void);
+static void cc_wsyn(const Syn *t) {
+    if (!t) { cc_wu8(0xFF); return; }
+    cc_wu8((unsigned)t->tag); cc_wi32(t->n); cc_wi32(t->slot); cc_wi32((int32_t)t->x); cc_wu64((uint64_t)t->id);
+    if (t->tag == S_WORD && t->big) { cc_wu8(1); char *b; size_t l; FILE *m = open_memstream(&b, &l); WN w = { (uint64_t)t->id, t->big }; wn_print(m, &w); fclose(m); cc_wstr(b); free(b); }
+    else cc_wu8(0);
+    if (t->rec) { cc_wu8(1); cc_wrec(t->rec); } else cc_wu8(0);
+    if (t->tab) {
+        CaseTab *tb = t->tab; int N = DATA[tb->d].ncons;
+        cc_wu8(1); cc_wi32(tb->d); cc_wi32(tb->nenv); cc_wu64(tb->mask);
+        for (int i = 0; i < N; i++) cc_wrec(tb->br[i]);
+        if (tb->motive) { cc_wu8(1); cc_wrec(tb->motive); } else cc_wu8(0);
+    } else cc_wu8(0);
+    for (int i = 0; i < t->n; i++) cc_wsyn(t->k[i]);
+}
+static Syn *cc_rsyn(void) {
+    unsigned tag = cc_ru8();
+    if (cc_bad || tag == 0xFF) return NULL;
+    int32_t n = cc_ri32(); if (cc_bad || n < 0 || n > 100000) { cc_bad = true; return NULL; }
+    Syn *t = syn((int)tag, n);
+    t->slot = cc_ri32(); t->x = (uint32_t)cc_ri32(); t->id = (long)cc_ru64();
+    if (cc_ru8()) { char *b = cc_rstr(); if (b) { WN w = wn_parse(b); t->id = (long)w.s; t->big = w.b; free(b); } }
+    if (cc_ru8()) t->rec = cc_rrec();
+    if (cc_ru8()) {
+        CaseTab *tb = calloc(1, sizeof(CaseTab));
+        tb->d = cc_ri32(); tb->nenv = cc_ri32(); tb->mask = cc_ru64();
+        if (cc_bad || tb->d < 0 || tb->d >= ndata) { cc_bad = true; free(tb); return t; }
+        int N = DATA[tb->d].ncons;
+        tb->br = calloc((size_t)N + 1, sizeof(Record *));
+        for (int i = 0; i < N && !cc_bad; i++) tb->br[i] = cc_rrec();
+        if (cc_ru8()) tb->motive = cc_rrec();
+        if (!cc_bad) t->tab = tab_intern(tb);
+    }
+    for (int i = 0; i < n && !cc_bad; i++) t->k[i] = cc_rsyn();
+    return t;
+}
+static void cc_wrec(const Record *r) {
+    cc_wi32(r->nparam); cc_wi32(r->nslots); cc_wi32(r->nenv);
+    for (int i = 0; i < r->nenv; i++) cc_wi32(r->env_slot[i]);
+    for (int i = 0; i < r->nslots; i++) cc_wi32(r->uses[i]);
+    cc_wsyn(r->body);
+}
+static Record *cc_rrec(void) {
+    Record *r = calloc(1, sizeof(Record));
+    r->nparam = cc_ri32(); r->nslots = cc_ri32(); r->nenv = cc_ri32();
+    if (cc_bad || r->nslots < 0 || r->nenv < 0 || r->nslots > 1000000 || r->nenv > 1000000) { cc_bad = true; free(r); return NULL; }
+    r->env_slot = calloc((size_t)r->nenv + 1, sizeof(int)); r->uses = calloc((size_t)r->nslots + 1, sizeof(int));
+    for (int i = 0; i < r->nenv; i++) r->env_slot[i] = cc_ri32();
+    for (int i = 0; i < r->nslots; i++) r->uses[i] = cc_ri32();
+    r->body = cc_rsyn(); r->where = prof_cur;
+    if (cc_bad) return NULL;
+    return rec_intern(r);
+}
+#define CC_DEF 0xD1
+static void cc_wdef(long g) {
+    cc_wu8(CC_DEF); cc_wstr(G[g].name);
+    cc_wi32(G[g].nslots); for (int i = 0; i < G[g].nslots; i++) cc_wi32(G[g].uses[i]);
+    cc_wsyn(G[g].body);
+    cc_wi32(G[g].nparams); cc_wu64(G[g].strict);
+    if (G[g].nary) { cc_wu8(1); cc_wrec(G[g].nary); } else cc_wu8(0);
+}
+/* whether the next entry is the definition of this name (the entry is left in place) */
+static bool cc_next_is(const char *name) {
+    if (!cc_in || cc_bad || cc_in >= cc_end) return false;
+    const unsigned char *at = cc_in;
+    bool ok = cc_ru8() == CC_DEF;
+    char *nm = ok ? cc_rstr() : NULL;
+    ok = ok && nm && !strcmp(nm, name);
+    free(nm);
+    cc_in = at; cc_bad = false;
+    return ok;
+}
+static bool cc_rdef(long g) {
+    cc_ru8(); free(cc_rstr());
+    int32_t ns = cc_ri32(); if (cc_bad || ns < 0 || ns > 1000000) { cc_bad = true; return false; }
+    int *u = calloc((size_t)ns + 1, sizeof(int)); for (int i = 0; i < ns; i++) u[i] = cc_ri32();
+    Syn *b = cc_rsyn();
+    int32_t np = cc_ri32(); uint64_t st = cc_ru64();
+    Record *nary = cc_ru8() ? cc_rrec() : NULL;
+    if (cc_bad || !b) return false;
+    G[g].body = b; G[g].nslots = ns; G[g].uses = u; G[g].nparams = np; G[g].strict = st; G[g].nary = nary;
+    return true;
+}
 static void toplevel(Node *f) {
     if (!f->list || f->n == 0 || f->it[0]->list) die("top-level form expected", NULL);
     const char *h = f->it[0]->s;
@@ -2690,6 +2795,23 @@ static void toplevel(Node *f) {
         || !strcmp(h, "checked-codata-fail") || !strcmp(h, "mutual-fail") || !strcmp(h, "same") || !strcmp(h, "show") || !strcmp(h, "same-watch") || !strcmp(h, "observe"))) return;
     if (!strcmp(h, "def")) {
         if (f->n != 3) die("(def name term)", NULL);
+        if (cc_next_is(f->it[1]->s)) {
+            /* its compiled form is cached: made without desugaring or compiling */
+            long g = global_lookup(f->it[1]->s);
+            bool fill_decl = g >= 0 && G[g].kind == G_INPUT && !G[g].res->port[0];
+            if (fill_decl) G[g].kind = G_DEF; else g = add_global(f->it[1]->s, G_DEF);
+            prof_enter(f->it[1]->s);
+            if (cc_rdef(g)) {
+                prof_cur = 0;
+                link(top_build(G[g].body, G[g].nslots, G[g].uses), P(G[g].res, 0));
+                if (!strcmp(G[g].name, "%case-hcomp")) case_hcomp_global = g;
+                if (fill_decl) { for (int i = 0; i < G[g].npark; i++) net_push(G[g].park_o[i], G[g].park_v[i]); G[g].npark = 0; }
+                return;
+            }
+            /* a bad entry: the module compiles from here on, this definition included */
+            cc_in = NULL; cc_bad = true; prof_cur = 0;
+            if (!fill_decl) { G[g].kind = G_INPUT; }   /* made again below by the ordinary path (same index: the name is known) */
+        }
         ArMark dm = ar_mark();
         Node *dsb = ds(f->it[2]);   /* desugared once: the copattern test, the strictness analysis, the body and its n-ary form read it */
         if (!plain_def && copattern_body(dsb)) {
@@ -2738,6 +2860,7 @@ static void toplevel(Node *f) {
             }
         }
         ar_release(dm);
+        if (cc_out) cc_wdef(g);
         prof_cur = 0;
         link(top_build(s, ns, u), P(G[g].res, 0));
         if (!strcmp(G[g].name, "%case-hcomp")) case_hcomp_global = g;
@@ -3413,29 +3536,42 @@ static void load_file(const char *path, bool must) {
         if (trusted) cached = slurp(marker);
         /* this module's recorded forms: read (cached) or recorded (checked now) */
         FILE *s_rec = xrec; bool s_recbad = xrec_bad; Node **s_rep = xrep; int s_nrep = nxrep, s_irep = ixrep; bool s_repbad = xrep_bad;
-        char *recbuf = NULL; size_t reclen = 0;
+        FILE *s_ccout = cc_out; const unsigned char *s_ccin = cc_in, *s_ccend = cc_end; bool s_ccbad = cc_bad;
+        char *recbuf = NULL; size_t reclen = 0, cclen = 0; char *ccbuf = NULL; unsigned char *ccblob = NULL;
+        char *ccpath = malloc(strlen(marker) + 4); sprintf(ccpath, "%s.c", marker);   /* the compiled forms, beside the recorded ones */
         xrec = NULL; xrec_bad = false; xrep = NULL; nxrep = ixrep = 0; xrep_bad = false;
+        cc_out = NULL; cc_in = cc_end = NULL; cc_bad = false;
         if (cached) {
             const char *saved = src; src = strchr(cached, '\n'); src = src ? src + 1 : cached + strlen(cached);
             Node *f; size_t cap = 0; xrep = NULL;
             while ((f = read_node())) { GROW(xrep, cap, (size_t)nxrep + 1); xrep[nxrep++] = f; }
             src = saved;
             if (!xrep) { xrep = malloc(sizeof(Node *)); }   /* no forms recorded: every form a mismatch */
-        } else if (!getenv("CUBICAL_NOCACHE")) xrec = open_memstream(&recbuf, &reclen);
+            FILE *cf = fopen(ccpath, "rb");
+            if (cf) {
+                fseek(cf, 0, SEEK_END); long n = ftell(cf); fseek(cf, 0, SEEK_SET);
+                if (n > 0) { ccblob = malloc((size_t)n); if (fread(ccblob, 1, (size_t)n, cf) == (size_t)n) { cc_in = ccblob; cc_end = ccblob + n; } }
+                fclose(cf);
+            }
+        } else if (!getenv("CUBICAL_NOCACHE")) { xrec = open_memstream(&recbuf, &reclen); cc_out = open_memstream(&ccbuf, &cclen); }
         int f0 = failures;
         bool saved_os = out_surface; out_surface = !getenv("CUBICAL_CORE_OUT");
         load_surface(text, rp, false);
         out_surface = saved_os;
         if (xrec) fclose(xrec);
+        if (cc_out) fclose(cc_out);
         if (trusted) {
             printf("cached: %s\n", path);
             if (xrep_bad || ixrep != nxrep) printf("warning: the cache of %s does not match its forms; elaborated forms used where they differ\n", path);
+            if (cc_bad) printf("warning: the compiled forms of %s do not match; compiled again where they differ\n", path);
         } else if (failures == f0 && !getenv("CUBICAL_NOCACHE") && !xrec_bad) {
             mkdir(cache_dir(), 0777);
             FILE *mk = fopen(marker, "w"); if (mk) { fputs(rp, mk); fputc('\n', mk); if (recbuf) fputs(recbuf, mk); fclose(mk); }
+            if (ccbuf) { FILE *cf = fopen(ccpath, "wb"); if (cf) { fwrite(ccbuf, 1, cclen, cf); fclose(cf); } }
         }
-        free(recbuf); free(cached); free(xrep);
+        free(recbuf); free(ccbuf); free(ccblob); free(ccpath); free(cached); free(xrep);
         xrec = s_rec; xrec_bad = s_recbad; xrep = s_rep; nxrep = s_nrep; ixrep = s_irep; xrep_bad = s_repbad;
+        cc_out = s_ccout; cc_in = s_ccin; cc_end = s_ccend; cc_bad = s_ccbad;
         trusted = saved_trusted; cur_dir = saved_dir;
         free(marker);
         return;
