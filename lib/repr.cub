@@ -92,3 +92,20 @@ ld0 = fprim P-load64 (lcons (fvar #0) (lcons (flit #0) lnil))
 -- it runs natively on a buffer built by the same primitives
 buf2 = fprim P-store64 (lcons (fprim P-store64 (lcons (fprim P-bytes (lcons (flit #32) lnil)) (lcons (flit #0) (lcons (flit #5) lnil)))) (lcons (flit #16) (lcons (flit #9) lnil)))
 #same eval-fo (λ g → flit #0) lnil (fapply sum2 (lcons buf2 lnil)) = vw #14
+-- ---------------------------------------------------------------- processes specialized (D24 with B15)
+-- a process run against its world, with the initial state unknown, specializes by inlining
+-- (18.6's finding) and normalization: pr1 puts before it gets, so its run is the constant 12
+-- whatever the store; pr4 reads key 3 of the store, so its run is a function of the store
+out-w : Outcome Word → Word
+out-w o = case o of done a → a; stopped → #0
+run1 : (Word → Word) → Word
+run1 st = out-w (fst (runp {KVS} {Word} {Word → Word} (pr1 {lzero}) kv-world st))
+#same specialize-i #3 ((Word → Word) → Word) lnil (code (λ (st : Word → Word) → run1 st)) = flam (flit #12)
+pr4 : {l : Level} → Proc {l} KVS Word
+pr4 {l} = bind {l} {KVS} {Word} {Word} (cmd {l} {KVS} (get #3)) (λ a → ret {l} {KVS} {Word} (%wadd a #1))
+run4 : (Word → Word) → Word
+run4 st = out-w (fst (runp {KVS} {Word} {Word → Word} (pr4 {lzero}) kv-world st))
+spec4 = specialize-i #3 ((Word → Word) → Word) lnil (code (λ (st : Word → Word) → run4 st))
+#same spec4 = flam (fprim P-add (lcons (fapply (fvar #0) (lcons (flit #3) lnil)) (lcons (flit #1) lnil)))
+-- and run natively on a store given as a λ
+#same eval-fo (λ g → flit #0) lnil (fapply spec4 (lcons (flam (flit #40)) lnil)) = vw #41
