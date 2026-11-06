@@ -15,6 +15,8 @@ PROGS = {
  'specialized': ("""lam-body f = case f of flam b → b; _ → f
 defs = lcons (#0 , (#0 , fcall #1 (lcons (flit #6) lnil)))
        (lcons (#1 , (#1 , lam-body (specialize (Word → Word) lnil c5))) lnil)""", "64"),
+ # a closure capturing a let-bound value, lifted to its own definition and applied through the dispatcher
+ 'closure': ("""defs = case lift #1 t-clo of lifted t2 ds k → lcons (#0 , (#0 , t2)) ds""", "15"),
  'let-if': ("""defs = lcons (#0 , (#0 , flet (flit #3) (fif (fprim P-lt (lcons (fvar #0) (lcons (flit #5) lnil))) (fprim P-mul (lcons (fvar #0) (lcons (fvar #0) lnil))) (flit #0)))) lnil""", "9"),
 }
 def run(name, defs, expect):

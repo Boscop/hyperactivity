@@ -244,3 +244,104 @@ c-pow = cwelim (cwlit #5) (cwlit #1) (clam (clam (cwop #2 (cvar #0) (cvar #0))))
 -- let and pairs
 c-let = clet (cpair (cwlit #1) (cwlit #2)) (cwop #2 (cfst (cvar #0)) (csnd (cvar #0)))
 #same eval-fo no-defs lnil (lower c-let) = vw #3
+-- ---------------------------------------------------------------- closure conversion
+-- A λ in the first-order form captures the whole environment at its creation (vlam). For a
+-- printer, every λ becomes a definition of its own over its free variables: lift k t walks t,
+-- replacing each flam b by fclos g (the free variables of b, as fvars at the λ's position) and
+-- emitting the definition g = (arity 1 + n, body with its free variables renumbered to the n
+-- captured parameters below the argument). Definitions are numbered from k upward and returned
+-- with the converted term. A converted program has no flam left; fapply on an fclos calls g with
+-- the captured values then the arguments.
+data Lifted = lifted (t : FO) (defs : Lst) (next : Word)
+data Lifted2 = lifted2 (ts : Lst) (defs : Lst) (next : Word)
+-- free variables of t at depth 0: the set of indices ≥ d that occur, as a sorted Lst of words
+free-vars d t = fv-sorted (fv d t lnil)
+fv d t acc =
+  case t of
+    fvar n → if %wlt n d then acc else ins-sorted (%wsub n d) acc
+    fcon dd c fs → fv-list d fs acc
+    fswitch x alts → fv-alts d alts (fv d x acc)
+    fproj dd c k x → fv d x acc
+    fcall g args → fv-list d args acc
+    fprim p args → fv-list d args acc
+    flet a b → fv (%wsucc d) b (fv d a acc)
+    fif c a b → fv d b (fv d a (fv d c acc))
+    floop init body → fv (%wadd d #3) body (fv-list d init acc)
+    fclos g env → fv-list d env acc
+    flam b → fv (%wsucc d) b acc
+    fapply f args → fv-list d args (fv d f acc)
+    fthunk a → fv d a acc
+    fforce x → fv d x acc
+    fnet g args → fv-list d args acc
+    fassume f b → fv d b acc
+    _ → acc
+fv-list d l acc = case l of lnil → acc; lcons x xs → fv-list d xs (fv d x acc)
+fv-alts d alts acc = case alts of lnil → acc; lcons a r → fv-alts d r (fv (%wadd d (fst (snd a))) (snd (snd a)) acc)
+ins-sorted n l = case l of lnil → lcons n lnil; lcons m r → if %wlt n m then lcons n l else if %weq n m then l else lcons m (ins-sorted n r)
+fv-sorted l = l
+-- the index of n in a sorted list (its position), for renumbering
+index-of n l = case l of lnil → #0; lcons m r → if %weq n m then #0 else %wsucc (index-of n r)
+lst-len2 l = case l of lnil → #0; lcons x xs → %wsucc (lst-len2 xs)
+-- renumber the free variables of a λ body: inside the lifted definition the environment is the
+-- captured values c_0 .. c_(n-1) (c_0 innermost? no: pushed in order, so c_(n-1) is innermost,
+-- index 0 above the argument) then the argument at index 0. A free variable m of the body (at
+-- body depth d, index m ≥ d, referring to outer index m − d) becomes d + (position of (m − d) in
+-- the captured list, counted from the end)
+renumber d caps t =
+  case t of
+    fvar n → if %wlt n d then t else fvar (%wadd d (%wsub (%wsub (lst-len2 caps) #1) (index-of (%wsub n d) caps)))
+    fcon dd c fs → fcon dd c (renumber-list d caps fs)
+    fswitch x alts → fswitch (renumber d caps x) (renumber-alts d caps alts)
+    fproj dd c k x → fproj dd c k (renumber d caps x)
+    fcall g args → fcall g (renumber-list d caps args)
+    fprim p args → fprim p (renumber-list d caps args)
+    flet a b → flet (renumber d caps a) (renumber (%wsucc d) caps b)
+    fif c a b → fif (renumber d caps c) (renumber d caps a) (renumber d caps b)
+    floop init body → floop (renumber-list d caps init) (renumber (%wadd d #3) caps body)
+    fclos g env → fclos g (renumber-list d caps env)
+    flam b → flam (renumber (%wsucc d) caps b)
+    fapply f args → fapply (renumber d caps f) (renumber-list d caps args)
+    fthunk a → fthunk (renumber d caps a)
+    fforce x → fforce (renumber d caps x)
+    fnet g args → fnet g (renumber-list d caps args)
+    fassume f b → fassume f (renumber d caps b)
+    _ → t
+renumber-list d caps l = case l of lnil → lnil; lcons x xs → lcons (renumber d caps x) (renumber-list d caps xs)
+renumber-alts d caps alts = case alts of lnil → lnil; lcons a r → lcons (fst a , (fst (snd a) , renumber (%wadd d (fst (snd a))) caps (snd (snd a)))) (renumber-alts d caps r)
+-- lift: definitions numbered from k; innermost λs first so that a λ's body is already converted
+lift k t =
+  case t of
+    flam b →
+      (case lift k b of
+         lifted b2 ds k2 →
+           let caps = free-vars #1 b2
+           in lifted (fclos k2 (caps-as-vars caps)) (lapp2 ds (lcons (k2 , (%wsucc (lst-len2 caps) , renumber #1 caps b2)) lnil)) (%wsucc k2))
+    fcon dd c fs → (case lift-list k fs of lifted2 fs2 ds k2 → lifted (fcon dd c fs2) ds k2)
+    fswitch x alts → (case lift k x of lifted x2 ds k2 → (case lift-alts k2 alts of lifted2 alts2 ds2 k3 → lifted (fswitch x2 alts2) (lapp2 ds ds2) k3))
+    fproj dd c j x → (case lift k x of lifted x2 ds k2 → lifted (fproj dd c j x2) ds k2)
+    fcall g args → (case lift-list k args of lifted2 as ds k2 → lifted (fcall g as) ds k2)
+    fprim p args → (case lift-list k args of lifted2 as ds k2 → lifted (fprim p as) ds k2)
+    flet a b → (case lift k a of lifted a2 ds k2 → (case lift k2 b of lifted b2 ds2 k3 → lifted (flet a2 b2) (lapp2 ds ds2) k3))
+    fif c a b → (case lift k c of lifted c2 ds k2 → (case lift k2 a of lifted a2 ds2 k3 → (case lift k3 b of lifted b2 ds3 k4 → lifted (fif c2 a2 b2) (lapp2 ds (lapp2 ds2 ds3)) k4)))
+    floop init body → (case lift-list k init of lifted2 is ds k2 → (case lift k2 body of lifted b2 ds2 k3 → lifted (floop is b2) (lapp2 ds ds2) k3))
+    fapply f args → (case lift k f of lifted f2 ds k2 → (case lift-list k2 args of lifted2 as ds2 k3 → lifted (fapply f2 as) (lapp2 ds ds2) k3))
+    _ → lifted t lnil k
+lift-list k l =
+  case l of
+    lnil → lifted2 lnil lnil k
+    lcons x xs → (case lift k x of lifted x2 ds k2 → (case lift-list k2 xs of lifted2 xs2 ds2 k3 → lifted2 (lcons x2 xs2) (lapp2 ds ds2) k3))
+lift-alts k alts =
+  case alts of
+    lnil → lifted2 lnil lnil k
+    lcons a r → (case lift k (snd (snd a)) of lifted b2 ds k2 → (case lift-alts k2 r of lifted2 r2 ds2 k3 → lifted2 (lcons (fst a , (fst (snd a) , b2)) r2) (lapp2 ds ds2) k3))
+caps-as-vars caps = case caps of lnil → lnil; lcons n r → lcons (fvar n) (caps-as-vars r)
+lapp2 l m = case l of lnil → m; lcons x xs → lcons x (lapp2 xs m)
+-- a converted λ applied through eval-fo: fclos g env with the definition table from the lifted
+-- definitions; the definitions' bodies take the captured values then the argument
+table-of defs g = case defs of lnil → flit #0; lcons d r → if %weq (fst d) g then snd (snd d) else table-of r g
+-- (λ x → x + c) with c captured, lifted and applied: 5 + 10
+t-clo = flet (flit #10) (fapply (flam (fprim P-add (lcons (fvar #0) (lcons (fvar #1) lnil)))) (lcons (flit #5) lnil))
+#same (case lift #1 t-clo of lifted t2 ds k → eval-fo (table-of ds) lnil t2) = vw #15
+#same (case lift #1 t-clo of lifted t2 ds k → k) = #2
+-- the lifted definition captures one variable: arity 2
+#same (case lift #1 t-clo of lifted t2 ds k → (case ds of lcons d r → fst (snd d); lnil → #0)) = #2
