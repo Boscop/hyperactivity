@@ -119,35 +119,6 @@ lift-program k defs =
 #same lst-len (program-of #10 (code (λ (l : LW) → lenw l))) = #2
 prog-len = lift-program #100000 (program-of #10 (code (λ (l : LW) → lenw l)))
 #same eval-fo (table-of prog-len) lnil (fcall #0 (lcons lw3 lnil)) = vw #2
--- ---------------------------------------------------------------- inlining (18.6's finding)
--- normalization does not unfold a definition applied to a neutral argument; until the machine
--- does (18.6), the specializer inlines: every cglob whose value quotes (a definition over no
--- stuck primitive) is replaced by its code, to a depth, before normalizing. A definition's
--- recursion is its celim body, so inlining terminates at the depth given
-inline-depth n c =
-  if %weq n #0 then c else
-  (case c of
-     cglob g → (case unfold g of some cd → inline-depth (%wsub n #1) cd; none → c)
-     clam b → clam (inline-depth n b)
-     capp f a → capp (inline-depth n f) (inline-depth n a)
-     cpair a b → cpair (inline-depth n a) (inline-depth n b)
-     cfst p → cfst (inline-depth n p)
-     csnd p → csnd (inline-depth n p)
-     clet t b → clet (inline-depth n t) (inline-depth n b)
-     cann t T → cann (inline-depth n t) T
-     ccon d k fs ds → ccon d k (inline-list n fs) ds
-     ccase d B x → ccase d (inline-list n B) (inline-depth n x)
-     celim d P B x → celim d P (inline-list n B) (inline-depth n x)
-     cforce t → cforce (inline-depth n t)
-     cwsucc a → cwsucc (inline-depth n a)
-     cwop k a b → cwop k (inline-depth n a) (inline-depth n b)
-     cwelim w z s → cwelim (inline-depth n w) (inline-depth n z) (inline-depth n s)
-     _ → c)
-inline-list n l = case l of lnil → lnil; lcons x xs → lcons (inline-depth n x) (inline-list n xs)
--- specialize with inlining to depth n
-specialize-i n T rules c = lower (rewrite-all #64 rules (normalize T (inline-depth n c)))
--- readings: the call of lenw under an unknown list specializes to the recursion itself
-#same specialize-i #2 (LW → Word) lnil (code (λ (l : LW) → lenw l)) = lower (fromopt (unfold (gidx (code lenw))) cword)
 -- ---------------------------------------------------------------- the criterion's report (B13, the code side)
 -- fo-report c: the forms of c outside the first-order fragment, each as its code (a dimension
 -- binder or application, a path type or composition, Glue, a transport, a universe, a Π or Σ type
@@ -182,3 +153,11 @@ is-fo c = case fo-report c of lnil → true; _ → false
 #same is-fo (code (λ (l : LW) → lenw l)) = true
 #same fo-report (cplam (cvar #0)) = lcons (cplam (cvar #0)) lnil
 #same lst-len (fo-report (capp (cplam (cvar #0)) (ctrans #1 cftt lnil (cvar #0)))) = #2
+-- ---------------------------------------------------------------- schedules as values (5.2)
+-- what the specializer may do is a value: how many rewrites; the inline depth is the machine's
+-- (normalization unfolds every definition it reaches: quote renders a definition applied to a
+-- neutral by its body); fusion, representation choices and generality follow B13
+data Sched = sched (rewrites : Word)
+specialize-s sch T rules c = case sch of sched r → lower (rewrite-all r rules (normalize T c))
+-- the call of lenw under an unknown list normalizes to the recursion itself
+#same specialize-s (sched #64) (LW → Word) lnil (code (λ (l : LW) → lenw l)) = lower (fromopt (unfold (gidx (code lenw))) cword)
