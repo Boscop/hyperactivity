@@ -1,0 +1,43 @@
+-- lib/rules.cub — identities in the store as rewrite rules (plan 18.14, F33; 18.6 step 3).
+-- Loaded after lib/check.cub, lib/match.cub, lib/nav.cub, lib/specialize.cub and lib/std.cub.
+-- A checked definition whose type is Π x1 … xk. l ≡ r is an identity; rule-of reads its type
+-- through quote-ty and makes the rule l → r with the bound variables as metavariables; rule-of-sym
+-- reads it right to left. A view (nav.cub) is a list of such rules, so navigation runs over the
+-- theorems of the store, and the specializer rewrites along proved laws: the "marked theorems"
+-- of 18.6 are definitions, named.
+peel-pi c =
+  case c of
+    cpi m A B → peel-pi B
+    cpathp A l r → some (l , r)
+    _ → none
+rule-of g = case peel-pi (fromopt (quote-ty (%gty g)) cword) of some lr → some (rule #0 (fst lr) (snd lr)); none → none
+rule-of-sym g = case peel-pi (fromopt (quote-ty (%gty g)) cword) of some lr → some (rule #0 (snd lr) (fst lr)); none → none
+view-of gs = case gs of lnil → lnil; lcons g rest → (case rule-of g of some r → lcons r (view-of rest); none → view-of rest)
+-- the global index of a checked definition is what (code name) quotes to
+gidx c = case c of cglob n → n; _ → #0
+-- ---------------------------------------------------------------- readings
+-- the endpoints of an identity are quoted from the type's value, so they are in normal form
+-- (plus a b with a a variable is its stuck elimination); the specializer normalizes before it
+-- rewrites, so terms and rules meet in the same form. plus-assoc as a rule, applied to the
+-- normal form of λ a b c → (a + b) + c, gives the normal form of λ a b c → a + (b + c)
+T3 = Nat → Nat → Nat → Nat
+assoc-rule = fromopt (rule-of (gidx (code plus-assoc))) (rule #0 cword cword)
+lhs3 = normalize T3 (code (λ a b c → plus (plus a b) c))
+rhs3 = normalize T3 (code (λ a b c → plus a (plus b c)))
+#same rewrite-first assoc-rule lhs3 = some rhs3
+#same rewrite-first assoc-rule rhs3 = none
+-- read right to left, the rule undoes it
+#same rewrite-first (fromopt (rule-of-sym (gidx (code plus-assoc))) (rule #0 cword cword)) rhs3 = some lhs3
+-- a view from the store's identities: navigation from (a + b) + c to the goal pattern a + (b + c)
+-- in one step; plus-comm is in the view too and is not chosen, its result being no smaller
+view3 = view-of (lcons (gidx (code plus-comm)) (lcons (gidx (code plus-assoc)) lnil))
+#same (case navigate #3 rhs3 view3 lhs3 of navr r k → k) = #1
+-- the specializer along proved laws: (0 + x) specialized with plus-zero-l… plus zero x is already
+-- x by computation; plus x zero is not, and the law plus-zero rewrites it before lowering
+Tz = Nat → Nat
+zero-rule = fromopt (rule-of (gidx (code plus-zero))) (rule #0 cword cword)
+#same rewrite-all #4 (lcons zero-rule lnil) (normalize Tz (code (λ x → plus x zero))) = normalize Tz (code (λ x → x))
+-- and through the specializer to the first-order form: the law is consumed before lowering, so
+-- what is lowered is the identity function (the C++ image's thesis, 10.1: laws are used by the
+-- specializer and erased, never emitted)
+#same specialize Tz (lcons zero-rule lnil) (code (λ x → plus x zero)) = lower (normalize Tz (code (λ x → x)))
