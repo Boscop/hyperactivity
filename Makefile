@@ -20,8 +20,9 @@ test: build/cubical build/cubical-asan
 	python3 tools/names.py
 	./build/cubical lib/prelude.cub tests/cubical.cub
 	./build/cubical lib/prelude.cub lib/code.cub tests/code.cub
-	./build/cubical lib/prelude.cub lib/code.cub lib/fo.cub lib/emitc.cub
+	./build/cubical lib/prelude.cub lib/code.cub lib/fo.cub lib/emitc.cub lib/emitu.cub
 	python3 experiments/fo/run.py
+	UNBOXED=1 python3 experiments/fo/run.py
 	./build/cubical lib/prelude.cub lib/code.cub lib/match.cub lib/nav.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/match.cub lib/lin.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/fo.cub lib/match.cub lib/check.cub lib/std.cub lib/lower.cub lib/specialize.cub
