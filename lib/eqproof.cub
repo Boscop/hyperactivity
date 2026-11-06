@@ -89,10 +89,40 @@ rw-sound m p l r h t q =
          tc f → λ q i → fst (snd m) f
          tapp a b → λ q i → snd (snd m) (tev m a) (rec q2 b q i))
   t q
+-- ---------------------------------------------------------------- substitution
+-- hypotheses are schematic: their variables range over all valuations. A step instantiates one
+-- by a substitution (a finite map from variables to terms; the identity elsewhere)
+data Subst = snil | scons (v : Word) (t : Tm) (rest : Subst)
+lookup : Subst → Word → Tm
+lookup σ v =
+  case σ return (λ w → Tm) of
+    snil → tv v
+    scons v2 t rest → (case weq v v2 return (λ w → Tm) of true → t; false → rec rest)
+tsubst : Subst → Tm → Tm
+tsubst σ t =
+  case t return (λ w → Tm) of
+    tv v → lookup σ v
+    tc f → tc f
+    tapp a b → tapp (rec a) (rec b)
+-- the value of an instance is the value at the substituted valuation
+msub : Model → Subst → Model
+msub m σ = ((λ v → tev m (lookup σ v)) , snd m)
+tsubst-sound : (m : Model) (σ : Subst) (t : Tm) → tev m (tsubst σ t) ≡ tev (msub m σ) t
+tsubst-sound m σ t =
+  case t return (λ w → tev m (tsubst σ w) ≡ tev (msub m σ) w) of
+    tv v → λ i → tev m (lookup σ v)
+    tc f → λ i → fst (snd m) f
+    tapp a b → λ i → snd (snd m) (rec a i) (rec b i)
 -- ---------------------------------------------------------------- hypotheses and traces
 data Eqs = enil | econs (l : Tm) (r : Tm) (rest : Eqs)
+Vals : Type
+Vals = Word → Word
+-- the hypotheses hold in a model when each holds at every valuation of its variables
 EqHolds : Model → Eqs → Type
-EqHolds m hs = case hs return (λ w → Type) of enil → Unit; econs l r rest → (tev m l ≡ tev m r) × rec rest
+EqHolds m hs =
+  case hs return (λ w → Type) of
+    enil → Unit
+    econs l r rest → ((vals : Vals) → tev (vals , snd m) l ≡ tev (vals , snd m) r) × rec rest
 -- the i-th equation; past the end, a trivial one (which holds in every model)
 hyp-at : Word → Eqs → Tm × Tm
 hyp-at i hs =
@@ -100,71 +130,153 @@ hyp-at i hs =
     enil → λ i → (tc #0 , tc #0)
     econs l r rest → λ i → %welimP (λ v → Tm × Tm) i (l , r) (λ j h → rec rest j)
   i
-hyp-holds : (m : Model) (hs : Eqs) (i : Word) → EqHolds m hs → tev m (fst (hyp-at i hs)) ≡ tev m (snd (hyp-at i hs))
+hyp-holds : (m : Model) (hs : Eqs) (i : Word) → EqHolds m hs →
+            (vals : Vals) → tev (vals , snd m) (fst (hyp-at i hs)) ≡ tev (vals , snd m) (snd (hyp-at i hs))
 hyp-holds m hs i hh =
-  case hs return (λ w → (i : Word) → EqHolds m w → tev m (fst (hyp-at i w)) ≡ tev m (snd (hyp-at i w))) of
-    enil → λ i hh j → fst (snd m) #0
+  case hs return (λ w → (i : Word) → EqHolds m w →
+                        (vals : Vals) → tev (vals , snd m) (fst (hyp-at i w)) ≡ tev (vals , snd m) (snd (hyp-at i w))) of
+    enil → λ i hh vals j → fst (snd m) #0
     econs l r rest → λ i hh →
-      %welimP (λ v → tev m (fst (hyp-at v (econs l r rest))) ≡ tev m (snd (hyp-at v (econs l r rest)))) i
+      %welimP (λ v → (vals : Vals) → tev (vals , snd m) (fst (hyp-at v (econs l r rest))) ≡ tev (vals , snd m) (snd (hyp-at v (econs l r rest)))) i
         (fst hh) (λ j h → rec rest j (snd hh))
   i hh
+-- the instance of a hypothesis holds in the model itself
+inst-holds : (m : Model) (hs : Eqs) (i : Word) (σ : Subst) → EqHolds m hs →
+             tev m (tsubst σ (fst (hyp-at i hs))) ≡ tev m (tsubst σ (snd (hyp-at i hs)))
+inst-holds m hs i σ hh =
+  catw (tsubst-sound m σ (fst (hyp-at i hs)))
+    (catw (hyp-holds m hs i hh (λ v → tev m (lookup σ v))) (symw (tsubst-sound m σ (snd (hyp-at i hs)))))
 -- an equation read in a direction
 lhs : Bool → Tm × Tm → Tm
 lhs d eq = case d return (λ w → Tm) of true → snd eq; false → fst eq
 rhs : Bool → Tm × Tm → Tm
 rhs d eq = case d return (λ w → Tm) of true → fst eq; false → snd eq
-symw-tm : (m : Model) (d : Bool) (eq : Tm × Tm) → tev m (fst eq) ≡ tev m (snd eq) → tev m (lhs d eq) ≡ tev m (rhs d eq)
-symw-tm m d eq h = case d return (λ w → tev m (lhs w eq) ≡ tev m (rhs w eq)) of true → symw h; false → h
--- a trace: steps (position, hypothesis, direction)
-data Trace = tnil | tstep (p : Pos) (i : Word) (d : Bool) (rest : Trace)
--- one step: rewrite if the subterm matches the equation's side, else leave the term
-step : Eqs → Pos → Word → Bool → Tm → Tm
-step hs p i d t =
-  case tm-same (subterm p t) (lhs d (hyp-at i hs)) return (λ w → Tm) of
-    true → replace p (rhs d (hyp-at i hs)) t
+dir-sound : (m : Model) (d : Bool) (σ : Subst) (eq : Tm × Tm) → tev m (tsubst σ (fst eq)) ≡ tev m (tsubst σ (snd eq)) →
+            tev m (tsubst σ (lhs d eq)) ≡ tev m (tsubst σ (rhs d eq))
+dir-sound m d σ eq h = case d return (λ w → tev m (tsubst σ (lhs w eq)) ≡ tev m (tsubst σ (rhs w eq))) of true → symw h; false → h
+-- a trace: steps (position, hypothesis, direction, substitution)
+data Trace = tnil | tstep (p : Pos) (i : Word) (d : Bool) (σ : Subst) (rest : Trace)
+-- one step: rewrite if the subterm is the instance of the equation's side, else leave the term
+step : Eqs → Pos → Word → Bool → Subst → Tm → Tm
+step hs p i d σ t =
+  case tm-same (subterm p t) (tsubst σ (lhs d (hyp-at i hs))) return (λ w → Tm) of
+    true → replace p (tsubst σ (rhs d (hyp-at i hs))) t
     false → t
-step-sound : (m : Model) (hs : Eqs) (p : Pos) (i : Word) (d : Bool) → EqHolds m hs → (t : Tm) → tev m t ≡ tev m (step hs p i d t)
-step-sound m hs p i d hh t =
-  case tm-same (subterm p t) (lhs d (hyp-at i hs))
-    return (λ b → tm-same (subterm p t) (lhs d (hyp-at i hs)) ≡ b →
-                  tev m t ≡ tev m (case b return (λ w → Tm) of true → replace p (rhs d (hyp-at i hs)) t; false → t)) of
-    true → λ q → rw-sound m p (lhs d (hyp-at i hs)) (rhs d (hyp-at i hs)) (symw-tm m d (hyp-at i hs) (hyp-holds m hs i hh)) t q
-    false → λ q i → tev m t
-  (λ j → tm-same (subterm p t) (lhs d (hyp-at i hs)))
+step-sound : (m : Model) (hs : Eqs) (p : Pos) (i : Word) (d : Bool) (σ : Subst) → EqHolds m hs →
+             (t : Tm) → tev m t ≡ tev m (step hs p i d σ t)
+step-sound m hs p i d σ hh t =
+  case tm-same (subterm p t) (tsubst σ (lhs d (hyp-at i hs)))
+    return (λ b → tm-same (subterm p t) (tsubst σ (lhs d (hyp-at i hs))) ≡ b →
+                  tev m t ≡ tev m (case b return (λ w → Tm) of true → replace p (tsubst σ (rhs d (hyp-at i hs))) t; false → t)) of
+    true → λ q → rw-sound m p (tsubst σ (lhs d (hyp-at i hs))) (tsubst σ (rhs d (hyp-at i hs)))
+                    (dir-sound m d σ (hyp-at i hs) (inst-holds m hs i σ hh)) t q
+    false → λ q j → tev m t
+  (λ j → tm-same (subterm p t) (tsubst σ (lhs d (hyp-at i hs))))
 run : Eqs → Trace → Tm → Tm
 run hs tr t =
   case tr return (λ w → Tm → Tm) of
     tnil → λ t → t
-    tstep p i d rest → λ t → rec rest (step hs p i d t)
+    tstep p i d σ rest → λ t → rec rest (step hs p i d σ t)
   t
 run-sound : (m : Model) (hs : Eqs) (tr : Trace) → EqHolds m hs → (t : Tm) → tev m t ≡ tev m (run hs tr t)
 run-sound m hs tr hh t =
   case tr return (λ w → (t : Tm) → tev m t ≡ tev m (run hs w t)) of
     tnil → λ t i → tev m t
-    tstep p i d rest → λ t → catw (step-sound m hs p i d hh t) (rec rest (step hs p i d t))
+    tstep p i d σ rest → λ t → catw (step-sound m hs p i d σ hh t) (rec rest (step hs p i d σ t))
   t
 -- the checker and its theorem
 check-eq : Eqs → Trace → Tm → Tm → Bool
 check-eq hs tr s t = tm-same (run hs tr s) t
 eq-cert-sound : (m : Model) (hs : Eqs) (tr : Trace) (s t : Tm) → EqHolds m hs → check-eq hs tr s t ≡ true → tev m s ≡ tev m t
 eq-cert-sound m hs tr s t hh q = catw (run-sound m hs tr hh s) (congt m (tm-same-sound (run hs tr s) t q))
+-- ---------------------------------------------------------------- search (unverified)
+-- a trace is found by bounded depth-first search: at every position of the term, every
+-- hypothesis in either direction whose side matches there. Nothing here is trusted: the trace
+-- found is checked by check-eq, and eq-cert-sound is about the check
+data OSubst = nosub | asub (σ : Subst)
+bound : Subst → Word → Bool
+bound σ v = case σ return (λ w → Bool) of snil → false; scons v2 t rest → (case weq v v2 return (λ w → Bool) of true → true; false → rec rest)
+-- matching a pattern (its variables are the hypothesis's) against a term, extending σ
+tmatch : Tm → Tm → Subst → OSubst
+tmatch p t σ =
+  case p return (λ w → Tm → Subst → OSubst) of
+    tv v → λ t σ → (case bound σ v return (λ w → OSubst) of true → (case tm-same (lookup σ v) t return (λ w → OSubst) of true → asub σ; false → nosub); false → asub (scons v t σ))
+    tc f → λ t σ → (case t return (λ w → OSubst) of tv w → nosub; tc g → (case weq f g return (λ w → OSubst) of true → asub σ; false → nosub); tapp a b → nosub)
+    tapp a b → λ t σ →
+      (case t return (λ w → OSubst) of
+         tv w → nosub
+         tc g → nosub
+         tapp c d → (case rec a c σ return (λ w → OSubst) of nosub → nosub; asub σ2 → rec b d σ2))
+  t σ
+data Poss = pnil | pcons (p : Pos) (rest : Poss)
+pmap-l : Poss → Poss
+pmap-l ps = case ps return (λ w → Poss) of pnil → pnil; pcons p r → pcons (pl p) (rec r)
+pmap-r : Poss → Poss
+pmap-r ps = case ps return (λ w → Poss) of pnil → pnil; pcons p r → pcons (pr p) (rec r)
+pcat : Poss → Poss → Poss
+pcat a b = case a return (λ w → Poss) of pnil → b; pcons p r → pcons p (rec r)
+positions : Tm → Poss
+positions t =
+  case t return (λ w → Poss) of
+    tv v → pcons here pnil
+    tc f → pcons here pnil
+    tapp a b → pcons here (pcat (pmap-l (rec a)) (pmap-r (rec b)))
+data OTrace = notr | atrace (tr : Trace)
+eqs-len : Eqs → Word
+eqs-len hs = case hs return (λ w → Word) of enil → #0; econs l r rest → %wsucc (rec rest)
+try-dir : (Tm → OTrace) → Eqs → Pos → Word → Bool → Tm → OTrace
+try-dir deeper hs p i d s =
+  case tmatch (lhs d (hyp-at i hs)) (subterm p s) snil return (λ w → OTrace) of
+    nosub → notr
+    asub σ →
+      (case deeper (step hs p i d σ s) return (λ w → OTrace) of
+         notr → notr
+         atrace tr → atrace (tstep p i d σ tr))
+try-hyp : (Tm → OTrace) → Eqs → Pos → Word → Word → Tm → OTrace
+try-hyp deeper hs p n i s =
+  %welimP (λ v → Word → OTrace) n (λ i → notr)
+    (λ k h i →
+       (case try-dir deeper hs p i false s return (λ w → OTrace) of
+          atrace tr → atrace tr
+          notr → (case try-dir deeper hs p i true s return (λ w → OTrace) of atrace tr → atrace tr; notr → h (%wsucc i))))
+  i
+-- try every position, hypothesis and direction; deeper : Tm → OTrace searches from the result
+try-pos : (Tm → OTrace) → Eqs → Poss → Tm → OTrace
+try-pos deeper hs ps s =
+  case ps return (λ w → OTrace) of
+    pnil → notr
+    pcons p rest → (case try-hyp deeper hs p (eqs-len hs) #0 s return (λ w → OTrace) of atrace tr → atrace tr; notr → rec rest)
+-- find-trace n hs s t: a trace of at most n steps from s to t, or none
+find-trace : Word → Eqs → Tm → Tm → OTrace
+find-trace n hs s t =
+  %welimP (λ v → Tm → OTrace) n
+    (λ s → (case tm-same s t return (λ w → OTrace) of true → atrace tnil; false → notr))
+    (λ k deeper s →
+       (case tm-same s t return (λ w → OTrace) of
+          true → atrace tnil
+          false → try-pos deeper hs (positions s) s))
+  s
 -- ---------------------------------------------------------------- readings
--- constants: 0 = f, 1 = g, 2 = c. Hypotheses: f x = g x (0), g c = c (1).
--- Goal: f (f c) = c by f (f c) → g (f c) → g (g c) → g c → c
+-- constants: 0 = f, 1 = g, 2 = c. Hypotheses (schematic in the variable 0 = x):
+--   f x = g x (0), g c = c (1). Goal: f (f c) = c by f (f c) → g (f c) → g (g c) → g c → c
 ap1 : Tm → Tm → Tm
 ap1 f a = tapp f a
 hs1 = econs (ap1 (tc #0) (tv #0)) (ap1 (tc #1) (tv #0)) (econs (ap1 (tc #1) (tc #2)) (tc #2) enil)
--- the hypothesis f x = g x is ground here: x is the variable 0, so the steps rewrite f x, not
--- f (f c); the certificate instead uses the instance at c, stated as a third hypothesis
-hs2 = econs (ap1 (tc #0) (tc #2)) (ap1 (tc #1) (tc #2))
-        (econs (ap1 (tc #1) (tc #2)) (tc #2)
-          (econs (ap1 (tc #0) (ap1 (tc #0) (tc #2))) (ap1 (tc #1) (ap1 (tc #0) (tc #2))) enil))
-tr1 = tstep here #2 false (tstep (pr here) #0 false (tstep (pr here) #1 false (tstep here #1 false tnil)))
-#same check-eq hs2 tr1 (ap1 (tc #0) (ap1 (tc #0) (tc #2))) (tc #2) = true
--- a step at a position where the equation does not match does nothing, and the check fails
-#same check-eq hs2 (tstep (pl here) #2 false tnil) (ap1 (tc #0) (ap1 (tc #0) (tc #2))) (tc #2) = false
+goal1 = ap1 (tc #0) (ap1 (tc #0) (tc #2))
+tr1 = tstep here #0 false (scons #0 (ap1 (tc #0) (tc #2)) snil)
+        (tstep (pr here) #0 false (scons #0 (tc #2) snil)
+          (tstep (pr here) #1 false snil (tstep here #1 false snil tnil)))
+#same check-eq hs1 tr1 goal1 (tc #2) = true
+-- a step whose instance does not match where it points does nothing, and the check fails
+#same check-eq hs1 (tstep (pl here) #0 false snil tnil) goal1 (tc #2) = false
 -- direction: g c = c read backwards turns c into g c
-#same check-eq hs2 (tstep here #1 true tnil) (tc #2) (ap1 (tc #1) (tc #2)) = true
+#same check-eq hs1 (tstep here #1 true snil tnil) (tc #2) (ap1 (tc #1) (tc #2)) = true
 -- the empty trace proves only syntactic equality
-#same check-eq hs2 tnil (tc #2) (tc #2) = true
-#same check-eq hs2 tnil (tc #2) (tc #1) = false
+#same check-eq hs1 tnil (tc #2) (tc #2) = true
+#same check-eq hs1 tnil (tc #2) (tc #1) = false
+-- the search finds a trace for the goal, and what it finds checks; none within one step
+#same (case find-trace #4 hs1 goal1 (tc #2) of atrace tr → check-eq hs1 tr goal1 (tc #2); notr → false) = true
+#same find-trace #1 hs1 goal1 (tc #2) = notr
+-- a schematic hypothesis used at two instances: h x y = h y x (2) proves h a b = h b a
+hs2 = econs (ap1 (ap1 (tc #3) (tv #0)) (tv #1)) (ap1 (ap1 (tc #3) (tv #1)) (tv #0)) enil
+#same (case find-trace #2 hs2 (ap1 (ap1 (tc #3) (tc #4)) (tc #5)) (ap1 (ap1 (tc #3) (tc #5)) (tc #4)) of atrace tr → check-eq hs2 tr (ap1 (ap1 (tc #3) (tc #4)) (tc #5)) (ap1 (ap1 (tc #3) (tc #5)) (tc #4)); notr → false) = true
