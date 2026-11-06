@@ -1,5 +1,5 @@
 -- lib/derive.cub — generic programming over the data table (plan 18.13, F31: deriving as terms
--- over %dent producing codes). Loaded after lib/check.cub. derive-eq d: the code of a decidable
+-- over %dent producing codes). Loaded after lib/check.cub and lib/lower.cub (didx). derive-eq d: the code of a decidable
 -- equality on the data type d, read off its constructors' telescopes: a word field compares by
 -- %weq, a recursive field by the hypothesis the case provides, a field of another data type by that
 -- type's derived equality; constructors with dimensions (higher inductive types) and other field
@@ -8,25 +8,25 @@
 -- the kinds of a constructor's fields, by walking its telescope with fresh variables: a Lst of
 -- (kind , d2): kind 0 a word, 1 recursive, 2 a data type d2 without parameters; none otherwise
 -- (some kinds, or none)
-field-kind d A =
+dfield-kind d A =
   if is-rec-ty d A then some (#1 , d)
   else (case A of tword → some (#0 , d); tdata d2 ps V → (case ps of lnil → some (#2 , d2); _ → none); _ → none)
-tel-kinds d tel acc =
+dtel-kinds d tel acc =
   case tel of
-    tx A nm r → (case field-kind d A of
-                   some k → (let Av = tval A in tel-kinds d (r (%var nm Av) Av) (lsnoc acc k))
+    tx A nm r → (case dfield-kind d A of
+                   some k → (let Av = tval A in dtel-kinds d (r (%var nm Av) Av) (lsnoc acc k))
                    none → none)
     ty nm r → none
     tz e → some acc
-cshape d c = tel-kinds d (centry d c lnil) lnil
+dshape d c = dtel-kinds d (centry d c lnil) lnil
 nctors d = lst-count (ctors-at d lnil)
-lst-count l = case l of lnil → #0; lcons x xs → %wsucc (lst-count xs)
 count-rec ks = case ks of lnil → #0; lcons k r → %wadd (if %weq (fst k) #1 then #1 else #0) (count-rec r)
 -- ---------------------------------------------------------------- codes
 -- Bool is the first checked data type: true = con 0, false = con 1
-c-true = ccon #0 #0 lnil lnil
-c-false = ccon #0 #1 lnil lnil
-c-and a b = ccase #0 (lcons b (lcons c-false lnil)) a
+bool-d = didx (code Bool)
+c-true = ccon bool-d #0 lnil lnil
+c-false = ccon bool-d #1 lnil lnil
+c-and a b = ccase bool-d (lcons b (lcons c-false lnil)) a
 clams n b = if %weq n #0 then b else clam (clams (%wsub n #1) b)
 -- derive-eq d = λ x. case x of c (fields, hyps) → λ y. case y of c' (fields', hyps') → …
 derive-eq d =
@@ -35,7 +35,7 @@ derive-eq d =
     some shapes → some (clam (ccase d (outer-branches d shapes shapes #0) (cvar #0)))
 all-shapes d n c =
   if %weq c n then some lnil
-  else (case cshape d c of
+  else (case dshape d c of
           none → none
           some ks → (case all-shapes d n (%wsucc c) of none → none; some rest → some (lcons ks rest)))
 outer-branches d shapes rest c =
@@ -66,8 +66,6 @@ compare-fields d ks ks2 n r n2 r2 j t =
                   else capp (capp (fromopt (derive-eq (snd k)) c-false) outer-f) inner-f)
           rest = compare-fields d kr ks2 n r n2 r2 (%wsucc j) (if %weq (fst k) #1 then %wsucc t else t)
       in (case kr of lnil → this; _ → c-and this rest)
--- the data type's index from its code
-didx c = case c of cdata d ps → d; _ → #0
 -- ---------------------------------------------------------------- readings
 -- equality on Nat, derived and evaluated
 eqNat = eval-g lnil (fromopt (derive-eq (didx (code Nat))) c-false)

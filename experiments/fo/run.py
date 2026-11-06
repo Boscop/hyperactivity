@@ -4,7 +4,7 @@ list of bytes, decoded here, compiled with gcc, run, and its output compared wit
 import re, subprocess, sys, tempfile, os
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(os.path.dirname(HERE))
 CUB = os.path.join(ROOT, 'build', 'cubical')
-LIBS = [os.path.join(ROOT, 'lib', f) for f in ('prelude.cub', 'code.cub', 'fo.cub', 'match.cub', 'nav.cub', 'emitc.cub', 'check.cub', 'specialize.cub', 'std.cub', 'linproof.cub', 'prim.cub', 'decode.cub', 'rules.cub', 'derive.cub', 'emitt.cub', 'repr.cub')]
+LIBS = [os.path.join(ROOT, 'lib', f) for f in ('prelude.cub', 'code.cub', 'fo.cub', 'match.cub', 'nav.cub', 'emitc.cub', 'check.cub', 'lower.cub', 'specialize.cub', 'std.cub', 'linproof.cub', 'prim.cub', 'decode.cub', 'rules.cub', 'derive.cub', 'emitt.cub', 'repr.cub')]
 PROGS = {
  # name: (definitions as .cub text building a Lst of (g , (arity , body)), expected output)
  'fact': ("""defs = lcons (#0 , (#0 , fcall #1 (lcons (flit #5) lnil)))
@@ -38,6 +38,12 @@ prog = sizeof-prog (data-idx (code Tr))""", "24", "struct { void *f0; void *f1; 
  # lengths) lowered with the representations consumed (lib/repr.cub), compiled, run on a buffer
  'loads': ("""lam-body f = case f of flam b → b; _ → f
 defs = lcons (#0 , (#0 , fcall #1 (lcons buf2 lnil))) (lcons (#1 , (#1 , lam-body sum2)) lnil)""", "14", "ld64(v0, mkw(16)->n)"),
+ # structural recursion: the length of a list, written as a case with rec, lowered to a recursion
+ # form, lifted to a C function that calls itself on the field, run on a three-element list
+ 'rec': ("""len-main t2 = fapply t2 (lcons (fcon (didx (code LW)) #1 (lcons (flit #7) (lcons lw3 lnil))) lnil)
+len-base = lcons (gidx (code zw) , (#0 , flit #0)) (lcons (gidx (code sw) , (#1 , fprim P-add (lcons (fvar #0) (lcons (flit #1) lnil)))) lnil)
+len-prog = case lift #10 (lower c-len) of lifted t2 ds k → lcons (#0 , (#0 , len-main t2)) (lapp2 len-base ds)
+prog = emit-prog len-prog""", "3", "V *v3 = f_10(v2); f_2(v3);"),
  'let-if': ("""defs = lcons (#0 , (#0 , flet (flit #3) (fif (fprim P-lt (lcons (fvar #0) (lcons (flit #5) lnil))) (fprim P-mul (lcons (fvar #0) (lcons (fvar #0) lnil))) (flit #0)))) lnil""", "9"),
 }
 def run(name, defs, expect, contains=None):

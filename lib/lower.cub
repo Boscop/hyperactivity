@@ -1,0 +1,111 @@
+-- lib/lower.cub — lowering from codes to the first-order form (plan B14, B15 step 6). Loaded after
+-- lib/check.cub (it reads the data table for the shapes of constructors) and lib/fo.cub.
+-- ---------------------------------------------------------------- shapes
+-- the kinds of a constructor's fields, by walking its telescope with fresh variables: a Lst of
+-- (kind , d2): kind 0 a word, 1 recursive, 2 a data type d2 without parameters, 3 anything else
+field-kind d A =
+  if is-rec-ty d A then (#1 , d)
+  else (case A of tword → (#0 , d); tdata d2 ps V → (case ps of lnil → (#2 , d2); _ → (#3 , d)); _ → (#3 , d))
+tel-kinds d tel acc =
+  case tel of
+    tx A nm r → (let Av = tval A in tel-kinds d (r (%var nm Av) Av) (lsnoc acc (field-kind d A)))
+    _ → acc
+-- the constructor's telescope with the type's parameters as fresh variables
+cshape d c = tel-kinds d (fromopt (lnth (snd (params-fresh (dtel (%dent d)) lnil)) c) (tz (tsys lnil []))) lnil
+-- the indices of the recursive fields, in order
+rec-fields ks i = case ks of lnil → lnil; lcons k r → if %weq (fst k) #1 then lcons i (rec-fields r (%wsucc i)) else rec-fields r (%wsucc i)
+lst-count l = case l of lnil → #0; lcons x xs → %wsucc (lst-count xs)
+-- ---------------------------------------------------------------- lowering
+-- lower c: the first-order form of a code in the first-order fragment: variables, words and
+-- their operations, constructors and case, pairs, λ and application, let, word elimination as a
+-- loop. Any other form becomes a call into the net on the code itself (fnet, the code as its
+-- argument), which is what the criterion (B13) reports as not-fo; the specializer removes such
+-- forms before lowering where it can. Pairs are the constructor 0 of data type 0 with two fields.
+-- The word operations' codes: 0 eq, 1 lt, 2 add, 3 max, 4 sub (code.cub cwop)
+lower c =
+  case c of
+    cvar n → fvar n
+    cglob n → fcall n lnil
+    clam b → flam (lower b)
+    capp f a → lower-app f (lcons (lower a) lnil)
+    cpair a b → fcon #0 #0 (lcons (lower a) (lcons (lower b) lnil))
+    cfst p → fproj #0 #0 #0 (lower p)
+    csnd p → fproj #0 #0 #1 (lower p)
+    clet t b → flet (lower t) (lower b)
+    cann t T → lower t
+    ccon d k fs ds → fcon d k (lower-list fs)
+    ccase d B x → frec d (lower x) (lower-ralts d B #0)
+    celim d P B x → frec d (lower x) (lower-ralts d B #0)
+    cforce t → fforce (lower t)
+    cwlit n → flit n
+    cwsucc a → fprim P-add (lcons (lower a) (lcons (flit #1) lnil))
+    cwop k a b → fprim (wop-prim k) (lcons (lower a) (lcons (lower b) lnil))
+    cwelim w z s → lower-welim (lower w) (lower z) (lower s)
+    _ → fnet #0 lnil
+-- an application spine: nested capps become one fapply; a global head becomes fcall
+lower-app f args =
+  case f of
+    capp g a → lower-app g (lcons (lower a) args)
+    cglob n → fcall n args
+    _ → fapply (lower f) args
+lower-list l = case l of lnil → lnil; lcons x xs → lcons (lower x) (lower-list xs)
+-- branches: the k-th code is a λ over the constructor's fields; its λs are stripped, the fields
+-- being pushed by fswitch in order
+lower-alts B k = case B of lnil → lnil; lcons b r → lcons (k , (count-lams b , lower (strip-lams b))) (lower-alts r (%wsucc k))
+-- a case or elimination: branch k binds the constructor's fields then a hypothesis per recursive
+-- field (the shape from the data table); its λs are stripped and the recursion form records
+-- which fields carry hypotheses
+lower-ralts d B k =
+  case B of
+    lnil → lnil
+    lcons b r →
+      let ks = cshape d k
+      in lcons (k , (lst-count ks , (rec-fields ks #0 , lower (strip-lams b)))) (lower-ralts d r (%wsucc k))
+count-lams b = case b of clam b2 → %wsucc (count-lams b2); _ → #0
+strip-lams b = case b of clam b2 → strip-lams b2; _ → b
+wop-prim k = if %weq k #0 then P-eq else if %weq k #1 then P-lt else if %weq k #2 then P-add else if %weq k #4 then P-sub else P-add
+-- word elimination as a loop over (w, i, acc): while i < w, acc := s i acc; the step s is a
+-- two-argument function value, applied through fapply. Variables in w z s refer to the
+-- enclosing environment, below the loop's three state slots: shifted by 3 inside the body
+lower-welim w z s =
+  floop (lcons w (lcons (flit #0) (lcons z lnil)))
+    (fif (fprim P-lt (lcons (fvar #1) (lcons (fvar #2) lnil)))
+       (fcon #0 #0 (lcons (fvar #2)
+                   (lcons (fprim P-add (lcons (fvar #1) (lcons (flit #1) lnil)))
+                   (lcons (step-call s) lnil))))
+       (fcon #0 #1 (lcons (fvar #0) lnil)))
+-- the step applied to (i, acc): when the step is a written λ of two arguments its body is
+-- inlined, i and acc being the loop's fvar 1 and fvar 0 and the step's other free variables
+-- lying above the loop's three slots (shifted by 1: they were above the λ's two binders)
+step-call s =
+  case s of
+    flam s1 → (case s1 of flam b → shift-at #2 #1 b; _ → fapply (shift #3 s) (lcons (fvar #1) (lcons (fvar #0) lnil)))
+    _ → fapply (shift #3 s) (lcons (fvar #1) (lcons (fvar #0) lnil))
+-- ---------------------------------------------------------------- readings
+didx c = case c of cdata d ps → d; _ → #0
+-- plus on words as code, lowered and evaluated
+c-plus = clam (clam (cwop #2 (cvar #1) (cvar #0)))
+#same eval-fo no-defs lnil (fapply (lower c-plus) (lcons (flit #3) (lcons (flit #4) lnil))) = vw #7
+-- a case on a data type declared here: branch 1 returns its single field
+data Two = tw0 | tw1 (w : Word)
+c-case = ccase (didx (code Two)) (lcons (cwlit #0) (lcons (clam (cvar #0)) lnil)) (ccon (didx (code Two)) #1 (lcons (cwlit #42) lnil) lnil)
+#same eval-fo no-defs lnil (lower c-case) = vw #42
+-- structural recursion lowered: the length of a list written with case and rec, on an unknown
+-- list, becomes a recursion form with the hypothesis on the second field; evaluated on a list.
+-- (The code is the case written out: a call of the definition lenw stays a call, 18.6's finding.)
+data LW = lwnil | lwcons (x : Word) (xs : LW)
+lenw : LW → Word
+lenw l = case l of lwnil → #0; lwcons x xs → %wsucc (rec xs)
+zw : Word
+zw = #0
+sw : Word → Word
+sw w = %wsucc w
+c-len = code (λ (l : LW) → case l of lwnil → zw; lwcons x xs → sw (rec xs))
+lw3 = fcon (didx (code LW)) #1 (lcons (flit #5) (lcons (fcon (didx (code LW)) #1 (lcons (flit #6) (lcons (fcon (didx (code LW)) #0 lnil) lnil))) lnil))
+-- the globals zw and sw called by the branches, as first-order definitions
+gidx c = case c of cglob n → n; _ → #0
+len-defs g = if %weq g (gidx (code zw)) then flit #0 else if %weq g (gidx (code sw)) then fprim P-add (lcons (fvar #0) (lcons (flit #1) lnil)) else flit #0
+#same eval-fo len-defs lnil (fapply (lower c-len) (lcons lw3 lnil)) = vw #2
+-- and lifted: the recursion is a definition of its own (numbered from 1000), called at the site
+with-defs ds g = case ds of lnil → len-defs g; lcons d r → if %weq (fst d) g then snd (snd d) else with-defs r g
+#same (case lift #1000 (lower c-len) of lifted t2 ds k → eval-fo (with-defs ds) lnil (fapply t2 (lcons lw3 lnil))) = vw #2
