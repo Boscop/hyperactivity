@@ -83,6 +83,10 @@ static char *intern(const char *s) {
 static inline unsigned sym_mark(const char *x) { return ((const unsigned *)x)[-2]; }
 static inline void sym_mark_set(const char *x, unsigned e) { ((unsigned *)x)[-2] = e; }
 static Node *nsym(const char *s) { Node *x = ar_alloc(sizeof(Node)); x->s = intern(s); return x; }
+/* the type written on a λ's binder, (x : A), kept on the binder's name node (a symbol's `it` is
+ * otherwise unused), so it survives the passes that rebuild the λ around the name */
+static void bnd_set(Node *x, Node *A) { x->it = ar_alloc(sizeof(Node *)); x->it[0] = A; }
+static Node *bnd_ty(Node *x) { return !x->list && x->it ? x->it[0] : NULL; }
 /* a string literal's interned pointer, by the literal's address (a literal's contents never
  * change, so the address identifies it); not for buffers */
 static const char *intern_lit(const char *lit) {

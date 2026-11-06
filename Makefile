@@ -34,6 +34,11 @@ test: build/cubical build/cubical-asan
 	  || { echo "brunerie: not -2 with $$w workers"; exit 1; }; done; echo "brunerie = negsuc (suc zero)"
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub experiments/brunerie/brunerie.cub \
 	  experiments/brunerie/run-squash.cub | tail -1 | grep -q " 0 failed"
+	# the typed port: every definition checked (the recursors and surfc are primitives), and -2
+	for w in 0 4; do CUBICAL_WORKERS=$$w ./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub \
+	  experiments/brunerie/typed.cub experiments/brunerie/run-typed.cub > build/typed-$$w.out; \
+	  tail -1 build/typed-$$w.out | grep -q " 0 failed" || { echo "typed brunerie: a check failed with $$w workers"; grep -A3 ^FAIL build/typed-$$w.out | head; exit 1; }; \
+	  grep -A1 -x brunerie build/typed-$$w.out | grep -q "= negsuc (suc zero) " || { echo "typed brunerie: not -2 with $$w workers"; exit 1; }; done; echo "typed brunerie = negsuc (suc zero)"
 	rm -rf build/cache-test
 	env -u CUBICAL_NOCACHE CUBICAL_CACHE=build/cache-test ./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/mod/main.cub | tail -1
 	env -u CUBICAL_NOCACHE CUBICAL_CACHE=build/cache-test ./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/mod/main.cub | grep -c "^cached: " | grep -qx 6

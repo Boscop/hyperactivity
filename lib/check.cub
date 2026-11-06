@@ -612,7 +612,41 @@ convneu wu wv =
 -- (elab ds): the implicit arguments found, each (k , code), the term to be checked again with them;
 -- (redo k): the guess k was the wrong kind
 data Res = ok | yes T | no v why A B | elab ds | redo k
-err c why A B = no (tval c) why A B
+-- where an error is: the term's own shape as a code (its variables free, so it prints as written),
+-- not its value, whose normal form may be large or unbounded (a proof applied to variables)
+tsrc c =
+  case c of
+    tv x T → cfree x
+    ti i → cfree i
+    tg n V → cfree V
+    tlam nm b V → clam (tsrc (b (%var nm Uw) Uw))
+    tapp f a V → capp (tsrc f) (tsrc a)
+    tpair a b V → cpair (tsrc a) (tsrc b)
+    tfst p V → cfst (tsrc p)
+    tsnd p V → csnd (tsrc p)
+    tpi A nm b V → cpi (tsrc A) (tsrc (b (%var nm Uw) Uw))
+    tsigma A nm b V → csigma (tsrc A) (tsrc (b (%var nm Uw) Uw))
+    tuniv l V → cuniv (tsrc l)
+    tpathp A a b V → cpathp (tsrc A) (tsrc a) (tsrc b)
+    tplam nm b V → cplam (tsrc (b (%dim nm)))
+    tpapp p r V → cpapp (tsrc p) (tsrc r)
+    tc0 → ci0
+    tc1 → ci1
+    tneg r V → cneg (tsrc r)
+    tmeet r s V → cmeet (tsrc r) (tsrc s)
+    tjoin r s V → cjoin (tsrc r) (tsrc s)
+    tlet t nm b V → clet (tsrc t) (tsrc (b (%var nm Uw) Uw))
+    tann t T V → cann (tsrc t) (tsrc T)
+    tforce t V → cforce (tsrc t)
+    tlevel → clevel
+    tlzero → clzero
+    tlsuc l V → clsuc (tsrc l)
+    tlmax a b V → clmax (tsrc a) (tsrc b)
+    tguess k g t V → tsrc t
+    tspine t V → tsrc t
+    thole k V → cfree V
+    _ → cfree (tval c)
+err c why A B = no (tsrc c) why A B
 and-then r k = case r of ok → k; _ → r
 chk b r = if b then ok else r
 rall f lnil = ok
@@ -1804,6 +1838,9 @@ hole-of hs v = case hs of lnil → none; lcons h r → (if same-var (fst (snd h)
 hole-type hs k = case hs of lnil → opq; lcons h r → (if %weq (fst h) k then snd (snd h) else hole-type r k)
 solved sg k = lany (λ s → %weq (fst s) k) sg
 sol-of sg k = case sg of lnil → none; lcons s r → (if %weq (fst s) k then some (snd s) else sol-of r k)
+-- a solution: a value (true , v), or, for a hole applied to a bound variable (a pattern), the code of
+-- the abstraction (false , c)
+svv v = (true , v)
 inferable a =
   case a of
     tguess k g t V → notb (%wlt g #2)
@@ -1818,7 +1855,7 @@ inferable a =
 -- P (with holes) against X: the holes P is made of at X's corresponding parts
 vmatch hs P X sg =
   case hole-of hs P of
-    some k → if solved sg k then sg else lcons (k , X) sg
+    some k → if solved sg k then sg else lcons (k , svv X) sg
     none → vmatch-w hs (%view P) X sg
 vmatch-l hs ps qs sg =
   case ps of
@@ -1835,7 +1872,21 @@ vmatch-w hs w X sg =
     wdata d ps → (case %view X of wdata d2 qs → (if %weq d d2 then vmatch-l hs ps qs sg else sg); _ → sg)
     wcon d c fs ds → (case %view X of wcon d2 c2 fs2 ds2 → (if andb (%weq d d2) (%weq c c2) then vmatch-l hs fs fs2 sg else sg); _ → sg)
     wu l → (case %view X of wu m → vmatch hs l m sg; _ → sg)
-    wapp f a T → (case %view X of wapp f2 a2 T2 → vmatch hs a a2 (vmatch hs f f2 sg); _ → sg)
+    wapp f a T →
+      case %view X of
+        wapp f2 a2 T2 → vmatch hs a a2 (vmatch hs f f2 sg)
+        _ →
+          -- a hole applied to a variable, against X: the hole is λ x → X, by quoting X under x
+          case hole-of hs f of
+            some k →
+              if solved sg k then sg
+              else (case var-name a of
+                      some l →
+                        (case %view (hole-type hs k) of
+                           wpi A B → (case quote (lcons (qv l) lnil) (B a) X of some c → lcons (k , (false , clam c)) sg; none → sg)
+                           _ → sg)
+                      none → sg)
+            none → sg
     wfst p T → (case %view X of wfst p2 T2 → vmatch hs p p2 sg; _ → sg)
     wsnd p T → (case %view X of wsnd p2 T2 → vmatch hs p p2 sg; _ → sg)
     wpapp p r T → (case %view X of wpapp p2 r2 T2 → vmatch hs p p2 sg; _ → sg)
@@ -1865,7 +1916,7 @@ level-close hs sg =
     lcons h r →
       level-close r
         (case %view (snd (snd h)) of
-           wu l → (case sol-of sg (fst h) of some s → vmatch hs l (type-level s) sg; none → sg)
+           wu l → (case sol-of sg (fst h) of some s → (if fst s then vmatch hs l (type-level (snd s)) sg else sg); none → sg)
            _ → sg)
 solve-spine c oE =
   let sp = spine-of c lnil
@@ -1889,13 +1940,46 @@ spine-walk c T args hs sg oE =
                    elab ds → elab ds
                    redo k → redo k
                    _ → spine-walk c (B (tval a)) rest hs sg oE)
-              else spine-walk c (B (tval a)) rest hs sg oE
+              else
+                (case lam-arg hs A B (unguess a) sg of
+                   yes sg2 → spine-walk c (B (tval a)) rest hs sg2 oE
+                   elab ds → elab ds
+                   redo k → redo k
+                   _ → spine-walk c (B (tval a)) rest hs sg oE)
         _ → err c E-notfun T opq
+-- a λ given where a function of type A is due, A's domain known: its body's type, under the binder,
+-- against A's codomain (a hole there, applied to the binder, is solved as a pattern)
+unguess a = case a of tguess k g t V → t; _ → a
+-- (yes: the solutions so far, added to; a guess to redo or an elaboration passes up)
+lam-arg hs A B a sg =
+  case a of
+    tlam nm b V →
+      (case %view A of
+         wpi A1 B1 →
+           (case hole-of hs A1 of
+              some k → yes sg
+              none →
+                let x = %var nm A1
+                in case infer (b x A1) of
+                     yes Tb → yes (vmatch hs (B1 x) Tb sg)
+                     elab ds → elab ds
+                     redo k → redo k
+                     _ → yes sg)
+         _ → yes sg)
+    -- a line where a path is due: its ends against the path type's
+    tplam nm b V →
+      (case %view A of
+         wpath L a0 a1 → yes (vmatch hs a1 (V @ 1) (vmatch hs a0 (V @ 0) sg))
+         _ → yes sg)
+    _ → yes sg
 -- a solution as a code, at the hole's type when it is known
 quote-sol hs s =
-  case quote lnil (hole-type hs (fst s)) (snd s) of
-    some q → some q
-    none → qv-un lnil (snd s)
+  let sv = snd s
+  in if fst sv
+     then (case quote lnil (hole-type hs (fst s)) (snd sv) of
+             some q → some q
+             none → qv-un lnil (snd sv))
+     else some (snd sv)
 -- a level nothing determines is the least
 level-hole hs = case hs of lnil → none; lcons h r → (case %view (snd (snd h)) of wlevel → some (fst h); _ → level-hole r)
 spine-done c hs sg =

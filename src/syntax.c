@@ -253,7 +253,10 @@ static int p_binders(Bnd *bs, int max, bool need_type) {
     return n;
 }
 static Node *lam_of(Bnd *bs, int n, Node *body) {
-    for (int i = n - 1; i >= 0; i--) body = sym3(bs[i].dim ? "plam" : "lam", bs[i].name, body);
+    for (int i = n - 1; i >= 0; i--) {
+        if (bs[i].ty && !bs[i].dim) bnd_set(bs[i].name, bs[i].ty);
+        body = sym3(bs[i].dim ? "plam" : "lam", bs[i].name, body);
+    }
     return body;
 }
 /* faces: φ ∨ ψ, φ ∧ ψ, r = 0, r = 1, (φ), ∀ i → φ, tt, ff */
@@ -2399,7 +2402,17 @@ static Node *syn_lam_type(Node *a, Node *ty, const char **ps, Node **sol, int q,
     Node *P = ty; while (P->list && P->n == 2 && is(P->it[0], "%impPi")) P = P->it[1];
     if (!(P->list && P->n == 4 && is(P->it[0], "Pi"))) return NULL;
     Node *A = subst_multi(P->it[2], ps, sol, q);
-    for (int k = 0; k < q; k++) if (!sol[k] && mentions_name(A, ps[k])) return NULL;
+    bool open = false;
+    for (int k = 0; k < q; k++) if (!sol[k] && mentions_name(A, ps[k])) open = true;
+    if (open) {
+        /* the domain is not yet known: the binder's written type gives it, and tells the parameters
+         * in the domain */
+        Node *W = bnd_ty(a->it[1]); if (!W) return NULL;
+        Node *tmp[256]; for (int k = 0; k < q; k++) tmp[k] = sol[k];
+        if (syn_match(A, W, ps, q, tmp) || (({ for (int k = 0; k < q; k++) tmp[k] = sol[k]; }), syn_match(syn_canon(A), syn_canon(W), ps, q, tmp)))
+            for (int k = 0; k < q; k++) sol[k] = tmp[k];
+        A = W;
+    }
     int save = nesc; e_pusht(a->it[1]->s, A);
     Node *bt = syn_type(a->it[2], depth + 1);
     nesc = save;
@@ -2903,9 +2916,11 @@ static Node *el(Node *t) {
     if (!strcmp(k, "%lam")) { int save = nesc; e_pusht(t->it[1]->s, lamty_of(t)); syn_expect = exB; Node *b = el(t->it[2]); nesc = save; return sym3("lam", t->it[1], b); }
 
     if (!strcmp(k, "lam") && t->n == 3) {
+        Node *W = bnd_ty(t->it[1]);   /* a binder written with its type: a function's λ, the binder at that type */
         bool certain = dim_use(t->it[2], t->it[1]->s);
-        int g = certain ? -1 : e_guess(t, 0);
+        int g = certain || W ? -1 : e_guess(t, 0);
         bool dim = certain || (g >= 0 && EG[g].kind == 1);
+        if (!exA && W && !dim) exA = W;
         int save = nesc; if (!dim && exA) e_pusht(t->it[1]->s, exA); else e_push(t->it[1]->s, dim);
         bool wt = !strncmp(t->it[1]->s, "%α", strlen("%α")) && nwtick < 64;   /* an inserted tick λ */
         /* a tick λ written out, with a guarded recursive call under it: the call is the fixed
