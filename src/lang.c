@@ -25,15 +25,28 @@ static void die(const char *m, const char *x) {
 /* ---------------- s-expressions ---------------- */
 typedef struct Node { int list; char *s; int n; struct Node **it; char *cmt; short hk; } Node;   /* hk: a symbol's binder/head class, once found (hk_of) */   /* hk: a symbol's binder/head class, once found (hk_of) */
 /* nodes are never freed: they come from a bump arena of zeroed chunks */
-static char *ar_p, *ar_end;
+/* The node arena: bump allocation in 1 MB chunks. Compiling a term makes nodes nothing keeps
+ * (desugaring, generated binders; the compiled form is Syn and Records, which hold no node): a
+ * mark taken before and released after frees them. Parsed source and elaborated forms, which
+ * tables and the module cache keep, are made outside any mark */
+typedef struct Chunk { struct Chunk *prev; size_t cap; char data[]; } Chunk;
+typedef struct { Chunk *c; char *p; } ArMark;
+static Chunk *ar_cur; static char *ar_p, *ar_end;
 static void *ar_alloc(size_t n) {
     n = (n + 15) & ~(size_t)15;
     if ((size_t)(ar_end - ar_p) < n) {
         size_t c = n > (1u << 20) ? n : (1u << 20);
-        ar_p = calloc(1, c); if (!ar_p) { fputs("out of memory\n", stderr); exit(2); }
-        ar_end = ar_p + c;
+        Chunk *k = calloc(1, sizeof(Chunk) + c); if (!k) { fputs("out of memory\n", stderr); exit(2); }
+        k->prev = ar_cur; k->cap = c; ar_cur = k;
+        ar_p = k->data; ar_end = ar_p + c;
     }
     void *r = ar_p; ar_p += n; return r;
+}
+static ArMark ar_mark(void) { return (ArMark){ ar_cur, ar_p }; }
+static void ar_release(ArMark m) {
+    while (ar_cur != m.c) { Chunk *k = ar_cur; ar_cur = k->prev; free(k); }
+    ar_p = m.p; ar_end = ar_cur ? ar_cur->data + ar_cur->cap : NULL;
+    if (ar_cur) memset(ar_p, 0, (size_t)(ar_end - ar_p));   /* nodes are made from zeroed memory */
 }
 static char *ar_strdup(const char *s) { size_t l = strlen(s) + 1; char *r = ar_alloc(l); memcpy(r, s, l); return r; }
 static Node *nsym(const char *s) { Node *x = ar_alloc(sizeof(Node)); x->s = ar_strdup(s); return x; }
@@ -1696,7 +1709,9 @@ static Syn *compile_top(Node *t, int *nslots, int **uses) {
     nbinds = 0; nlevels = 1;
     GROW(levels, caplevels, 1);
     levels[0] = (Level){ 0 };
+    ArMark m = ar_mark();   /* the desugared term and the binders made for it live until compiled */
     Syn *s = top_lazy ? compile_lazy(ds(t)) : compile(ds(t));
+    ar_release(m);
     *nslots = levels[0].nslots; *uses = levels[0].uses;
     if (!*uses) *uses = calloc(1, sizeof(int));
     nlevels = 0;

@@ -10,17 +10,43 @@ long stat_steps, stat_kind[K_END], stat_cells;
 #define ADD(x, v) cnt_add(&(x), (v))
 bool net_solo = true;
 
-/* ---------------- type-stable cells ----------------
- * A cell's memory is never returned: a reader following a stale handle (a variable freed and
- * reused, net_peek) lands on a cell, not on freed memory. Freed cells go to the freeing thread's
- * list once the rule is done. */
+/* ---------------- cells and variables: per-thread slabs ----------------
+ * Cells and variables are carved from 64 KB slabs, one size class per slab, each slab counting
+ * its cells in use. A freed cell goes to the freeing thread's free list once the rule is done
+ * (flush_frees), and no memory is unmapped while rules run: a reader following a stale handle (a
+ * variable freed and reused, net_peek) must land on a cell. Between observations, with every
+ * worker parked, slabs with nothing in use are returned (arenas_release): the free lists are
+ * rebuilt without their cells first. Cells too large for a slab are malloc'd and returned there. */
 #define MAXFREE 4096
+#define SLAB ((size_t)1 << 16)
+typedef struct Slab { uint32_t n; uint32_t used; long live; struct Slab *next; } Slab;   /* n: ports per cell (or ~0u for variables); used: carved bytes; live: in use */
+#define SLAB_HDR 32
+_Static_assert(sizeof(Slab) <= SLAB_HDR && sizeof(Cell) + (size_t)MAXFREE * sizeof(Port) + SLAB_HDR <= SLAB, "a cell of any pooled size fits a slab");
+static inline Slab *slab_of(const void *c) { return (Slab *)((uintptr_t)c & ~(SLAB - 1)); }
+static inline size_t cell_bytes(int n) { return (sizeof(Cell) + (size_t)n * sizeof(Port) + 15) & ~(size_t)15; }
 typedef struct { Cell *op, *v; } Redex;
-typedef struct Local { Cell *free[MAXFREE + 1]; Cell *defer; Redex *made; size_t nmade, capmade; struct Box **dead; size_t ndead, capdead; Var *vfree; struct Wire *wires; size_t nwires, capwires; long steps, kind[K_END], cells, hits, keys; long pushed, done; struct Local *next; } Local;   /* pushed, done: pairs this thread queued, and pairs it finished (its own or stolen); written by it alone */
+typedef struct Local {
+    Cell *free[MAXFREE + 1]; Slab *cur[MAXFREE + 1];   /* free list and the slab being carved, per size */
+    Slab *slabs; Cell *big; Cell *defer;                /* every slab of this thread; malloc'd cells freed (returned at release); cells freed by the current rule */
+    Var *vfree; Slab *vcur;
+    long freed;                                         /* cells and variables freed since the last release */
+    Redex *made; size_t nmade, capmade; struct Box **dead; size_t ndead, capdead; struct Wire *wires; size_t nwires, capwires;
+    long steps, kind[K_END], cells, hits, keys; long pushed, done;   /* pushed, done: pairs this thread queued, and pairs it finished (its own or stolen); written by it alone */
+    struct Local *next;
+} Local;
 static __thread Local *L;
 static Local *ALL; static pthread_mutex_t allmu = PTHREAD_MUTEX_INITIALIZER;
 static Local *local_make(void) { L = calloc(1, sizeof(Local)); pthread_mutex_lock(&allmu); L->next = ALL; ALL = L; pthread_mutex_unlock(&allmu); return L; }
 static inline Local *local(void) { return L ? L : local_make(); }
+static Slab *slab_new(Local *l, uint32_t n) {
+    Slab *s = aligned_alloc(SLAB, SLAB);
+    if (!s) { fputs("out of memory\n", stderr); exit(2); }
+    s->n = n; s->used = SLAB_HDR; s->live = 0; s->next = l->slabs; l->slabs = s;
+    return s;
+}
+/* in use counts cross threads: a cell is freed by whichever thread consumes it */
+static inline void slab_take(Slab *s) { if (net_solo) s->live++; else __atomic_fetch_add(&s->live, 1, __ATOMIC_RELAXED); }
+static inline void slab_drop(Slab *s) { if (net_solo) s->live--; else __atomic_fetch_sub(&s->live, 1, __ATOMIC_RELAXED); }
 /* the counts over every thread, into the globals a reading reports (threads are parked when read) */
 void stat_gather(void) {
     long st = 0, cells = 0, hits = 0, keys = 0;
@@ -40,12 +66,17 @@ void stat_gather_kinds(void) {
 Cell *cell(int kind, int n) {
     Local *l = local();
     Cell *c;
-    if (n <= MAXFREE && l->free[n]) { c = l->free[n]; l->free[n] = (Cell *)(uintptr_t)c->a; }
-    else {
-        c = malloc(sizeof(Cell) + (size_t)n * sizeof(Port));
+    if (n > MAXFREE) {
+        c = malloc(cell_bytes(n));
         if (!c) { fputs("out of memory\n", stderr); exit(2); }
-        c->n = (uint16_t)n;   /* never changes: a freed cell is reused only for a cell of the same size */
+    } else if (l->free[n]) { c = l->free[n]; l->free[n] = (Cell *)(uintptr_t)c->a; slab_take(slab_of(c)); }
+    else {
+        size_t sz = cell_bytes(n);
+        Slab *sl = l->cur[n];
+        if (!sl || sl->used + sz > SLAB) sl = l->cur[n] = slab_new(l, (uint32_t)n);
+        c = (Cell *)((char *)sl + sl->used); sl->used += (uint32_t)sz; slab_take(sl);
     }
+    c->n = (uint16_t)n;   /* never changes: a freed cell is reused only for a cell of the same size */
     memset(c->port, 0, (size_t)n * sizeof(Port));
     c->kind = (uint16_t)kind; c->x = 0; c->ty = 0; c->a = 0; c->p = NULL; c->key = NULL; c->e = NULL;
     l->cells++;
@@ -74,8 +105,37 @@ static void flush_frees(void) {
     Local *l = local();
     while (l->defer) {
         Cell *c = l->defer; l->defer = (Cell *)(uintptr_t)c->a;
-        if (c->n <= MAXFREE) { c->a = (uint64_t)(uintptr_t)l->free[c->n]; l->free[c->n] = c; }
+        l->freed++;
+        if (c->n <= MAXFREE) { c->a = (uint64_t)(uintptr_t)l->free[c->n]; l->free[c->n] = c; slab_drop(slab_of(c)); }
+        else { c->a = (uint64_t)(uintptr_t)l->big; l->big = c; }
     }
+}
+/* Between observations (every worker parked): the free lists rebuilt without the cells and
+ * variables of slabs with nothing in use, and those slabs returned; malloc'd large cells returned.
+ * Run when enough has been freed since the last time to be worth the walk */
+#define RELEASE_AT (1L << 20)
+static void arenas_release(void) {
+    long freed = 0;
+    pthread_mutex_lock(&allmu);
+    for (Local *l = ALL; l; l = l->next) freed += l->freed;
+    if (freed < RELEASE_AT) { pthread_mutex_unlock(&allmu); return; }
+    for (Local *l = ALL; l; l = l->next) {
+        l->freed = 0;
+        for (int n = 0; n <= MAXFREE; n++) {
+            if (l->cur[n] && l->cur[n]->live == 0) l->cur[n] = NULL;
+            Cell **pp = &l->free[n];
+            while (*pp) { Cell *c = *pp; if (slab_of(c)->live == 0) *pp = (Cell *)(uintptr_t)c->a; else pp = (Cell **)&c->a; }
+        }
+        if (l->vcur && l->vcur->live == 0) l->vcur = NULL;
+        Var **vp = &l->vfree;
+        while (*vp) { Var *v = *vp; if (slab_of(v)->live == 0) *vp = v->next; else vp = &v->next; }
+        while (l->big) { Cell *c = l->big; l->big = (Cell *)(uintptr_t)c->a; free(c); }
+    }
+    for (Local *l = ALL; l; l = l->next) {
+        Slab **sp = &l->slabs;
+        while (*sp) { Slab *sl = *sp; if (sl->live == 0) { *sp = sl->next; free(sl); } else sp = &sl->next; }
+    }
+    pthread_mutex_unlock(&allmu);
 }
 static Cell *clone(const Cell *v) { Cell *c = cell(v->kind, v->n); c->x = v->x; c->ty = v->ty; c->a = v->a; c->p = v->p; c->key = v->key ? key_retain(v->key) : NULL; payload_retain(c); return c; }
 
@@ -85,20 +145,20 @@ static Cell *clone(const Cell *v) { Cell *c = cell(v->kind, v->n); c->x = v->x; 
 static Var *var_new(void) {
     Local *l = local();
     Var *v = l->vfree;
-    if (v) l->vfree = v->next;
+    if (v) { l->vfree = v->next; slab_take(slab_of(v)); }
     else {
-        Var *chunk = malloc(1024 * sizeof(Var));
-        for (int i = 1; i < 1023; i++) chunk[i].next = &chunk[i + 1];
-        chunk[1023].next = NULL; l->vfree = &chunk[1]; v = chunk;
+        Slab *sl = l->vcur;
+        if (!sl || sl->used + sizeof(Var) > SLAB) sl = l->vcur = slab_new(l, ~0u);
+        v = (Var *)((char *)sl + sl->used); sl->used += sizeof(Var); slab_take(sl);
     }
     v->p = 0; v->key = NULL;
     return v;
 }
-/* never returned to malloc, and emptied: a reader following a stale handle finds 0 or a port */
+/* emptied, and kept mapped until the next release: a reader following a stale handle finds 0 or a port */
 static void var_free(Var *v) {
     if (v->key) { key_release(v->key); v->key = NULL; }
     if (net_solo) v->p = 0; else __atomic_store_n(&v->p, 0, __ATOMIC_RELAXED);
-    Local *l = local(); v->next = l->vfree; l->vfree = v;
+    Local *l = local(); v->next = l->vfree; l->vfree = v; l->freed++; slab_drop(slab_of(v));
 }
 static inline Port vload(const Var *v) { return net_solo ? v->p : __atomic_load_n(&v->p, __ATOMIC_ACQUIRE); }
 static inline Port vxchg(Var *v, Port x) { if (net_solo) { Port g = v->p; v->p = x; return g; } return __atomic_exchange_n(&v->p, x, __ATOMIC_ACQ_REL); }
@@ -2637,6 +2697,7 @@ bool net_observe(Cell *root, long limit) {
         pthread_mutex_unlock(&wmu);
     }
     stat_gather();
+    arenas_release();
     if (!ok && root && limit < 0 && key_trace) {
         /* the reading stopped short of a value: what is at the root (an operation waiting there, or
          * nothing yet) */
