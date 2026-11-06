@@ -3,6 +3,7 @@
 #include "core.h"
 #include <string.h>
 #include <pthread.h>
+#include <time.h>
 #include <sched.h>
 
 long stat_steps, stat_kind[K_END], stat_cells;
@@ -15,19 +16,25 @@ bool net_solo = true;
  * Freed cells go to the freeing thread's list after its locks are released. */
 #define MAXFREE 4096
 typedef struct { Cell *op, *v; } Redex;
-typedef struct Local { Cell *free[MAXFREE + 1]; Cell *defer; Redex *made; size_t nmade, capmade; struct Box **dead; size_t ndead, capdead; long steps, kind[K_END], cells; struct Local *next; } Local;
+typedef struct Local { Cell *free[MAXFREE + 1]; Cell *defer; Redex *made; size_t nmade, capmade; struct Box **dead; size_t ndead, capdead; long steps, kind[K_END], cells, hits, keys; long pushed, done; struct Local *next; } Local;   /* pushed, done: pairs this thread queued, and pairs it finished (its own or stolen); written by it alone */
 static __thread Local *L;
 static Local *ALL; static pthread_mutex_t allmu = PTHREAD_MUTEX_INITIALIZER;
 static Local *local_make(void) { L = calloc(1, sizeof(Local)); pthread_mutex_lock(&allmu); L->next = ALL; ALL = L; pthread_mutex_unlock(&allmu); return L; }
 static inline Local *local(void) { return L ? L : local_make(); }
 /* the counts over every thread, into the globals a reading reports (threads are parked when read) */
 void stat_gather(void) {
-    long st = 0, cells = 0; static long kinds[K_END];
-    memset(kinds, 0, sizeof kinds);
+    long st = 0, cells = 0, hits = 0, keys = 0;
     pthread_mutex_lock(&allmu);
-    for (Local *l = ALL; l; l = l->next) { st += l->steps; cells += l->cells; for (int k = 0; k < K_END; k++) kinds[k] += l->kind[k]; }
+    for (Local *l = ALL; l; l = l->next) { st += l->steps; cells += l->cells; hits += l->hits; keys += l->keys; }
     pthread_mutex_unlock(&allmu);
-    stat_steps = st; stat_cells = cells; memcpy(stat_kind, kinds, sizeof kinds);
+    stat_steps = st; stat_cells = cells; stat_hits = hits; stat_keys = keys;
+}
+/* the steps by kind (CUBICAL_PROFILE): gathered only when printed */
+void stat_gather_kinds(void) {
+    memset(stat_kind, 0, sizeof stat_kind);
+    pthread_mutex_lock(&allmu);
+    for (Local *l = ALL; l; l = l->next) for (int k = 0; k < K_END; k++) stat_kind[k] += l->kind[k];
+    pthread_mutex_unlock(&allmu);
 }
 
 Cell *cell(int kind, int n) {
@@ -92,7 +99,9 @@ static void lock(Cell *c) {
         while (__atomic_load_n(&c->lk, __ATOMIC_RELAXED)) __builtin_ia32_pause();
     }
 }
-static void unlock(Cell *c) { if (!net_solo) { uint32_t t = mytag; __atomic_compare_exchange_n(&c->lk, &t, 0, false, __ATOMIC_RELEASE, __ATOMIC_RELAXED); } }
+/* a plain store: only the holder stores its own tag's release, and a second unlock of a cell named
+ * twice in a lock set finds 0 (or another holder's tag, taken since) and leaves it */
+static inline void unlock(Cell *c) { if (!net_solo && __atomic_load_n(&c->lk, __ATOMIC_RELAXED) == mytag) __atomic_store_n(&c->lk, 0, __ATOMIC_RELEASE); }
 static inline bool trylock(Cell *c) {
     uint32_t z = 0;
     return __atomic_compare_exchange_n(&c->lk, &z, mytag, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED) || z == mytag;
@@ -110,9 +119,21 @@ typedef struct { size_t cap; Redex it[]; } Ring;
 typedef struct { Ring *ring; char pad0[56]; size_t top; char pad1[56]; size_t bottom; char pad2[56]; } Queue;
 static Queue *Q; static int NQ;
 static __thread int myq;
-static long pending;                       /* pairs queued or being rewritten: counted at the push, uncounted when the
-                                            * rewrite is done (or the pair found stale). Zero means nothing is in flight:
-                                            * every finish follows its own push, so equal counts mean every push finished */
+static long pending;                       /* one thread: pairs queued. Threaded: each thread counts the pairs it pushed and
+                                            * the pairs it finished (Local.pushed, Local.done), each monotone and written by
+                                            * its owner alone, so no line is shared per step; nothing is in flight when the
+                                            * sums are equal (quiescent(), which reads them only when there is nothing to pop) */
+/* Σdone read before Σpushed: d = D(t1) ≤ P(t1) ≤ P(t2) = p, so d == p means P(t1) == D(t1), every
+ * pushed pair finished at t1, and no push between t1 and t2; a pair comes only from a rewrite of a
+ * pair, so none comes after either */
+static bool quiescent(void) {
+    long d = 0, p = 0;
+    pthread_mutex_lock(&allmu);
+    for (Local *l = ALL; l; l = l->next) d += __atomic_load_n(&l->done, __ATOMIC_SEQ_CST);
+    for (Local *l = ALL; l; l = l->next) p += __atomic_load_n(&l->pushed, __ATOMIC_SEQ_CST);
+    pthread_mutex_unlock(&allmu);
+    return d == p;
+}
 static Ring *ring_new(size_t cap) { Ring *r = malloc(sizeof(Ring) + cap * sizeof(Redex)); r->cap = cap; return r; }
 static void queues_init(int n) {
     NQ = n; Q = calloc((size_t)n, sizeof(Queue));
@@ -147,7 +168,7 @@ void net_push(Cell *op, Cell *v) {
         r = n;
     }
     r->it[b & (r->cap - 1)] = (Redex){ op, v };
-    ADD(pending, 1);
+    { Local *l = local(); __atomic_store_n(&l->pushed, l->pushed + 1, __ATOMIC_RELEASE); }
     __atomic_store_n(&q->bottom, b + 1, __ATOMIC_RELEASE);
 }
 /* the owner takes the newest pair */
@@ -170,23 +191,33 @@ static bool pop_own(Queue *q, Redex *out) {
     *out = x;
     return true;
 }
-/* a thief takes the oldest */
-static bool steal(Queue *q, Redex *out) {
+/* a thief takes the oldest, and only from a queue holding STEAL_AT pairs or more, unless it has
+ * been idle a while. The pairs of one rewrite are pushed together and are neighbours: from a short
+ * queue the thief takes a neighbour of what the owner is doing (both cores then miss on the same
+ * cells and meet on the same locks: 609K restarts in checking the library at 2, 15K at 32), and on
+ * a sequential stretch, where the queue holds one pair at a time, it moves every step to the other
+ * core. From a long queue the oldest pair is several rewrites away. But a thread can wait, inside
+ * a rewrite, for a box whose builder's pairs sit in its own queue, so anything is taken once
+ * nothing else has turned up for LONE_AT iterations (by then the thief is yielding) */
+#define STEAL_AT 32
+#define LONE_AT 1024
+static bool steal(Queue *q, Redex *out, bool lone) {
     size_t t = __atomic_load_n(&q->top, __ATOMIC_ACQUIRE);
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
     size_t b = __atomic_load_n(&q->bottom, __ATOMIC_ACQUIRE);
-    if (t >= b) return false;
+    if (t >= b || (!lone && b - t < STEAL_AT)) return false;
     Ring *r = __atomic_load_n(&q->ring, __ATOMIC_ACQUIRE);
     Redex x = r->it[t & (r->cap - 1)];
     if (!__atomic_compare_exchange_n(&q->top, &t, t + 1, false, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED)) return false;
     *out = x;
     return true;
 }
-static bool pop(Redex *r) {
+static bool pop(Redex *r, int idle) {
     if (net_solo) return ring_pop(r);
     if (!Q) queues_init(1);
     if (pop_own(&Q[myq], r)) return true;
-    for (int k = 1; k < NQ; k++) if (steal(&Q[(myq + k) % NQ], r)) return true;
+    bool lone = idle >= LONE_AT;
+    for (int k = 1; k < NQ; k++) if (steal(&Q[(myq + k) % NQ], r, lone)) return true;
     return false;
 }
 void link(Port a, Port b) {
@@ -227,10 +258,20 @@ static Port out_of(Cell *o) { return o->port[o->n - 1]; }
  * mutex is taken inside rules and never while a cell lock is taken, so it is innermost. */
 static void era(Port prov);
 long stat_hits, stat_keys;
-static pthread_mutex_t kmu = PTHREAD_MUTEX_INITIALIZER;
-static inline void klock(void) { if (!net_solo) pthread_mutex_lock(&kmu); }
-static inline void kunlock(void) { if (!net_solo) pthread_mutex_unlock(&kmu); }
-static Key **KT; static size_t KTcap, KTn;
+/* The tables are sharded by the high bits of the key's hash (the slot within a table is its low
+ * bits), one mutex per shard: workers interning or registering unrelated keys do not meet. A key's
+ * children may live in other shards, so a freed key is unlinked from its table under the shard's
+ * lock and its children released after the unlock (a cascade holding one shard's lock while taking
+ * another's could meet the opposite cascade). */
+typedef struct Entry Entry;
+#define KSH 64
+typedef struct { pthread_mutex_t mu; Key **KT; size_t KTcap, KTn; Entry **MT; size_t MTcap, MTn; } Shard;
+static Shard SH[KSH] __attribute__((aligned(64)));
+_Static_assert(KSH == 64, "shard_of takes the top 6 bits");
+static inline Shard *shard_of(uint64_t h) { return &SH[h >> 58]; }
+static inline void klock(Shard *s) { if (!net_solo) pthread_mutex_lock(&s->mu); }
+static inline void kunlock(Shard *s) { if (!net_solo) pthread_mutex_unlock(&s->mu); }
+static void shards_init(void) { for (int i = 0; i < KSH; i++) pthread_mutex_init(&SH[i].mu, NULL); }
 static void key_print_d(FILE *o, const Key *k, int d);
 static void key_print(FILE *o, const Key *k) { key_print_d(o, k, 0); }
 static void key_print_d(FILE *o, const Key *k, int d) {
@@ -269,65 +310,96 @@ static bool key_same(const Key *k, int tag, uint64_t a, const void *p, int n, Ke
     if (tag == K_WORD) { WN x = { a, k->p }, y = { a, (Big *)p }; return wn_cmp(&x, &y) == 0; }
     return k->p == p;
 }
-Key *key_retain(Key *k) { rc_inc(&k->rc); return k; }
-static void key_free(Key *k);
-static void key_release_locked(Key *k) {   /* under kmu */
-    if (rc_dec(&k->rc) == 0) key_free(k);
-}
-/* A count that reaches zero is never raised again: interning takes a reference only to a key whose
- * count is not zero (key() below), and every other retain is by a holder of a reference. So the
- * last releaser frees the key; until it does, interning passes over it */
-void key_release(Key *k) {
-    if (rc_dec(&k->rc) == 0) {
-        klock();
-        key_free(k);
-        kunlock();
-    }
-}
-static void key_free(Key *k) {
+/* A key of a constructor or a global (no children) is immortal: it is the most shared of all (every
+ * numeral's digits name one), so its count would be a line both cores write on most steps; it is
+ * never freed, and its holders neither count nor uncount it */
+#define KIMMORTAL 0x40000000u
+static inline bool key_imm(const Key *k) { return (net_solo ? k->rc : __atomic_load_n(&k->rc, __ATOMIC_RELAXED)) & KIMMORTAL; }
+Key *key_retain(Key *k) { if (!key_imm(k)) rc_inc(&k->rc); return k; }
+/* unlink a key whose count reached zero from its shard's table (under the shard's lock) */
+static void key_unlink(Shard *s, Key *k) {
+    Key **KT = s->KT; size_t KTcap = s->KTcap;
     size_t i = k->h & (KTcap - 1);
     while (KT[i] != k) i = (i + 1) & (KTcap - 1);
     /* open addressing: re-insert the run after the hole */
-    KT[i] = NULL; KTn--;
+    KT[i] = NULL; s->KTn--;
     for (size_t j = (i + 1) & (KTcap - 1); KT[j]; j = (j + 1) & (KTcap - 1)) {
         Key *m = KT[j]; KT[j] = NULL;
         size_t q = m->h & (KTcap - 1);
         while (KT[q]) q = (q + 1) & (KTcap - 1);
         KT[q] = m;
     }
-    if (k->tag == K_IV || k->tag == K_FACE) dnf_release(k->p);
-    else if (k->tag == K_WORD) big_release(k->p);
-    for (uint32_t i2 = 0; i2 < k->n; i2++) key_release_locked(k->c[i2]);
-    free(k);
+}
+/* the rest of freeing an unlinked key (no lock held: the children's shards are taken one by one).
+ * A key is as deep as the term it names (a unary numeral's, one child per digit), so the children
+ * are freed from an explicit stack, not by recursion */
+static void key_destroy(Key *k) {
+    Key *buf[64], **stk = buf; size_t n = 0, cap = 64;
+    stk[n++] = k;
+    while (n) {
+        k = stk[--n];
+        if (k->tag == K_IV || k->tag == K_FACE) dnf_release(k->p);
+        else if (k->tag == K_WORD) big_release(k->p);
+        for (uint32_t i = 0; i < k->n; i++) {
+            Key *c = k->c[i];
+            if (key_imm(c) || rc_dec(&c->rc) != 0) continue;
+            Shard *s = shard_of(c->h);
+            klock(s); key_unlink(s, c); kunlock(s);
+            if (n == cap) { cap *= 2; Key **m = malloc(cap * sizeof *m); memcpy(m, stk, n * sizeof *m); if (stk != buf) free(stk); stk = m; }
+            stk[n++] = c;
+        }
+        free(k);
+    }
+    if (stk != buf) free(stk);
+}
+/* A count that reaches zero is never raised again: interning takes a reference only to a key whose
+ * count is not zero (key() below), and every other retain is by a holder of a reference. So the
+ * last releaser frees the key; until it does, interning passes over it */
+void key_release(Key *k) {
+    if (key_imm(k)) return;
+    if (rc_dec(&k->rc) == 0) {
+        Shard *s = shard_of(k->h);
+        klock(s); key_unlink(s, k); kunlock(s);
+        key_destroy(k);
+    }
+}
+/* a release under the key's own shard's lock: the key to destroy after the unlock, or NULL */
+static Key *key_release_locked(Shard *s, Key *k) {
+    if (key_imm(k) || rc_dec(&k->rc) != 0) return NULL;
+    key_unlink(s, k);
+    return k;
 }
 /* the interned key (a reference the caller owns); children are borrowed (retained here); a Dnf or
  * Big payload is retained, others held by pointer */
 static Key *key(int tag, uint64_t a, void *p, int n, Key *const *c) {
     for (int i = 0; i < n; i++) if (!c[i]) return NULL;
     uint64_t h = key_hash(tag, a, p, n, c);
-    klock();
-    if (KTn * 2 >= KTcap) {
-        size_t nc = KTcap ? KTcap * 2 : 4096;
+    Shard *s = shard_of(h);
+    klock(s);
+    if (s->KTn * 2 >= s->KTcap) {
+        size_t nc = s->KTcap ? s->KTcap * 2 : 1024;
         Key **nt = calloc(nc, sizeof(Key *));
-        for (size_t i = 0; i < KTcap; i++) if (KT[i]) { size_t q = KT[i]->h & (nc - 1); while (nt[q]) q = (q + 1) & (nc - 1); nt[q] = KT[i]; }
-        free(KT); KT = nt; KTcap = nc;
+        for (size_t i = 0; i < s->KTcap; i++) if (s->KT[i]) { size_t q = s->KT[i]->h & (nc - 1); while (nt[q]) q = (q + 1) & (nc - 1); nt[q] = s->KT[i]; }
+        free(s->KT); s->KT = nt; s->KTcap = nc;
     }
+    Key **KT = s->KT; size_t KTcap = s->KTcap;
     size_t i = h & (KTcap - 1);
     for (; KT[i]; i = (i + 1) & (KTcap - 1))
         if (KT[i]->h == h && key_same(KT[i], tag, a, p, n, c)) {
             /* a reference to it, unless its last reference is gone (its releaser frees it) */
             Key *k = KT[i];
             uint32_t r = __atomic_load_n(&k->rc, __ATOMIC_ACQUIRE);
+            if (r & KIMMORTAL) { kunlock(s); return k; }
             if (net_solo) { if (r) k->rc = r + 1; }
             else while (r && !__atomic_compare_exchange_n(&k->rc, &r, r + 1, true, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) { }
-            if (r) { kunlock(); return k; }
+            if (r) { kunlock(s); return k; }
         }
     Key *k = malloc(sizeof(Key) + (size_t)n * sizeof(Key *));
-    k->rc = 1; k->n = (uint32_t)n; k->h = h; k->tag = (uint16_t)tag; k->a = a;
+    k->rc = n == 0 && (tag == K_CON || tag == K_GLOBAL) ? KIMMORTAL : 1; k->n = (uint32_t)n; k->h = h; k->tag = (uint16_t)tag; k->a = a;
     k->p = (tag == K_IV || tag == K_FACE) ? dnf_retain(p) : tag == K_WORD ? big_retain(p) : p;
     for (int j = 0; j < n; j++) k->c[j] = key_retain(c[j]);
-    KT[i] = k; KTn++;
-    kunlock();
+    KT[i] = k; s->KTn++;
+    kunlock(s);
     return k;
 }
 static Key *key0(int tag, uint64_t a, void *p) { return key(tag, a, p, 0, NULL); }
@@ -381,25 +453,27 @@ static Key *key_of_port(Port p) {
  * value not yet there); the entry and its box live exactly while a producer is pending or a reader
  * holds the box (HANDOFF §36: retention is reachability). When the firing producer is the only
  * one pending, it builds directly: nothing holds the value. */
-typedef struct Entry { Key *k; Box *box; long pending; bool hold; struct Entry *next; } Entry;   /* hold: the entry holds one reference on its box while a producer is pending */
-static Entry **MT; static size_t MTcap, MTn;
-static Entry *memo_find(Key *k, bool make) {
-    if (MTcap == 0) { MTcap = 4096; MT = calloc(MTcap, sizeof(Entry *)); }
-    size_t i = k->h & (MTcap - 1);
-    for (Entry *e = MT[i]; e; e = e->next) if (e->k == k) return e;
+struct Entry { Key *k; Box *box; long pending; bool hold; struct Entry *next; };   /* hold: the entry holds one reference on its box while a producer is pending */
+static Entry *memo_find(Shard *s, Key *k, bool make) {   /* under the shard's lock */
+    if (s->MTcap == 0) { s->MTcap = 1024; s->MT = calloc(s->MTcap, sizeof(Entry *)); }
+    size_t i = k->h & (s->MTcap - 1);
+    for (Entry *e = s->MT[i]; e; e = e->next) if (e->k == k) return e;
     if (!make) return NULL;
-    if (MTn * 2 >= MTcap) {
-        size_t nc = MTcap * 2; Entry **nt = calloc(nc, sizeof(Entry *));
-        for (size_t j = 0; j < MTcap; j++) for (Entry *e = MT[j], *nx; e; e = nx) { nx = e->next; size_t q = e->k->h & (nc - 1); e->next = nt[q]; nt[q] = e; }
-        free(MT); MT = nt; MTcap = nc; i = k->h & (MTcap - 1);
+    if (s->MTn * 2 >= s->MTcap) {
+        size_t nc = s->MTcap * 2; Entry **nt = calloc(nc, sizeof(Entry *));
+        for (size_t j = 0; j < s->MTcap; j++) for (Entry *e = s->MT[j], *nx; e; e = nx) { nx = e->next; size_t q = e->k->h & (nc - 1); e->next = nt[q]; nt[q] = e; }
+        free(s->MT); s->MT = nt; s->MTcap = nc; i = k->h & (s->MTcap - 1);
     }
-    Entry *e = calloc(1, sizeof(Entry)); e->k = key_retain(k); e->next = MT[i]; MT[i] = e; MTn++;
+    Entry *e = calloc(1, sizeof(Entry)); e->k = key_retain(k); e->next = s->MT[i]; s->MT[i] = e; s->MTn++;
     return e;
 }
-static void memo_drop(Entry *e) {   /* under kmu: no producer pending, no box */
-    size_t i = e->k->h & (MTcap - 1);
-    for (Entry **pp = &MT[i]; *pp; pp = &(*pp)->next) if (*pp == e) { *pp = e->next; break; }
-    MTn--; key_release_locked(e->k); free(e);
+/* under the shard's lock: no producer pending, no box. Returns the entry's key if this was its last
+ * reference, to destroy after the unlock */
+static Key *memo_drop(Shard *s, Entry *e) {
+    size_t i = e->k->h & (s->MTcap - 1);
+    for (Entry **pp = &s->MT[i]; *pp; pp = &(*pp)->next) if (*pp == e) { *pp = e->next; break; }
+    s->MTn--; Key *k = key_release_locked(s, e->k); free(e);
+    return k;
 }
 /* a producer cell with a key: pending on it */
 static void memo_register(Cell *c) {
@@ -407,21 +481,25 @@ static void memo_register(Cell *c) {
     Key *k = eff_key(c);
     if (!k) return;
     if (key_trace) { fprintf(stderr, "register %d ", c->kind); key_print(stderr, k); fputc('\n', stderr); }
-    klock();
-    Entry *e = memo_find(k, true); e->pending++; c->e = e;
+    Shard *s = shard_of(k->h);
+    klock(s);
+    Entry *e = memo_find(s, k, true); e->pending++; c->e = e;
     if (e->box && !e->hold) { rcl_inc(&e->box->rc); e->hold = true; }
-    kunlock();
+    kunlock(s);
     key_release(k);
 }
 static void box_release(Box *b);
 static void memo_leave(Cell *c) {   /* a pending producer consumed without producing (erased) or re-keyed */
     Entry *e = c->e; c->e = NULL;
-    klock();
+    Shard *s = shard_of(e->k->h);
+    Key *gone = NULL;
+    klock(s);
     if (--e->pending == 0) {
-        if (e->box) { Box *b = e->box; bool h = e->hold; e->hold = false; kunlock(); if (h) box_release(b); return; }
-        memo_drop(e);
+        if (e->box) { Box *b = e->box; bool h = e->hold; e->hold = false; kunlock(s); if (h) box_release(b); return; }
+        gone = memo_drop(s, e);
     }
-    kunlock();
+    kunlock(s);
+    if (gone) key_destroy(gone);
 }
 /* a pending producer fires. Returns the port to give its consumer when the value is (or will be)
  * shared, and *out = the box to build into (NULL when the value is already there or being built);
@@ -431,7 +509,8 @@ static Port memo_begin(Cell *c, Box **out, bool builder) {
     Entry *e = c->e;
     if (!e) return 0;
     c->e = NULL;
-    klock();
+    Shard *s = shard_of(e->k->h);
+    klock(s);
     e->pending--;
     if (key_trace) { fprintf(stderr, "fire %d %s pending=%ld box=%d ", c->kind, builder ? "builder" : "thunk", e->pending, e->box != NULL); key_print(stderr, e->k); fputc('\n', stderr); }
     if (e->box) {
@@ -440,8 +519,8 @@ static Port memo_begin(Cell *c, Box **out, bool builder) {
         rcl_inc(&b->rc);
         bool last = e->pending == 0 && e->hold;
         if (last) e->hold = false;
-        kunlock();
-        ADD(stat_hits, 1);
+        kunlock(s);
+        local()->hits++;
         Cell *r = cell(V_REF, 1); r->p = b; r->key = key_retain(b->key);
         if (last) box_release(b);   /* the entry's own hold */
         return P(r, 0);
@@ -449,8 +528,9 @@ static Port memo_begin(Cell *c, Box **out, bool builder) {
     if (!builder || e->pending == 0) {
         /* a thunk: its body's producer, which has the same key, decides (it registers as pending);
          * a builder nobody else waits for builds directly */
-        if (e->pending == 0) memo_drop(e);
-        kunlock();
+        Key *gone = e->pending == 0 ? memo_drop(s, e) : NULL;
+        kunlock(s);
+        if (gone) key_destroy(gone);
         return 0;
     }
     /* others wait for this value: it is held once and read by reference. Its root is locked until the
@@ -459,8 +539,8 @@ static Port memo_begin(Cell *c, Box **out, bool builder) {
     Box *b = malloc(sizeof(Box)); b->rc = 2; b->root = cell(O_ROOT, 1); b->key = key_retain(e->k); b->e = e;
     lock(b->root);
     e->box = b; e->hold = true;
-    kunlock();
-    ADD(stat_keys, 1);
+    kunlock(s);
+    local()->keys++;
     *out = b;
     Cell *r = cell(V_REF, 1); r->p = b; r->key = key_retain(b->key);
     return P(r, 0);
@@ -468,20 +548,29 @@ static Port memo_begin(Cell *c, Box **out, bool builder) {
 /* CUBICAL_KEYS: the entries still live at the end (what holds values across readings) */
 void memo_dump(void) {
     if (!key_trace) return;
-    klock();
-    for (size_t i = 0; i < MTcap; i++) for (Entry *e = MT[i]; e; e = e->next) {
-        fprintf(stderr, "entry pending=%ld box=%d ", e->pending, e->box != NULL);
-        key_print(stderr, e->k); fputc('\n', stderr);
+    size_t en = 0, kn = 0;
+    for (int j = 0; j < KSH; j++) {
+        Shard *s = &SH[j];
+        klock(s);
+        for (size_t i = 0; i < s->MTcap; i++) for (Entry *e = s->MT[i]; e; e = e->next) {
+            fprintf(stderr, "entry pending=%ld box=%d ", e->pending, e->box != NULL);
+            key_print(stderr, e->k); fputc('\n', stderr);
+        }
+        en += s->MTn; kn += s->KTn;
+        kunlock(s);
     }
-    fprintf(stderr, "%zu entries, %zu keys\n", MTn, KTn);
-    kunlock();
+    fprintf(stderr, "%zu entries, %zu keys\n", en, kn);
 }
 /* the box of a memo entry is gone: the entry no longer has a value */
 static void memo_box_gone(Box *b) {
-    klock();
     Entry *e = b->e; b->e = NULL;
-    if (e) { e->box = NULL; e->hold = false; if (e->pending == 0) memo_drop(e); }
-    kunlock();
+    if (!e) return;
+    Shard *s = shard_of(e->k->h);
+    Key *gone = NULL;
+    klock(s);
+    e->box = NULL; e->hold = false; if (e->pending == 0) gone = memo_drop(s, e);
+    kunlock(s);
+    if (gone) key_destroy(gone);
 }
 /* ---------------- small constructors ---------------- */
 /* profile: where each duplicator and eraser comes from (a record's definition, or a rule) */
@@ -2430,6 +2519,7 @@ static int lockset(Cell *o, Cell *v, Cell **S, int cap) {
     if (n > cap) return -n;
     return n;   /* a cell may be named twice: the locks are held by tag, so that is harmless */
 }
+static inline void finished(void) { Local *l = local(); __atomic_store_n(&l->done, l->done + 1, __ATOMIC_RELEASE); }
 static void rewrite(Redex r) {
     Cell *o = r.op, *v = r.v;
     if (net_solo) {
@@ -2451,7 +2541,7 @@ restart:
     { Cell *x = o < v ? o : v, *y = o < v ? v : o; lock(x); lock(y); }
     if (o->port[0] != P(v, 0) || v->port[0] != P(o, 0) || !is_value(v->kind) || is_value(o->kind)) {
         unlock(o); unlock(v);
-        ADD(pending, -1);
+        finished();
         return;
     }
     /* With the pair held no neighbour's wire to it can change: a rule on a neighbour would have to
@@ -2493,7 +2583,7 @@ restart:
     flush_frees();
     publish();
     if (cap > 64) free(S);
-    ADD(pending, -1);
+    finished();
 }
 
 /* ---------------- workers ---------------- */
@@ -2502,8 +2592,17 @@ static pthread_t *workers;
 static pthread_mutex_t wmu = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t wcv = PTHREAD_COND_INITIALIZER, pcv = PTHREAD_COND_INITIALIZER;
 static int running, parked;
+/* a thread finding no pair: spins briefly, then yields, then sleeps a little (an idle thread does
+ * not keep a core busy; it picks up new work within a sleep) */
+static void idle_wait(int *idle) {
+    int k = ++*idle;
+    if (k < 128) __builtin_ia32_pause();
+    else if (k < 1024) sched_yield();
+    else { struct timespec ts = { 0, k < 4096 ? 20000 : 200000 }; nanosleep(&ts, NULL); }
+}
 static void *worker(void *arg) {
     myq = (int)(intptr_t)arg; mytag = (uint32_t)myq + 1;
+    int idle = 0;
     for (;;) {
         if (!__atomic_load_n(&running, __ATOMIC_ACQUIRE)) {
             pthread_mutex_lock(&wmu);
@@ -2511,15 +2610,17 @@ static void *worker(void *arg) {
             while (!__atomic_load_n(&running, __ATOMIC_ACQUIRE)) pthread_cond_wait(&wcv, &wmu);
             parked--;
             pthread_mutex_unlock(&wmu);
+            idle = 0;
         }
         Redex r;
-        if (pop(&r)) rewrite(r); else sched_yield();
+        if (pop(&r, idle)) { rewrite(r); idle = 0; } else idle_wait(&idle);
     }
     return NULL;
 }
 void net_start(int n) {
     key_trace = getenv("CUBICAL_KEYS") != NULL;
     no_memo = getenv("CUBICAL_NOMEMO") != NULL;
+    shards_init();
     queues_init(n + 1);
     nworkers = n;
     net_solo = n == 0;
@@ -2539,20 +2640,30 @@ static bool observed(Cell *root) {
 }
 /* an observation: reduce, every worker taking pairs in arrival order, until
  * the observed port holds a value; the rest of the net stands */
+/* The workers are woken only when there is work for them (several pairs pending), and parked
+ * again before the observation returns, since the reader then walks the value without locks.
+ * Reading back a value is one observation per node, most of them finding the node already a
+ * value: those cost no wake and no park (each is two futex round trips and a context switch) */
+#define WAKE_AT 8
 bool net_observe(Cell *root, long limit) {
     retire_boxes(); flush_frees();
     publish();
-    if (nworkers) { pthread_mutex_lock(&wmu); __atomic_store_n(&running, 1, __ATOMIC_RELEASE); pthread_cond_broadcast(&wcv); pthread_mutex_unlock(&wmu); }
-    long n = 0;
-    bool ok;
+    long n = 0; int idle = 0;
+    bool ok, woke = false;
     for (;;) {
         if ((ok = observed(root))) break;
         if (limit >= 0 && n >= limit) break;
-        if (net_solo ? pending == 0 : __atomic_load_n(&pending, __ATOMIC_ACQUIRE) == 0) break;
+        if (net_solo) {
+            if (pending == 0) break;
+        } else if (nworkers && !woke && Q[myq].bottom - __atomic_load_n(&Q[myq].top, __ATOMIC_ACQUIRE) >= WAKE_AT) {
+            pthread_mutex_lock(&wmu); __atomic_store_n(&running, 1, __ATOMIC_RELEASE); pthread_cond_broadcast(&wcv); pthread_mutex_unlock(&wmu);
+            woke = true;
+        }
         Redex r;
-        if (pop(&r)) { rewrite(r); n++; } else sched_yield();
+        if (pop(&r, idle)) { rewrite(r); n++; idle = 0; }
+        else { idle_wait(&idle); if (!net_solo && (idle & 63) == 0 && quiescent()) break; }   /* the sums are read now and then: reading them pulls the workers' lines */
     }
-    if (nworkers) {
+    if (woke) {
         pthread_mutex_lock(&wmu);
         __atomic_store_n(&running, 0, __ATOMIC_RELEASE);
         while (parked < nworkers) pthread_cond_wait(&pcv, &wmu);

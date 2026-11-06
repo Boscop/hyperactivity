@@ -42,7 +42,6 @@ static Node *nl2(const char *h, Node *a) { Node *x = nlist(2); x->it[0] = nsym(h
 static Node *nl3(const char *h, Node *a, Node *b) { Node *x = nlist(3); x->it[0] = nsym(h); x->it[1] = a; x->it[2] = b; return x; }
 static Node *nl4(const char *h, Node *a, Node *b, Node *c) { Node *x = nlist(4); x->it[0] = nsym(h); x->it[1] = a; x->it[2] = b; x->it[3] = c; return x; }
 
-static Node *read_node1(void);
 static const char *src;
 /* comments, kept (for printing a file in the surface language) when asked */
 static bool keep_cmt; static char *pend_cmt;
@@ -61,31 +60,10 @@ static void skip(void) {
         return;
     }
 }
-static Node *read_node(void) {
-    skip();
-    if (!*src) return NULL;
-    char *cm = pend_cmt; pend_cmt = NULL;
-    Node *x = read_node1();
-    x->cmt = cm;
-    return x;
-}
-static Node *read_node1(void) {
-    if (*src == ')') die("unexpected )", NULL);
-    if (*src == '(') {
-        src++;
-        Node **items = NULL; size_t cap = 0; int n = 0;
-        for (;;) {
-            skip();
-            if (!*src) die("unclosed (", NULL);
-            if (*src == ')') { src++; break; }
-            GROW(items, cap, (size_t)n + 1);
-            items[n++] = read_node();
-        }
-        Node *x = nlist(n);
-        if (n) memcpy(x->it, items, (size_t)n * sizeof(Node *));
-        free(items);
-        return x;
-    }
+/* an s-expression. The nesting is kept on an explicit stack (a read-back numeral is as deep as it
+ * is large), each open list collecting its items until its ')' */
+typedef struct { Node **items; size_t cap; int n; char *cmt; } Open;
+static Node *read_atom(void) {
     const char *b = src;
     while (*src && !isspace((unsigned char)*src) && *src != '(' && *src != ')' && *src != ';') src++;
     size_t len = (size_t)(src - b);
@@ -94,6 +72,26 @@ static Node *read_node1(void) {
     Node *x = nsym(buf);
     free(buf);
     return x;
+}
+static Node *read_node(void) {
+    skip();
+    if (!*src) return NULL;
+    Open *st = NULL; size_t cap = 0; int d = 0;
+    for (;;) {
+        skip();
+        Node *x;
+        if (*src == ')') { if (d == 0) die("unexpected )", NULL); src++; Open *o = &st[--d]; x = nlist(o->n); if (o->n) memcpy(x->it, o->items, (size_t)o->n * sizeof(Node *)); free(o->items); x->cmt = o->cmt; }
+        else if (!*src) { if (d) die("unclosed (", NULL); free(st); return NULL; }
+        else {
+            char *cm = pend_cmt; pend_cmt = NULL;   /* the comment before a node is the node's */
+            if (*src == '(') { src++; GROW(st, cap, (size_t)d + 1); st[d++] = (Open){ NULL, 0, 0, cm }; continue; }
+            x = read_atom(); x->cmt = cm;
+        }
+        if (d == 0) { free(st); return x; }
+        Open *o = &st[d - 1];
+        GROW(o->items, o->cap, (size_t)o->n + 1);
+        o->items[o->n++] = x;
+    }
 }
 static bool is(Node *x, const char *s) { return x && !x->list && strcmp(x->s, s) == 0; }
 /* the head classes the compiler's walks dispatch on, found once per symbol node (not by a chain of
@@ -2238,12 +2236,37 @@ static void out_term(Node *t) {
     char *s = surface_str(t); fputs(s, stdout); free(s);
 }
 /* a read-back term as a source term: the readback writes Π and Σ as (Pi A x B) */
+/* suc (suc ... zero), two or more, as the decimal symbol the printer writes it as: found here, by a
+ * walk, so the printer's recursion never descends a numeral (a value is as deep as it is large) */
+static Node *numeral_of(Node *t) {
+    long k = 0; Node *x = t;
+    while (x->list && x->n == 2 && !x->it[0]->list && is(x->it[0], "suc")) { k++; x = x->it[1]; }
+    if (k < 2 || x->list || !is(x, "zero")) return NULL;
+    char b[32]; snprintf(b, sizeof b, "%ld", k);
+    return nsym(b);
+}
 static Node *rb_src(Node *t) {
     if (!t->list || t->n == 0) return t;
-    Node *r = nlist(t->n);
-    for (int i = 0; i < t->n; i++) r->it[i] = rb_src(t->it[i]);
-    if (t->n == 4 && !t->it[0]->list && (is(t->it[0], "Pi") || is(t->it[0], "Sigma")) && !t->it[2]->list) { Node *a = r->it[1]; r->it[1] = r->it[2]; r->it[2] = a; }
-    return r;
+    if (con_lookup("suc") >= 0) { Node *m = numeral_of(t); if (m) return m; }
+    /* each list is copied, its sublists' copies made at once (so its swap can be done now) and
+     * filled later from a work stack: no recursion down a deep value */
+    typedef struct { Node *t, *r; } W;
+    W *st = NULL; size_t cap = 0; int d = 0;
+    Node *root = nlist(t->n);
+    GROW(st, cap, 1); st[d++] = (W){ t, root };
+    bool nats = con_lookup("suc") >= 0;
+    while (d) {
+        W w = st[--d];
+        for (int i = 0; i < w.t->n; i++) {
+            Node *c = w.t->it[i];
+            if (!c->list || c->n == 0) w.r->it[i] = c;
+            else if (nats && (w.r->it[i] = numeral_of(c))) continue;
+            else { Node *rc = nlist(c->n); w.r->it[i] = rc; GROW(st, cap, (size_t)d + 1); st[d++] = (W){ c, rc }; }
+        }
+        if (w.t->n == 4 && !w.t->it[0]->list && (is(w.t->it[0], "Pi") || is(w.t->it[0], "Sigma")) && !w.t->it[2]->list) { Node *a = w.r->it[1]; w.r->it[1] = w.r->it[2]; w.r->it[2] = a; }
+    }
+    free(st);
+    return root;
 }
 /* a read-back term (text) */
 static void out_str(const char *r) {
@@ -3307,6 +3330,7 @@ static void prof_print(void) {
         for (int i = 0; i < prof_n; i++) ix[i] = i;
         for (int i = 0; i < prof_n; i++) for (int j = i + 1; j < prof_n; j++) if (prof_count[ix[j]] > prof_count[ix[i]]) { int t = ix[i]; ix[i] = ix[j]; ix[j] = t; }
         for (int i = 0; i < prof_n && i < 40; i++) fprintf(stderr, "%12ld  %s\n", prof_count[ix[i]], prof_name[ix[i]]);
+        stat_gather_kinds();
         for (int k = 0; k < K_END; k++) if (stat_kind[k]) fprintf(stderr, "kind %3d: %ld\n", k, stat_kind[k]);
         for (int k = 0; k < 64; k++) if (prof_dupk[k] || prof_erak[k]) fprintf(stderr, "value kind %3d: dup %ld era %ld\n", k, prof_dupk[k], prof_erak[k]);
         for (int i = 0; i < prof_n; i++) ix2[i] = i;

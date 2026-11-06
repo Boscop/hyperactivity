@@ -320,6 +320,7 @@ Port apply_gid(long g, const Port *args, int n);
 
 /* readings */
 extern long stat_steps, stat_kind[K_END];
+void stat_gather_kinds(void);
 extern long stat_cells;
 extern FILE *trace_out;   /* CUBICAL_TRACE: interactions of a (show ...) reading, one per line */
 
