@@ -148,3 +148,37 @@ inline-list n l = case l of lnil → lnil; lcons x xs → lcons (inline-depth n 
 specialize-i n T rules c = lower (rewrite-all #64 rules (normalize T (inline-depth n c)))
 -- readings: the call of lenw under an unknown list specializes to the recursion itself
 #same specialize-i #2 (LW → Word) lnil (code (λ (l : LW) → lenw l)) = lower (fromopt (unfold (gidx (code lenw))) cword)
+-- ---------------------------------------------------------------- the criterion's report (B13, the code side)
+-- fo-report c: the forms of c outside the first-order fragment, each as its code (a dimension
+-- binder or application, a path type or composition, Glue, a transport, a universe, a Π or Σ type
+-- as a value, a code with dimensions in a constructor, a call into the net); empty when the code is
+-- first-order. The checker's own decision (strictness, the codata rule, 18.3) is the machine's;
+-- this is what lower would turn into fnet
+fo-report c =
+  case c of
+    clam b → fo-report b
+    capp f a → lapp2 (fo-report f) (fo-report a)
+    cpair a b → lapp2 (fo-report a) (fo-report b)
+    cfst p → fo-report p
+    csnd p → fo-report p
+    clet t b → lapp2 (fo-report t) (fo-report b)
+    cann t T → fo-report t
+    ccon d k fs ds → (case ds of lnil → fo-report-list fs; _ → lcons c lnil)
+    ccase d B x → lapp2 (fo-report-list B) (fo-report x)
+    celim d P B x → lapp2 (fo-report-list B) (fo-report x)
+    cforce t → fo-report t
+    cwsucc a → fo-report a
+    cwop k a b → lapp2 (fo-report a) (fo-report b)
+    cwelim w z s → lapp2 (fo-report w) (lapp2 (fo-report z) (fo-report s))
+    cvar n → lnil
+    cglob n → lnil
+    cwlit n → lnil
+    cdata d ps → lnil
+    _ → lcons c lnil
+fo-report-list l = case l of lnil → lnil; lcons x xs → lapp2 (fo-report x) (fo-report-list xs)
+is-fo c = case fo-report c of lnil → true; _ → false
+-- readings: the loop is first-order; a path abstraction and a transport are reported
+#same is-fo (cwelim (cwlit #5) (cwlit #1) (clam (clam (cwop #2 (cvar #0) (cvar #0))))) = true
+#same is-fo (code (λ (l : LW) → lenw l)) = true
+#same fo-report (cplam (cvar #0)) = lcons (cplam (cvar #0)) lnil
+#same lst-len (fo-report (capp (cplam (cvar #0)) (ctrans #1 cftt lnil (cvar #0)))) = #2
