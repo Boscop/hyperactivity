@@ -1,0 +1,39 @@
+-- lib/emitt.cub — C type declarations from layouts (plan 18.7, B16 milestone 2, the part B12
+-- enables). Loaded after lib/check.cub and lib/emitc.cub. type-c d prints the layout of data type d
+-- (lib/check.cub's layout) as a C typedef: a tag and a union of one struct per constructor, each
+-- with its fields in order (f0, f1, ...): a word uint64_t, n bytes uint8_t[n], a pointer void *.
+-- A type with no layout (paths) or represented by a word prints nothing. The boxed runtime of
+-- lib/emitc.cub is unchanged: these are the shapes the unboxed representation takes, and run.py
+-- checks that they compile.
+t-typedef = (lcons #116 (lcons #121 (lcons #112 (lcons #101 (lcons #100 (lcons #101 (lcons #102 (lcons #32 (lcons #115 (lcons #116 (lcons #114 (lcons #117 (lcons #99 (lcons #116 (lcons #32 (lcons #123 (lcons #32 (lcons #117 (lcons #105 (lcons #110 (lcons #116 (lcons #54 (lcons #52 (lcons #95 (lcons #116 (lcons #32 (lcons #116 (lcons #97 (lcons #103 (lcons #59 (lcons #32 (lcons #117 (lcons #110 (lcons #105 (lcons #111 (lcons #110 (lcons #32 (lcons #123 (lcons #32 lnil)))))))))))))))))))))))))))))))))))))))
+t-struct = (lcons #115 (lcons #116 (lcons #114 (lcons #117 (lcons #99 (lcons #116 (lcons #32 (lcons #123 (lcons #32 lnil)))))))))
+t-structend = (lcons #125 (lcons #32 (lcons #99 lnil)))
+t-semi = (lcons #59 (lcons #32 lnil))
+t-end = (lcons #125 (lcons #32 (lcons #117 (lcons #59 (lcons #32 (lcons #125 (lcons #32 (lcons #84 lnil))))))))
+t-nl = (lcons #59 (lcons #10 lnil))
+t-u64 = (lcons #117 (lcons #105 (lcons #110 (lcons #116 (lcons #54 (lcons #52 (lcons #95 (lcons #116 (lcons #32 (lcons #102 lnil))))))))))
+t-u8 = (lcons #117 (lcons #105 (lcons #110 (lcons #116 (lcons #56 (lcons #95 (lcons #116 (lcons #32 (lcons #102 lnil)))))))))
+t-lb = (lcons #91 lnil)
+t-rb = (lcons #93 lnil)
+t-ptr = (lcons #118 (lcons #111 (lcons #105 (lcons #100 (lcons #32 (lcons #42 (lcons #102 lnil)))))))
+t-sizeof = (lcons #105 (lcons #110 (lcons #116 (lcons #32 (lcons #109 (lcons #97 (lcons #105 (lcons #110 (lcons #40 (lcons #118 (lcons #111 (lcons #105 (lcons #100 (lcons #41 (lcons #32 (lcons #123 (lcons #32 (lcons #112 (lcons #114 (lcons #105 (lcons #110 (lcons #116 (lcons #102 (lcons #40 (lcons #34 (lcons #37 (lcons #122 (lcons #117 (lcons #92 (lcons #110 (lcons #34 (lcons #44 (lcons #32 (lcons #115 (lcons #105 (lcons #122 (lcons #101 (lcons #111 (lcons #102 (lcons #40 (lcons #84 lnil)))))))))))))))))))))))))))))))))))))))))
+t-sizeend = (lcons #41 (lcons #41 (lcons #59 (lcons #32 (lcons #114 (lcons #101 (lcons #116 (lcons #117 (lcons #114 (lcons #110 (lcons #32 (lcons #48 (lcons #59 (lcons #32 (lcons #125 (lcons #10 lnil))))))))))))))))
+t-inc = (lcons #35 (lcons #105 (lcons #110 (lcons #99 (lcons #108 (lcons #117 (lcons #100 (lcons #101 (lcons #32 (lcons #60 (lcons #115 (lcons #116 (lcons #100 (lcons #105 (lcons #110 (lcons #116 (lcons #46 (lcons #104 (lcons #62 (lcons #10 (lcons #35 (lcons #105 (lcons #110 (lcons #99 (lcons #108 (lcons #117 (lcons #100 (lcons #101 (lcons #32 (lcons #60 (lcons #115 (lcons #116 (lcons #100 (lcons #105 (lcons #111 (lcons #46 (lcons #104 (lcons #62 (lcons #10 lnil)))))))))))))))))))))))))))))))))))))))
+type-c d = case layout d of lunion alts → cat4 t-typedef (alts-tc alts #0) t-end (lapp (dec d) t-nl); _ → lnil
+alts-tc alts c =
+  case alts of
+    lalt l rest → cat4 t-struct (fields-tc l #0) t-structend (lapp (dec c) (lapp t-semi (alts-tc rest (%wsucc c))))
+    _ → lnil
+fields-tc l k =
+  case l of
+    lstruct fs → fields-tc fs k
+    lfield nm fl al rest → lapp (field-tc fl k) (fields-tc rest (%wsucc k))
+    _ → lnil
+field-tc fl k =
+  case fl of
+    lword → cat3 t-u64 (dec k) t-semi
+    lbytes n → cat6 t-u8 (dec k) t-lb (dec n) t-rb t-semi
+    _ → cat3 t-ptr (dec k) t-semi
+-- a program printing the size of a type: for run.py
+data-idx c = case c of cdata d ps → d; _ → #0
+sizeof-prog d = cat4 t-inc (type-c d) t-sizeof (lapp (dec d) t-sizeend)

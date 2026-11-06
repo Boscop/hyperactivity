@@ -4,7 +4,7 @@ list of bytes, decoded here, compiled with gcc, run, and its output compared wit
 import re, subprocess, sys, tempfile, os
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(os.path.dirname(HERE))
 CUB = os.path.join(ROOT, 'build', 'cubical')
-LIBS = [os.path.join(ROOT, 'lib', f) for f in ('prelude.cub', 'code.cub', 'fo.cub', 'match.cub', 'nav.cub', 'emitc.cub', 'check.cub', 'specialize.cub', 'std.cub', 'linproof.cub', 'rules.cub')]
+LIBS = [os.path.join(ROOT, 'lib', f) for f in ('prelude.cub', 'code.cub', 'fo.cub', 'match.cub', 'nav.cub', 'emitc.cub', 'check.cub', 'specialize.cub', 'std.cub', 'linproof.cub', 'rules.cub', 'emitt.cub')]
 PROGS = {
  # name: (definitions as .cub text building a Lst of (g , (arity , body)), expected output)
  'fact': ("""defs = lcons (#0 , (#0 , fcall #1 (lcons (flit #5) lnil)))
@@ -27,14 +27,19 @@ defs = lcons (#0 , (#0 , fcall #1 (lcons (flit #7) lnil))) (lcons (#1 , (#1 , la
  # an assumed fact (a validity fact a certificate established, lib/lin.cub) printed as ASSUME:
  # the C compiler is told what the checker knows
  'assume': ("""defs = lcons (#0 , (#0 , flet (flit #3) (fassume (cwop #1 (cvar #0) (cwlit #10)) (fprim P-mul (lcons (fvar #0) (lcons (fvar #0) lnil)))))) lnil""", "9", "ASSUME((v0->n < 10))"),
+ # C type declarations from B12's layouts (lib/emitt.cub): a tree's typedef compiles; its size is
+ # the tag and the larger alternative, two pointers
+ 'types': ("""data Tr = lf (w : Word) | nd (l : Tr) (r : Tr)
+prog = sizeof-prog (data-idx (code Tr))""", "24", "struct { void *f0; void *f1; } c1;"),
  'let-if': ("""defs = lcons (#0 , (#0 , flet (flit #3) (fif (fprim P-lt (lcons (fvar #0) (lcons (flit #5) lnil))) (fprim P-mul (lcons (fvar #0) (lcons (fvar #0) lnil))) (flit #0)))) lnil""", "9"),
 }
 def run(name, defs, expect, contains=None):
     with tempfile.TemporaryDirectory() as d:
         cub = os.path.join(d, name + '.cub')
-        open(cub, 'w').write(defs + "\n#show emit-prog defs\n")
+        if 'prog =' not in defs: defs += "\nprog = emit-prog defs"
+        open(cub, 'w').write(defs + "\n#show prog\n")
         out = subprocess.run([CUB] + LIBS + [cub], capture_output=True, text=True, env=dict(os.environ, CUBICAL_NOCACHE='1')).stdout
-        m = re.search(r'emit-prog defs\s*=\s*(.*?)\s*\[\d+ steps', out, re.S)
+        m = re.search(r'^prog\s*=\s*(.*?)\s*\[\d+ steps', out, re.S | re.M)
         if not m: print(name, 'FAIL: no reading'); print(out[-500:]); return False
         bs = bytes(int(x) for x in re.findall(r'#(\d+)', m.group(1)))
         c = os.path.join(d, name + '.c'); open(c, 'wb').write(bs)
