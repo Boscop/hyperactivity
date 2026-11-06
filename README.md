@@ -483,9 +483,7 @@ fourteen programs with gcc and runs them):
   shapes: a `case`/`rec` becomes a recursion form (`frec`: the fields pushed, then a suspended
   recursion per recursive field), which `lift` turns into a definition that calls itself on the
   field. The length of a list written with `rec` is a C function calling itself on the tail.
-- **`lib/specialize.cub`** also inlines (`specialize-i`): every definition whose value quotes is
-  replaced by its code to a depth before normalizing, since normalization keeps a definition's call
-  under a neutral argument; `program-of` lowers a code and, transitively, the definitions it calls;
+- **`lib/specialize.cub`** also takes the schedule as a value (`specialize-s`); `program-of` lowers a code and, transitively, the definitions it calls;
   `fo-report` lists the forms of a code outside the fragment.
 - **`lib/repr.cub`** consumes the representations: calls of `load64`, `store64`, … become native
   primitives on the arguments that carry information (the length and the bound proof dropped, the
