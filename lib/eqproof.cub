@@ -1,0 +1,170 @@
+-- lib/eqproof.cub — equality certificates over uninterpreted functions, verified (plan 18.13,
+-- F32: "equalities with uninterpreted functions, a sequence of rewrites"). Loaded after
+-- lib/linproof.cub (catw, symw, weq-sound, andbt). A certificate is a trace of rewrite steps, each naming a position, a hypothesis and
+-- a direction; the checker runs the trace on the left side and compares the result with the right
+-- side; eq-cert-sound: a trace that checks proves its goal in every model where the hypotheses hold.
+-- Terms are curried applications of constants to variables, so every first-order signature is
+-- covered (f(a, b) is tapp (tapp (tc f) a) b). The search for a trace (lib/match.cub, lib/nav.cub
+-- over codes) is separate and unverified; what it finds is checked here.
+-- ---------------------------------------------------------------- terms and models
+data Tm = tv (v : Word) | tc (f : Word) | tapp (a : Tm) (b : Tm)
+-- a model: values of variables, values of constants, and application as a binary operation
+Model : Type
+Model = (Word → Word) × ((Word → Word) × (Word → Word → Word))
+tev : Model → Tm → Word
+tev m t =
+  case t return (λ w → Word) of
+    tv v → fst m v
+    tc f → fst (snd m) f
+    tapp a b → snd (snd m) (rec a) (rec b)
+congt : (m : Model) → {s t : Tm} → s ≡ t → tev m s ≡ tev m t
+congt m p = λ i → tev m (p i)
+-- ---------------------------------------------------------------- deciding syntactic equality
+cong-tv : {v w : Word} → v ≡ w → tv v ≡ tv w
+cong-tv p = λ i → tv (p i)
+cong-tc : {v w : Word} → v ≡ w → tc v ≡ tc w
+cong-tc p = λ i → tc (p i)
+cong-tapp : {a b c d : Tm} → a ≡ c → b ≡ d → tapp a b ≡ tapp c d
+cong-tapp p q = λ i → tapp (p i) (q i)
+tm-same : Tm → Tm → Bool
+tm-same s t =
+  case s return (λ w → Tm → Bool) of
+    tv v → λ t → (case t return (λ w → Bool) of tv w → weq v w; tc f → false; tapp a b → false)
+    tc f → λ t → (case t return (λ w → Bool) of tv w → false; tc g → weq f g; tapp a b → false)
+    tapp a b → λ t → (case t return (λ w → Bool) of tv w → false; tc g → false; tapp c d → andbt (rec a c) (rec b d))
+  t
+tm-same-sound : (s t : Tm) → tm-same s t ≡ true → s ≡ t
+tm-same-sound s t =
+  case s return (λ w → (t : Tm) → tm-same w t ≡ true → w ≡ t) of
+    tv v → λ t →
+      (case t return (λ w → tm-same (tv v) w ≡ true → tv v ≡ w) of
+         tv w → λ p → cong-tv (weq-sound v w p)
+         tc f → λ p → Empty-rec {lzero} {tv v ≡ tc f} (false≢true p)
+         tapp a b → λ p → Empty-rec {lzero} {tv v ≡ tapp a b} (false≢true p))
+    tc f → λ t →
+      (case t return (λ w → tm-same (tc f) w ≡ true → tc f ≡ w) of
+         tv w → λ p → Empty-rec {lzero} {tc f ≡ tv w} (false≢true p)
+         tc g → λ p → cong-tc (weq-sound f g p)
+         tapp a b → λ p → Empty-rec {lzero} {tc f ≡ tapp a b} (false≢true p))
+    tapp a b → λ t →
+      (case t return (λ w → tm-same (tapp a b) w ≡ true → tapp a b ≡ w) of
+         tv w → λ p → Empty-rec {lzero} {tapp a b ≡ tv w} (false≢true p)
+         tc g → λ p → Empty-rec {lzero} {tapp a b ≡ tc g} (false≢true p)
+         tapp c d → λ p →
+           cong-tapp (rec a c (andbt-l (tm-same a c) (tm-same b d) p))
+                     (rec b d (andbt-r (tm-same a c) (tm-same b d) p)))
+  t
+-- ---------------------------------------------------------------- positions
+data Pos = here | pl (p : Pos) | pr (p : Pos)
+-- the subterm at a position; a position outside the term returns the term itself, and replace
+-- leaves such a term unchanged, so a step at a bad position is a step that does nothing
+subterm : Pos → Tm → Tm
+subterm p t =
+  case p return (λ w → Tm → Tm) of
+    here → λ t → t
+    pl q → λ t → (case t return (λ w → Tm) of tv v → tv v; tc f → tc f; tapp a b → rec q a)
+    pr q → λ t → (case t return (λ w → Tm) of tv v → tv v; tc f → tc f; tapp a b → rec q b)
+  t
+replace : Pos → Tm → Tm → Tm
+replace p r t =
+  case p return (λ w → Tm → Tm) of
+    here → λ t → r
+    pl q → λ t → (case t return (λ w → Tm) of tv v → tv v; tc f → tc f; tapp a b → tapp (rec q a) b)
+    pr q → λ t → (case t return (λ w → Tm) of tv v → tv v; tc f → tc f; tapp a b → tapp a (rec q b))
+  t
+-- a rewrite at a position by an equation whose left side is the subterm there preserves the value
+rw-sound : (m : Model) (p : Pos) (l r : Tm) → tev m l ≡ tev m r →
+           (t : Tm) → tm-same (subterm p t) l ≡ true → tev m t ≡ tev m (replace p r t)
+rw-sound m p l r h t q =
+  case p return (λ w → (t : Tm) → tm-same (subterm w t) l ≡ true → tev m t ≡ tev m (replace w r t)) of
+    here → λ t q → catw (congt m (tm-same-sound t l q)) h
+    pl q2 → λ t →
+      (case t return (λ w → tm-same (subterm (pl q2) w) l ≡ true → tev m w ≡ tev m (replace (pl q2) r w)) of
+         tv v → λ q i → fst m v
+         tc f → λ q i → fst (snd m) f
+         tapp a b → λ q i → snd (snd m) (rec q2 a q i) (tev m b))
+    pr q2 → λ t →
+      (case t return (λ w → tm-same (subterm (pr q2) w) l ≡ true → tev m w ≡ tev m (replace (pr q2) r w)) of
+         tv v → λ q i → fst m v
+         tc f → λ q i → fst (snd m) f
+         tapp a b → λ q i → snd (snd m) (tev m a) (rec q2 b q i))
+  t q
+-- ---------------------------------------------------------------- hypotheses and traces
+data Eqs = enil | econs (l : Tm) (r : Tm) (rest : Eqs)
+EqHolds : Model → Eqs → Type
+EqHolds m hs = case hs return (λ w → Type) of enil → Unit; econs l r rest → (tev m l ≡ tev m r) × rec rest
+-- the i-th equation; past the end, a trivial one (which holds in every model)
+hyp-at : Word → Eqs → Tm × Tm
+hyp-at i hs =
+  case hs return (λ w → Word → Tm × Tm) of
+    enil → λ i → (tc #0 , tc #0)
+    econs l r rest → λ i → %welimP (λ v → Tm × Tm) i (l , r) (λ j h → rec rest j)
+  i
+hyp-holds : (m : Model) (hs : Eqs) (i : Word) → EqHolds m hs → tev m (fst (hyp-at i hs)) ≡ tev m (snd (hyp-at i hs))
+hyp-holds m hs i hh =
+  case hs return (λ w → (i : Word) → EqHolds m w → tev m (fst (hyp-at i w)) ≡ tev m (snd (hyp-at i w))) of
+    enil → λ i hh j → fst (snd m) #0
+    econs l r rest → λ i hh →
+      %welimP (λ v → tev m (fst (hyp-at v (econs l r rest))) ≡ tev m (snd (hyp-at v (econs l r rest)))) i
+        (fst hh) (λ j h → rec rest j (snd hh))
+  i hh
+-- an equation read in a direction
+lhs : Bool → Tm × Tm → Tm
+lhs d eq = case d return (λ w → Tm) of true → snd eq; false → fst eq
+rhs : Bool → Tm × Tm → Tm
+rhs d eq = case d return (λ w → Tm) of true → fst eq; false → snd eq
+symw-tm : (m : Model) (d : Bool) (eq : Tm × Tm) → tev m (fst eq) ≡ tev m (snd eq) → tev m (lhs d eq) ≡ tev m (rhs d eq)
+symw-tm m d eq h = case d return (λ w → tev m (lhs w eq) ≡ tev m (rhs w eq)) of true → symw h; false → h
+-- a trace: steps (position, hypothesis, direction)
+data Trace = tnil | tstep (p : Pos) (i : Word) (d : Bool) (rest : Trace)
+-- one step: rewrite if the subterm matches the equation's side, else leave the term
+step : Eqs → Pos → Word → Bool → Tm → Tm
+step hs p i d t =
+  case tm-same (subterm p t) (lhs d (hyp-at i hs)) return (λ w → Tm) of
+    true → replace p (rhs d (hyp-at i hs)) t
+    false → t
+step-sound : (m : Model) (hs : Eqs) (p : Pos) (i : Word) (d : Bool) → EqHolds m hs → (t : Tm) → tev m t ≡ tev m (step hs p i d t)
+step-sound m hs p i d hh t =
+  case tm-same (subterm p t) (lhs d (hyp-at i hs))
+    return (λ b → tm-same (subterm p t) (lhs d (hyp-at i hs)) ≡ b →
+                  tev m t ≡ tev m (case b return (λ w → Tm) of true → replace p (rhs d (hyp-at i hs)) t; false → t)) of
+    true → λ q → rw-sound m p (lhs d (hyp-at i hs)) (rhs d (hyp-at i hs)) (symw-tm m d (hyp-at i hs) (hyp-holds m hs i hh)) t q
+    false → λ q i → tev m t
+  (λ j → tm-same (subterm p t) (lhs d (hyp-at i hs)))
+run : Eqs → Trace → Tm → Tm
+run hs tr t =
+  case tr return (λ w → Tm → Tm) of
+    tnil → λ t → t
+    tstep p i d rest → λ t → rec rest (step hs p i d t)
+  t
+run-sound : (m : Model) (hs : Eqs) (tr : Trace) → EqHolds m hs → (t : Tm) → tev m t ≡ tev m (run hs tr t)
+run-sound m hs tr hh t =
+  case tr return (λ w → (t : Tm) → tev m t ≡ tev m (run hs w t)) of
+    tnil → λ t i → tev m t
+    tstep p i d rest → λ t → catw (step-sound m hs p i d hh t) (rec rest (step hs p i d t))
+  t
+-- the checker and its theorem
+check-eq : Eqs → Trace → Tm → Tm → Bool
+check-eq hs tr s t = tm-same (run hs tr s) t
+eq-cert-sound : (m : Model) (hs : Eqs) (tr : Trace) (s t : Tm) → EqHolds m hs → check-eq hs tr s t ≡ true → tev m s ≡ tev m t
+eq-cert-sound m hs tr s t hh q = catw (run-sound m hs tr hh s) (congt m (tm-same-sound (run hs tr s) t q))
+-- ---------------------------------------------------------------- readings
+-- constants: 0 = f, 1 = g, 2 = c. Hypotheses: f x = g x (0), g c = c (1).
+-- Goal: f (f c) = c by f (f c) → g (f c) → g (g c) → g c → c
+ap1 : Tm → Tm → Tm
+ap1 f a = tapp f a
+hs1 = econs (ap1 (tc #0) (tv #0)) (ap1 (tc #1) (tv #0)) (econs (ap1 (tc #1) (tc #2)) (tc #2) enil)
+-- the hypothesis f x = g x is ground here: x is the variable 0, so the steps rewrite f x, not
+-- f (f c); the certificate instead uses the instance at c, stated as a third hypothesis
+hs2 = econs (ap1 (tc #0) (tc #2)) (ap1 (tc #1) (tc #2))
+        (econs (ap1 (tc #1) (tc #2)) (tc #2)
+          (econs (ap1 (tc #0) (ap1 (tc #0) (tc #2))) (ap1 (tc #1) (ap1 (tc #0) (tc #2))) enil))
+tr1 = tstep here #2 false (tstep (pr here) #0 false (tstep (pr here) #1 false (tstep here #1 false tnil)))
+#same check-eq hs2 tr1 (ap1 (tc #0) (ap1 (tc #0) (tc #2))) (tc #2) = true
+-- a step at a position where the equation does not match does nothing, and the check fails
+#same check-eq hs2 (tstep (pl here) #2 false tnil) (ap1 (tc #0) (ap1 (tc #0) (tc #2))) (tc #2) = false
+-- direction: g c = c read backwards turns c into g c
+#same check-eq hs2 (tstep here #1 true tnil) (tc #2) (ap1 (tc #1) (tc #2)) = true
+-- the empty trace proves only syntactic equality
+#same check-eq hs2 tnil (tc #2) (tc #2) = true
+#same check-eq hs2 tnil (tc #2) (tc #1) = false
