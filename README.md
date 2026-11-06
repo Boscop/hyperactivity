@@ -476,6 +476,8 @@ given to a defined family (`G κ` with `G : Clock → Type`) is bound as well. A
 determines is the one clock in scope. A recursive call needed now is reported where it stands:
 `bad = smap suc bad` is rejected with "a recursive call needed now, not under ▸".
 
+The plan and status document is `PLAN.md` (the single one; a fresh agent starts there).
+
 ## 9. Programs about programs: the first-order form, matching, navigation, certificates
 
 Six libraries over codes, each untyped data as `lib/code.cub` is and loaded before the checker (two after it),
