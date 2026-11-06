@@ -363,6 +363,7 @@ typedef struct Syn {
     struct CaseTab *tab;
     Big *big;                       /* S_WORD: the number when it does not fit in id */
     struct Syn **k;
+    uint64_t sh;                    /* structural hash, once computed (lang.c, interning records) */
 } Syn;   /* S_AXIOM: slot = the global holding its type, or -1 */
 /* a binder level: λ (one parameter), thunk (none), or a case branch (its fields, hypotheses and
  * dimensions, in slots 0..nparam-1). Its frame has slots: the parameters, the environment (maximal subterms free of this level,

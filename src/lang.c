@@ -1282,6 +1282,90 @@ static void prof_enter(const char *name) {
     GROW(prof_count, capprofc, (size_t)prof_n + 1); GROW(prof_name, capprofn, (size_t)prof_n + 1); GROW(prof_dup, capprofd, (size_t)prof_n + 1);
     prof_count[prof_n] = 0; prof_dup[prof_n] = 0; prof_name[prof_n] = strdup(name); prof_cur = prof_n++;
 }
+/* ---------------- interning compiled code ----------------
+ * Equal records are one pointer, and so are equal case tables: a λ's key is its record over the
+ * keys of its captures, so equal bodies compiled in different places (two definitions, a
+ * generated clause and a written one) name their values alike and share them through the memo.
+ * Structural equality of the body: tags, slots, ids, words, and the (already interned) records
+ * and tables it mentions */
+static uint64_t hmix(uint64_t h, uint64_t v) { return (h ^ (v + 0x9E3779B97F4A7C15ull + (h << 6) + (h >> 2))) * 0x100000001B3ull; }
+static uint64_t syn_hash(Syn *t) {
+    if (!t) return 0x51;
+    if (t->sh) return t->sh;
+    uint64_t h = hmix(hmix(hmix(hmix(1, (uint64_t)t->tag), (uint64_t)t->n), (uint64_t)t->slot), t->x);
+    h = hmix(h, (uint64_t)t->id); h = hmix(h, (uint64_t)(uintptr_t)t->rec); h = hmix(h, (uint64_t)(uintptr_t)t->tab);
+    if (t->big) for (uint32_t i = 0; i < t->big->n; i++) h = hmix(h, t->big->l[i]);
+    for (int i = 0; i < t->n; i++) h = hmix(h, syn_hash(t->k[i]));
+    if (!h) h = 1;
+    return t->sh = h;
+}
+static bool syn_eq(Syn *a, Syn *b) {
+    if (a == b) return true;
+    if (!a || !b) return false;
+    if (syn_hash(a) != syn_hash(b)) return false;
+    if (a->tag != b->tag || a->n != b->n || a->slot != b->slot || a->x != b->x || a->id != b->id || a->rec != b->rec || a->tab != b->tab) return false;
+    if (a->big || b->big) { WN x = { (uint64_t)a->id, a->big }, y = { (uint64_t)b->id, b->big }; if (wn_cmp(&x, &y) != 0) return false; }
+    for (int i = 0; i < a->n; i++) if (!syn_eq(a->k[i], b->k[i])) return false;
+    return true;
+}
+static void syn_free(Syn *t) {
+    if (!t) return;
+    for (int i = 0; i < t->n; i++) syn_free(t->k[i]);
+    if (t->big) big_release(t->big);
+    free(t->k); free(t);
+}
+static Record **RT; static size_t RTcap, RTn;
+static uint64_t rec_hash(const Record *r) {
+    uint64_t h = hmix(hmix(hmix(7, (uint64_t)r->nparam), (uint64_t)r->nslots), (uint64_t)r->nenv);
+    for (int i = 0; i < r->nenv; i++) h = hmix(h, (uint64_t)r->env_slot[i]);
+    return hmix(h, syn_hash(r->body));
+}
+static bool rec_eq(const Record *a, const Record *b) {
+    if (a->nparam != b->nparam || a->nslots != b->nslots || a->nenv != b->nenv) return false;
+    for (int i = 0; i < a->nenv; i++) if (a->env_slot[i] != b->env_slot[i]) return false;
+    return syn_eq(a->body, b->body);
+}
+/* r, or the record equal to it made earlier (r then freed) */
+static Record *rec_intern(Record *r) {
+    if (RTn * 2 >= RTcap) {
+        size_t nc = RTcap ? RTcap * 2 : 4096; Record **nt = calloc(nc, sizeof(Record *));
+        for (size_t i = 0; i < RTcap; i++) if (RT[i]) { size_t q = rec_hash(RT[i]) & (nc - 1); while (nt[q]) q = (q + 1) & (nc - 1); nt[q] = RT[i]; }
+        free(RT); RT = nt; RTcap = nc;
+    }
+    uint64_t h = rec_hash(r);
+    size_t i = h & (RTcap - 1);
+    for (; RT[i]; i = (i + 1) & (RTcap - 1))
+        if (rec_eq(RT[i], r)) { syn_free(r->body); free(r->env_slot); free(r->uses); free(r); return RT[i]; }
+    RT[i] = r; RTn++;
+    return r;
+}
+static CaseTab **TT; static size_t TTcap, TTn;
+static int tab_n(const CaseTab *t) { return DATA[t->d].ncons; }
+static uint64_t tab_hash(const CaseTab *t) {
+    uint64_t h = hmix(hmix(hmix(11, (uint64_t)t->d), (uint64_t)t->nenv), t->mask);
+    int N = tab_n(t);
+    for (int i = 0; i < N; i++) h = hmix(h, (uint64_t)(uintptr_t)t->br[i]);
+    return hmix(h, (uint64_t)(uintptr_t)t->motive);
+}
+static bool tab_eq(const CaseTab *a, const CaseTab *b) {
+    if (a->d != b->d || a->nenv != b->nenv || a->mask != b->mask || a->motive != b->motive) return false;
+    int N = tab_n(a);
+    for (int i = 0; i < N; i++) if (a->br[i] != b->br[i]) return false;
+    return true;
+}
+static CaseTab *tab_intern(CaseTab *t) {
+    if (TTn * 2 >= TTcap) {
+        size_t nc = TTcap ? TTcap * 2 : 1024; CaseTab **nt = calloc(nc, sizeof(CaseTab *));
+        for (size_t i = 0; i < TTcap; i++) if (TT[i]) { size_t q = tab_hash(TT[i]) & (nc - 1); while (nt[q]) q = (q + 1) & (nc - 1); nt[q] = TT[i]; }
+        free(TT); TT = nt; TTcap = nc;
+    }
+    uint64_t h = tab_hash(t);
+    size_t i = h & (TTcap - 1);
+    for (; TT[i]; i = (i + 1) & (TTcap - 1))
+        if (tab_eq(TT[i], t)) { free(t->br); free(t); return TT[i]; }
+    TT[i] = t; TTn++;
+    return t;
+}
 static Syn *compile_record(Node *param, Node *body, bool thunk) {
     GROW(levels, caplevels, (size_t)nlevels + 1);
     int li = nlevels++;
@@ -1294,6 +1378,7 @@ static Syn *compile_record(Node *param, Node *body, bool thunk) {
     Record *r = calloc(1, sizeof(Record));
     r->nparam = thunk ? 0 : 1; r->nslots = L.nslots; r->nenv = L.nenv; r->env_slot = L.env_slots; r->uses = L.uses; r->body = b;
     r->where = prof_cur;
+    r = rec_intern(r);
     Syn *s = syn(S_LAM, L.nenv);
     s->rec = r;
     for (int k = 0; k < L.nenv; k++) s->k[k] = L.env_syns[k];
@@ -1463,7 +1548,7 @@ static Record *compile_branch(const Names *env, Node **pn, int np, Node *body) {
     Record *r = calloc(1, sizeof(Record));
     r->nparam = np; r->nslots = L.nslots; r->nenv = env->n; r->env_slot = es;
     r->uses = L.uses ? L.uses : calloc(1, sizeof(int)); r->body = b; r->where = prof_cur;
-    return r;
+    return rec_intern(r);
 }
 /* (%case (%branches D mask m b...) [P] E x): one cell. Its table holds one record per
  * constructor, and the motive as a record; its ports the scrutinee and the variables the branches
@@ -1510,6 +1595,7 @@ static Syn *compile_case(Node *t) {
     tb->d = d; tb->nenv = env.n; tb->mask = mask; tb->br = calloc((size_t)N + 1, sizeof(Record *));
     for (int c = 0; c < N; c++) tb->br[c] = compile_branch(&env, pn[c], np[c], body[c]);
     tb->motive = el ? compile_branch(&env, NULL, 0, t->it[2]) : NULL;
+    tb = tab_intern(tb);
     Syn *s = syn(S_CASE, 2 + env.n);
     s->tab = tb; s->x = 0;
     s->k[0] = compile(t->it[el ? 4 : 3]);
