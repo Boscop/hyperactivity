@@ -529,6 +529,9 @@ static Key *subst_key(const Subst *s) {
  * reference carries its box's key, or the key of the box it was itself held in). The caller owns
  * the result */
 static Key *eff_key(Cell *c) {
+    /* an interval or a face is named by what it holds: rules change these in place (negation,
+     * meet and join, substitution), and a key kept from before would name another formula */
+    if (c->kind == V_IV || c->kind == V_FACE) return c->p ? key0(c->kind == V_IV ? K_IV : K_FACE, 0, c->p) : NULL;
     Key *k = c->key;
     if (!k) return NULL;
     if ((c->kind == V_THUNK || c->kind == V_REF) && c->a) {
@@ -812,7 +815,14 @@ static Port word_wn(WN k) { Cell *c = cell(V_WORD, 1); c->a = k.s; c->p = k.b; r
 Port word_port(WN k) { return word_wn(k); }
 /* a reference reads its value under the substitution it carries (a=Subst or 0): the top cell
  * copied and substituted, each part a reference carrying the substitution on */
-static Port ref_read(Cell *r) { Port p = lazy_copy(r->key, ((Box *)r->p)->root); return r->a ? sub(p, (Subst *)(uintptr_t)r->a) : p; }
+/* With a pending substitution the copy of what the box holds is named by the box (the content,
+ * which may have free dimensions the substitution closes); the reference's own key names the
+ * substituted value, not the content */
+static Port ref_read(Cell *r) {
+    Box *b = r->p;
+    Port p = lazy_copy(r->a ? b->key : r->key, b->root);
+    return r->a ? sub(p, (Subst *)(uintptr_t)r->a) : p;
+}
 Port ref_copy(Cell *c) { return ref_read(c); }
 /* a word's suspended elimination, computed (for readback) */
 Port wsusp_force(Cell *c) {
@@ -845,6 +855,12 @@ static void retire_boxes(void) {
     }
 }
 static void era(Port prov) { Cell *e = cell(O_ERA, 1); e->a = (uint64_t)dup_origin; link(prov, P(e, 0)); }
+/* an interval or face value changed in place: its key follows its payload */
+static void rekey_formula(Cell *v) {
+    if (!v->key) return;
+    key_release(v->key);
+    v->key = key0(v->kind == V_IV ? K_IV : K_FACE, 0, v->p);
+}
 static Port sub(Port prov, Subst *s) { Cell *c = cell(O_SUBST, 2); c->p = subst_retain(s); link(prov, P(c, 0)); return P(c, 1); }  /* borrows s */
 static Port mkplam_of(Port prov, Dim i) { Cell *m = cell(O_MKPLAM, 2); m->a = i; link(prov, P(m, 0)); return P(m, 1); }
 static Port iv_cell(Dnf *r) { Cell *c = cell(V_IV, 1); c->p = r; return P(c, 0); }  /* takes r */
@@ -979,8 +995,8 @@ static void rule_subst(Cell *o, Cell *v) {
     case V_NVAR:
         link(sub(v->port[1], s), P(v, 1));
         link(P(v, 0), out); cell_free(o); return;
-    case V_IV: { Dnf *n2 = iv_subst(v->p, s); dnf_release(v->p); v->p = n2; link(P(v, 0), out); cell_free(o); return; }
-    case V_FACE: { Dnf *n2 = face_subst(v->p, s); dnf_release(v->p); v->p = n2; link(P(v, 0), out); cell_free(o); return; }
+    case V_IV: { Dnf *n2 = iv_subst(v->p, s); dnf_release(v->p); v->p = n2; rekey_formula(v); link(P(v, 0), out); cell_free(o); return; }
+    case V_FACE: { Dnf *n2 = face_subst(v->p, s); dnf_release(v->p); v->p = n2; rekey_formula(v); link(P(v, 0), out); cell_free(o); return; }
     case V_PLAM: {
         Dim j = (Dim)v->a, j2 = j;
         Subst *t = subst_without(s, j);
@@ -1879,7 +1895,7 @@ static void interact(Cell *o, Cell *v) {
     }
     case O_NEG:
         if (vk != V_IV) { stuck(o, v); return; }
-        { Dnf *n2 = iv_neg(v->p); dnf_release(v->p); v->p = n2; }
+        { Dnf *n2 = iv_neg(v->p); dnf_release(v->p); v->p = n2; rekey_formula(v); }
         link(P(v, 0), o->port[1]); cell_free(o);
         return;
     case O_BIN: {
@@ -1893,7 +1909,7 @@ static void interact(Cell *o, Cell *v) {
         bool face = o->x == B_FAND || o->x == B_FOR;
         if (vk != (face ? V_FACE : V_IV)) { stuck(o, v); return; }
         Dnf *n2 = (o->x == B_MEET || o->x == B_FAND) ? dnf_meet(o->p, v->p, face) : dnf_join(o->p, v->p, face);
-        dnf_release(v->p); v->p = n2;
+        dnf_release(v->p); v->p = n2; rekey_formula(v);
         link(P(v, 0), o->port[1]); cell_free(o);
         return;
     }
