@@ -388,6 +388,38 @@ given to a defined family (`G κ` with `G : Clock → Type`) is bound as well. A
 determines is the one clock in scope. A recursive call needed now is reported where it stands:
 `bad = smap suc bad` is rejected with "a recursive call needed now, not under ▸".
 
+## 9. Programs about programs: the first-order form, matching, navigation, certificates
+
+Four libraries over codes, each untyped data as `lib/code.cub` is and loaded before the checker,
+each with its readings in `make test`:
+
+- **`lib/fo.cub`**, the first-order form. A program with no types, paths, dimensions or universes in
+  it: variables, words, constructors with their fields, switches on tags, projections, calls by key,
+  native primitives, let, if, loops, closures, thunks, calls into the net. `eval-fo` runs it; `lower`
+  maps the first-order fragment of `Code` to it (variables, words and their operations, constructors
+  and case, pairs, λ and application, let, word elimination as a loop; a written step λ is inlined
+  into the loop). **`lib/emitc.cub`** prints a first-order program as C source (a list of bytes: a
+  small runtime of boxed values, one function per definition, a main); `experiments/fo/run.py` decodes
+  a program, compiles it with gcc and runs it: factorial as a loop, a switch, let and if, and a code
+  that the machine specialized.
+- **`lib/match.cub`**, matching and rewriting. A pattern is a code whose variables above a bound are
+  metavariables; matching binds them, consistently when one is met twice and never capturing a
+  variable bound inside the pattern; instantiation shifts under binders; a rule is (depth, left,
+  right); rewriting at the root, at the first position, and the count of applicable positions.
+- **`lib/nav.cub`**, navigation. A view is a list of rules; the available steps from a term are the
+  rules that apply; a step rewrites; the choice is by the size of the result, with a goal pattern
+  taken first; navigation runs to a bound, to the goal, or until nothing applies. Validity never
+  enters the choice: every step is a transport along an identity in view.
+- **`lib/specialize.cub`** (after the checker), the pipeline: a closed code is normalized by the
+  machine (`eval`, then `quote` at its type), rewritten along rules to a bound, lowered. A known
+  computation becomes a literal, an open function a λ over a primitive, word elimination with an
+  unknown bound a loop; the native evaluation agrees with the normal form, and `run.py` compiles one.
+- **`lib/lin.cub`**, linear arithmetic. Normal forms for words built from literals, variables,
+  addition and successor; equality by normal form; order over naturals by pointwise domination; a
+  Farkas certificate (nonnegative multipliers of hypotheses `l ≤ r`) verified by `check-cert`, and a
+  bounded search whose answer is checked before use. The reading is a decoder's obligation
+  `off + 4 ≤ n` from `off ≤ i` and `i + 8 ≤ n`.
+
 ## Measurements
 
 Every reading reports the steps taken. The sorted list of 9.15 reads in 1.6k steps (eight words).
