@@ -37,7 +37,6 @@ test: build/cubical build/cubical-asan
 	./build/cubical lib/prelude.cub lib/code.cub lib/fo.cub lib/check.cub lib/std.cub lib/lower.cub lib/derive.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/instance.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/elab.cub
-	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub lib/derive.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub lib/linproof.cub lib/prim.cub lib/decode.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub lib/proc.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/guarded.cub

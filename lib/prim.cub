@@ -58,6 +58,46 @@ primitive blen : (n : Nat) → Bytes n → Nat = λ n b → n
 primitive ptr-of : (n : Nat) → Bytes n → Word = λ n b → %ptr-of b
 primitive region-at : Word → (n : Nat) → Bytes n = λ a n → %region-at n a
 
+
+-- ---------------------------------------------------------------- the byte layer's laws, trusted: a load after a
+-- store at the same offset is the value stored. A primitive operation on a variable is a neutral
+-- (%view: wprim), so the laws of what is built over the byte layer follow by unfolding
+primitive load32-store32 : (n : Nat) → (b : Bytes n) → (off : Nat) → (h : le (plus off 4) n) → (v : UInt32) → PathP (λ (i : I) → UInt32) (load32 n (store32 n b off h v) off h) v = λ n b off h v i → v
+primitive load64-store64 : (n : Nat) → (b : Bytes n) → (off : Nat) → (h : le (plus off 8) n) → (v : Int64) → PathP (λ (i : I) → Int64) (load64 n (store64 n b off h v) off h) v = λ n b off h v i → v
+
+-- ---------------------------------------------------------------- arrays of Int64 over the byte layer (plan C22):
+-- Array n is Bytes (times n 8); an index with its proof of fitting (le (suc i) n) is a load or
+-- store at offset times i 8 with the proof that the access fits, by arithmetic; tabulate n f
+-- writes f at every index; index-update, the law of arrays, is the byte layer's law unfolded
+Array : Nat → Type
+Array n = Bytes (times n 8)
+anew : (n : Nat) → Array n
+anew n = bytes (times n 8)
+-- times (suc i) 8 = plus 8 (times i 8) by the definition of times, so an index below n fits
+fits-eq : (k i : Nat) → plus (times k 8) (plus (times i 8) 8) ≡ times (plus k (suc i)) 8
+fits-eq k i =
+  calc plus (times k 8) (plus (times i 8) 8) ≡ plus (times k 8) (times (suc i) 8) by (λ j → plus (times k 8) (plus-comm (times i 8) 8 j))
+                                             ≡ times (plus k (suc i)) 8 by sym (times-distr k (suc i) 8)
+index-fits : (n i : Nat) → le (suc i) n → le (plus (times i 8) 8) (times n 8)
+index-fits n i h = (times (fst h) 8 , concat (fits-eq (fst h) i) (cong (λ m → times m 8) (snd h)))
+index : (n : Nat) → Array n → (i : Nat) → le (suc i) n → Int64
+index n a i h = load64 (times n 8) a (times i 8) (index-fits n i h)
+update : (n : Nat) → Array n → (i : Nat) → le (suc i) n → Int64 → Array n
+update n a i h v = store64 (times n 8) a (times i 8) (index-fits n i h) v
+-- below n: zero is, and the predecessor of what is
+le-pred : (m n : Nat) → le (suc m) n → le m n
+le-pred m n h = (suc (fst h) , concat (sym (plus-suc (fst h) m)) (snd h))
+le-zero : (n : Nat) → le zero n
+le-zero n = (n , plus-zero n)
+-- the array of f at every index: a loop from the last index down
+tab-go : (n : Nat) → (Nat → Int64) → (m : Nat) → le m n → Array n → Array n
+tab-go n f zero h a = a
+tab-go n f (suc m) h a = tab-go n f m (le-pred m n h) (update n a m h (f m))
+tabulate : (n : Nat) → (Nat → Int64) → Array n
+tabulate n f = tab-go n f n (le-refl n) (anew n)
+index-update : (n : Nat) → (a : Array n) → (i : Nat) → (h : le (suc i) n) → (v : Int64) → index n (update n a i h v) i h ≡ v
+index-update n a i h v = load64-store64 (times n 8) a (times i 8) (index-fits n i h) v
+
 -- Layouts (data Layout, lib/code.cub) are computed by the checker: #layout T, or #layout T as R.
 
 -- ---------------------------------------------------------------- Nat by Word: the numerals' mechanism as a

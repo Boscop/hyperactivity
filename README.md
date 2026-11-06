@@ -132,7 +132,7 @@ boundary depending on an input other than through an erased `:0` binder), `highe
 path constructors and no representation, a Glue or `%hcompU` type, a universe at the boundary),
 `kan` (a composition or transport in the region), `reflect`, `mult`. `#fo f` and `#fo (the T t)`
 run it on the normal form at the type (the specializer's normalization), so a closed transport
-has reduced. The schedule types (`Sched`, `Stage`, `Strictness`, …) are declared in `lib/code.cub`
+has reduced. The parts of a schedule (`Stage`, `Strictness`, …) are declared in `lib/code.cub` (`Sched` itself in `lib/specialize.cub`)
 for the specializer to read.
 
 **Instance arguments.** A binder `{{e : C A}}` is an implicit argument found by instance search
@@ -160,6 +160,14 @@ primitive types (`Int64`, `UInt32`, `Float64`, `Word`, `Bytes n`, passed as an a
 argument at multiplicity 0 is not passed) to a primitive type or `Word`; the arguments are read
 in turn and the call made when the last is (`%ffi`). Trusted: `#trusted` and `#safe` list it as
 `foreign`.
+
+**Arrays, and stuck primitive operations.** `Array n` is `Bytes (times n 8)` (plan C22,
+`lib/prim.cub`): `index n a i h` and `update n a i h v` with `h : le (suc i) n` are a load and a
+store at offset `times i 8` with the proof that the access fits, `tabulate n f` writes `f` at
+every index, and `index-update` (a read after a write at the same index is the value written)
+is the byte layer's law `load64-store64` (trusted) unfolded. A primitive operation on a
+variable is a neutral the checker views (`wprim k args`) and compares argument by argument, so
+such laws follow by unfolding (an operation stuck on a variable used to be an unknown value).
 
 **Memory the program does not own.** `ptr-of n b` is the address of a byte string and
 `region-at a n` the `n` bytes at an address, copied in (plan C20; `%ptr-of`, `%region-at`,

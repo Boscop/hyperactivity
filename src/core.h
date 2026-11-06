@@ -138,6 +138,8 @@ enum {
     V_WPLUS,    /* a=k ≥ 1 (or p=Big); 1=a neutral word x: k successors of x */
     V_NWOP,     /* x=the operation (O_WEQ..O_WSUB); 1=a 2=b: a word operation stuck on a neutral */
     V_NWELIM,   /* 1=w 2=z 3=s: the elimination of a neutral word */
+    V_NPRIM,    /* x=(class<<8)|sub: a primitive operation (B12) stuck on a neutral: 1..n=its arguments in order.
+                 * class 1=%op1 (sub PO_*), 2=%op2 (sub PO_*), 3=load (sub width), 4=store (sub width), 5=blen, 6=bytes */
     V_SUSP,     /* p=CaseTab, x=has motive; 1=field [2=motive] environment: an induction hypothesis, the
                  * elimination of a recursive field, computed when forced */
     V_REC,      /* a=codata type; 1..n=fields (held unbuilt): a copattern definition's body, met only by

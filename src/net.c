@@ -1077,6 +1077,15 @@ static void rule_subst(Cell *o, Cell *v) {
     case V_WPLUS: { Cell *a = cell(O_WADD, 3); link(sub(v->port[1], s), P(a, 0)); link(word_wn(cell_wn(v)), P(a, 1)); link(P(a, 2), out); break; }
     case V_NWOP: { Cell *a = cell((int)v->x, 3); link(sub(v->port[1], s), P(a, 0)); link(sub(v->port[2], s), P(a, 1)); link(P(a, 2), out); break; }
     case V_NWELIM: { Cell *a = cell(O_WELIM, 4); for (int k = 1; k <= 3; k++) link(sub(v->port[k], s), P(a, k - 1)); link(P(a, 3), out); break; }
+    case V_NPRIM: {
+        /* the operation again, on the substituted arguments */
+        int cls = (int)(v->x >> 8), sb = (int)(v->x & 255), n = v->n - 1;
+        int kind = cls == 1 ? O_POP1 : cls == 2 ? O_POP2 : cls == 3 ? O_LOAD : cls == 4 ? O_STORE : cls == 5 ? O_BLEN : O_BYTES;
+        Cell *a = cell(kind, n + 1); a->x = (uint32_t)sb;
+        for (int k = 0; k < n; k++) link(sub(v->port[k + 1], s), P(a, k));
+        link(P(a, n), out);
+        break;
+    }
     case V_HCOMP: {
         /* rebuilt: a tube the substitution makes total ends, and sides it makes constructors meet */
         Cell *a = cell(O_HCOMP, v->n); link(sub(v->port[1], s), P(a, 0)); link(sub(v->port[2], s), P(a, 1));
@@ -1246,11 +1255,11 @@ static void neutral_proj(Cell *o, Cell *v) {
 enum { W_LAM, W_PAIR, W_PI, W_SIGMA, W_U, W_PATH, W_PLAM, W_IV, W_FACE, W_SYS, W_GLUE, W_GLUEV, W_DATA, W_CON,
        W_HCOMP, W_VAR, W_APP, W_FST, W_SND, W_PAPP, W_COMP, W_UNGLUE, W_ELIM, W_TRANS, W_LEVEL, W_OTHER,
        W_WORD, W_WLIT, W_WPLUS, W_WOP, W_WELIM, W_COFIX, W_PROJ, W_REC, W_CLOCK, W_TICK, W_CLOCK0, W_TICK0, W_HCOMPU, W_UNGLUEU,
-       W_PTY, W_PLIT, W_BYTES, W_N };
+       W_PTY, W_PLIT, W_BYTES, W_PRIM, W_N };
 static const char *WNAME[W_N] = { "wlam", "wpair", "wpi", "wsigma", "wu", "wpath", "wplam", "wiv", "wface", "wsys", "wglue",
     "wgluev", "wdata", "wcon", "whcomp", "wvar", "wapp", "wfst", "wsnd", "wpapp", "wcomp", "wunglue", "welim", "wtrans",
     "wlevel", "wother", "wword", "wwlit", "wwplus", "wwop", "wwelim", "wcofix", "wproj", "wrec", "wclock", "wtick",
-    "wclock0", "wtick0", "whcompu", "wunglueu", "wpty", "wplit", "wbytes" };
+    "wclock0", "wtick0", "whcompu", "wunglueu", "wpty", "wplit", "wbytes", "wprim" };
 static int WC[W_N], C_LNIL = -1, C_LCONS, C_TRUE, C_FALSE, C_NONE, C_SOME;
 static int B_TRUE = -1, B_FALSE;
 static void need_bool(void) {
@@ -1299,6 +1308,7 @@ static void rule_view(Cell *o, Cell *v) {
     case V_WORD: r = mk(WC[W_WLIT], P(v, 0), 0, 0, 0); keep = true; break;
     case V_WPLUS: r = mk(WC[W_WPLUS], word_wn(cell_wn(v)), v->port[1], 0, 0); break;
     case V_NWOP: r = mk(WC[W_WOP], word_of((uint64_t)(v->x - O_WEQ)), v->port[1], v->port[2], 0); break;
+    case V_NPRIM: r = mk(WC[W_PRIM], word_of((uint64_t)v->x), list_of(&v->port[1], v->n - 1), 0, 0); break;
     case V_NWELIM: r = mk(WC[W_WELIM], v->port[1], v->port[2], v->port[3], 0); break;
     case V_PI: r = mk(WC[W_PI], v->port[1], v->port[2], 0, 0); break;
     case V_SIGMA: r = mk(WC[W_SIGMA], v->port[1], v->port[2], 0, 0); break;
@@ -1434,6 +1444,16 @@ static Port wstuck(int op, Port a, Port b) {
     return P(n, 0);
 }
 
+/* a primitive operation on a neutral (B12): a neutral of its own, the arguments kept, which a
+ * substitution runs again and the checker views (wprim) and compares */
+static Port nprim(int cls, int sb, Port *args, int n) {
+    Cell *c = cell(V_NPRIM, n + 1); c->x = (uint32_t)(cls << 8 | sb);
+    for (int k = 0; k < n; k++) link(args[k], P(c, k + 1));
+    return P(c, 0);
+}
+static Port pval_of(int kind, uint64_t bits) { Cell *c = cell(V_PVAL, 1); c->x = (uint32_t)kind; c->a = bits; return P(c, 0); }
+static Port bytes_cell(Bytes *b) { Cell *c = cell(V_BYTES, 1); c->x = PT_BYTES; c->p = b; return P(c, 0); }
+static int po_kind(int op) { return op <= PO_I64LT ? PT_I64 : op <= PO_U32LT ? PT_U32 : PT_F64; }   /* a binary operation's operands */
 /* an operation on a value it has no rule for (an ill-typed term, run unchecked): the result is
  * unknown, the operands erased — the machine does not stop, and a checker reading the value of a
  * term it rejected reads ? there */
@@ -1488,6 +1508,7 @@ static const char *const KIND_NAME[K_END] = {
     [V_THUNK] = "THUNK",
     [V_WPLUS] = "WPLUS",
     [V_NWOP] = "NWOP",
+    [V_NPRIM] = "NPRIM",
     [V_NWELIM] = "NWELIM",
     [V_SUSP] = "SUSP",
     [O_APP] = "APP",
@@ -2298,7 +2319,7 @@ static void interact(Cell *o, Cell *v) {
     }
     case O_POP1: {
         /* a conversion */
-        if (vk != V_PVAL && !(vk == V_WORD && !v->p)) { stuck(o, v); return; }
+        if (vk != V_PVAL && !(vk == V_WORD && !v->p)) { Port a[1] = { P(v, 0) }; link(nprim(1, (int)o->x, a, 1), o->port[1]); cell_free(o); return; }
         uint64_t a = v->a, r = 0; uint32_t k = 0; double d; int64_t i;
         switch ((int)o->x) {
         case PO_I64OFW: r = a; k = PT_I64; break;
@@ -2316,14 +2337,14 @@ static void interact(Cell *o, Cell *v) {
         return;
     }
     case O_POP2: {
-        if (vk != V_PVAL) { stuck(o, v); return; }
+        if (vk != V_PVAL) { Port a[2] = { P(v, 0), o->port[1] }; link(nprim(2, (int)o->x, a, 2), o->port[2]); cell_free(o); return; }
         Cell *c = cell(O_POP2B, 2); c->x = o->x; c->a = v->a;
         mv(o, 1, P(c, 0)); mv(o, 2, P(c, 1));
         cell_free(o); cell_free(v);
         return;
     }
     case O_POP2B: {
-        if (vk != V_PVAL) { stuck(o, v); return; }
+        if (vk != V_PVAL) { Port a[2] = { pval_of(po_kind((int)o->x), o->a), P(v, 0) }; link(nprim(2, (int)o->x, a, 2), o->port[1]); cell_free(o); return; }
         uint64_t a = o->a, b = v->a, r = 0; int k = -1; bool bl = false, res = false;
         int64_t ia = (int64_t)a, ib = (int64_t)b; uint32_t ua = (uint32_t)a, ub = (uint32_t)b; double da, db, dr;
         memcpy(&da, &a, 8); memcpy(&db, &b, 8);
@@ -2362,7 +2383,15 @@ static void interact(Cell *o, Cell *v) {
             link(v->port[1], P(c, 0));
             cell_free(o); cell_free(v);
             return;
-        } else { stuck(o, v); return; }
+        } else if (o->kind == O_REGAT || o->a) { stuck(o, v); return; }
+        else {
+            /* a neutral length or offset: the operation stuck on it */
+            if (o->kind == O_BYTES) { Port a[1] = { P(v, 0) }; link(nprim(6, 0, a, 1), o->port[1]); }
+            else if (o->kind == O_LOADB) { Port a[2] = { bytes_cell(o->p), P(v, 0) }; o->p = NULL; link(nprim(3, (int)o->x, a, 2), o->port[1]); }
+            else { Port a[3] = { bytes_cell(o->p), P(v, 0), o->port[1] }; o->p = NULL; link(nprim(4, (int)o->x, a, 3), o->port[2]); }
+            cell_free(o);
+            return;
+        }
         n += (long)o->a;
         if (vk == V_CON) cell_free(v); else cell_free(v);
         if (o->kind == O_BYTES) {
@@ -2389,7 +2418,10 @@ static void interact(Cell *o, Cell *v) {
         return;
     }
     case O_LOAD: case O_STORE: {
-        if (vk != V_BYTES) { stuck(o, v); return; }
+        if (vk != V_BYTES) {
+            int n = o->n - 1; Port a[3] = { P(v, 0), o->port[1], n > 2 ? o->port[2] : 0 };
+            link(nprim(o->kind == O_LOAD ? 3 : 4, (int)o->x, a, n), o->port[n]); cell_free(o); return;
+        }
         Cell *c = cell(o->kind == O_LOAD ? O_LOADB : O_STOREB, o->n - 1); c->x = o->x; c->a = 0;
         c->p = v->p; v->p = NULL;   /* the bytes, taken */
         for (int k = 1; k < o->n; k++) mv(o, k, P(c, k - 1));
@@ -2397,7 +2429,7 @@ static void interact(Cell *o, Cell *v) {
         return;
     }
     case O_STOREC: {
-        if (vk != V_PVAL) { stuck(o, v); return; }
+        if (vk != V_PVAL) { Port a[3] = { bytes_cell(o->p), word_of(o->a), P(v, 0) }; o->p = NULL; link(nprim(4, (int)o->x, a, 3), o->port[1]); cell_free(o); return; }
         Bytes *b = o->p; int w = (int)o->x; long n = (long)o->a;
         Bytes *nb = malloc(sizeof(Bytes) + (b ? b->n : 0)); nb->rc = 1; nb->n = b ? b->n : 0; if (b) memcpy(nb->b, b->b, b->n);
         if ((size_t)n + (size_t)w <= nb->n) memcpy(nb->b + n, &v->a, (size_t)w);
@@ -2409,7 +2441,7 @@ static void interact(Cell *o, Cell *v) {
         return;
     }
     case O_BLEN: {
-        if (vk != V_BYTES) { stuck(o, v); return; }
+        if (vk != V_BYTES) { Port a[1] = { P(v, 0) }; link(nprim(5, 0, a, 1), o->port[1]); cell_free(o); return; }
         link(word_of(v->p ? (uint64_t)((Bytes *)v->p)->n : 0), o->port[1]);
         era(P(v, 0)); cell_free(o);
         return;

@@ -2187,6 +2187,17 @@ static void rb_one(FILE *o, Port prov) {
         return;
     }
     case V_NWELIM: push_fields_to(o, "%welim", c, 1, 4); return;
+    case V_NPRIM: {
+        /* a primitive operation stuck on a neutral: the operation at its arguments */
+        static const char *PO1[] = { "%i64add", "%i64sub", "%i64mul", "%i64eq", "%i64lt", "%u32add", "%u32sub", "%u32mul", "%u32eq", "%u32lt", "%f64add", "%f64sub", "%f64mul", "%f64div", "%f64eq", "%f64lt",
+            "%i64ofw", "%wofi64", "%u32ofw", "%wofu32", "%f64ofw", "%f64ofi64", "%i64off64" };
+        int cls = (int)(c->x >> 8), sb = (int)(c->x & 255); char nm[32]; const char *name;
+        if (cls <= 2) name = sb < PO_N ? PO1[sb] : "%op";
+        else if (cls == 3 || cls == 4) { snprintf(nm, sizeof nm, "%%%s%d", cls == 3 ? "load" : "store", sb * 8); name = nm; }
+        else name = cls == 5 ? "%blen" : "%bytes";
+        push_fields_to(o, name, c, 1, c->n);
+        return;
+    }
     case V_WSUSP: { extern Port wsusp_force(Cell *c); push_port(wsusp_force(c)); return; }
     case V_REF: { extern Port ref_copy(Cell *c); push_port(ref_copy(c)); return; }
     case V_SUSP:
