@@ -191,7 +191,9 @@ static bool node_eq(Node *a, Node *b) {
 /* ---------------- desugaring to the core forms ---------------- */
 static const char *KW[] = { "%raw", "%welimP", "%rebuilt", "%hole", "%guess", "%spine", "lam", "thunk", "delay", "force", "case", "elim", "if", "rec", "the", "code", "%data", "%con", "hcompD", "%hcompF", "%transD", "%case", "%branches", "record", "%record", "plam", "forall", "let", "app", "pair", "fst", "snd", "Pi", "Sigma", "U",
     "PathP", "@", "~", "/\\", "\\/", "=", "&", "|", "faceof", "%fneg", "sys", "sys0", "sys+", "sysmap", "comp", "Glue", "%hcompU", "%unglueU", "glue",
-    "unglue", "%view", "%var", "%dim", "%ieq", "%feq", "%clauses", "%dnf", "%motive", "%restrict", "%gval", "%gty", "%dtab", "%dent", "%dtrans", "%abs", "%branch", "%clos", "%box", "%wsucc", "%weq", "%wlt", "%wadd", "%wmax", "%wsub", "%welim", "%pimult", "%pim", "%fmult", "%linear", "%gusage", NULL };
+    "unglue", "%view", "%var", "%dim", "%ieq", "%feq", "%clauses", "%dnf", "%motive", "%restrict", "%gval", "%gty", "%dtab", "%dent", "%dtrans", "%rtab", "%abs", "%branch", "%clos", "%box", "%wsucc", "%weq", "%wlt", "%wadd", "%wmax", "%wsub", "%welim", "%pimult", "%pim", "%fmult", "%linear", "%gusage", "%pty", "%bytesty", "%pval", "%bytes", "%blen",
+    "%i64add", "%i64sub", "%i64mul", "%i64eq", "%i64lt", "%u32add", "%u32sub", "%u32mul", "%u32eq", "%u32lt", "%f64add", "%f64sub", "%f64mul", "%f64div", "%f64eq", "%f64lt",
+    "%i64ofw", "%wofi64", "%u32ofw", "%wofu32", "%f64ofw", "%f64ofi64", "%i64off64", "%load8", "%load16", "%load32", "%load64", "%store8", "%store16", "%store32", "%store64", NULL };
 /* the keywords, in an open-addressed table (asked of every symbol the compiler walks) */
 static size_t kw_hash(const char *s);
 static size_t kw_hash(const char *s) { size_t h = 1469598103934665603ull; for (; *s; s++) h = (h ^ (unsigned char)*s) * 1099511628211ull; return h; }
@@ -602,6 +604,10 @@ static bool *CHKHIDE; static size_t capchkhide;
 static int checked_index(const char *s) { for (int i = nchecked - 1; i >= 0; i--) if (!CHKHIDE[i] && (CHECKED[i] == s || !strcmp(CHECKED[i], s))) return i; return -1; }
 static int chk_index(int d) { for (int i = 0; i < nchkdata; i++) if (CHKDATA[i] == d) return i; return -1; }
 int data_checked_index(int d) { return chk_index(d); }
+/* the trusted surface (B12): every postulate and every primitive declared, in order; #trusted lists it */
+typedef struct { const char *name; const char *how; } Trusted;
+static Trusted *TRUSTED; static size_t captrusted; static int ntrusted;
+static void trusted_add(const char *name, const char *how) { GROW(TRUSTED, captrusted, (size_t)ntrusted + 1); TRUSTED[ntrusted++] = (Trusted){ intern(name), how }; }
 /* the computed usages of each checked definition's parameters (B11): names (srcname words) and
  * words 0, 1, 2, from the checker after a definition is accepted, or from a cached module's record */
 typedef struct { int n; const char **nm; unsigned char *u; } Usages;
@@ -617,6 +623,7 @@ int checked_data(long k) { return k >= 0 && k < nchkdata ? CHKDATA[k] : -1; }
 static long *TABLE[TB_N]; static size_t TABCAP[TB_N]; static long TABN[TB_N];
 static void table_set(int t, long i, long g) {
     if ((size_t)i >= TABCAP[t]) { size_t nc = TABCAP[t] ? TABCAP[t] * 2 : 64; while (nc <= (size_t)i) nc *= 2; TABLE[t] = realloc(TABLE[t], nc * sizeof(long)); TABCAP[t] = nc; }
+    for (long k = TABN[t]; k < i; k++) TABLE[t][k] = -1;   /* a sparse table (TB_REP): the entries skipped are empty */
     TABLE[t][i] = g; if (i >= TABN[t]) TABN[t] = i + 1;
 }
 long table_global(int t, long i) { return t >= 0 && t < TB_N && i >= 0 && i < TABN[t] ? TABLE[t][i] : -1; }
@@ -1801,7 +1808,31 @@ static Syn *compile(Node *t) {
         static const struct { const char *name; int kind, n; } PR[] = { { "%view", O_VIEW, 1 }, { "%ieq", O_IEQ, 2 }, { "%feq", O_FEQL, 2 }, { "%clauses", O_CLAUSES, 1 }, { "%dnf", O_DNF, 1 }, { "%motive", O_MOTIVE, 1 },
             { "%restrict", O_RESTRICT, 2 }, { "%abs", O_ABS, 2 }, { "%branch", O_BRANCH, 3 }, { "%clos", O_CLOS, 2 }, { "%wsucc", O_WSUCC, 1 }, { "%weq", O_WEQ, 2 }, { "%wlt", O_WLT, 2 },
             { "%wadd", O_WADD, 2 }, { "%wmax", O_WMAX, 2 }, { "%wsub", O_WSUB, 2 }, { "%welim", O_WELIM, 3 },
-            { "%pimult", O_PIMULT, 1 }, { "%pim", O_PIM, 3 }, { "%fmult", O_FMULT, 3 }, { "%linear", O_LINEAR, 1 }, { "%gusage", O_GUSAGE, 2 }, { NULL, 0, 0 } };
+            { "%pimult", O_PIMULT, 1 }, { "%pim", O_PIM, 3 }, { "%fmult", O_FMULT, 3 }, { "%linear", O_LINEAR, 1 }, { "%gusage", O_GUSAGE, 2 },
+            /* primitive types and values (B12) */
+            { "%pty", O_PTY, 1 }, { "%bytesty", O_BYTESTY, 1 }, { "%pval", O_PVAL, 2 }, { "%bytes", O_BYTES, 1 }, { "%blen", O_BLEN, 1 }, { NULL, 0, 0 } };
+        /* the primitive operations, (%i64add a b) ...: O_POP1/O_POP2 with the operation in x; the loads and
+         * stores by width */
+        static const struct { const char *name; int op, n; } PO[] = {
+            { "%i64add", PO_I64ADD, 2 }, { "%i64sub", PO_I64SUB, 2 }, { "%i64mul", PO_I64MUL, 2 }, { "%i64eq", PO_I64EQ, 2 }, { "%i64lt", PO_I64LT, 2 },
+            { "%u32add", PO_U32ADD, 2 }, { "%u32sub", PO_U32SUB, 2 }, { "%u32mul", PO_U32MUL, 2 }, { "%u32eq", PO_U32EQ, 2 }, { "%u32lt", PO_U32LT, 2 },
+            { "%f64add", PO_F64ADD, 2 }, { "%f64sub", PO_F64SUB, 2 }, { "%f64mul", PO_F64MUL, 2 }, { "%f64div", PO_F64DIV, 2 }, { "%f64eq", PO_F64EQ, 2 }, { "%f64lt", PO_F64LT, 2 },
+            { "%i64ofw", PO_I64OFW, 1 }, { "%wofi64", PO_WOFI64, 1 }, { "%u32ofw", PO_U32OFW, 1 }, { "%wofu32", PO_WOFU32, 1 }, { "%f64ofw", PO_F64OFW, 1 }, { "%f64ofi64", PO_F64OFI64, 1 }, { "%i64off64", PO_I64OFF64, 1 },
+            { NULL, 0, 0 } };
+        for (int q = 0; PO[q].name; q++) if (!strcmp(h, PO[q].name)) {
+            if (t->n != PO[q].n + 1) die("a primitive operation with its arguments:", h);
+            Syn *s = compile_n(S_PRIM, t, 1, PO[q].n); s->x = (uint32_t)(PO[q].n == 1 ? O_POP1 : O_POP2);
+            s->id = PO[q].op;   /* the operation, in the cell's x once built */
+            return s;
+        }
+        static const struct { const char *name; int kind, w; } PL[] = { { "%load8", O_LOAD, 1 }, { "%load16", O_LOAD, 2 }, { "%load32", O_LOAD, 4 }, { "%load64", O_LOAD, 8 },
+            { "%store8", O_STORE, 1 }, { "%store16", O_STORE, 2 }, { "%store32", O_STORE, 4 }, { "%store64", O_STORE, 8 }, { NULL, 0, 0 } };
+        for (int q = 0; PL[q].name; q++) if (!strcmp(h, PL[q].name)) {
+            int na = PL[q].kind == O_LOAD ? 2 : 3;
+            if (t->n != na + 1) die("a load or store with its arguments:", h);
+            Syn *s = compile_n(S_PRIM, t, 1, na); s->x = (uint32_t)PL[q].kind; s->id = PL[q].w;
+            return s;
+        }
         if (!strcmp(h, "%welimP")) {
             /* (%welimP P w z s): the elimination of a word with its motive, which is for the
              * checker: the machine runs (%welim w z s) */
@@ -1824,7 +1855,7 @@ static Syn *compile(Node *t) {
             Syn *s = compile_n(S_PRIM, t, 1, PR[q].n); s->x = (uint32_t)PR[q].kind; return s;
         }
         if (!strcmp(h, "%box")) { if (t->n != 2) die("(%box v)", NULL); Syn *s = syn(S_BOX, 1); s->k[0] = compile(t->it[1]); return s; }
-        static const char *TBN[TB_N] = { "%gval", "%gty", "%dtab", "%dent", "%dtrans" };
+        static const char *TBN[TB_N] = { "%gval", "%gty", "%dtab", "%dent", "%dtrans", "%rtab" };
         for (int q = 0; q < TB_N; q++) if (!strcmp(h, TBN[q])) {
             if (t->n != 2) die("wrong number of operands in", h);
             Syn *s = syn(S_GLOBTAB, 1); s->x = (uint32_t)q; s->k[0] = compile(t->it[1]); return s;
@@ -2082,6 +2113,22 @@ static void rb_one(FILE *o, Port prov) {
     case V_CASEF: fputs("%casef", o); return;
     case V_WORD: { WN w = { c->a, c->p }; fputc('#', o); wn_print(o, &w); return; }
     case V_WTY: fputs("Word", o); return;
+    case V_PTY:
+        if (c->a == PT_BYTES) { fputs("(Bytes ", o); push_str(")"); push_field(c, 1); return; }
+        fputs(c->a == PT_I64 ? "Int64" : c->a == PT_U32 ? "UInt32" : c->a == PT_F64 ? "Float64" : "Float32", o); return;
+    case V_PVAL: {
+        /* a primitive value: #i64:n, #u32:n, #f64:x */
+        if (c->x == PT_I64) fprintf(o, "#i64:%lld", (long long)(int64_t)c->a);
+        else if (c->x == PT_U32) fprintf(o, "#u32:%u", (unsigned)c->a);
+        else { double d; uint64_t bits = c->a; memcpy(&d, &bits, 8); fprintf(o, c->x == PT_F64 ? "#f64:%.17g" : "#f32:%.9g", d); }
+        return;
+    }
+    case V_BYTES: {
+        Bytes *b = c->p; fprintf(o, "#bytes:%zu:", b ? b->n : 0);
+        for (size_t i = 0; b && i < b->n && i < 32; i++) fprintf(o, "%02x", b->b[i]);
+        if (b && b->n > 32) fputs("…", o);
+        return;
+    }
     case V_WPLUS: {
         /* k successors of x: (%wsucc x), or (%wadd x #k) */
         WN w = { c->a, c->p };
@@ -2357,6 +2404,14 @@ static void pcode(FILE *o, Port p) {
         fputc(' ', o); pcode(o, c->port[4]); fputc(')', o);
     }
     else if (!strcmp(h, "cwlit")) { Cell *w = obs_val(c->port[1]); if (w && w->kind == V_WORD) { WN x = { w->a, w->p }; fputc('#', o); wn_print(o, &x); } else fputs("<?>", o); }
+    else if (!strcmp(h, "cplit")) {
+        /* as the value prints */
+        long k = word_val(c->port[1]); Cell *w = obs_val(c->port[2]); uint64_t b = w && w->kind == V_WORD && !w->p ? w->a : 0;
+        if (k == PT_I64) fprintf(o, "#i64:%lld", (long long)(int64_t)b);
+        else if (k == PT_U32) fprintf(o, "#u32:%u", (unsigned)b);
+        else { double d; memcpy(&d, &b, 8); fprintf(o, k == PT_F64 ? "#f64:%.17g" : "#f32:%.9g", d); }
+    }
+    else if (!strcmp(h, "cpty")) { long k = word_val(c->port[1]); if (k == PT_BYTES) { fputs("(%bytesty ", o); pcode(o, c->port[2]); fputc(')', o); } else fprintf(o, "(%%pty #%ld)", k); }
     else if (!strcmp(h, "cwop")) {
         static const char *op[] = { "%weq", "%wlt", "%wadd", "%wmax", "%wsub" };
         long k = word_val(c->port[1]);
@@ -2846,7 +2901,7 @@ static void toplevel(Node *f) {
     }
     /* a module whose checks are cached: its definitions are made, its judgments and tests not rerun */
     if (trusted && (!strcmp(h, "check") || !strcmp(h, "check-fail") || !strcmp(h, "checked-data-fail") || !strcmp(h, "checked-fail")
-        || !strcmp(h, "checked-codata-fail") || !strcmp(h, "mutual-fail") || !strcmp(h, "same") || !strcmp(h, "show") || !strcmp(h, "same-watch") || !strcmp(h, "observe") || !strcmp(h, "usage"))) return;
+        || !strcmp(h, "checked-codata-fail") || !strcmp(h, "mutual-fail") || !strcmp(h, "same") || !strcmp(h, "show") || !strcmp(h, "same-watch") || !strcmp(h, "observe") || !strcmp(h, "usage") || !strcmp(h, "trusted") || !strcmp(h, "layout"))) return;
     if (!strcmp(h, "def")) {
         if (f->n != 3) die("(def name term)", NULL);
         if (cc_next_is(f->it[1]->s)) {
@@ -2988,6 +3043,7 @@ static void toplevel(Node *f) {
          * which unfolds (t applied to the arguments) only when its last parameter is given ⋄ */
         if ((f->n != 4 && !(f->n == 3 && !strcmp(h, "primitive"))) || f->it[1]->list) die("(primitive name T [t])", NULL);
         const char *nm = f->it[1]->s;
+        trusted_add(nm, f->n == 3 ? "primitive, no computation" : !strcmp(h, "primitive-tick") ? "primitive, tick" : "primitive");
         Node *cT = nl2("%raw", aclosed(ds(f->it[2])));
         if (!trusted) {
             long steps = 0;
@@ -3507,10 +3563,52 @@ static void toplevel(Node *f) {
 #undef PN
         for (int ci = 0; ci < nc; ci++) { free(cs[ci].fn); free(cs[ci].ft); free(cs[ci].dn); free(cs[ci].bf); free(cs[ci].be); }
         free(cs); free(pn);
+    } else if (!strcmp(h, "represent")) {
+        /* (represent T R): the data type T is represented by the type R (a core term): the table's
+         * entry, the first declared, is what the back end reads; its laws and operations are the
+         * checked definitions T·R·to, T·R·from, T·R·to-from, T·R·from-to, T·R·op·f, T·R·op·f·by */
+        if (f->n != 3 || f->it[1]->list) die("(represent T R)", NULL);
+        int d = data_lookup(f->it[1]->s);
+        if (d < 0) die("represent: not a data type:", f->it[1]->s);
+        int ck = chk_index(d);
+        if (ck < 0) die("represent: the data type is not checked:", f->it[1]->s);
+        static int nrep;
+        char nm[64]; snprintf(nm, sizeof nm, "%%rep%d", nrep++);
+        Node *dd = nlist(3); dd->it[0] = nsym("def"); dd->it[1] = nsym(nm); dd->it[2] = f->it[2];
+        toplevel(dd);
+        if (table_global(TB_REP, ck) < 0) table_set(TB_REP, ck, global_lookup(nm));
+    } else if (!strcmp(h, "layout")) {
+        /* #layout T [as R]: by the checker's layout function (lib/check.cub) */
+        if (f->n < 2 || f->it[1]->list) die("(layout T [R])", NULL);
+        int d = data_lookup(f->it[1]->s), ck = d >= 0 ? chk_index(d) : -1;
+        if (ck < 0) { printf("layout %s: not a checked data type\n", f->it[1]->s); return; }
+        long steps = 0;
+        char *r = readback(f->n == 3 ? nl2("%%layout-ty", f->it[2]) : nl2("%%layout", word(ck)), &steps);
+        /* field names are source-name words: shown as the names */
+        const char *saved = src; src = r; Node *l = read_node(); src = saved;
+        if (l) {
+            Node **st = NULL; size_t cap = 0; int n = 0; GROW(st, cap, 1); st[n++] = l;
+            while (n) {
+                Node *x = st[--n]; if (!x->list) continue;
+                if (x->n == 5 && is(x->it[0], "lfield") && !x->it[1]->list && x->it[1]->s[0] == '#') x->it[1] = nsym(srcname_of(atoi(x->it[1]->s + 1)));
+                for (int i = 0; i < x->n; i++) if (x->it[i]->list) { GROW(st, cap, (size_t)n + 1); st[n++] = x->it[i]; }
+            }
+            free(st);
+        }
+        printf("layout %s", f->it[1]->s); if (f->n == 3) { printf(" as "); out_term(f->it[2]); }
+        printf("\n  = "); if (l) out_term(l); else out_str(r); printf("\n");
+        free(r);
+    } else if (!strcmp(h, "trusted")) {
+        /* #trusted: the postulates and primitives in scope */
+        printf("trusted:");
+        for (int i = 0; i < ntrusted; i++) printf("%s %s (%s)", i ? "," : "", TRUSTED[i].name, TRUSTED[i].how);
+        if (!ntrusted) printf(" nothing");
+        printf("\n");
     } else if (!strcmp(h, "axiom")) {
         /* name, or (name T): a constant of type T; its neutral carries T */
         for (int i = 1; i < f->n; i++) {
             Node *e = f->it[i];
+            trusted_add(e->list ? e->it[0]->s : e->s, "postulate");
             if (!e->list) { add_global(e->s, G_AXIOM); continue; }
             if (e->n != 2 || e->it[0]->list) die("(axiom name... (name T)...)", NULL);
             char *tn = malloc(strlen(e->it[0]->s) + 8); sprintf(tn, "%%type-%s", e->it[0]->s);

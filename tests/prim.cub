@@ -1,0 +1,77 @@
+-- prim.cub — primitive types (Int64, UInt32, Float64, Bytes), representations and layouts (plan B12),
+-- over lib/prim.cub
+
+-- ---------------------------------------------------------------- the operations compute
+#same i64toWord (i64add (i64 #5) (i64 #7)) = #12
+#same i64toWord (i64mul (i64 #6) (i64 #7)) = #42
+#same i64lt (i64 #5) (i64 #7) = true
+#same u32toWord (u32add (u32 #4294967295) (u32 #2)) = #1
+#same f64lt (f64div (f64 #1) (f64 #4)) (f64 #1) = true
+#same f64eq (f64add (f64 #1) (f64 #2)) (f64 #3) = true
+
+-- ---------------------------------------------------------------- the byte layer: a store then a load at
+-- a literal offset, with the proof that it fits; at a variable offset the proof is not there
+r32 : UInt32
+r32 = load32 16 (store32 16 (bytes 16) 12 (0 , λ i → 16) (u32 #258)) 12 (0 , λ i → 16)
+#same u32toWord r32 = #258
+#fail
+r32bad : (off : Nat) → UInt32
+r32bad off = load32 16 (bytes 16) off (0 , λ i → 16)
+
+-- ---------------------------------------------------------------- layouts: automatic (a union of the
+-- constructors' structs, a recursive field a pointer, a field at :0 omitted), and by representation
+data Pt = pt (x : Word) (y : Word)
+#layout Pt
+data BVec = bvec (k : Nat) (v : Word) (bound :0 le k 4)
+#layout BVec
+#layout List
+#layout Nat
+#layout Nat as Word
+#layout Bool
+-- a type with path constructors has no automatic layout
+data Circ = cb | cl (i : I) [ i = 0 ↦ cb , i = 1 ↦ cb ]
+#layout Circ
+
+-- ---------------------------------------------------------------- a set truncation represented by its
+-- canonical form (plan B12 2.3): ∥Int∥₂ by Int; the laws are theorems, from-to by the dependent
+-- elimination into a family of propositions (the hypotheses of the path-typed fields are lines)
+data Tr2 (A : Type) = tr2 (a : A)
+  | sq2 (x : Tr2 A) (y : Tr2 A) (p : PathP (λ (m : I) → Tr2 A) x y) (q : PathP (λ (m : I) → Tr2 A) x y) (i : I) (j : I)
+      [ i = 0 ↦ p @ j , i = 1 ↦ q @ j , j = 0 ↦ x , j = 1 ↦ y ]
+tr2rec : {A B : Type} → isSet B → (A → B) → Tr2 A → B
+tr2rec s f x = case x return (λ w → B) of
+    tr2 a → f a
+    sq2 x1 y1 p q i j → s (rec x1) (rec y1) (rec p) (rec q) i j
+isSetTr2 : {A : Type} → isSet (Tr2 A)
+isSetTr2 = λ a b p q i j → sq2 a b p q i j
+tr2toInt : Tr2 Int → Int
+tr2toInt = tr2rec isSetInt (λ z → z)
+P2 : Tr2 Int → Type
+P2 y = tr2 (tr2toInt y) ≡ y
+isPropP2 : (y : Tr2 Int) → isProp (P2 y)
+isPropP2 y = isSetTr2 (tr2 (tr2toInt y)) y
+-- the square over sq2 in the family of propositions P2, from its four sides
+sqfill : (a b : Tr2 Int) (p q : a ≡ b) (ra : P2 a) (rb : P2 b) (rp : PathP (λ j → P2 (p j)) ra rb) (rq : PathP (λ j → P2 (q j)) ra rb) →
+  PathP (λ i → PathP (λ j → P2 (sq2 a b p q i j)) ra rb) rp rq
+sqfill a b p q ra rb rp rq =
+  isProp→PathP {lzero} {PathP (λ j → P2 (p j)) ra rb} {PathP (λ j → P2 (q j)) ra rb} (λ i → PathP (λ j → P2 (sq2 a b p q i j)) ra rb)
+    (isPropPathP (λ j → P2 (q j)) (isProp→isSet (isPropP2 b)) ra rb) rp rq
+tr2-from-to : (x : Tr2 Int) → P2 x
+tr2-from-to x = case x return (λ y → P2 y) of
+    tr2 z → λ i → tr2 z
+    sq2 a b p q i j → sqfill a b p q (rec a) (rec b) (rec p) (rec q) i j
+represent Tr2 by Int where
+  to : Tr2 Int → Int = tr2toInt
+  from : Int → Tr2 Int = tr2
+  to-from : (z : Int) → to (from z) ≡ z = λ z → λ i → z
+  from-to : (x : Tr2 Int) → from (to x) ≡ x = tr2-from-to
+#layout Tr2
+-- a wrong law is rejected at its type
+#fail
+represent Pt by Word where
+  to : Pt → Word = λ p → case p of pt x y → x
+  from : Word → Pt = λ w → pt w w
+  to-from : (w : Word) → to (from w) ≡ w = λ w → λ i → w
+  from-to : (p : Pt) → from (to p) ≡ p = λ p → λ i → p
+-- ---------------------------------------------------------------- the trusted surface
+#trusted

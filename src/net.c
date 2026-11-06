@@ -90,12 +90,14 @@ static void payload_retain(Cell *c) {
     if (owns_dnf(c->kind)) dnf_retain(c->p); else if (owns_subst(c->kind)) subst_retain(c->p);
     else if (c->kind == V_REF) { rcl_inc(&((Box *)c->p)->rc); if (c->a) subst_retain((Subst *)(uintptr_t)c->a); }
     else if (c->kind == V_WORD || c->kind == V_WPLUS) big_retain(c->p);
+    else if (c->kind == V_BYTES && c->p) rcl_inc(&((Bytes *)c->p)->rc);
     else if (c->kind == V_THUNK && c->a) subst_retain((Subst *)(uintptr_t)c->a);
 }
 static void payload_release(Cell *c) {
     if (owns_dnf(c->kind)) dnf_release(c->p); else if (owns_subst(c->kind)) subst_release(c->p);
     else if (c->kind == V_REF && c->p) { box_release(c->p); if (c->a) subst_release((Subst *)(uintptr_t)c->a); c->a = 0; }
     else if (c->kind == V_WORD || c->kind == V_WPLUS) big_release(c->p);
+    else if (c->kind == V_BYTES && c->p) { Bytes *b = c->p; if (rcl_dec(&b->rc) == 0) free(b); }
     else if (c->kind == V_THUNK && c->a) { subst_release((Subst *)(uintptr_t)c->a); c->a = 0; }
     c->p = NULL;
 }
@@ -1243,11 +1245,12 @@ static void neutral_proj(Cell *o, Cell *v) {
  * value's own ports: nothing is copied, and a part is read further only by viewing it. */
 enum { W_LAM, W_PAIR, W_PI, W_SIGMA, W_U, W_PATH, W_PLAM, W_IV, W_FACE, W_SYS, W_GLUE, W_GLUEV, W_DATA, W_CON,
        W_HCOMP, W_VAR, W_APP, W_FST, W_SND, W_PAPP, W_COMP, W_UNGLUE, W_ELIM, W_TRANS, W_LEVEL, W_OTHER,
-       W_WORD, W_WLIT, W_WPLUS, W_WOP, W_WELIM, W_COFIX, W_PROJ, W_REC, W_CLOCK, W_TICK, W_CLOCK0, W_TICK0, W_HCOMPU, W_UNGLUEU, W_N };
+       W_WORD, W_WLIT, W_WPLUS, W_WOP, W_WELIM, W_COFIX, W_PROJ, W_REC, W_CLOCK, W_TICK, W_CLOCK0, W_TICK0, W_HCOMPU, W_UNGLUEU,
+       W_PTY, W_PLIT, W_BYTES, W_N };
 static const char *WNAME[W_N] = { "wlam", "wpair", "wpi", "wsigma", "wu", "wpath", "wplam", "wiv", "wface", "wsys", "wglue",
     "wgluev", "wdata", "wcon", "whcomp", "wvar", "wapp", "wfst", "wsnd", "wpapp", "wcomp", "wunglue", "welim", "wtrans",
     "wlevel", "wother", "wword", "wwlit", "wwplus", "wwop", "wwelim", "wcofix", "wproj", "wrec", "wclock", "wtick",
-    "wclock0", "wtick0", "whcompu", "wunglueu" };
+    "wclock0", "wtick0", "whcompu", "wunglueu", "wpty", "wplit", "wbytes" };
 static int WC[W_N], C_LNIL = -1, C_LCONS, C_TRUE, C_FALSE, C_NONE, C_SOME;
 static int B_TRUE = -1, B_FALSE;
 static void need_bool(void) {
@@ -1290,6 +1293,9 @@ static void rule_view(Cell *o, Cell *v) {
     case V_FACE: r = mk(WC[W_FACE], P(v, 0), 0, 0, 0); keep = true; break;
     case V_PAIR: r = mk(WC[W_PAIR], v->port[1], v->port[2], 0, 0); break;
     case V_WTY: r = con_build(WC[W_WORD], NULL, NULL); break;
+    case V_PTY: r = mk(WC[W_PTY], word_of(v->a), v->n > 1 ? v->port[1] : word_of(0), 0, 0); break;
+    case V_PVAL: r = mk(WC[W_PLIT], word_of(v->x), word_of(v->a), 0, 0); break;
+    case V_BYTES: r = mk(WC[W_BYTES], word_of(v->p ? (uint64_t)((Bytes *)v->p)->n : 0), 0, 0, 0); break;
     case V_WORD: r = mk(WC[W_WLIT], P(v, 0), 0, 0, 0); keep = true; break;
     case V_WPLUS: r = mk(WC[W_WPLUS], word_wn(cell_wn(v)), v->port[1], 0, 0); break;
     case V_NWOP: r = mk(WC[W_WOP], word_of((uint64_t)(v->x - O_WEQ)), v->port[1], v->port[2], 0); break;
@@ -1478,6 +1484,7 @@ static const char *const KIND_NAME[K_END] = {
     [V_WORD] = "WORD",
     [V_WSUSP] = "WSUSP",
     [V_WTY] = "WTY",
+    [V_PTY] = "PTY", [V_PVAL] = "PVAL", [V_BYTES] = "BYTES",
     [V_THUNK] = "THUNK",
     [V_WPLUS] = "WPLUS",
     [V_NWOP] = "NWOP",
@@ -1536,6 +1543,7 @@ static const char *const KIND_NAME[K_END] = {
     [O_NTYPE] = "NTYPE",
     [O_CALL] = "CALL",
     [O_WSUCC] = "WSUCC",
+    [O_PTY] = "PTY", [O_BYTESTY] = "BYTESTY", [O_PVAL] = "PVAL", [O_PVAL2] = "PVAL2", [O_POP1] = "POP1", [O_POP2] = "POP2", [O_POP2B] = "POP2B", [O_BYTES] = "BYTES", [O_LOAD] = "LOAD", [O_LOADB] = "LOADB", [O_STORE] = "STORE", [O_STOREB] = "STOREB", [O_STOREC] = "STOREC", [O_BLEN] = "BLEN",
     [O_PIMULT] = "PIMULT", [O_PIM] = "PIM", [O_FMULT] = "FMULT", [O_FMULT2] = "FMULT2", [O_FMULT3] = "FMULT3", [O_LINEAR] = "LINEAR", [O_GUSAGE] = "GUSAGE", [O_GUSAGE2] = "GUSAGE2",
     [O_WEQ] = "WEQ",
     [O_WLT] = "WLT",
@@ -2262,6 +2270,146 @@ static void interact(Cell *o, Cell *v) {
         cell_free(o);
         return;
     }
+    case O_PTY: {
+        /* (%pty k): the primitive type of kind k (a word) */
+        if (vk != V_WORD || v->p) { fprintf(stderr, "%%pty: a kind is a word\n"); exit(2); }
+        Cell *t = cell(V_PTY, 1); t->a = v->a; link(P(t, 0), o->port[1]);
+        cell_free(o); cell_free(v);
+        return;
+    }
+    case O_BYTESTY: {
+        /* (%bytesty n): the type Bytes n, n held */
+        Cell *t = cell(V_PTY, 2); t->a = PT_BYTES; link(P(v, 0), P(t, 1)); link(P(t, 0), o->port[1]);
+        cell_free(o);
+        return;
+    }
+    case O_PVAL: {
+        if (vk != V_WORD || v->p) { fprintf(stderr, "%%pval: a kind is a word\n"); exit(2); }
+        Cell *c = cell(O_PVAL2, 2); c->a = v->a; mv(o, 1, P(c, 0)); mv(o, 2, P(c, 1));
+        cell_free(o); cell_free(v);
+        return;
+    }
+    case O_PVAL2: {
+        if (vk != V_WORD || v->p) { fprintf(stderr, "%%pval: bits are a word\n"); exit(2); }
+        Cell *c = cell(V_PVAL, 1); c->x = (uint32_t)o->a; c->a = v->a;
+        link(P(c, 0), o->port[1]);
+        cell_free(o); cell_free(v);
+        return;
+    }
+    case O_POP1: {
+        /* a conversion */
+        if (vk != V_PVAL && !(vk == V_WORD && !v->p)) { stuck(o, v); return; }
+        uint64_t a = v->a, r = 0; uint32_t k = 0; double d; int64_t i;
+        switch ((int)o->x) {
+        case PO_I64OFW: r = a; k = PT_I64; break;
+        case PO_WOFI64: r = a; break;
+        case PO_U32OFW: r = (uint32_t)a; k = PT_U32; break;
+        case PO_WOFU32: r = a; break;
+        case PO_F64OFW: d = (double)a; memcpy(&r, &d, 8); k = PT_F64; break;
+        case PO_F64OFI64: i = (int64_t)a; d = (double)i; memcpy(&r, &d, 8); k = PT_F64; break;
+        case PO_I64OFF64: memcpy(&d, &a, 8); i = (int64_t)d; r = (uint64_t)i; k = PT_I64; break;
+        default: fprintf(stderr, "primitive operation: not unary\n"); exit(2);
+        }
+        if (o->x == PO_WOFI64 || o->x == PO_WOFU32) link(word_of(r), o->port[1]);
+        else { Cell *c = cell(V_PVAL, 1); c->x = k; c->a = r; link(P(c, 0), o->port[1]); }
+        cell_free(o); cell_free(v);
+        return;
+    }
+    case O_POP2: {
+        if (vk != V_PVAL) { stuck(o, v); return; }
+        Cell *c = cell(O_POP2B, 2); c->x = o->x; c->a = v->a;
+        mv(o, 1, P(c, 0)); mv(o, 2, P(c, 1));
+        cell_free(o); cell_free(v);
+        return;
+    }
+    case O_POP2B: {
+        if (vk != V_PVAL) { stuck(o, v); return; }
+        uint64_t a = o->a, b = v->a, r = 0; int k = -1; bool bl = false, res = false;
+        int64_t ia = (int64_t)a, ib = (int64_t)b; uint32_t ua = (uint32_t)a, ub = (uint32_t)b; double da, db, dr;
+        memcpy(&da, &a, 8); memcpy(&db, &b, 8);
+        switch ((int)o->x) {
+        case PO_I64ADD: r = (uint64_t)(ia + ib); k = PT_I64; break;
+        case PO_I64SUB: r = (uint64_t)(ia - ib); k = PT_I64; break;
+        case PO_I64MUL: r = (uint64_t)(ia * ib); k = PT_I64; break;
+        case PO_I64EQ: bl = true; res = ia == ib; break;
+        case PO_I64LT: bl = true; res = ia < ib; break;
+        case PO_U32ADD: r = (uint32_t)(ua + ub); k = PT_U32; break;
+        case PO_U32SUB: r = (uint32_t)(ua - ub); k = PT_U32; break;
+        case PO_U32MUL: r = (uint32_t)(ua * ub); k = PT_U32; break;
+        case PO_U32EQ: bl = true; res = ua == ub; break;
+        case PO_U32LT: bl = true; res = ua < ub; break;
+        case PO_F64ADD: dr = da + db; memcpy(&r, &dr, 8); k = PT_F64; break;
+        case PO_F64SUB: dr = da - db; memcpy(&r, &dr, 8); k = PT_F64; break;
+        case PO_F64MUL: dr = da * db; memcpy(&r, &dr, 8); k = PT_F64; break;
+        case PO_F64DIV: dr = da / db; memcpy(&r, &dr, 8); k = PT_F64; break;
+        case PO_F64EQ: bl = true; res = da == db; break;
+        case PO_F64LT: bl = true; res = da < db; break;
+        default: fprintf(stderr, "primitive operation: not binary\n"); exit(2);
+        }
+        if (bl) { need_bool(); link(con_build(res ? B_TRUE : B_FALSE, NULL, NULL), o->port[1]); }
+        else { Cell *c = cell(V_PVAL, 1); c->x = (uint32_t)k; c->a = r; link(P(c, 0), o->port[1]); }
+        cell_free(o); cell_free(v);
+        return;
+    }
+    case O_BYTES: case O_LOADB: case O_STOREB: {
+        /* a length or an offset: a word, or a numeral (zero, suc k): counted down to a word */
+        long n = -1;
+        if (vk == V_WORD && !v->p) n = (long)v->a;
+        else if (vk == V_CON && CON[v->a].nfields == 0 && !strcmp(CON[v->a].name, "zero")) n = 0;
+        else if (vk == V_CON && CON[v->a].nfields == 1 && !strcmp(CON[v->a].name, "suc")) {
+            Cell *c = cell(o->kind, o->n); c->x = o->x; c->a = o->a + 1; c->p = o->p; o->p = NULL;
+            for (int k = 1; k < o->n; k++) mv(o, k, P(c, k));
+            link(v->port[1], P(c, 0));
+            cell_free(o); cell_free(v);
+            return;
+        } else { stuck(o, v); return; }
+        n += (long)o->a;
+        if (vk == V_CON) cell_free(v); else cell_free(v);
+        if (o->kind == O_BYTES) {
+            Bytes *b = calloc(1, sizeof(Bytes) + (size_t)n); b->rc = 1; b->n = (size_t)n;
+            Cell *c = cell(V_BYTES, 1); c->x = PT_BYTES; c->p = b;
+            link(P(c, 0), o->port[1]);
+        } else if (o->kind == O_LOADB) {
+            Bytes *b = o->p; int w = (int)o->x; uint64_t r = 0;
+            if (b && (size_t)n + (size_t)w <= b->n) memcpy(&r, b->b + n, (size_t)w);
+            Cell *c = cell(V_PVAL, 1); c->x = w == 8 ? PT_I64 : PT_U32; c->a = r;
+            link(P(c, 0), o->port[1]);
+            if (b && rcl_dec(&b->rc) == 0) free(b);
+            o->p = NULL;
+        } else {
+            /* the value next */
+            Cell *c = cell(O_STOREC, 2); c->x = o->x; c->a = (uint64_t)n; c->p = o->p; o->p = NULL;
+            mv(o, 1, P(c, 0)); mv(o, 2, P(c, 1));
+        }
+        cell_free(o);
+        return;
+    }
+    case O_LOAD: case O_STORE: {
+        if (vk != V_BYTES) { stuck(o, v); return; }
+        Cell *c = cell(o->kind == O_LOAD ? O_LOADB : O_STOREB, o->n - 1); c->x = o->x; c->a = 0;
+        c->p = v->p; v->p = NULL;   /* the bytes, taken */
+        for (int k = 1; k < o->n; k++) mv(o, k, P(c, k - 1));
+        cell_free(o); cell_free(v);
+        return;
+    }
+    case O_STOREC: {
+        if (vk != V_PVAL) { stuck(o, v); return; }
+        Bytes *b = o->p; int w = (int)o->x; long n = (long)o->a;
+        Bytes *nb = malloc(sizeof(Bytes) + (b ? b->n : 0)); nb->rc = 1; nb->n = b ? b->n : 0; if (b) memcpy(nb->b, b->b, b->n);
+        if ((size_t)n + (size_t)w <= nb->n) memcpy(nb->b + n, &v->a, (size_t)w);
+        if (b && rcl_dec(&b->rc) == 0) free(b);
+        o->p = NULL;
+        Cell *c = cell(V_BYTES, 1); c->x = PT_BYTES; c->p = nb;
+        link(P(c, 0), o->port[1]);
+        cell_free(o); cell_free(v);
+        return;
+    }
+    case O_BLEN: {
+        if (vk != V_BYTES) { stuck(o, v); return; }
+        link(word_of(v->p ? (uint64_t)((Bytes *)v->p)->n : 0), o->port[1]);
+        era(P(v, 0)); cell_free(o);
+        return;
+    }
     case O_PIMULT: {
         /* the multiplicity of a Π type's binder, a word: 2 (ω) for anything that is not a Π */
         link(word_of(vk == V_PI ? (uint64_t)v->x : 2), o->port[1]);
@@ -2430,6 +2578,14 @@ static void interact(Cell *o, Cell *v) {
         if (vk != V_WORD || v->p) { fprintf(stderr, "%%gval/%%gty/%%dtab/%%dent: an index is a word\n"); exit(2); }
         o->a = v->a;
         long g = table_global((int)o->x, (long)o->a);
+        if (o->x == TB_REP) {
+            /* (%rtab d): some R, the data type's first representation, or none */
+            need_cons();
+            if (g < 0) link(con_build(C_NONE, NULL, NULL), o->port[1]);
+            else { Cell *r = cell(V_GLOBAL, 1); r->a = (uint64_t)g; Port f[1] = { P(r, 0) }; link(con_build(C_SOME, f, NULL), o->port[1]); }
+            cell_free(o); cell_free(v);
+            return;
+        }
         if (g < 0) { fprintf(stderr, "checker table %u has no entry %llu\n", o->x, (unsigned long long)o->a); exit(2); }
         if (o->x == TB_VAL) {
             /* a checked definition's own value */
@@ -3006,6 +3162,7 @@ static Port build(Syn *t, Frame *f) {
         return P(c, 1);
     case S_PRIM:
         c = cell((int)t->x, t->n + 1);
+        if (t->x == O_POP1 || t->x == O_POP2 || t->x == O_LOAD || t->x == O_STORE) c->x = (uint32_t)t->id;   /* the operation, or the width */
         for (int k = 0; k < t->n; k++) link(build(t->k[k], f), P(c, k));
         return P(c, t->n);
     case S_PLAM: {

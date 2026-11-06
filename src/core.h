@@ -130,6 +130,9 @@ enum {
     V_WORD,     /* a natural number in one cell: a=it, or p=Big when it does not fit in 64 bits */
     V_WSUSP,    /* 1=z 2=s 3=a word: the elimination of that word, computed when used (a hypothesis) */
     V_WTY,      /* the type of words */
+    V_PTY,      /* a primitive type (B12): a=PT_*; Bytes has 1=its length */
+    V_PVAL,     /* a primitive value: x=PT_* (I64, U32, F64, F32), a=the bits */
+    V_BYTES,    /* a byte string: p=Bytes (refcounted), x=PT_BYTES */
     V_THUNK,    /* p=Record (no parameter); 1..=environment: a subterm not yet built; an operation meeting
                  * it builds it, a duplicator holds it once (built in place on first read) */
     V_WPLUS,    /* a=k ≥ 1 (or p=Big); 1=a neutral word x: k successors of x */
@@ -204,6 +207,16 @@ enum {
     O_FMULT, O_FMULT2, O_FMULT3,   /* (%fmult d c k): the multiplicity of field k of constructor c of checked data type d; words in turn */
     O_LINEAR,   /* 0=d (word) 1=out: is the checked data type d linear (a constructor with a field at 1)? a Bool */
     O_GUSAGE, O_GUSAGE2,   /* (%gusage n k): the computed usage (word) of parameter k of checked definition n; 2 when unknown */
+    O_PTY,      /* (%pty k): the primitive type of kind k (a word): 0=k 1=out */
+    O_BYTESTY,  /* (%bytesty n): the type Bytes n: 0=n 1=out */
+    O_PVAL,     /* (%pval k b): the primitive value of kind k (word) with bits b (word): 0=k 1=b 2=out */
+    O_PVAL2,    /* a=k: 0=b 1=out */
+    O_POP1,     /* x=the operation: 0=a 1=out: a unary primitive operation (conversions) */
+    O_POP2, O_POP2B,   /* x=the operation: 0=a 1=b 2=out: a binary primitive operation; a read, then b */
+    O_BYTES,    /* (%bytes n): n zero bytes: 0=n 1=out */
+    O_LOAD, O_LOADB,   /* x=width (1,2,4,8): (%load b off): 0=b 1=off 2=out */
+    O_STORE, O_STOREB, O_STOREC,   /* x=width: (%store b off v): a copy of b with v at off: 0=b 1=off 2=v 3=out */
+    O_BLEN,     /* (%blen b): 0=b 1=out, the length */
     O_WEQ, O_WLT, O_WADD, O_WMAX, O_WSUB,  /* 0=a 1=b 2=out: on words; first a, then b. Equality,
                  * order, max and truncated subtraction recurse on both (cancelling successors), addition
                  * on b; a word with a neutral part leaves the operation stuck (V_NWOP) */
@@ -310,7 +323,14 @@ typedef struct { char *name; int data, index, nfields, ndims; long bdy, trans; i
 typedef struct { char *name; int nparams, ncons; int *cons; long comp, transh; void *decl; int co, nflds; int *flds; } DataInfo;
 /* decl: the (data ...) form. co: a codata type (no constructors): its fields flds (indices into FLD);
  * comp its composition, a copattern definition */
-typedef struct { char *name; int data, index; long fty; int mult; } FldInfo;   /* fty: λ params x. the field's type at x */
+typedef struct { char *name; int data, index; long fty; int mult; } FldInfo;
+/* primitive types (B12) */
+enum { PT_I64, PT_U32, PT_F64, PT_F32, PT_BYTES, PT_N };
+typedef struct { long rc; size_t n; unsigned char b[]; } Bytes;
+/* the primitive operations of O_POP1/O_POP2, by x */
+enum { PO_I64ADD, PO_I64SUB, PO_I64MUL, PO_I64EQ, PO_I64LT, PO_U32ADD, PO_U32SUB, PO_U32MUL, PO_U32EQ, PO_U32LT,
+       PO_F64ADD, PO_F64SUB, PO_F64MUL, PO_F64DIV, PO_F64EQ, PO_F64LT,
+       PO_I64OFW, PO_WOFI64, PO_U32OFW, PO_WOFU32, PO_F64OFW, PO_F64OFI64, PO_I64OFF64, PO_N };   /* fty: λ params x. the field's type at x */
 extern FldInfo *FLD;
 extern ConInfo *CON;
 extern DataInfo *DATA;
@@ -324,7 +344,7 @@ int data_checked_index(int d);
 int checked_data(long k);   /* the data type of checked index k, or -1 */
 int global_usage(long n, long k);   /* the computed usage of parameter k of checked definition n (0, 1, 2); 2 unknown */     /* a data type's index in the checker's signature, or -1 */
 int con_index(const char *name);   /* a constructor by name, or -1 */
-enum { TB_VAL, TB_TY, TB_DTAB, TB_DENT, TB_TRANS, TB_N };   /* TB_TRANS: a data type's transport as a function */
+enum { TB_VAL, TB_TY, TB_DTAB, TB_DENT, TB_TRANS, TB_REP, TB_N };   /* TB_TRANS: a data type's transport as a function; TB_REP: a checked data type's first representation (B12), a type */
 long table_global(int table, long i);  /* the global holding entry i of a checker table, or -1 */
 /* copattern definitions: the body a head unfolds to; a global's index in the checker's signature (or -1) */
 long global_unfold(long g);

@@ -456,6 +456,9 @@ uconv-head wu v wv =
     wclock0 → (case wv of wclock0 → true; _ → false)
     wtick0 → (case wv of wtick0 → true; _ → false)
     wwlit n → (case wv of wwlit m → %weq n m; _ → false)
+    wpty k n → (case wv of wpty k2 n2 → (if %weq k k2 then (if %weq k #4 then uconv n n2 else true) else false); _ → false)
+    wplit k b → (case wv of wplit k2 b2 → andb (%weq k k2) (%weq b b2); _ → false)
+    wbytes n → false
     wwplus k x → (case wv of wwplus j y → if %weq k j then uconv x y else false; _ → false)
     wother → false
     _ → (case convneu wu wv of some X → true; none → false)
@@ -1379,6 +1382,35 @@ usages-of c T xs nms =
          _ → lmap2 (λ nm u → (nm , u)) nms (usage xs c))
     _ → lmap2 (λ nm u → (nm , u)) nms (usage xs c)
 usages cT ct = usages-of ct (tval cT) lnil lnil
+-- ---------------------------------------------------------------- layouts (B12)
+-- The layout of a value of a type, by the type's view: a primitive type its width; Word a word; a
+-- data type its first representation's layout when it has one (%rtab), else the automatic one: a
+-- union of its constructors, each a struct of its fields not at multiplicity 0, a field of the type
+-- itself a pointer; a type with path constructors has none (lnone); anything else (a function, a
+-- universe, a pair) a pointer. A field's alignment is its layout's.
+layout-ty v = layout-tyd v #0
+layout-tyd v depth =
+  case %view v of
+    wword → lword
+    wpty k n → (if %weq k #4 then lbytes n else lbytes (if %weq k #1 then 4 else if %weq k #3 then 4 else 8))
+    wdata d ps → (if %wlt #4 depth then lptr lnone else layout-d d ps depth)
+    _ → lptr lnone
+layout-d d ps depth = case %rtab d of some R → layout-tyd R (%wsucc depth); none → layout-cs d (ctors-at d ps) depth
+layout-cs d cs depth = if lany tel-has-dims cs then lnone else lunion (layout-alts d cs #0 depth)
+tel-has-dims tel = case tel of tx A nm r → tel-has-dims (r (%var Uw) Uw); ty nm r → true; _ → false
+layout-alts d lnil c depth = lnone
+layout-alts d (lcons tel r) c depth = lalt (lstruct (layout-fields d c tel #0 depth)) (layout-alts d r (%wsucc c) depth)
+layout-fields d c tel k depth =
+  case tel of
+    tx A nm r →
+      let Av = tval A
+          x = %var nm Av
+          rest = layout-fields d c (r x Av) (%wsucc k) depth
+      in if %weq (%fmult d c k) #0 then rest
+         else (let l = if is-rec-ty d A then lptr lnone else layout-tyd Av (%wsucc depth) in lfield nm l (align-of l) rest)
+    _ → lnone
+align-of l = case l of lbytes n → (if %wlt n #8 then n else 8); _ → 8
+layout d = case %rtab d of some R → layout-tyd R #1; none → layout-cs d (snd (params-fresh (dtel (%dent d)) lnil)) #0
 chk-def cT ct = case infer-sort cT of yes s → check ct (tval cT); r → r
 -- a primitive: its type is a type
 chk-type cT = case infer-sort cT of yes s → ok; r → r
@@ -1776,6 +1808,7 @@ qty bs A =
        wdata d ps → omap (cdata d) (q-fields bs (dtel (%dent d)) ps)
        wlevel → some clevel
        wword → some cword
+       wpty k n → (if %weq k #4 then omap (cpty k) (qv-un bs n) else some (cpty k n))
        wclock → some cclock
        wtick k → omap ctick (qv-un bs k)
        wsys b → q-sys bs (λ d → some Uw) b
@@ -1810,6 +1843,8 @@ qv-un bs v =
          let i = %dim
          in obind (qv-un (lcons (qd i) bs) (u @ i)) (λ cu → omap (chcomp (cplam cu)) (qv-un bs a))
        wwlit n → some (cwlit v)
+       wplit k b → some (cplit k b)
+       wpty k n → (if %weq k #4 then omap (cpty k) (qv-un bs n) else some (cpty k n))
        wrec d fs → omap (crec d) (oseq (lmap (qv-un bs) fs))
        wclock0 → some cclock0
        wtick0 → some ctick0

@@ -112,9 +112,22 @@ linear wherever they are bound, and its constructors are applied only in a `prim
 prints a checked definition's binder usages (the back end erases the binders at 0, annotated or
 not).
 
+**Representations.** `lib/prim.cub` declares the machine's fixed-width numbers and byte strings as
+primitives (`Int64`, `UInt32`, `Float64`, `Float32`, `Bytes n`, their operations, `load32`/`store32`
+with the proof that the access fits) and `represent Nat by Word`. A representation of a data type
+`T` by a type `R` (plan B12) is declared as
+`represent T by R where to : T → R = …; from : R → T = …; to-from : … = …; from-to : … = …;
+op f : A = native by law = proof`: each line is a checked definition (`T·R·to`, …, `T·R·op·f`,
+`T·R·op·f·by`), and the first declared is the type's entry in the table the back end reads
+(`%rtab d`). `#layout T` prints a type's layout (`lib/code.cub`'s `Layout`): by its
+representation, else the automatic one, a union of its constructors' structs of the fields not at
+`:0`, a recursive field a pointer; `#layout T as R` the layout of `R`. `#trusted` lists every
+postulate and primitive in scope.
+
 **Commands.** `#check e : T`, `#same a = b` (equal readings, at a type when either side has one),
-`#show e`, `#observe n e` (a codata value unfolded n levels), `#usage f`, `#input x` and
-`#supply x = e` (§6), `#fail` before a declaration or command (it must be rejected). `import "file.cub"` loads a module
+`#show e`, `#observe n e` (a codata value unfolded n levels), `#usage f`, `#layout T [as R]`,
+`#trusted`, `#input x` and `#supply x = e` (§6), `#fail` before a declaration or command (it must
+be rejected). `import "file.cub"` loads a module
 once. Results and failures print in the surface syntax. The core forms the language compiles to
 (`(lam x b)`, `(elim P e ((c x) b))`, …) are still read from files of other extensions, and
 `--print FILE` prints such a file in the surface syntax.
