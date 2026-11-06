@@ -139,14 +139,15 @@ enter-rec G e d alts v =
     _ → vw #0
 ralt-of alts c = case alts of lnil → none; lcons a r → if %weq (fst a) c then some a else ralt-of r c
 hyp-vals d alts fs e hyps = case hyps of lnil → lnil; lcons j r → lcons (vrec d alts (lst-nth fs j) e) (hyp-vals d alts fs e r)
--- applying a function value to arguments: a closure takes them all at once; a λ takes one and
+-- applying a function value to arguments: a lifted λ's closure takes one (its definition's last
+-- parameter) and the result takes the rest; a λ takes one and
 -- its body is applied to the rest
 apply-args G f args =
   case args of
     lnil → f
     lcons a rest →
       (case f of
-         vclos g env → eval-fo G (push-all args (push-all env lnil)) (G g)
+         vclos g env → apply-args G (eval-fo G (lcons a (push-all env lnil)) (G g)) rest
          vlam b env → apply-args G (eval-fo G (lcons a env) b) rest
          _ → vw #0)
 alt-of alts c = case alts of lnil → flit #0; lcons a r → if %weq (fst a) c then snd (snd a) else alt-of r c
