@@ -192,8 +192,15 @@ lower-welim w z s =
     (fif (fprim P-lt (lcons (fvar #1) (lcons (fvar #2) lnil)))
        (fcon #0 #0 (lcons (fvar #2)
                    (lcons (fprim P-add (lcons (fvar #1) (lcons (flit #1) lnil)))
-                   (lcons (fapply (shift #3 s) (lcons (fvar #1) (lcons (fvar #0) lnil))) lnil))))
+                   (lcons (step-call s) lnil))))
        (fcon #0 #1 (lcons (fvar #0) lnil)))
+-- the step applied to (i, acc): when the step is a written λ of two arguments its body is
+-- inlined, i and acc being the loop's fvar 1 and fvar 0 and the step's other free variables
+-- lying above the loop's three slots (shifted by 1: they were above the λ's two binders)
+step-call s =
+  case s of
+    flam s1 → (case s1 of flam b → shift-at #2 #1 b; _ → fapply (shift #3 s) (lcons (fvar #1) (lcons (fvar #0) lnil)))
+    _ → fapply (shift #3 s) (lcons (fvar #1) (lcons (fvar #0) lnil))
 -- shifting free variables of a first-order term by k (binders: flet 1, flam by its arity as applied,
 -- fswitch alternatives by their constructor's field count, floop 3). A λ's body is shifted below
 -- its own binders: flam binds an unknown number of arguments, so a λ in a shifted position is
