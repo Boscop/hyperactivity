@@ -19,6 +19,7 @@ test: export CUBICAL_NOCACHE = 1
 test: build/cubical build/cubical-asan
 	./build/cubical lib/prelude.cub tests/cubical.cub
 	./build/cubical lib/prelude.cub lib/code.cub tests/code.cub
+	./build/cubical lib/prelude.cub lib/code.cub lib/fo.cub
 	./build/cubical lib/prelude.cub tests/hit.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub tests/check.cub
 	./build/cubical lib/prelude.cub lib/code.cub lib/check.cub lib/std.cub tests/reject.cub tests/quote.cub

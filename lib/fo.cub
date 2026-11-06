@@ -1,0 +1,240 @@
+-- lib/fo.cub — the first-order form (plan 18.5, B14): what the specializer produces and every
+-- back end consumes. Loaded after lib/code.cub. Untyped data, as Code is: programs over it are
+-- checked as programs; the form itself is data the machine lays out.
+-- A first-order program has no types, paths, dimensions or universes in it: words and
+-- fixed-width numbers, constructors with their non-erased fields, switches on constructor tags,
+-- projections, calls of compiled definitions by key, native primitives, lets, loops, closures,
+-- thunks for lazy positions, and calls into the net for regions that stay symbolic.
+data FO
+  = fvar n                 -- de Bruijn index into the environment
+  | flit w                 -- a word
+  | fcon d c fs            -- constructor c of data type d, its fields (a Lst of FO)
+  | fswitch x alts         -- case on x's constructor tag: alts a Lst of (c , body), body over the fields pushed
+  | fproj d c k x          -- field k of constructor c of x
+  | fcall g args           -- a compiled definition g (a key, a word) on arguments
+  | fprim p args           -- a native primitive p (a word naming it) on arguments
+  | flet t b               -- let: t pushed, b over it
+  | fif c t e              -- a word condition: nonzero is true
+  | floop init body        -- a loop: state init (a Lst) pushed; body returns (fcontinue new-state) or (fbreak result)
+  | fcontinue st
+  | fbreak r
+  | fclos g env            -- a closure: definition g over captured values env
+  | flam b                 -- a λ as a value over the environment at its creation (closure conversion is the printer's)
+  | fapply f args          -- call through a closure
+  | fthunk t               -- a lazy position: evaluated on force
+  | fforce x
+  | fnet k args            -- a call into the net (B18)
+  | fassume fact b         -- a proven fact at this point (for [[assume]]); b the body
+-- values of first-order programs: words, constructor trees, closures, thunks
+data FV
+  = vw w
+  | vcon d c fs
+  | vclos g env
+  | vlam b env
+  | vthunk t env
+  | vnet k args
+-- first-order types (the FT of the plan), for the printers; eval-fo does not consult them
+data FT
+  = tword
+  | ti64
+  | tf64
+  | tbytes n
+  | tdata d ps rep
+  | tfun args ret
+  | tlazy t
+-- ---------------------------------------------------------------- primitives
+-- the native primitives, by number; a printer maps each to its C operator or call
+P-add = #0
+P-sub = #1
+P-mul = #2
+P-eq = #3
+P-lt = #4
+P-and = #5
+P-or = #6
+P-not = #7
+prim-ap p a b =
+  if %weq p P-add then %wadd a b
+  else if %weq p P-sub then %wsub a b
+  else if %weq p P-mul then wmul a b
+  else if %weq p P-eq then (if %weq a b then #1 else #0)
+  else if %weq p P-lt then (if %wlt a b then #1 else #0)
+  else if %weq p P-and then (if %weq a #0 then #0 else (if %weq b #0 then #0 else #1))
+  else if %weq p P-or then (if %weq a #0 then (if %weq b #0 then #0 else #1) else #1)
+  else #0
+-- multiplication by repeated addition (no %wmul primitive yet; B12 adds it with its spec)
+wmul a b = %welim b #0 (λ n h → %wadd h a)
+-- ---------------------------------------------------------------- the evaluator
+-- eval-fo G e t: the value of t in environment e (a Lst of FV, innermost first), G the table of
+-- compiled definitions (a function from a key to a closure body: the definition's FO and arity).
+-- A definition's body is evaluated with its arguments pushed. Loops run until fbreak.
+wof v = case v of vw w → w; _ → #0
+lst-nth l n = case l of lnil → vw #0; lcons x xs → if %weq n #0 then x else lst-nth xs (%wsub n #1)
+lst-len l = case l of lnil → #0; lcons x xs → %wsucc (lst-len xs)
+lst-rev l = lst-rev-onto l lnil
+lst-rev-onto l acc = case l of lnil → acc; lcons x xs → lst-rev-onto xs (lcons x acc)
+lst-app l m = case l of lnil → m; lcons x xs → lcons x (lst-app xs m)
+-- push a list of values (in argument order) onto an environment: the last argument innermost
+push-all vs e = case vs of lnil → e; lcons v r → push-all r (lcons v e)
+eval-fo G e t =
+  case t of
+    fvar n → lst-nth e n
+    flit w → vw w
+    fcon d c fs → vcon d c (eval-list G e fs)
+    fswitch x alts →
+      (case eval-fo G e x of
+         vcon d c fs → eval-fo G (push-all fs e) (alt-of alts c)
+         _ → vw #0)
+    fproj d c k x → (case eval-fo G e x of vcon d2 c2 fs → lst-nth fs k; _ → vw #0)
+    fcall g args → eval-fo G (push-all (eval-list G e args) lnil) (G g)
+    fprim p args →
+      (case eval-list G e args of
+         lcons a r →
+           (case r of
+              lcons b r2 → vw (prim-ap p (wof a) (wof b))
+              lnil → vw (if %weq p P-not then (if %weq (wof a) #0 then #1 else #0) else wof a))
+         lnil → vw #0)
+    flet t2 b → eval-fo G (lcons (eval-fo G e t2) e) b
+    fif c th el → if %weq (wof (eval-fo G e c)) #0 then eval-fo G e el else eval-fo G e th
+    floop init body → run-loop G e (eval-list G e init) body
+    fclos g env → vclos g (eval-list G e env)
+    flam b → vlam b e
+    fapply f args → apply-args G (eval-fo G e f) (eval-list G e args)
+    fthunk t2 → vthunk t2 e
+    fforce x → (case eval-fo G e x of vthunk t2 e2 → eval-fo G e2 t2; v → v)
+    fnet k args → vnet k (eval-list G e args)
+    fassume fact b → eval-fo G e b
+    _ → vw #0
+eval-list G e l = case l of lnil → lnil; lcons x xs → lcons (eval-fo G e x) (eval-list G e xs)
+-- applying a function value to arguments: a closure takes them all at once; a λ takes one and
+-- its body is applied to the rest
+apply-args G f args =
+  case args of
+    lnil → f
+    lcons a rest →
+      (case f of
+         vclos g env → eval-fo G (push-all args (push-all env lnil)) (G g)
+         vlam b env → apply-args G (eval-fo G (lcons a env) b) rest
+         _ → vw #0)
+alt-of alts c = case alts of lnil → flit #0; lcons a r → if %weq (fst a) c then snd a else alt-of r c
+-- a loop: the state is pushed (in order), the body runs; fcontinue restarts with the new state,
+-- fbreak ends. Runs by structural recursion on nothing: a loop is a reading, total only when the
+-- body breaks; the first-order criterion admits loops that come from terminating recursion
+run-loop G e st body =
+  case eval-fo G (push-all st e) body of
+    vcon d c fs → (if %weq c #0 then run-loop G e fs body else lst-nth fs #0)
+    v → v
+-- the loop's body returns constructors of this two-constructor type: tag 0 continue, tag 1 break
+fcontinue-v st = vcon #0 #0 st
+fbreak-v r = vcon #0 #1 (lcons r lnil)
+-- ---------------------------------------------------------------- examples
+-- plus on words: fprim add over the two arguments
+fo-plus = fprim P-add (lcons (fvar #1) (lcons (fvar #0) lnil))
+-- factorial as a loop: state (n, acc); continue while n > 0
+fo-fact =
+  floop (lcons (fvar #0) (lcons (flit #1) lnil))
+    (fif (fprim P-lt (lcons (flit #0) (lcons (fvar #1) lnil)))
+       (fcon #0 #0 (lcons (fprim P-sub (lcons (fvar #1) (lcons (flit #1) lnil)))
+                          (lcons (fprim P-mul (lcons (fvar #0) (lcons (fvar #1) lnil))) lnil)))
+       (fcon #0 #1 (lcons (fvar #0) lnil)))
+no-defs g = flit #0
+#same eval-fo no-defs (lcons (vw #3) (lcons (vw #4) lnil)) fo-plus = vw #7
+#same eval-fo no-defs (lcons (vw #5) lnil) fo-fact = vw #120
+-- a compiled definition called by key: key 1 is fo-plus
+defs g = if %weq g #1 then fo-plus else flit #0
+#same eval-fo defs lnil (fcall #1 (lcons (flit #20) (lcons (flit #22) lnil))) = vw #42
+-- a closure capturing one value, applied
+#same eval-fo defs lnil (fapply (fclos #1 (lcons (flit #10) lnil)) (lcons (flit #5) lnil)) = vw #15
+-- a switch on a constructor
+#same eval-fo defs lnil (fswitch (fcon #7 #1 (lcons (flit #9) lnil)) (lcons (#0 , flit #0) (lcons (#1 , fvar #0) lnil))) = vw #9
+-- a thunk is not evaluated until forced
+#same eval-fo defs lnil (fforce (fthunk (fprim P-add (lcons (flit #1) (lcons (flit #2) lnil))))) = vw #3
+-- ---------------------------------------------------------------- lowering from codes (B15 step 6)
+-- lower c: the first-order form of a code in the first-order fragment: variables, words and
+-- their operations, constructors and case, pairs, λ and application, let, word elimination as a
+-- loop. Any other form becomes a call into the net on the code itself (fnet, the code as its
+-- argument), which is what the criterion (B13) reports as not-fo; the specializer removes such
+-- forms before lowering where it can. Pairs are the constructor 0 of data type 0 with two fields.
+-- The word operations' codes: 0 eq, 1 lt, 2 add, 3 max, 4 sub (code.cub cwop)
+lower c =
+  case c of
+    cvar n → fvar n
+    cglob n → fcall n lnil
+    clam b → flam (lower b)
+    capp f a → lower-app f (lcons (lower a) lnil)
+    cpair a b → fcon #0 #0 (lcons (lower a) (lcons (lower b) lnil))
+    cfst p → fproj #0 #0 #0 (lower p)
+    csnd p → fproj #0 #0 #1 (lower p)
+    clet t b → flet (lower t) (lower b)
+    cann t T → lower t
+    ccon d k fs ds → fcon d k (lower-list fs)
+    ccase d B x → fswitch (lower x) (lower-alts B #0)
+    cwlit n → flit n
+    cwsucc a → fprim P-add (lcons (lower a) (lcons (flit #1) lnil))
+    cwop k a b → fprim (wop-prim k) (lcons (lower a) (lcons (lower b) lnil))
+    cwelim w z s → lower-welim (lower w) (lower z) (lower s)
+    _ → fnet #0 lnil
+-- an application spine: nested capps become one fapply; a global head becomes fcall
+lower-app f args =
+  case f of
+    capp g a → lower-app g (lcons (lower a) args)
+    cglob n → fcall n args
+    _ → fapply (lower f) args
+lower-list l = case l of lnil → lnil; lcons x xs → lcons (lower x) (lower-list xs)
+-- branches: the k-th code is a λ over the constructor's fields; its λs are stripped, the fields
+-- being pushed by fswitch in order
+lower-alts B k = case B of lnil → lnil; lcons b r → lcons (k , lower (strip-lams b)) (lower-alts r (%wsucc k))
+strip-lams b = case b of clam b2 → strip-lams b2; _ → b
+wop-prim k = if %weq k #0 then P-eq else if %weq k #1 then P-lt else if %weq k #2 then P-add else if %weq k #4 then P-sub else P-add
+-- word elimination as a loop over (w, i, acc): while i < w, acc := s i acc; the step s is a
+-- two-argument function value, applied through fapply. Variables in w z s refer to the
+-- enclosing environment, below the loop's three state slots: shifted by 3 inside the body
+lower-welim w z s =
+  floop (lcons w (lcons (flit #0) (lcons z lnil)))
+    (fif (fprim P-lt (lcons (fvar #1) (lcons (fvar #2) lnil)))
+       (fcon #0 #0 (lcons (fvar #2)
+                   (lcons (fprim P-add (lcons (fvar #1) (lcons (flit #1) lnil)))
+                   (lcons (fapply (shift #3 s) (lcons (fvar #1) (lcons (fvar #0) lnil))) lnil))))
+       (fcon #0 #1 (lcons (fvar #0) lnil)))
+-- shifting free variables of a first-order term by k (binders: flet 1, flam by its arity as applied,
+-- fswitch alternatives by their constructor's field count, floop 3). A λ's body is shifted below
+-- its own binders: flam binds an unknown number of arguments, so a λ in a shifted position is
+-- closed over by the environment at its creation and needs no shift of its body (vlam keeps e)
+shift k t = shift-at #0 k t
+shift-at d k t =
+  case t of
+    fvar n → if %wlt n d then fvar n else fvar (%wadd n k)
+    flit w → t
+    fcon dd c fs → fcon dd c (shift-list d k fs)
+    fswitch x alts → fswitch (shift-at d k x) (shift-alts d k alts)
+    fproj dd c j x → fproj dd c j (shift-at d k x)
+    fcall g args → fcall g (shift-list d k args)
+    fprim p args → fprim p (shift-list d k args)
+    flet a b → flet (shift-at d k a) (shift-at (%wsucc d) k b)
+    fif c a b → fif (shift-at d k c) (shift-at d k a) (shift-at d k b)
+    floop init body → floop (shift-list d k init) (shift-at (%wadd d #3) k body)
+    fclos g env → fclos g (shift-list d k env)
+    flam b → flam b
+    fapply f args → fapply (shift-at d k f) (shift-list d k args)
+    fthunk a → fthunk (shift-at d k a)
+    fforce x → fforce (shift-at d k x)
+    fnet g args → fnet g (shift-list d k args)
+    fassume f b → fassume f (shift-at d k b)
+    _ → t
+shift-list d k l = case l of lnil → lnil; lcons x xs → lcons (shift-at d k x) (shift-list d k xs)
+-- an alternative's body sees its constructor's fields pushed; their count is not known here, so
+-- alternatives are shifted as closed over the switch's environment: a branch's variables above
+-- the fields are the switch's (the printer and specializer know the counts from %dent)
+shift-alts d k alts = alts
+-- ---------------------------------------------------------------- lowering tests
+-- plus on words as code, lowered and evaluated
+c-plus = clam (clam (cwop #2 (cvar #1) (cvar #0)))
+#same eval-fo no-defs lnil (fapply (lower c-plus) (lcons (flit #3) (lcons (flit #4) lnil))) = vw #7
+-- a case on a two-constructor data type (index 9): branch 1 returns its single field
+c-case = ccase #9 (lcons (cwlit #0) (lcons (clam (cvar #0)) lnil)) (ccon #9 #1 (lcons (cwlit #42) lnil) lnil)
+#same eval-fo no-defs lnil (lower c-case) = vw #42
+-- word elimination as a loop: 2^5 by doubling
+c-pow = cwelim (cwlit #5) (cwlit #1) (clam (clam (cwop #2 (cvar #0) (cvar #0))))
+#same eval-fo no-defs lnil (lower c-pow) = vw #32
+-- let and pairs
+c-let = clet (cpair (cwlit #1) (cwlit #2)) (cwop #2 (cfst (cvar #0)) (csnd (cvar #0)))
+#same eval-fo no-defs lnil (lower c-let) = vw #3
