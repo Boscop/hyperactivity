@@ -1,0 +1,66 @@
+-- lib/proc.cub — processes over a signature of commands, as terms (plan 7.1, D24–D25; the
+-- inductive part). Loaded after lib/std.cub. A signature is a type of commands with a response
+-- type per command; a process is a tree of commands ending in a result, here in its Church form —
+-- a process is what it does to any interpretation of return and command — which needs no
+-- positivity rule (18.18) and covers every process that terminates; the guarded (infinite) form is
+-- the codata version and waits on 18.18. A world is a handler: a state and, per command, the
+-- response and the next state; run is the process at that interpretation. Outcomes: a process may
+-- end done, or stopped by its world (a command the world refuses), which run reports as a value.
+-- ---------------------------------------------------------------- signatures and processes
+Sig : Type (lsuc lzero)
+Sig = (Cmd : Type) × (Cmd → Type)
+Cmd : Sig → Type
+Cmd S = fst S
+Resp : (S : Sig) → Cmd S → Type
+Resp S c = snd S c
+Proc : Sig → Type → Type (lsuc lzero)
+Proc S A = (R : Type) → (A → R) → ((c : Cmd S) → (Resp S c → R) → R) → R
+ret : {S : Sig} {A : Type} → A → Proc S A
+ret a = λ R k h → k a
+cmd : {S : Sig} → (c : Cmd S) → Proc S (Resp S c)
+cmd c = λ R k h → h c k
+bind : {S : Sig} {A B : Type} → Proc S A → (A → Proc S B) → Proc S B
+bind p f = λ R k h → p R (λ a → f a R k h) h
+-- ---------------------------------------------------------------- worlds and running
+-- a world with state St answers a command, or refuses it (none): the response and the next state
+World : Sig → Type → Type
+World S St = (c : Cmd S) → St → Sum (Resp S c × St) Unit
+data Outcome (A : Type) = done (a : A) | stopped
+-- run p w st: the process interpreted in the state monad over St with refusal
+run : {S : Sig} {A : Type} {St : Type} → Proc S A → World S St → St → Outcome A × St
+run p w st =
+  p (St → Outcome A × St) (λ a s → (done a , s))
+    (λ c k s → case w c s of inl r → k (fst r) (snd r); inr u → (stopped , s))
+    st
+-- ---------------------------------------------------------------- readings: a key-value world
+-- commands: get k, put k v; responses: a word for get, unit for put
+data KV = get (k : Word) | put (k : Word) (v : Word)
+kv-resp : KV → Type
+kv-resp c = case c of get k → Word; put k v → Unit
+KVS : Sig
+KVS = (KV , kv-resp)
+-- the state: an association list, as a function from keys to words (absent keys 0); the world
+-- refuses puts at key 0
+kv-world : World KVS (Word → Word)
+kv-world c st =
+  case c return (λ x → Sum (kv-resp x × (Word → Word)) Unit) of
+    get k → inl (st k , st)
+    put k v → (case weq k #0 of true → inr unit; false → inl (unit , (λ j → case weq j k of true → v; false → st j)))
+-- a process: put 1 := 5, put 2 := 7, then get 1 and get 2, returning their sum
+p1 : Proc KVS Word
+p1 = bind {KVS} {Unit} {Word} (cmd {KVS} (put #1 #5)) (λ u →
+     bind {KVS} {Unit} {Word} (cmd {KVS} (put #2 #7)) (λ u2 →
+     bind {KVS} {Word} {Word} (cmd {KVS} (get #1)) (λ a →
+     bind {KVS} {Word} {Word} (cmd {KVS} (get #2)) (λ b → ret {KVS} {Word} (%wadd a b)))))
+empty-st : Word → Word
+empty-st k = #0
+#same fst (run {KVS} {Word} {Word → Word} p1 kv-world empty-st) = done #12
+#same snd (run {KVS} {Word} {Word → Word} p1 kv-world empty-st) #2 = #7
+-- a refused command stops the process; the state is the one at the refusal
+p2 : Proc KVS Word
+p2 = bind {KVS} {Unit} {Word} (cmd {KVS} (put #1 #5)) (λ u →
+     bind {KVS} {Unit} {Word} (cmd {KVS} (put #0 #9)) (λ u2 → ret {KVS} {Word} #1))
+#same fst (run {KVS} {Word} {Word → Word} p2 kv-world empty-st) = stopped
+#same snd (run {KVS} {Word} {Word → Word} p2 kv-world empty-st) #1 = #5
+-- the monad laws hold by computation: bind (ret a) f = f a and bind p ret = p at the interpretation
+#same run {KVS} {Word} {Word → Word} (bind {KVS} {Word} {Word} (ret {KVS} {Word} #3) (λ a → ret {KVS} {Word} (%wadd a #1))) kv-world empty-st = run {KVS} {Word} {Word → Word} (ret {KVS} {Word} #4) kv-world empty-st
