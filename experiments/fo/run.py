@@ -67,6 +67,10 @@ fibw : Word → Word
 fibw n = fst (fibp n)
 lam-body2 f = case f of flam b → b; _ → f
 defs = lcons (#0 , (#0 , fcall #1 (lcons (flit #90) lnil))) (lcons (#1 , (#1 , lam-body2 (specialize (Word → Word) lnil (code (λ w → fibw w))))) lnil)""", "2880067194370816120"),
+ # the tagged message decoder (lib/decode.cub) lowered from its code with the representations
+ # consumed: type 1 reads the price at 8 (500), type 2 the quantity at 16 (7); 1000*first + second
+ 'itch': ("""itch-main = fprim P-add (lcons (fprim P-mul (lcons (flit #1000) (lcons (fapply dm-fo (lcons mb1 lnil)) lnil))) (lcons (fapply dm-fo (lcons mb2 lnil)) lnil))
+defs = case lift #100 dm-fo of lifted t2 ds k → lcons (#0 , (#0 , fprim P-add (lcons (fprim P-mul (lcons (flit #1000) (lcons (fapply t2 (lcons mb1 lnil)) lnil))) (lcons (fapply t2 (lcons mb2 lnil)) lnil)))) ds""", "500007", "ASSUME(((8 + 8) < (32 + 1)))"),
  'let-if': ("""defs = lcons (#0 , (#0 , flet (flit #3) (fif (fprim P-lt (lcons (fvar #0) (lcons (flit #5) lnil))) (fprim P-mul (lcons (fvar #0) (lcons (fvar #0) lnil))) (flit #0)))) lnil""", "9"),
 }
 def run(name, defs, expect, contains=None):
