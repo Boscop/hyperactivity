@@ -147,3 +147,37 @@ sup-bad : Outcome Word × (Unit × Nat)
 sup-bad = supervise {KVS} {Word} {Unit} 5 (upto3 {Word}) (pr3 {lzero}) always-refusing unit
 #same fst sup-bad = stopped
 #same snd (snd sup-bad) = 3
+-- ---------------------------------------------------------------- replay (7.3)
+-- a run is reproduced from the world's responses: a recording world keeps, beside its own state,
+-- the responses given (encoded as words by the signature's encoder), and a replaying world answers
+-- from such a record alone. The run under the replaying world has the same outcome: replay is a
+-- property of the process and the responses, not of the world's internals
+Encoder : Sig → Type
+Encoder S = (c : Cmd S) → Resp S c → Word
+Decoder : Sig → Type
+Decoder S = (c : Cmd S) → Word → Resp S c
+-- a refusal is recorded as absent (the list ends); responses are recorded in order (reversed)
+recording : {S : Sig} {St : Type} → Encoder S → World S St → World S (St × List Word)
+recording {S} {St} enc w c st =
+  case w c (fst st) of
+    inl r → inl (fst r , (snd r , cons (enc c (fst r)) (snd st)))
+    inr s2 → inr (s2 , snd st)
+-- the replaying world: the next recorded response, else a refusal
+replaying : {S : Sig} → Decoder S → World S (List Word)
+replaying {S} dec c log = case log of nil → inr nil; cons x rest → inl (dec c x , rest)
+rev-list : {A : Type} → List A → List A → List A
+rev-list l acc = (case l return (λ w → List A → List A) of nil → λ a → a; cons x r → λ a → rec r (cons x a)) acc
+kv-enc : Encoder KVS
+kv-enc c = case c return (λ x → kv-resp x → Word) of get k → λ w → w; put k v → λ u → #0
+kv-dec : Decoder KVS
+kv-dec c = case c return (λ x → Word → kv-resp x) of get k → λ w → w; put k v → λ w → unit
+-- pr1 recorded under the key-value world, then replayed from the record alone: 12 both times
+rec1 : Outcome Word × ((Word → Word) × List Word)
+rec1 = runp {KVS} {Word} {(Word → Word) × List Word} (pr1 {lzero}) (recording {KVS} {Word → Word} kv-enc kv-world) (empty-st , nil)
+#same fst rec1 = done #12
+log1 : List Word
+log1 = rev-list (snd (snd rec1)) nil
+#same log1 = cons #0 (cons #0 (cons #5 (cons #7 nil)))
+#same fst (runp {KVS} {Word} {List Word} (pr1 {lzero}) (replaying {KVS} kv-dec) log1) = done #12
+-- a record cut short replays as a refusal where it ends
+#same fst (runp {KVS} {Word} {List Word} (pr1 {lzero}) (replaying {KVS} kv-dec) (cons #0 (cons #0 nil))) = stopped
