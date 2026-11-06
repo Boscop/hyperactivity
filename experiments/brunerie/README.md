@@ -90,3 +90,17 @@ the held sides accumulating substitutions through the layers and losing the shar
 transports had. The structural fix is a change to the composition clauses (a proposal, not a
 commit).
 
+### The fix (plan 18.16): the transport of a formal composition is itself formal
+
+A transport reaching a formal composition in a type with path constructors now makes a value,
+`%transH` (`V_TRANSH`: the face ψ, the parameter lines, the tube and the cap, unexpanded), instead
+of applying the clause. A substitution applies to its parts and re-decides the tube: while the tube
+is still a system the value stays formal; a side the substitution selects is transported alone, at
+its end (`transD ψσ (wσ @ 1)`); ψ made true makes it the composition again. A reading that demands
+the structure (`%view`, a further transport, an elimination, the printer) distributes one layer:
+the clause's right-hand side, whose inner transports are formal again. So at a generic dimension
+a nest of twenty layers is twenty cells, and the endpoint substitution walks one side per layer.
+
+`#show g8`: 1,135,531 → 475,558 steps, the same normal form (2,346 cells printed). The number:
+1,263,260 → 619,852 steps. The square driver is unchanged (45,428 steps).
+

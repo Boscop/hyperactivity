@@ -2043,6 +2043,7 @@ static void rb_one(FILE *o, Port prov) {
     case V_DATA: if (c->n == 1) fputs(DATA[c->a].name, o); else push_fields(o, DATA[c->a].name, c, 1); return;
     case V_CON: if (c->n == 1) fputs(CON[c->a].name, o); else push_fields(o, CON[c->a].name, c, 1); return;
     case V_HCOMP: push_fields_to(o, "hcompD", c, 1, 3); return;
+    case V_TRANSH: { extern Port transh_expand(Cell *c); push_port(transh_expand(c)); return; }
     case V_CASEF: fputs("%casef", o); return;
     case V_WORD: { WN w = { c->a, c->p }; fputc('#', o); wn_print(o, &w); return; }
     case V_WTY: fputs("Word", o); return;

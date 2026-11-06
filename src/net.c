@@ -83,7 +83,7 @@ Cell *cell(int kind, int n) {
     return c;
 }
 /* the payload a cell owns */
-static inline bool owns_dnf(int k) { switch (k) { case O_PEND: case V_IV: case V_FACE: case V_SYS: case V_NPAPP: case O_PAPPP: case O_BIN2: case O_SYSCONS2: case V_NTRANS: case O_TRANSD2: case O_IEQB: case O_FEQLB: return true; default: return false; } }
+static inline bool owns_dnf(int k) { switch (k) { case O_PEND: case V_IV: case V_FACE: case V_SYS: case V_NPAPP: case O_PAPPP: case O_BIN2: case O_SYSCONS2: case V_NTRANS: case O_TRANSD2: case V_TRANSH: case O_TRANSH: case O_IEQB: case O_FEQLB: return true; default: return false; } }
 static bool owns_subst(int k) { return k == O_SUBST; }
 static void box_release(Box *b);
 static void payload_retain(Cell *c) {
@@ -234,11 +234,13 @@ void net_push(Cell *op, Cell *v) {
     Ring *r = q->ring;
     if (b - t == r->cap) {
         Ring *n = ring_new(r->cap * 2);
-        for (size_t i = t; i < b; i++) n->it[i & (n->cap - 1)] = r->it[i & (r->cap - 1)];
+        for (size_t i = t; i < b; i++) { Redex *x = &r->it[i & (r->cap - 1)], *y = &n->it[i & (n->cap - 1)]; __atomic_store_n(&y->op, __atomic_load_n(&x->op, __ATOMIC_RELAXED), __ATOMIC_RELAXED); __atomic_store_n(&y->v, __atomic_load_n(&x->v, __ATOMIC_RELAXED), __ATOMIC_RELAXED); }
         __atomic_store_n(&q->ring, n, __ATOMIC_RELEASE);   /* the old ring is kept: a thief may hold it */
         r = n;
     }
-    r->it[b & (r->cap - 1)] = (Redex){ op, v };
+    /* the slot's two words are written and read atomically (relaxed): a thief may read a slot it
+     * then fails to claim while the owner, having wrapped, writes it (the classic deque race) */
+    { Redex *x = &r->it[b & (r->cap - 1)]; __atomic_store_n(&x->op, op, __ATOMIC_RELAXED); __atomic_store_n(&x->v, v, __ATOMIC_RELAXED); }
     { Local *l = local(); __atomic_store_n(&l->pushed, l->pushed + 1, __ATOMIC_RELEASE); }
     __atomic_store_n(&q->bottom, b + 1, __ATOMIC_RELEASE);
 }
@@ -252,7 +254,8 @@ static bool pop_own(Queue *q, Redex *out) {
     size_t t = __atomic_load_n(&q->top, __ATOMIC_RELAXED);
     if (t > b) { __atomic_store_n(&q->bottom, b + 1, __ATOMIC_RELAXED); return false; }
     Ring *r = q->ring;
-    Redex x = r->it[b & (r->cap - 1)];
+    Redex x, *xp = &r->it[b & (r->cap - 1)];
+    x.op = __atomic_load_n(&xp->op, __ATOMIC_RELAXED); x.v = __atomic_load_n(&xp->v, __ATOMIC_RELAXED);
     if (t == b) {
         /* the last pair: a thief may be taking it */
         bool won = __atomic_compare_exchange_n(&q->top, &t, t + 1, false, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
@@ -277,7 +280,8 @@ static bool steal(Queue *q, Redex *out, bool lone) {
     size_t b = __atomic_load_n(&q->bottom, __ATOMIC_ACQUIRE);
     if (t >= b || (!lone && b - t < STEAL_AT)) return false;
     Ring *r = __atomic_load_n(&q->ring, __ATOMIC_ACQUIRE);
-    Redex x = r->it[t & (r->cap - 1)];
+    Redex x, *xp = &r->it[t & (r->cap - 1)];
+    x.op = __atomic_load_n(&xp->op, __ATOMIC_RELAXED); x.v = __atomic_load_n(&xp->v, __ATOMIC_RELAXED);
     if (!__atomic_compare_exchange_n(&q->top, &t, t + 1, false, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED)) return false;
     *out = x;
     return true;
@@ -1077,6 +1081,16 @@ static void rule_subst(Cell *o, Cell *v) {
         if (v->n == 4) link(sub(v->port[3], s), P(a, 2));
         link(P(a, a->n - 1), out); break;
     }
+    case V_TRANSH: {
+        /* the parts substituted; the tube re-decided (O_TRANSH): a side the substitution selects is
+         * transported alone, at its end */
+        int np = v->n - 3;
+        Cell *a = cell(O_TRANSH, np + 3); a->a = v->a; a->p = face_subst(v->p, s);
+        link(sub(v->port[1], s), P(a, 0)); link(sub(v->port[2], s), P(a, 1));
+        for (int j = 0; j < np; j++) link(sub(v->port[3 + j], s), P(a, 2 + j));
+        link(P(a, np + 2), out);
+        break;
+    }
     case V_NCASE: {
         /* 1=scrutinee [2=motive] then the environment, type → 0=scrutinee then the environment, out:
          * the motive is the table's, rebuilt where it is read */
@@ -1143,6 +1157,18 @@ static void rule_mkplam(Cell *o, Cell *v) {
 
 /* an eliminator meets a system: it acts branchwise, every other operand
  * restricted to the branch's clause */
+/* a formal transport of a composition, distributed one layer (the generated clause: the transport
+ * into each side and the cap, the sides' own inner compositions formal again); the cell is consumed */
+Port transh_expand(Cell *v) {
+    int np = v->n - 3;
+    Port *a = malloc((size_t)(np + 4) * sizeof(Port));
+    for (int j = 0; j < np; j++) a[j] = v->port[3 + j];
+    a[np] = face_cell(dnf_retain(v->p)); a[np + 1] = v->port[1]; a[np + 2] = v->port[2];
+    Port r = apply_gid(DATA[v->a].transh, a, np + 3);
+    free(a);
+    cell_free(v);
+    return r;
+}
 static void distribute(Cell *o, Cell *v) {
     int nb = v->n - 1;
     Dnf *cl = v->p;
@@ -1275,6 +1301,7 @@ static void rule_view(Cell *o, Cell *v) {
     case V_GLUE: r = mk(WC[v->x ? W_HCOMPU : W_GLUE], v->port[1], v->port[2], 0, 0); break;
     case V_GLUEV: r = mk(WC[W_GLUEV], v->port[1], v->port[2], 0, 0); break;
     case V_HCOMP: if (v->n == 4) era(v->port[3]); r = mk(WC[W_HCOMP], v->port[1], v->port[2], 0, 0); break;
+    case V_TRANSH: link(transh_expand(v), P(o, 0)); return;
     case V_SYS: {
         int nb = v->n - 1; Dnf *cl = v->p;
         Port *bs = malloc((size_t)(nb + 1) * sizeof(Port));
@@ -1445,6 +1472,7 @@ static const char *const KIND_NAME[K_END] = {
     [V_DATA] = "DATA",
     [V_CON] = "CON",
     [V_HCOMP] = "HCOMP",
+    [V_TRANSH] = "TRANSH",
     [V_CASEF] = "CASEF",
     [V_REF] = "REF",
     [V_WORD] = "WORD",
@@ -1490,6 +1518,7 @@ static const char *const KIND_NAME[K_END] = {
     [O_HCM3] = "HCM3",
     [O_TRANSD1] = "TRANSD1",
     [O_TRANSD2] = "TRANSD2",
+    [O_TRANSH] = "TRANSH",
     [O_CASE] = "CASE",
     [O_VIEW] = "VIEW",
     [O_MKVAR] = "MKVAR",
@@ -2072,6 +2101,32 @@ static void interact(Cell *o, Cell *v) {
         cell_free(o); cell_free(v);
         return;
     }
+    case O_TRANSH: {
+        /* a substituted formal transport: the tube still a system, the transport stays formal; the
+         * substitution made it one side, that side is transported at its end; ψ true, the
+         * transport is the identity and the composition is rebuilt */
+        int np = o->n - 3;
+        Port out = o->port[np + 2];
+        if (dnf_is_one(o->p)) {
+            Cell *h = cell(O_HCOMP, 3);
+            link(P(v, 0), P(h, 0)); mv(o, 1, P(h, 1)); link(P(h, 2), out);
+            for (int j = 0; j < np; j++) era(o->port[2 + j]);
+        } else if (vk == V_SYS) {
+            Cell *h = cell(V_TRANSH, np + 3); h->a = o->a; h->p = dnf_retain(o->p);
+            link(P(v, 0), P(h, 1)); mv(o, 1, P(h, 2));
+            for (int j = 0; j < np; j++) mv(o, 2 + j, P(h, 3 + j));
+            link(P(h, 0), out);
+        } else {
+            Cell *t = cell(O_TRANSD1, np + 3); t->a = o->a;
+            link(face_cell(dnf_retain(o->p)), P(t, 0));
+            for (int j = 0; j < np; j++) mv(o, 2 + j, P(t, 1 + j));
+            link(papp_at(P(v, 0), dnf_one()), P(t, np + 1));
+            link(P(t, np + 2), out);
+            era(o->port[1]);
+        }
+        cell_free(o);
+        return;
+    }
     case O_TRANSD2: {
         int np = o->n - 2;
         Port out = o->port[np + 1];
@@ -2085,6 +2140,15 @@ static void interact(Cell *o, Cell *v) {
             link(apply_gid(k->trans, a, np + 1 + n), out);
             free(a);
             cell_free(o); cell_free(v);
+        } else if (vk == V_HCOMP && v->n == 3) {
+            /* a formal composition in a type with path constructors: the transport stays formal
+             * (18.16): the sides are transported only when a substitution selects one, or when a
+             * reading demands the structure (transh_expand) */
+            Cell *h = cell(V_TRANSH, np + 3); h->a = o->a; h->p = dnf_retain(o->p);
+            link(v->port[1], P(h, 1)); link(v->port[2], P(h, 2));
+            for (int j = 0; j < np; j++) mv(o, 1 + j, P(h, 3 + j));
+            link(P(h, 0), out);
+            cell_free(o); cell_free(v);
         } else if (vk == V_HCOMP) {
             Port *a = malloc((size_t)(np + 4) * sizeof(Port));
             for (int j = 0; j < np; j++) a[j] = o->port[1 + j];
@@ -2093,7 +2157,8 @@ static void interact(Cell *o, Cell *v) {
             link(apply_gid(DATA[o->a].transh, a, np + 3), out);
             free(a);
             cell_free(o); cell_free(v);
-        } else if (vk == V_SYS) distribute(o, v);
+        } else if (vk == V_TRANSH) { link(transh_expand(v), P(o, 0)); return; }
+        else if (vk == V_SYS) distribute(o, v);
         else {
             Cell *n = cell(V_NTRANS, np + 3); n->a = o->a; n->p = dnf_retain(o->p);
             link(P(v, 0), P(n, 1));
@@ -2108,6 +2173,7 @@ static void interact(Cell *o, Cell *v) {
         /* 0=scrutinee [1=motive] then the environment, out */
         CaseTab *tb = o->p;
         int ne = tb->nenv, mb = o->x ? 1 : 0, e0 = 1 + mb;
+        if (vk == V_TRANSH) { link(transh_expand(v), P(o, 0)); return; }
         if (vk == V_CON) {
             /* the selected branch's body is built with the constructor's fields and dimensions
              * and the shared variables: one interaction. A branch taking induction hypotheses

@@ -123,6 +123,7 @@ enum {
     V_DATA,     /* a=data type; 1..k=parameters */
     V_CON,      /* a=constructor; 1..f=fields, then the dimensions (interval values) */
     V_HCOMP,    /* formal homogeneous composition in a data type: 1=tube 2=cap */
+    V_TRANSH,   /* a formal transport of a formal composition: a=data type, p=Dnf ψ; 1=tube 2=cap 3..k+2=parameter lines (18.16) */
     V_CASEF,    /* p=CaseTab, x=has motive; [1=motive] environment: the elimination as a function */
     V_REF,      /* p=Box: a reference to a value held once; copying it copies the reference, an operation
                  * meeting it copies the value out (as a definition is unfolded) */
@@ -176,6 +177,7 @@ enum {
     O_HCM3,     /* 0=a side at a fresh dimension, then the sides left, tube, cap, F, out; a: as above */
     O_TRANSD1,  /* a=data type; 0=ψ 1..k=parameter lines k+1=x out */
     O_TRANSD2,  /* a=data type, p=Dnf ψ; 0=x 1..k=parameter lines out */
+    O_TRANSH,   /* a=data type, p=Dnf ψ: a substituted formal transport, its tube re-decided; 0=tube 1=cap 2..k+1=parameter lines out */
     O_CASE,     /* p=CaseTab, x=has motive; 0=scrutinee [1=motive] environment, out. Meeting a
                  * constructor it builds the selected branch's body: one interaction */
     /* the values as data, for terms about terms (the checker): */
