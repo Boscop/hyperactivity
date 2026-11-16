@@ -264,13 +264,19 @@ Attach:
    date it was retrieved.
 4. The CCPA request of Part B and any response.
 
+The report of 16 November 2026 quotes the conversation verbatim, including personal matters of the
+complainant's (his relationship, cannabis, his confinement for speech). A complaint to the Attorney
+General can become a public record; whether to attach the report whole or with those passages
+removed is the complainant's decision before filing.
+
 Verify before filing (not yet checked in this draft):
 
 - Whether Anthropic's AB 2013 documentation was updated on or before 9 November 2026 for Claude Fable
-  5.2 and Claude Mythos 5.2 [S14]. If it was not, section 1.2 of Part A becomes the lead finding.
+  5.2 and Claude Mythos 5.2 [S14]. If it was not, item 2 of section 1 of Part A becomes the lead finding.
 - The documentation's own wording, against Johnston's description in section 3 of Part A. The trust
   portal could not be read from this session.
-- Anthropic's current corporate address and privacy contact.
+- Anthropic's current corporate street address (the privacy contact, privacy@anthropic.com, is
+  confirmed [S9]).
 - The complainant's residence in California, subscription details and the dates of his LinkedIn posts
   and any report to Anthropic.
 
