@@ -1,0 +1,14 @@
+-- an operand stored at a pointer, at a type and the alignment of the place stored to
+rm-opd-into : RCx → ROperand → RTy → Word → RFrame → MPtr → REv Unit
+rm-opd-into cx op ty al =
+  sr-on (cx-class cx ty) (λ e fr p → rm-throw e) (λ c → case c of
+    cl-mem → (case op of
+      rop-copy pl → rm-copy-from cx pl ty al
+      rop-move pl → rm-copy-from cx pl ty al
+      rop-const k →
+                    (let w = rm-const-into k cx ty nil
+                     in λ fr p → w p))
+    cl-unit → λ fr p → rm-ret unit
+    _ →
+        (let ev = rm-opd-rv cx op
+         in λ fr p → rm-bind (ev fr) (λ v → rm-wr-at (cx-t cx) c al p v)))

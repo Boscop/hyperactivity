@@ -1,0 +1,40 @@
+-- What each answers. The time is the platform's clock. read, write, recvfrom, sendto: the count,
+-- at most the count asked (recvfrom is performed without MSG_TRUNC, under which the kernel
+-- answers the datagram's length instead); recvfrom and accept4 also the peer. open (the path the
+-- address of a NUL-terminated name), socket, epoll_create1, accept4: the descriptor. mmap: the
+-- address. epoll_wait (the timeout in milliseconds, 4294967295 for none): the count, at most
+-- max, and that many events in the kernel's order (max above lx-max-events is asked as
+-- lx-max-events). futex-wait: woken (EAGAIN, 11, when the word at addr was not val); futex-wake:
+-- the waiters woken, at most n. getpid cannot fail. exit-group does not return: its response is
+-- never given. The memory commands: n fresh zero bytes; a byte or a word at an address
+lx-resp : LinuxCmd → Type
+lx-resp c = case c return (λ _ → Type) of
+  lx-clock-gettime → Sum Errno Timespec
+  lx-nanosleep t → Sum Errno Unit
+  lx-read fd buf len → Sum Errno (Upto len)
+  lx-write fd buf len → Sum Errno (Upto len)
+  lx-open path flags mode → Sum Errno Word
+  lx-close fd → Sum Errno Unit
+  lx-mmap addr len prot flags fd off → Sum Errno Word
+  lx-munmap addr len → Sum Errno Unit
+  lx-mprotect addr len prot → Sum Errno Unit
+  lx-socket domain type proto → Sum Errno Word
+  lx-bind fd a → Sum Errno Unit
+  lx-listen fd backlog → Sum Errno Unit
+  lx-accept4 fd flags → Sum Errno (Word × SockAddr)
+  lx-connect fd a → Sum Errno Unit
+  lx-recvfrom fd buf len flags → Sum Errno (Upto len × SockAddr)
+  lx-sendto fd buf len flags a → Sum Errno (Upto len)
+  lx-setsockopt fd level name val → Sum Errno Unit
+  lx-epoll-create1 flags → Sum Errno Word
+  lx-epoll-ctl ep op fd ev → Sum Errno Unit
+  lx-epoll-wait ep max timeout → Sum Errno (Upto max × List EpollEvent)
+  lx-futex-wait addr val → Sum Errno Unit
+  lx-futex-wake addr n → Sum Errno (Upto n)
+  lx-getpid → Word
+  lx-exit-group ec → Unit
+  lx-alloc n → Word
+  lx-peek8 a → Word
+  lx-poke8 a v → Unit
+  lx-peek64 a → Word
+  lx-poke64 a v → Unit

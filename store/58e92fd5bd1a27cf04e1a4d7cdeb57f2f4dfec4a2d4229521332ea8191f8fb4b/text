@@ -1,0 +1,37 @@
+usage xs c =
+  case c of
+    tv y T → lmap (λ x → if same-var y x then #1 else #0) xs
+    tlam nm b V → usage xs (b (%var nm Uw) Uw)
+    tapp f a V → uspine xs c
+    tpair a b V → v+ (usage xs a) (usage xs b)
+    tfst p V → usage xs p
+    tsnd p V → usage xs p
+    tplam nm b V → usage xs (b (%dim nm))
+    tpapp p r V → usage xs p
+    tsys bs V → vsys xs bs
+    tcomp A u a V → v+ (lusage xs A) (v⊔ (usage xs u) (usage xs a))
+    thcomp u a V → v⊔ (usage xs u) (usage xs a)
+    tgluet A S V → v* #2 (usage xs S)
+    tglue S a V → v+ (v* #2 (usage xs S)) (usage xs a)
+    tunglue S b V → v+ (v* #2 (usage xs S)) (usage xs b)
+    thcompu A S V → v* #2 (usage xs S)
+    tunglueu S b V → v+ (v* #2 (usage xs S)) (usage xs b)
+    tlet t nm b V →
+      -- usage b x + (usage b y) · (usage t x), y the let's variable
+      let y = %var nm Uw
+          ub = usage (lcons y xs) (b y Uw)
+      in case ub of lcons uy ur → v+ ur (v* uy (usage xs t)); lnil → v0 xs
+    tann t T V → usage xs t
+    tcon d c fs ds V → ucon-fields xs d c #0 fs
+    telim d P B e F V → v+ (usage xs e) (vjoin-br xs B)
+    tcase d B e F V → v+ (usage xs e) (vjoin-br xs B)
+    tforce t V → usage xs t
+    tthunk t V → usage xs t
+    twsucc a V → usage xs a
+    twop k a b V → v+ (usage xs a) (usage xs b)
+    twelim P w z s V → v+ (usage xs w) (v+ (usage xs z) (usage xs s))
+    tproj d k e V → usage xs e
+    trec d fs V → vsum xs fs
+    tguess k g t V → usage xs t
+    tspine t V → usage xs t
+    _ → v0 xs

@@ -1,0 +1,45 @@
+-- rb: from prelude.sail (it calls what is defined after it there)
+-- (part of language-support)
+rb_ : (w_addr_width : Word) → (n' : ZI) → (addr : Bits w_addr_width) → (access_kind : Text) → MS (Bits (wmul #8 (z-nat n')))
+rb_ w_addr_width n' addr access_kind =
+  let result' : Bits (wmul #8 (z-nat n'))
+      result' = #0
+      loop'15 : ZI → (Bits (wmul #8 (z-nat n'))) → MS (Bits (wmul #8 (z-nat n')))
+      loop'15 =
+        λ offset acc'1 →
+          let result' : Bits (wmul #8 (z-nat n'))
+              result' = acc'1
+          in onS {Bool} {Bits (wmul #8 (z-nat n'))} (canonical_address_p (z-add (bv-signed w_addr_width addr) offset)) (λ t'2 →
+               let k'12 : Unit → MS (Bits (wmul #8 (z-nat n')))
+                   k'12 =
+                     λ t'4 →
+                       let lin_addr : Bits #48
+                           lin_addr = (bv-add-int #48 (sail_mask_signed w_addr_width (zpos #48) addr) offset)
+                       in bindS {Bool} {Bits (wmul #8 (z-nat n'))} (getS {Bool} x86-app_view) (λ app_view'5 →
+                            let k'9 : (Bits #52) → MS (Bits (wmul #8 (z-nat n')))
+                                k'9 =
+                                  λ phys_addr →
+                                    bindS {Bits #8} {Bits (wmul #8 (z-nat n'))} (memi #52 phys_addr) (λ t'8 →
+                                      let result' : Bits (wmul #8 (z-nat n'))
+                                          result' = (bv-update (wmul #8 (z-nat n')) result' (z-nat (z-add (z-mul (zpos #8) offset) (zpos #7))) (z-nat (z-mul (zpos #8) offset)) t'8)
+                                      in retS {Bits (wmul #8 (z-nat n'))} result')
+                            in λ σ →
+                                 if app_view'5 then
+                                   the (MS (Bits (wmul #8 (z-nat n'))))
+                                     (k'9 (sail_mask_signed #48 (zpos #52) lin_addr)) σ
+                                 else
+                                   the (MS (Bits (wmul #8 (z-nat n'))))
+                                     (bindS {Bits #52} {Bits (wmul #8 (z-nat n'))} (ia32e_la_to_pa lin_addr access_kind) (λ t'6 →
+                                        k'9 t'6)) σ)
+               in λ σ →
+                    if (b-not t'2) then
+                      the (MS (Bits (wmul #8 (z-nat n'))))
+                        (onS {Unit} {Bits (wmul #8 (z-nat n'))} (x86_model_error {Unit} #717998118272517707786857072657670767819716897003551439811443) (λ t'3 →
+                           k'12 t'3)) σ
+                    else
+                      the (MS (Bits (wmul #8 (z-nat n'))))
+                        (k'12 unit) σ)
+  in bindS {Bits (wmul #8 (z-nat n'))} {Bits (wmul #8 (z-nat n'))} (foreachS {Bits (wmul #8 (z-nat n'))} (zpos #0) (z-sub n' (zpos #1)) result' loop'15) (λ acc'16 →
+       let result'17 : Bits (wmul #8 (z-nat n'))
+           result'17 = acc'16
+       in retS {Bits (wmul #8 (z-nat n'))} result'17)

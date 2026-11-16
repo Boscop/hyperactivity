@@ -1,0 +1,23 @@
+rm-unop-rv : RCx → RUnOp → ROperand → RFrame → REv RV
+rm-unop-rv cx o a =
+  sr-on (rm-opd-ty cx a) (λ e fr → rm-throw e) (λ aty →
+  sr-on (cx-class cx aty) (λ e fr → rm-throw e) (λ ac →
+    let ea = rm-opd-rv cx a
+    in case o of
+         run-ptr-metadata → λ fr → rm-bind (ea fr) (λ v → case v of
+           rv-fat p m → rm-ret (rv-s m)
+           rv-s x → rm-ret rv-unit
+           rv-dead → rm-throw (rx-ub rub-dead-local)
+           rv-unit → rm-throw (rx-ill-formed ri-operand-class))
+         run-not → (case ac of
+           cl-scalar k → λ fr → rm-bind (ea fr) (λ v → rm-bind (rm-as-s v) (λ x →
+                                rm-bind (rm-res (sv-not k x)) (λ r → rm-ret (rv-s r))))
+           _ → λ fr → rm-throw (rx-unsupported (rz-unop o)))
+         run-neg → (case ac of
+           cl-scalar k → (case k of
+             sk-int sg w → (case w of
+               iw128 → λ fr → rm-throw (rx-unsupported rz-wide-128)
+               _ → λ fr → rm-bind (ea fr) (λ v → rm-bind (rm-as-s v) (λ x →
+                          rm-bind (rm-res (sv-as-i x)) (λ n → rm-ret (rv-s (sv-i (uq-cn sg w (uq-neg n))))))))
+             _ → λ fr → rm-throw (rx-unsupported (rz-unop o)))
+           _ → λ fr → rm-throw (rx-unsupported (rz-unop o)))))

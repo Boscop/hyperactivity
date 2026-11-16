@@ -1,0 +1,36 @@
+-- ---------------------------------------------------------------- the transitions
+-- an instruction of thread t: a load reads the newest write to the address in t's own buffer,
+-- else memory; a store enters t's buffer; a locked instruction and mfence are enabled only
+-- when t's buffer is empty (otherwise refused: the state is returned unchanged), and a locked
+-- instruction reads and writes memory in one transition
+tso-instr : (t : Word) → (i : TsoI) → TsoSt → Sum (tsoi-resp i × TsoSt) TsoSt
+tso-instr t i (tso-st m ls bf nx lg) =
+  case i return (λ x → Sum (tsoi-resp x × TsoSt) TsoSt) of
+    t-load a →
+      (case tso-buf-find a (bf t) of
+         inl p → inl (fst p , tso-st m ls bf (%wsucc nx) (cons (l-read t nx a (fst p) (snd p)) lg))
+         inr u → inl (m a , tso-st m ls bf (%wsucc nx) (cons (l-read t nx a (m a) (ls a)) lg)))
+    t-store a v →
+      inl (unit , tso-st m ls (tso-upd t (cons (cons (tso-b a v nx) nil) (bf t)) bf) (%wsucc nx) (cons (l-write t nx a v) lg))
+    t-xchg a v →
+      (case tso-empty (bf t) of
+         true → inl (m a , tso-st (mem-write a v m) (tso-upd a nx ls) bf (%wsucc nx) (cons (l-locked t nx a (m a) (ls a) v) lg))
+         false → inr (tso-st m ls bf nx lg))
+    t-cmpxchg a o n →
+      (case tso-empty (bf t) of
+         true → (let w = (if weq (m a) o then n else m a)
+                 in inl (m a , tso-st (mem-write a w m) (tso-upd a nx ls) bf (%wsucc nx) (cons (l-locked t nx a (m a) (ls a) w) lg)))
+         false → inr (tso-st m ls bf nx lg))
+    t-mfence →
+      (case tso-empty (bf t) of
+         true → inl (unit , tso-st m ls bf (%wsucc nx) (cons (l-fence t nx) lg))
+         false → inr (tso-st m ls bf nx lg))
+    t-loadn a n → inl (tso-readn (tso-nat n) t a #0 #0 (tso-st m ls bf nx lg))
+    t-storen a n v →
+      inl (unit , tso-st m ls (tso-upd t (cons (tso-group (tso-nat n) a #0 v nx) (bf t)) bf) (wadd nx n)
+                    (tso-wlabels (tso-group (tso-nat n) a #0 v nx) t lg))
+    t-rmwn a n f →
+      (case tso-empty (bf t) of
+         true → inl (tso-peekn (tso-nat n) m a #0 #0 ,
+                     tso-lockn (tso-nat n) t a #0 (f (tso-peekn (tso-nat n) m a #0 #0)) (tso-st m ls bf nx lg))
+         false → inr (tso-st m ls bf nx lg))

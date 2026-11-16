@@ -1,0 +1,17 @@
+-- the endpoint projection, unguarded: a role not involved in a step skips it; the chooser picks a
+-- label and announces it; another role is offered the label and follows the branch
+project-raw : Word → Chor → Proc {lzero} LocS Unit
+project-raw me g = case g of
+  cend → ret {lzero} {LocS} {Unit} unit
+  xfer a b v k →
+    (case weq me a of
+       true → bind {lzero} {LocS} {Unit} {Unit} (cmd {lzero} {LocS} (send b v)) (λ u → rec k)
+       false → (case weq me b of
+                  true → bind {lzero} {LocS} {Word} {Unit} (cmd {lzero} {LocS} (recvf a)) (λ w → rec k)
+                  false → rec k))
+  choice a l r →
+    (case weq me a of
+       true → bind {lzero} {LocS} {Word} {Unit} (cmd {lzero} {LocS} pick) (λ lbl →
+                bind {lzero} {LocS} {Unit} {Unit} (cmd {lzero} {LocS} (tell lbl)) (λ u →
+                  case weq lbl #0 of true → rec l; false → rec r))
+       false → bind {lzero} {LocS} {Word} {Unit} (cmd {lzero} {LocS} (offer a)) (λ lbl → case weq lbl #0 of true → rec l; false → rec r))

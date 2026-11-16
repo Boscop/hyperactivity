@@ -1,0 +1,14 @@
+-- __builtin_add_overflow, __builtin_mul_overflow (GCC's documented meaning): the operation on
+-- the mathematical values of the first two arguments; the result converted to the type the
+-- third points to and stored there; true when it is not that value
+cx-overflow : CxU → Bool → CType → CType → CType → SV → SV → MPtr → CxEv CxR
+cx-overflow u mul ta tb tr a b rp =
+  cx-bind {Bool × Word} {CxR} (cx-res {Bool × Word} (cx-sm u ta a)) (λ x →
+  cx-bind {Bool × Word} {CxR} (cx-res {Bool × Word} (cx-sm u tb b)) (λ y →
+  cx-bind {SK} {CxR} (cx-res {SK} (cx-sk u tr)) (λ k → case k of
+    sk-int sg w →
+      (λ (z : Bool × Word) → cx-then {Unit} {CxR} (cx-st u tr #0 rp (cx-sm-wrap sg w z)) (cx-val (sv-b (not (cx-sm-fits sg w z)))))
+      (case mul of
+         true → cx-sm-mul x y
+         false → cx-sm-add x y)
+    _ → cx-stop {CxR} st-ill-typed)))

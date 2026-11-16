@@ -1,0 +1,44 @@
+-- (part of language-support)
+two_byte_opcode_execute-case7 : (proc_mode' : proc_mode) → (start_rip : Bits #48) → (temp_rip : Bits #48) → (prefixes' : prefixes) → (rex_byte : Bits #8) → (opcode : Bits #8) → (modr_m' : modr_m) → (sib' : sib) → MS Unit
+two_byte_opcode_execute-case7 proc_mode' start_rip temp_rip prefixes' rex_byte opcode modr_m' sib' =
+  λ σ →
+    if (in_64bit_mode proc_mode') then
+      the (MS Unit)
+        (let k'2050 : Bool → MS Unit
+             k'2050 =
+               λ t'227 →
+                 let k'2044 : Unit → MS Unit
+                     k'2044 =
+                       λ t'232 →
+                         x86_sysret proc_mode' start_rip temp_rip prefixes' rex_byte opcode modr_m' sib'
+                 in λ σ →
+                      if t'227 then
+                        the (MS Unit)
+                          (onS {Unit} {Unit} (x86_fault {Unit} #172777358377) (λ t'228 →
+                             k'2044 t'228)) σ
+                      else
+                        the (MS Unit)
+                          (bindS {List (Bits #16)} {Unit} (getS {List (Bits #16)} x86-seg_visibles) (λ seg_visibles'229 →
+                             let k'2047 : Unit → MS Unit
+                                 k'2047 =
+                                   λ t'231 →
+                                     k'2044 unit
+                             in λ σ →
+                                  if (b-not (z-eq (bv-unsigned #2 (segment_selectorbits-rpl (vec-get {Bits #16} #0 seg_visibles'229 #1))) (zpos #0))) then
+                                    the (MS Unit)
+                                      (onS {Unit} {Unit} (x86_fault {Unit} #172776443945) (λ t'230 →
+                                         k'2047 t'230)) σ
+                                  else
+                                    the (MS Unit)
+                                      (k'2047 unit) σ)) σ
+         in λ σ →
+              if (weq #240 (prefixes-lck prefixes')) then
+                the (MS Unit)
+                  (k'2050 true) σ
+              else
+                the (MS Unit)
+                  (bindS {Bits #64} {Unit} (read_msr (zpos #0)) (λ t'226 →
+                     k'2050 (weq (ia32_eferbits-sce (bv-trunc #64 #12 t'226)) #0))) σ) σ
+    else
+      the (MS Unit)
+        (liftS {Unit} (x86_fault {Unit} #35450568791633019080445828289251570610832481668774949946961636167982556879174149304260345664107514966141168347825900548810313793061510770541575357593085250385449)) σ

@@ -1,0 +1,31 @@
+-- (part of language-support)
+add_to_iptr : (proc_mode' : proc_mode) → (iptr : Bits #48) → (delta' : Bits #48) → MS (Bits #48)
+add_to_iptr proc_mode' iptr delta' =
+  let iptr_plus_delta : Bits #49
+      iptr_plus_delta = (bits_of_int (z-add (bv-signed #48 iptr) (bv-signed #48 delta')) (zpos #49))
+  in λ σ →
+       if (in_64bit_mode proc_mode') then
+         the (MS (Bits #48))
+           (onS {Bool} {Bits #48} (canonical_address_p (bv-signed #49 iptr_plus_delta)) (λ t'1 →
+              λ σ →
+                if t'1 then
+                  the (MS (Bits #48))
+                    (retS {Bits #48} (bv-trunc #49 #48 iptr_plus_delta)) σ
+                else
+                  the (MS (Bits #48))
+                    (liftS {Bits #48} (x86_model_error {Bits #48} #1728348594797682443196891025455363607367087007122150466909842308027891024550708562)) σ)) σ
+       else if (in_compatibility_mode proc_mode') then
+         the (MS (Bits #48))
+           (bindS {List (Bits #32)} {Bits #48} (getS {List (Bits #32)} x86-seg_hidden_limits) (λ seg_hidden_limits'4 →
+              let cs_limit : Bits #32
+                  cs_limit = (loghead_bits #32 (zpos #32) (vec-get {Bits #32} #0 seg_hidden_limits'4 #1))
+              in λ σ →
+                   if (b-and (z-le (zpos #0) (bv-signed #49 iptr_plus_delta)) (z-le (bv-signed #49 iptr_plus_delta) (bv-unsigned #32 cs_limit))) then
+                     the (MS (Bits #48))
+                       (retS {Bits #48} (bv-trunc #49 #48 (bv-zext #32 #49 (bv-trunc #49 #32 iptr_plus_delta)))) σ
+                   else
+                     the (MS (Bits #48))
+                       (liftS {Bits #48} (x86_model_error {Bits #48} #442487580509546926083423635617153970140593258236178230209383788100787920631902782802)) σ)) σ
+       else
+         the (MS (Bits #48))
+           (liftS {Bits #48} (x86_model_error {Bits #48} #1430326534880091636827201117228958513375655924002173436997)) σ

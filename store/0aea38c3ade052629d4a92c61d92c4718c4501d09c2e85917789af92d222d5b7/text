@@ -1,0 +1,19 @@
+-- the arguments of a call as slots: a register operand's value; an object operand copied into
+-- a new allocation that becomes the callee's local
+rm-args : List ROperand → RCx → RFrame → REv (List RSlot)
+rm-args nil cx = λ fr → rm-ret nil
+rm-args (cons op ops) cx =
+  sr-on (rm-opd-ty cx op) (λ e fr → rm-throw e) (λ ty →
+  sr-on (cx-class cx ty) (λ e fr → rm-throw e) (λ c →
+    let rest = rm-args ops cx
+    in case c of
+         cl-mem →
+           sr-on (cx-size cx ty) (λ e fr → rm-throw e) (λ sz →
+           sr-on (cx-align cx ty) (λ e fr → rm-throw e) (λ al →
+             let st = rm-opd-into cx op ty al
+             in λ fr → rm-bind (rm-alloc sz al) (λ p →
+                       rm-then (st fr p)
+                      (rm-bind (rest fr) (λ r → rm-ret (cons (sl-mem p) r))))))
+         _ →
+           (let ev = rm-opd-rv cx op
+            in λ fr → rm-bind (ev fr) (λ v → rm-bind (rest fr) (λ r → rm-ret (cons (sl-reg v) r))))))

@@ -1,0 +1,8 @@
+dp-recv : {l : Level} {M : Type} → Codec M → List NodeCfg → Word → Word → Proc {l} Linux (Rcv M)
+dp-recv {l} {M} cd nodes fd buf =
+  bind {l} {Linux} {Sum Errno (Upto #32 × SockAddr)} {Rcv M} (lx {l} (lx-recvfrom fd buf #32 #0)) (λ r →
+    case r of
+      inl e → ret {l} {Linux} {Rcv M} r-timeout
+      inr x → (case weq (fst (fst x)) #32 of
+                 true → bind {l} {Linux} {Wire} {Rcv M} (dp-peek4 {l} buf) (λ w → ret {l} {Linux} {Rcv M} (r-msg (dp-id-of nodes (snd x)) (cd-dec cd w)))
+                 false → ret {l} {Linux} {Rcv M} r-timeout))

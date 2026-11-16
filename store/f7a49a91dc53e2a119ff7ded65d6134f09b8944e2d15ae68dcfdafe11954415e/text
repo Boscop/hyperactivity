@@ -1,0 +1,11 @@
+-- ---------------------------------------------------------------- the rvalue written to memory
+-- operands stored at the fields they fill
+rm-agg-fields : List ROperand → RCx → List RFieldLayout → Word → RFrame → MPtr → REv Unit
+rm-agg-fields nil cx fls al = λ fr p → rm-ret unit
+rm-agg-fields (cons op ops) cx fls al = case fls of
+  nil → λ fr p → rm-throw (rx-ill-formed ri-arity)
+  cons f fs →
+    sr-on (cx-align cx (rf-ty f)) (λ e fr p → rm-throw e) (λ fa →
+      let one = rm-opd-into cx op (rf-ty f) (rm-wmin al fa)
+          rest = rm-agg-fields ops cx fs al
+      in λ fr p → rm-bind (rm-off p (rf-off f)) (λ q → rm-then (one fr q) (rest fr p)))

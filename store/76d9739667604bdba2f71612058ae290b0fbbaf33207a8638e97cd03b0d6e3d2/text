@@ -1,0 +1,12 @@
+-- An integer of 2, 4 or 8 bytes at an alignment below its kind's (a field of a packed struct,
+-- an array of bytes transmuted): the monad's load and store are at the kind's own alignment,
+-- so it is read and written as its bytes in the Target's order.
+rm-bytes-rd : Word → Target → MPtr → REv UInt64
+rm-bytes-rd n t p =
+  %welimP (λ x → REv UInt64) n (rm-ret uq0)
+    (λ j acc → rm-bind acc (λ hi →
+       rm-bind (rm-off p (case tg-endian t of
+                            en-little → wsub (wsub n #1) j
+                            en-big → j)) (λ q →
+       rm-bind (ev-load {lzero} {NoS} {RExc} t (sk-int false iw8) q) (λ b →
+       rm-bind (rm-res (sv-as-i b)) (λ x → rm-ret (u64or (u64shl hi (u64 #8)) x))))))

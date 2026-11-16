@@ -1,0 +1,21 @@
+-- ---------------------------------------------------------------- statements
+-- StorageLive and StorageDead of a local. An object: its allocation released if it has one,
+-- and a new one made (live) or none (dead). A register: no value. (StorageLive of a live
+-- local is a fresh local, StorageDead of a dead one nothing: as Miri has them.)
+rm-storage : RCx → Word → Bool → RFrame → REv RFrame
+rm-storage cx l live =
+  sr-on (cx-lty cx l) (λ e fr → rm-throw e) (λ lt →
+  sr-on (cx-class cx lt) (λ e fr → rm-throw e) (λ c → case c of
+    cl-mem →
+      sr-on (cx-size cx lt) (λ e fr → rm-throw e) (λ sz →
+      sr-on (cx-align cx lt) (λ e fr → rm-throw e) (λ al →
+        λ fr → rm-bind (fr-get fr l) (λ s → case s of
+          sl-reg v → rm-throw (rx-ill-formed ri-operand-class)
+          sl-mem p → rm-then (rm-release p) (case live of
+            true → rm-bind (rm-alloc sz al) (λ q → rm-ret (fr-set fr l (sl-mem q)))
+            false → rm-ret (fr-set fr l sl-none))
+          sl-none → (case live of
+            true → rm-bind (rm-alloc sz al) (λ q → rm-ret (fr-set fr l (sl-mem q)))
+            false → rm-ret fr))))
+    cl-unit → λ fr → rm-ret fr
+    _ → λ fr → rm-ret (fr-set fr l (sl-reg rv-dead))))

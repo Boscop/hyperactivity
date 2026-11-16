@@ -1,0 +1,91 @@
+-- check.cub — the type checker as a term: Remark 5.26 “no outer layer” (evaluator, type checker and
+-- optimizer are terms of the same language),
+-- in §5.5 “What the length counts” of the earlier paper "Respecting Equality", cited in this repository before 2026-11-11 (docs/index.html of the
+-- earlier repository avikj/math, last changed 8 Oct 2026, sha256 984fafe88eb6…; no copy is in this repository;
+-- its §5 “Complete inference is deterministic and step-optimal” is restated by number in EXPOSITION.md, removed at f00bd0f, readable as git show adaebcd:EXPOSITION.md).
+-- The counterpart in the repository's copy of the paper (docs/Hyperactive_Final_Paper.pdf,
+-- 11 Nov 2026, sha256 e8f358b4cd2c…, §1.2 “Programs about programs” and
+-- §6.2 “Specialization as a program over the language’s own definitions”):
+-- "The checker is itself a term: it analyzes the evaluator's values through a structured observation
+-- %view". Its input is the code of a term in which
+-- every node carries the term's value: the machine computed it from the compiled subterm, once,
+-- with each node's value built from its parts' values. A binder's code is a function: a term
+-- binder takes a variable's value and type, a dimension binder a dimension, and gives the code
+-- of the body; instantiating a binder is applying it. A variable's node carries its value and
+-- type, so there is no context: a fresh variable is (%var n T), a fresh dimension (%dim n) (n its
+-- source name, a word), each
+-- made once where it is introduced. A system's branches are thunks of their codes; under a
+-- clause the checker restricts the thunk and forces it, so a branch is computed under its face.
+-- The checker reads values through %view, which gives a value's head as data whose fields are
+-- the value's parts: application, projection, composition, Glue, transport and the endpoints of
+-- a path variable are the machine's own steps. Checked definitions, their types and the data
+-- types are reached through the tables %gval, %gty, %dtab and %dent (words index them).
+--
+-- ---------------------------------------------------------------- codes
+data Tm
+  = tv x T
+  | ti i
+  | tg n V
+  | tlam nm b V
+  | tapp f a V
+  | tpair a b V
+  | tfst p V
+  | tsnd p V
+  | tpi A nm b V
+  | tsigma A nm b V
+  | tuniv l V
+  | tpathp A a b V
+  | tplam nm b V
+  | tpapp p r V
+  | tc0
+  | tc1
+  | tneg r V
+  | tmeet r s V
+  | tjoin r s V
+  | teq0 r V
+  | teq1 r V
+  | tfand a b V
+  | tfor a b V
+  | ttt
+  | tff
+  | tforall nm b V
+  | tsys bs V
+  | tcomp A u a V
+  | tgluet A S V
+  | tglue S a V
+  | tunglue S b V
+  -- a composition of types (its faces lines of types from A) and the unglue of its elements
+  | thcompu A S V
+  | tunglueu S b V
+  | tlet t nm b V
+  | tann t T V
+  | tdata d ps V
+  | tcon d c fs ds V
+  | telim d P B x F V
+  | tcase d B x F V
+  | thcomp u a V
+  | tforce t V
+  | tthunk t V
+  | tlevel
+  | tlzero
+  | tlsuc l V
+  | tlmax a b V
+  | tword
+  | tlit V
+  | twsucc a V
+  | twop k a b V
+  | twelim P w z s V
+  | tproj d k x V
+  | trec d fs V
+  -- elaboration: an implicit argument to find (V a fresh variable standing for it); a λ or an
+  -- application whose kind (function or path) was guessed (g: #0 λ, #1 line, #2 application,
+  -- #3 path application)
+  | thole k V
+  | tguess k g t V
+  -- an application with holes among its arguments
+  | tspine t V
+  -- guarded recursion: the type of clocks, the type of the ticks of a clock, the closed clock
+  | tclock
+  | ttick k V
+  | tclock0
+  | ttick0

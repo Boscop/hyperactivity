@@ -1,0 +1,108 @@
+-- (part of language-support)
+x86_effective_addr_from_sib : (proc_mode' : proc_mode) → (temp_rip : Bits #48) → (rex_byte : Bits #8) → (mod_var : Bits #2) → (sib' : sib) → MS (ZI × (Bits #64) × ZI)
+x86_effective_addr_from_sib proc_mode' temp_rip rex_byte mod_var sib' =
+  let b' : Bits #3
+      b' = (sib-base sib')
+      check_alignment? : Bool
+      check_alignment? = false
+  in let k'31 : ((Bits #64) × (Bits #64) × ZI) → MS (ZI × (Bits #64) × ZI)
+         k'31 =
+           λ t'21 →
+             let base' : Bits #64
+                 base' = (fst t'21)
+                 displacement : Bits #64
+                 displacement = (fst (snd t'21))
+                 nrip_bytes : ZI
+                 nrip_bytes = (snd (snd t'21))
+             in onS {Bits #4} {(ZI × (Bits #64) × ZI)} (reg_index (sib-index sib') rex_byte #1) (λ ix →
+                  let k'27 : (Bits #64) → MS (ZI × (Bits #64) × ZI)
+                      k'27 =
+                        λ index' →
+                          let scale' : Bits #2
+                              scale' = (sib-scale sib')
+                              scaled_index : ZI
+                              scaled_index = (ash_int (bv-signed #64 index') (bv-unsigned #2 scale'))
+                              effective_addr : ZI
+                              effective_addr = (z-add (bv-signed #64 base') scaled_index)
+                          in retS {(ZI × (Bits #64) × ZI)} (effective_addr , displacement , nrip_bytes)
+                  in λ σ →
+                       if (weq ix #4) then
+                         the (MS (ZI × (Bits #64) × ZI))
+                           (k'27 #0) σ
+                       else if (in_64bit_mode proc_mode') then
+                         the (MS (ZI × (Bits #64) × ZI))
+                           (bindS {Bits #64} {(ZI × (Bits #64) × ZI)} (rgfi (bv-unsigned #4 ix)) (λ t'23 →
+                              k'27 t'23)) σ
+                       else
+                         the (MS (ZI × (Bits #64) × ZI))
+                           (bindS {Bits #64} {(ZI × (Bits #64) × ZI)} (rgfi (bv-unsigned #4 ix)) (λ t'24 →
+                              k'27 (bv-sext #32 #64 (bv-trunc #64 #32 t'24)))) σ)
+     in λ σ →
+          if (weq mod_var #0) then
+            the (MS (ZI × (Bits #64) × ZI))
+              (let k'33 : ((Bits #64) × (Bits #64) × ZI) → MS (ZI × (Bits #64) × ZI)
+                   k'33 =
+                     λ t'7 →
+                       k'31 t'7
+               in λ σ →
+                    if (weq b' #5) then
+                      the (MS (ZI × (Bits #64) × ZI))
+                        (bindS {ZI} {(ZI × (Bits #64) × ZI)} (select_address_size proc_mode' None) (λ t'1 →
+                           bindS {Bits #64} {(ZI × (Bits #64) × ZI)} (rime_size proc_mode' t'1 (zpos #4) (bv-sext #48 #64 temp_rip) None (zpos #1) #14936 check_alignment? false) (λ dword →
+                             k'33 (#0 , dword , (zpos #4))))) σ
+                    else
+                      the (MS (ZI × (Bits #64) × ZI))
+                        (let k'36 : (Bits #64) → MS (ZI × (Bits #64) × ZI)
+                             k'36 =
+                               λ t'6 →
+                                 k'33 (t'6 , #0 , (zpos #0))
+                         in λ σ →
+                              if (in_64bit_mode proc_mode') then
+                                the (MS (ZI × (Bits #64) × ZI))
+                                  (onS {Bits #4} {(ZI × (Bits #64) × ZI)} (reg_index b' rex_byte #0) (λ t'3 →
+                                     bindS {Bits #64} {(ZI × (Bits #64) × ZI)} (rgfi (bv-unsigned #4 t'3)) (λ t'4 →
+                                       k'36 t'4))) σ
+                              else
+                                the (MS (ZI × (Bits #64) × ZI))
+                                  (bindS {Bits #32} {(ZI × (Bits #64) × ZI)} (rr32 (bv-zext #3 #4 b')) (λ t'5 →
+                                     k'36 (bv-zext #32 #64 t'5))) σ) σ) σ
+          else if (weq mod_var #1) then
+            the (MS (ZI × (Bits #64) × ZI))
+              (bindS {ZI} {(ZI × (Bits #64) × ZI)} (select_address_size proc_mode' None) (λ t'8 →
+                 bindS {Bits #64} {(ZI × (Bits #64) × ZI)} (rime_size proc_mode' t'8 (zpos #1) (bv-sext #48 #64 temp_rip) None (zpos #1) #14936 check_alignment? false) (λ byte →
+                   let k'40 : (Bits #64) → MS (ZI × (Bits #64) × ZI)
+                       k'40 =
+                         λ t'13 →
+                           k'31 (t'13 , byte , (zpos #1))
+                   in λ σ →
+                        if (in_64bit_mode proc_mode') then
+                          the (MS (ZI × (Bits #64) × ZI))
+                            (onS {Bits #4} {(ZI × (Bits #64) × ZI)} (reg_index b' rex_byte #0) (λ t'10 →
+                               bindS {Bits #64} {(ZI × (Bits #64) × ZI)} (rgfi (bv-unsigned #4 t'10)) (λ t'11 →
+                                 k'40 t'11))) σ
+                        else
+                          the (MS (ZI × (Bits #64) × ZI))
+                            (bindS {Bits #32} {(ZI × (Bits #64) × ZI)} (rr32 (bv-zext #3 #4 b')) (λ t'12 →
+                               k'40 (bv-zext #32 #64 t'12))) σ))) σ
+          else if (weq mod_var #2) then
+            the (MS (ZI × (Bits #64) × ZI))
+              (bindS {ZI} {(ZI × (Bits #64) × ZI)} (select_address_size proc_mode' None) (λ t'14 →
+                 bindS {Bits #64} {(ZI × (Bits #64) × ZI)} (rime_size proc_mode' t'14 (zpos #4) (bv-sext #48 #64 temp_rip) None (zpos #1) #14936 check_alignment? false) (λ dword →
+                   let k'44 : (Bits #64) → MS (ZI × (Bits #64) × ZI)
+                       k'44 =
+                         λ t'19 →
+                           k'31 (t'19 , dword , (zpos #4))
+                   in λ σ →
+                        if (in_64bit_mode proc_mode') then
+                          the (MS (ZI × (Bits #64) × ZI))
+                            (onS {Bits #4} {(ZI × (Bits #64) × ZI)} (reg_index b' rex_byte #0) (λ t'16 →
+                               bindS {Bits #64} {(ZI × (Bits #64) × ZI)} (rgfi (bv-unsigned #4 t'16)) (λ t'17 →
+                                 k'44 t'17))) σ
+                        else
+                          the (MS (ZI × (Bits #64) × ZI))
+                            (bindS {Bits #32} {(ZI × (Bits #64) × ZI)} (rr32 (bv-zext #3 #4 b')) (λ t'18 →
+                               k'44 (bv-zext #32 #64 t'18))) σ))) σ
+          else
+            the (MS (ZI × (Bits #64) × ZI))
+              (onS {((Bits #64) × (Bits #64) × ZI)} {(ZI × (Bits #64) × ZI)} (x86_model_error {((Bits #64) × (Bits #64) × ZI)} #15319171241108152325239130745627522150552987599271167403965025398780742728370067442246247603205718551858) (λ t'20 →
+                 k'31 t'20)) σ

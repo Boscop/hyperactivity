@@ -1,0 +1,16 @@
+-- ---------------------------------------------------------------- typed copy
+-- A value of a type copied from one place to another, by the type: a scalar is loaded and
+-- stored (so an unwritten scalar is undefined to copy, and padding is not copied), a struct or
+-- tuple field by field, an array element by element, an enum by its tag: the active variant's
+-- fields, then the tag. A tag that is no variant's is undefined behaviour (a niche encoding
+-- has an untagged variant, which every other tag value means). Layouts refer to types and
+-- types to layouts, so the recursion is on a depth (the number of layouts bounds it).
+rm-copy-fields : List RFieldLayout → (RTy → Word → Word → MPtr → MPtr → REv Unit) → Target → List RLayoutEntry → Word → Word → MPtr → MPtr → REv Unit
+rm-copy-fields nil cpy t ls da sa = λ dst src → rm-ret unit
+rm-copy-fields (cons f fs) cpy t ls da sa =
+  sr-on (rm-align t ls (rf-ty f)) (λ e dst src → rm-throw e) (λ fa →
+    let one = cpy (rf-ty f) (rm-wmin da fa) (rm-wmin sa fa)
+        rest = rm-copy-fields fs cpy t ls da sa
+    in λ dst src → rm-bind (rm-off dst (rf-off f)) (λ d →
+                   rm-bind (rm-off src (rf-off f)) (λ s →
+                   rm-then (one d s) (rest dst src))))

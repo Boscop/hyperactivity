@@ -4768,12 +4768,6 @@ static int jit_bind(const char *name, int ck, const unsigned char *b, size_t len
 }
 #include "syntax.c"
 #include "drivers.c"
-static char *slurp(const char *path) {
-    FILE *f = fopen(path, "rb"); if (!f) die("cannot open", path);
-    fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
-    char *b = malloc((size_t)n + 1); size_t got = fread(b, 1, (size_t)n, f); b[got] = 0; fclose(f);
-    return b;
-}
 static uint64_t run_key[2] = { 0xcbf29ce484222325ull, 0x84222325cbf29ce4ull };
 static char **loaded; static size_t caploaded; static int nloaded;
 static void key_mix(const char *b, size_t n) {
@@ -4782,14 +4776,24 @@ static void key_mix(const char *b, size_t n) {
         run_key[1] = (run_key[1] ^ (unsigned char)b[i]) * 0x1000193ull + (run_key[1] >> 29);
     }
 }
+/* a module's path from the repository root, and the absolute path naming it (as errors and the
+ * bootstrap files are named) */
+static char *abs_of(const char *rel) {
+    root_init();
+    if (rel[0] == '/') return strdup(rel);
+    char *a = malloc(strlen(repo_root) + strlen(rel) + 2); sprintf(a, "%s/%s", repo_root, rel); return a;
+}
 static void load_file(const char *path, bool must) {
-    char *rp = realpath(path, NULL);
-    if (!rp) die("cannot open", path);
-    for (int i = 0; i < nloaded; i++) if (!strcmp(loaded[i], rp)) { free(rp); return; }
-    GROW(loaded, caploaded, (size_t)nloaded + 1); loaded[nloaded++] = rp;
-    size_t pl = strlen(rp);
-    if (pl <= 4 || strcmp(rp + pl - 4, ".cub")) die("refused: a file of core forms is outside the type system; only .cub files load:", path);
-    char *text = slurp(rp);
+    /* a module is read from the source (src/syntax.c, src_text), by its path from the repository root;
+     * the disk is read only for a file the source does not hold yet */
+    char *rel = w_rel(path);
+    for (int i = 0; i < nloaded; i++) if (!strcmp(loaded[i], rel)) { free(rel); return; }
+    GROW(loaded, caploaded, (size_t)nloaded + 1); loaded[nloaded++] = rel;
+    size_t pl = strlen(rel);
+    if (pl <= 4 || strcmp(rel + pl - 4, ".cub")) die("refused: a file of core forms is outside the type system; only .cub files load:", path);
+    char *text = src_text(rel, NULL);
+    if (!text) die("cannot open", path);
+    char *rp = abs_of(rel);
     /* a file the system runs as a program (its first line `#!build/cubical`, 2026-11-15: hyperactive
      * is bootstrapped from the machine alone) keeps that line: the reader reads it as a comment
      * (src/syntax.c, x_lex), so the written store holds the text exactly as written */
@@ -4815,9 +4819,9 @@ static void prof_print(void);
 /* --imports FILE ...: each file's imports, as the reader reads them, without loading anything: a line
  * `imports: FILE IMPORT ...`, paths from the repository root (lib/hyperactive.cub's every reads it) */
 static void imports_of(const char *path) {
-    char *rp = realpath(path, NULL);
-    if (!rp) { printf("imports: %s ?\n", path); return; }
-    char *text = slurp(rp);
+    char *rel0 = w_rel(path); char *text = src_text(rel0, NULL);
+    if (!text) { printf("imports: %s ?\n", path); free(rel0); return; }
+    char *rp = abs_of(rel0); free(rel0);
     xt = NULL; nxt = capxt = 0; lt = NULL; nlt = caplt = 0; x_file = rp;
     x_lex(text); x_layout(); xp = 0;
     char *dir = strdup(rp); char *sl = strrchr(dir, '/'); if (sl) *sl = 0;
@@ -4918,6 +4922,20 @@ int cubical_main(int argc, char **argv)
 int main(int argc, char **argv)
 #endif
 {
+    /* the machine by another name (2026-11-16: no file holds a program): ./hyperactive and the
+     * pre-commit hook are links to the machine, which runs the program the source holds for the name */
+    {
+        const char *b = strrchr(argv[0], '/'); b = b ? b + 1 : argv[0];
+        const char *prog = !strcmp(b, "hyperactive") ? "lib/hyperactive.cub" : !strcmp(b, "pre-commit") ? "lib/guard.cub" : NULL;
+        if (prog) {
+            char **nv = malloc((size_t)(argc + 2) * sizeof(char *));
+            nv[0] = "build/cubical"; nv[1] = (char *)prog;
+            for (int i = 1; i < argc; i++) nv[i + 1] = argv[i];
+            nv[argc + 1] = NULL;
+            execv("/proc/self/exe", nv);
+            die("cannot run the machine as", b);
+        }
+    }
     /* the parser and the printer recurse once per nesting level, and a program printed as a byte
      * list is nested once per byte: the stack is raised to 1 GB (or the hard limit) and the
      * machine started again under it, once */
@@ -4943,6 +4961,27 @@ int main(int argc, char **argv)
         FILE *nul = fopen("/dev/null", "w"); dup2(fileno(nul), 1);
     }
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--read")) read_only = true;
+    for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--ingest") || (!strcmp(argv[i], "--record") && i + 2 < argc)) {
+        /* the one reader (src/syntax.c, record_source): files on the disk recorded in the source */
+        bool rec = !strcmp(argv[i], "--record");
+        for (int j = i + 1; j < argc; j += rec ? 2 : 1) {
+            /* --record: FILE's text; --ingest: the path as the source holds it, else as the disk does */
+            const char *from = rec ? argv[j + 1] : argv[j];
+            size_t n = 0; char *b;
+            if (rec) {
+                FILE *f = fopen(from, "rb"); if (!f) die("cannot open", from);
+                size_t cap = 65536; b = malloc(cap); size_t k;
+                while ((k = fread(b + n, 1, cap - n - 1, f)) > 0) { n += k; if (cap - n < 2) { cap *= 2; b = realloc(b, cap); } }
+                fclose(f); b[n] = 0;
+            } else { char *r0 = w_rel(from); b = src_text(r0, &n); free(r0); if (!b) die("cannot open", from); }
+            if (strlen(b) != n) { fprintf(stderr, "not recorded (it holds a zero byte): %s\n", from); free(b); if (rec) break; continue; }
+            char *rel = w_rel(argv[j]); char *ab = abs_of(rel);
+            record_source(b, ab);
+            free(ab); free(rel); free(b);
+            if (rec) break;
+        }
+        fflush(stdout); _Exit(0);
+    }
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--imports")) { for (int j = i + 1; j < argc; j++) imports_of(argv[j]); fflush(stdout); _Exit(0); }
     for (int i = 1; i < argc; i++) {
         /* --print f: f's core forms in the surface language; --roundtrip f: each printed form parsed

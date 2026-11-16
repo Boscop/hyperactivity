@@ -1,0 +1,11 @@
+-- whether dropping a value of a type does anything: it has a Drop impl, or something in it has
+rm-needs-drop : Word → RCx → RTy → RSt Bool
+rm-needs-drop d cx =
+  %welimP (λ x → RTy → RSt Bool) d (λ ty → sr-ill ri-layout-depth)
+    (λ k again ty → sr-bind (cx-class cx ty) (λ c → case c of
+       cl-mem → (case ty of
+         rty-array e n → again e
+         _ → sr-bind (rm-drop-find (cr-drops (cx-crate cx)) (cr-instances (cx-crate cx)) ty) (λ o → case o of
+           ro-some j → sr-ok true
+           ro-none → sr-bind (rm-lay (cx-ls cx) ty) (λ l → rm-any-variants (ly-variants-of l) again)))
+       _ → sr-ok false))

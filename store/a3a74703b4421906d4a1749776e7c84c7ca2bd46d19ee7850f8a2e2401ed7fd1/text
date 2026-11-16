@@ -1,0 +1,16 @@
+-- push rax (50): decoded at the frame (the hypothesis dec, by computation where the bytes are
+-- literal), the stack pointer and the 8 bytes it writes canonical
+push-rax : (f : FR) →
+           x86-step (fs f) ≡ x86_push_general_register Mode_64bit #4194304 #4194305 #1407374883553280 #0 #80 #0 #0 (fs f) →
+           canon (sp-add (f-rsp f) #18446744073709551608) ≡ true →
+           canon (push-addr (sp-add (f-rsp f) #18446744073709551608)) ≡ true →
+           WbOk #64 (push-addr (sp-add (f-rsp f) #18446744073709551608)) #8 (zpos #0) →
+           x86-step (fs f) ≡ the (MF Unit × X86) (out-val unit , push-post #4194305 f)
+push-rax f dec h0 h1 h2 =
+  dec
+  ∙ bind-ok (add_to_sptr Mode_64bit (f-rsp f) #18446744073709551608) (push-k1 Mode_64bit #4194304 #4194305 #1407374883553280 #0 #80 (zpos #8))
+      (fs f) (fs f) (sp-add (f-rsp f) #18446744073709551608) (add-sp (f-rsp f) #18446744073709551608 (fs f) h0)
+  ∙ bind-ok (wme_size Mode_64bit (zpos #8) (zpos #8) (push-addr (sp-add (f-rsp f) #18446744073709551608)) None (zpos #2) (bv-zext #64 #128 (f-rax f)) false false)
+      (λ t'10 → bindS {Unit} {Unit} (write_sptr Mode_64bit (sp-add (f-rsp f) #18446744073709551608)) (λ t'11 → write_iptr Mode_64bit #4194305))
+      (fs f) (fs (f-mem-set (wb-mem #64 (zpos #8) (push-addr (sp-add (f-rsp f) #18446744073709551608)) (bv-trunc #128 #64 (bv-zext #64 #128 (f-rax f))) #8 (zpos #0) (f-mem f)) f)) unit
+      (wme-ok8 (push-addr (sp-add (f-rsp f) #18446744073709551608)) (bv-zext #64 #128 (f-rax f)) f h1 h2)

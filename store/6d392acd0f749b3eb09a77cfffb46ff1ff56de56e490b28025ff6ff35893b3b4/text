@@ -1,0 +1,38 @@
+-- write_canonical_address_to_memory_user_exec: from linear_memory.sail (it calls what is defined after it there)
+-- (part of language-support)
+write_canonical_address_to_memory_user_exec : (lin_addr : Bits #48) → (canonical_address : Bits #48) → MS (Option Text)
+write_canonical_address_to_memory_user_exec lin_addr canonical_address =
+  bindS {Bool} {Option Text} (getS {Bool} x86-app_view) (λ app_view'1 →
+    let k'13 : Bool → MS (Option Text)
+        k'13 =
+          λ t'3 →
+            onS {Unit} {Option Text} (fl-assert {exception} t'3 #40561685190693415132734349891079356628026974102892596) (λ _ →
+              let canonical_address_low_nat : Bits #32
+                  canonical_address_low_nat = (bv-trunc #48 #32 canonical_address)
+                  canonical_address_high_int : Bits #32
+                  canonical_address_high_int = (bv-sext #16 #32 (bv-zext #16 #16 (bv-slice #48 canonical_address #47 #32)))
+              in bindS {Unit} {Option Text} (wml32 lin_addr canonical_address_low_nat) (λ t'5 →
+                   let next_addr : Bits #49
+                       next_addr = (bits_of_int (z-add (zpos #4) (bv-signed #48 lin_addr)) (zpos #49))
+                   in onS {Bool} {Option Text} (canonical_address_p (bv-signed #49 next_addr)) (λ t'6 →
+                        let k'10 : Unit → MS (Option Text)
+                            k'10 =
+                              λ t'8 →
+                                bindS {Unit} {Option Text} (wiml32 (bv-trunc #49 #48 next_addr) canonical_address_high_int) (λ t'9 →
+                                  retS {Option Text} None)
+                        in λ σ →
+                             if (b-not t'6) then
+                               the (MS (Option Text))
+                                 (onS {Unit} {Option Text} (x86_model_error {Unit} #13828751913320199246556594881107544403501396661828919873077629972568094064338295) (λ t'7 →
+                                    k'10 t'7)) σ
+                             else
+                               the (MS (Option Text))
+                                 (k'10 unit) σ)))
+    in λ σ →
+         if app_view'1 then
+           the (MS (Option Text))
+             (onS {Bool} {Option Text} (canonical_address_p (z-add (zpos #7) (bv-signed #48 lin_addr))) (λ t'2 →
+                k'13 t'2)) σ
+         else
+           the (MS (Option Text))
+             (k'13 false) σ)

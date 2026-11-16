@@ -1,0 +1,22 @@
+std-pre : Target → (c : MemC) → AMem → MRes Unit
+std-pre t c s = case c of
+  m-alloc kd z size al → m-need (not (weq al #0)) st-ill-typed
+  m-release kd p → pre-release kd p s
+  m-free p → (case p of
+    mp-null → mok unit
+    _ → pre-release ak-dynamic p s)
+  m-load k al p → pre-load t k al p s
+  m-store k al p v → pre-store t k al p v s
+  m-ptr-add p e i → pre-ptr-add p e i s
+  m-ptr-diff p q e → pre-ptr-diff p q e s
+  m-ptr-cmp o p q → pre-ptr-cmp o p q s
+  m-ptr-int sg w p → (case tg-ptr-int t of
+    pi-refused → mstop st-unsupported
+    pi-flat → mok unit)
+  m-int-ptr sg w v → (case tg-ptr-int t of
+    pi-refused → mstop st-unsupported
+    pi-flat → mr-map (λ a → unit) (sv-int-dq sg w v))
+  m-memmove d sr n → mr-bind (pre-range sr n s) (λ u → pre-range d n s)
+  m-memcpy d sr n → mr-bind (pre-range sr n s) (λ u → mr-bind (pre-range d n s) (λ u2 →
+    m-chk (not (m-and (wlt (mp-address d) (wadd (mp-address sr) n)) (wlt (mp-address sr) (wadd (mp-address d) n)))) ub-overlap))
+  m-memset d v n → pre-range d n s

@@ -1,0 +1,36 @@
+-- ia32e_la_to_pa: from paging.sail (it calls what is defined after it there)
+-- (part of language-support)
+ia32e_la_to_pa : (lin_addr : Bits #48) → (r_w_x : Text) → MS (Bits #52)
+ia32e_la_to_pa lin_addr r_w_x =
+  bindS {Bool} {Bits #52} (getS {Bool} x86-app_view) (λ app_view'1 →
+    onS {Unit} {Bits #52} (fl-assert {exception} (b-not app_view'1) #583512835017589007664157297346883633) (λ _ →
+      onS {ZI} {Bits #52} (binary_logext (zpos #48) (bv-unsigned #48 (loghead_bits #48 (zpos #48) lin_addr))) (λ lin_addr →
+        bindS {List (Bits #64)} {Bits #52} (getS {List (Bits #64)} x86-ctrs) (λ ctrs'4 →
+          let cr0 : Bits #32
+              cr0 = (bv-trunc #64 #32 (vec-get {Bits #64} #0 ctrs'4 #0))
+          in bindS {List (Bits #64)} {Bits #52} (getS {List (Bits #64)} x86-ctrs) (λ ctrs'5 →
+               let cr4 : Bits #22
+                   cr4 = (bv-trunc #64 #22 (vec-get {Bits #64} #0 ctrs'5 #4))
+               in bindS {List (Bits #16)} {Bits #52} (getS {List (Bits #16)} x86-seg_visibles) (λ seg_visibles'6 →
+                    let cpl : Bits #2
+                        cpl = (segment_selectorbits-rpl (vec-get {Bits #16} #0 seg_visibles'6 #1))
+                    in bindS {Bits #64} {Bits #52} (read_msr (zpos #0)) (λ t'7 →
+                         let ia32_efer : Bits #12
+                             ia32_efer = (bv-trunc #64 #12 t'7)
+                             wp : Bits #1
+                             wp = (cr0bits-wp cr0)
+                             smep : Bits #1
+                             smep = (cr4bits-smep cr4)
+                             smap' : Bits #1
+                             smap' = (cr4bits-smap cr4)
+                         in bindS {rflagsbits} {Bits #52} (getS {rflagsbits} x86-rflags) (λ rflags'8 →
+                              let ac : Bits #1
+                                  ac = (rflagsbits-ac rflags'8)
+                                  nxe : Bits #1
+                                  nxe = (ia32_eferbits-nxe ia32_efer)
+                              in bindS {List (Bits #64)} {Bits #52} (getS {List (Bits #64)} x86-ctrs) (λ ctrs'9 →
+                                   let cr3 : Bits #64
+                                       cr3 = (vec-get {Bits #64} #0 ctrs'9 #3)
+                                       pml4_table_base_addr : ZI
+                                       pml4_table_base_addr = (ash_left_int (bv-unsigned #40 (cr3bits-pdb cr3)) (zpos #12))
+                                   in ia32e_la_to_pa_pml4_table (bits_of_int lin_addr (zpos #48)) (bits_of_int pml4_table_base_addr (zpos #52)) wp smep smap' ac nxe r_w_x cpl)))))))))

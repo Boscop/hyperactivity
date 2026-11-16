@@ -1,0 +1,12 @@
+-- a variable named in a function: a local or a parameter; else, in a lambda's body, the
+-- closure's member that captured it; else a variable of static storage
+cx-var-ref : CxU → CxEnv → Word → CxEv CxR
+cx-var-ref u env id = case cx-has (cxe-locals env) id of
+  true → cx-bind {CxBind} {CxR} (cx-res {CxBind} (cx-lookup (cxe-locals env) id)) (cx-bind-lv u)
+  false → (case cx-has (cxg-vars (cxe-g env)) id of
+    true → cx-bind {CxBind} {CxR} (cx-res {CxBind} (cx-lookup (cxg-vars (cxe-g env)) id)) (cx-bind-lv u)
+    false → (case weq (cxe-closure env) #0 of
+      true → cx-unsupported {CxR} (cxw-decl id)
+      false → cx-bind {CRecord} {CxR} (cx-res {CRecord} (cx-find-rec (cxu-ds u) (cxe-closure env))) (λ r →
+              cx-bind {CField} {CxR} (cx-res {CField} (cx-cap-var (cx-rec-fields r) id)) (λ f →
+                cx-field-lv u r f (cxe-this env) #0))))

@@ -1,0 +1,8 @@
+q-step : (stp : X86Step) → (stop : Word) → (Q : Opt X86 → Type) → (s s2 : X86) → weq (x86-rip s) stop ≡ false →
+         stp s ≡ the (Outc exception Unit × X86) (out-val unit , s2) → Q none → QAll stp stop Q s2 → QAll stp stop Q s
+q-step stp stop Q s s2 ne e q0 qa n =
+  %welimP (λ v → Q (run-to stp v stop s)) n
+    (subst {lzero} {lzero} {Opt X86} {Q} (sym (cong (λ b → if b then some s else none) ne)) q0)
+    (λ m g → subst {lzero} {lzero} {Opt X86} {Q}
+               (sym (cong (λ b → if b then some s else x86-run-on (run-to stp m stop) (stp s)) ne ∙ cong (x86-run-on (run-to stp m stop)) e))
+               (qa m))

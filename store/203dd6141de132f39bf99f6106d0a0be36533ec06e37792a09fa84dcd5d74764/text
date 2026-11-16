@@ -1,0 +1,25 @@
+vmatch-w hs w X sg =
+  case w of
+    wpi A B → (case %view X of wpi A2 B2 → (let x = %var A2 in vmatch hs (B x) (B2 x) (vmatch hs A A2 sg)); _ → sg)
+    wsigma A B → (case %view X of wsigma A2 B2 → (let x = %var A2 in vmatch hs (B x) (B2 x) (vmatch hs A A2 sg)); _ → sg)
+    wpath L a b →
+      (case %view X of
+         wpath L2 c d → (let i = %dim in vmatch hs b d (vmatch hs a c (vmatch hs (L @ i) (L2 @ i) sg)))
+         _ → sg)
+    wdata d ps → (case %view X of wdata d2 qs → (if %weq d d2 then vmatch-l hs ps qs sg else sg); _ → sg)
+    wcon d c fs ds → (case %view X of wcon d2 c2 fs2 ds2 → (if andb (%weq d d2) (%weq c c2) then vmatch-l hs fs fs2 sg else sg); _ → sg)
+    wu l → (case %view X of wu m → vmatch hs l m sg; _ → sg)
+    wapp f a T →
+      -- a hole applied to distinct variables, against X: the hole is λ x1 … xn → X, by quoting X
+      -- under them (a pattern); otherwise the applications part by part
+      case pat-spine hs f (lcons a lnil) of
+        some ka → (if solved sg (fst ka) then sg else pat-solve hs (fst ka) (snd ka) X sg)
+        none → (case %view X of wapp f2 a2 T2 → vmatch hs a a2 (vmatch hs f f2 sg); _ → sg)
+    wfst p T → (case %view X of wfst p2 T2 → vmatch hs p p2 sg; _ → sg)
+    wsnd p T → (case %view X of wsnd p2 T2 → vmatch hs p p2 sg; _ → sg)
+    wpapp p r T → (case %view X of wpapp p2 r2 T2 → vmatch hs p p2 sg; _ → sg)
+    -- a function's and a pair's parts (η). Every solution found here is written into the term and
+    -- checked with it like a written argument (src/syntax.c's x_checked), so matching adds no equality
+    wlam f → (case %view X of wlam g → (let x = %var Uw in vmatch hs (f x) (g x) sg); _ → sg)
+    wpair a b → (case %view X of wpair c e → vmatch hs b e (vmatch hs a c sg); _ → sg)
+    _ → sg

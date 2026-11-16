@@ -1,0 +1,45 @@
+-- wb: from prelude.sail (it calls what is defined after it there)
+-- (part of language-support)
+wb : (w_addr_width : Word) → (n' : ZI) → (addr : Bits w_addr_width) → (access_kind : Text) → (value : Bits (wmul #8 (z-nat n'))) → MS Unit
+wb w_addr_width n' addr access_kind value =
+  let loop'16 : ZI → Unit → MS Unit
+      loop'16 =
+        λ offset acc'1 →
+          onS {Bool} {Unit} (canonical_address_p (z-add (bv-signed w_addr_width addr) offset)) (λ t'2 →
+            let k'13 : Unit → MS Unit
+                k'13 =
+                  λ t'5 →
+                    let lin_addr : Bits #48
+                        lin_addr = (bv-add-int #48 (sail_mask_signed w_addr_width (zpos #48) addr) offset)
+                    in bindS {Bool} {Unit} (getS {Bool} x86-app_view) (λ app_view'6 →
+                         let k'10 : (Bits #52) → MS Unit
+                             k'10 =
+                               λ phys_addr →
+                                 bindS {Unit} {Unit} (bang_memi #52 phys_addr (bv-slice (wmul #8 (z-nat n')) value (z-nat (z-add (z-mul (zpos #8) offset) (zpos #7))) (z-nat (z-mul (zpos #8) offset)))) (λ t'9 →
+                                   retS {Unit} unit)
+                         in λ σ →
+                              if app_view'6 then
+                                the (MS Unit)
+                                  (k'10 (sail_mask_signed #48 (zpos #52) lin_addr)) σ
+                              else
+                                the (MS Unit)
+                                  (bindS {Bits #52} {Unit} (ia32e_la_to_pa lin_addr access_kind) (λ t'7 →
+                                     k'10 t'7)) σ)
+            in λ σ →
+                 if (b-not t'2) then
+                   the (MS Unit)
+                     (let t'3 : Unit
+                          t'3 =
+                            if (b-not (z-eq offset (zpos #0))) then
+                              (observe_mem_write (sail_mask_signed w_addr_width (zpos #48) addr) (z-sub offset (zpos #1)))
+                            else
+                              unit
+                      in onS {Unit} {Unit} (x86_model_error {Unit} #749383626949451111606036019773709099900228674225871612375923) (λ t'4 →
+                           k'13 t'4)) σ
+                 else
+                   the (MS Unit)
+                     (k'13 unit) σ)
+  in bindS {Unit} {Unit} (foreachS {Unit} (zpos #0) (z-sub n' (zpos #1)) unit loop'16) (λ acc'17 →
+       let dummy : Unit
+           dummy = (observe_mem_write (sail_mask_signed w_addr_width (zpos #48) addr) n')
+       in retS {Unit} unit)

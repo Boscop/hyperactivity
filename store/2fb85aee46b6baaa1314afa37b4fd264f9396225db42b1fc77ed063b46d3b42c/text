@@ -1,0 +1,20 @@
+-- in body (under a args, nr hyps, nf fields, then the outer ones): a hypothesis applied to a
+-- arguments is the call; a variable is moved to its new place; a hypothesis otherwise is not
+-- expressible without a closure (cclock: outside the fragment, the program is refused)
+x-fun-map : Nat → Word → Lst Word → Word → Word → Word → Word → Lst Bool → Code → Word → Opt Code
+x-fun-map zero g fv m a nf nr recs p d = none
+x-fun-map (suc k) g fv m a nf nr recs (cvar n) d = if %wlt n d then none else some (x-fun-var fv m a nf nr d (%wsub n d))
+x-fun-map (suc k) g fv m a nf nr recs (capp f y) d =
+  (let sp = x-spine (capp f y) in
+   case fst sp return (λ _ → Opt Code) of
+     cvar n →
+       (if %wlt n d then none
+        else (if c-and (c-not (%wlt (%wsub n d) a)) (%wlt (%wsub n d) (%wadd a nr))
+                then (if %weq (l-count (snd sp)) a
+                        then some (x-apps (cglob g) (l-app (x-param-vars fv m nf d a #0)
+                                     (l-app (l-map (λ y2 → code-map (λ c2 d2 → x-fun-map k g fv m a nf nr recs c2 d2) d y2) (snd sp))
+                                           (lcons (cvar (%wadd d (%wsub (%wsub nf #1) (x-recfield recs (%wsub (%wsub nr #1) (%wsub (%wsub n d) a)) #0)))) lnil))))
+                        else some cclock)
+                else none))
+     _ → none)
+x-fun-map (suc k) g fv m a nf nr recs p d = none

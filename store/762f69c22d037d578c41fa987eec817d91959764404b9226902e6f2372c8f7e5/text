@@ -1,0 +1,16 @@
+lift-pull : (n : Nat) (X X' : Type 1) (Y F : X → Type 1) (F' : X' → Type 1) (f : (x : X) → Y x → X') (g : (x : X) (y : Y x) → F' (f x y) → F x)
+  (Z : Type 1) (k : (x : X) → F x → Z) (k' : (x' : X') → F' x' → Z)
+  (q : PathP (λ i → (x : X) (y : Y x) → F' (f x y) → Z) (λ x y e → k x (g x y e)) (λ x y e → k' (f x y) e))
+  (H : Z → Type 1) (l : (x : X) (y : F x) → H (k x y)) (l' : (x' : X') (y' : F' x') → H (k' x' y'))
+  (ql : PathP (λ i → (x : X) (y : Y x) (e : F' (f x y)) → H (q i x y e)) (λ x y e → l x (g x y e)) (λ x y e → l' (f x y) e))
+  (c : Cube n X) (d : DCube n X Y c) (e : DCube n X' F' (dcube-map n X Y X' f c d)) →
+  PathP (λ i → DCube n Z H (map-pull n X X' Y F F' f g Z k k' q c d e i))
+    (dcube-lift n X Z F H k l c (dcube-pull n X X' Y F F' f g c d e)) (dcube-lift n X' Z F' H k' l' (dcube-map n X Y X' f c d) e)
+lift-pull zero X X' Y F F' f g Z k k' q H l l' ql c d e = λ i → ql i c d e
+lift-pull (suc n) X X' Y F F' f g Z k k' q H l l' ql c d e =
+  lift-pull n (Line X) (Line X') (LineO X Y) (LineO X F) (LineO X' F') (lineo-map X Y X' f) (lineo-pull X X' Y F F' f g)
+    (Line Z) (lineo-map X F Z k) (lineo-map X' F' Z k')
+    (λ i L D E → (q i (fst L) (fst D) (fst E) , q i (fst (snd L)) (fst (snd D)) (fst (snd E)) , λ j → q i (snd (snd L) j) (snd (snd D) j) (snd (snd E) j)))
+    (LineO Z H) (lineo-lift X Z F H k l) (lineo-lift X' Z F' H k' l')
+    (λ i L D E → (ql i (fst L) (fst D) (fst E) , ql i (fst (snd L)) (fst (snd D)) (fst (snd E)) , λ j → ql i (snd (snd L) j) (snd (snd D) j) (snd (snd E) j)))
+    c d e

@@ -1,0 +1,11 @@
+-- ---------------------------------------------------------------- machines as processes
+-- a machine is a state type with a view; its process issues the view's command and continues
+-- from the next state, to the fuel (a Nat, or a Word by the word eliminator for a binary that
+-- runs long); at every clock it is a guarded process that runs for ever
+mp-step : {l : Level} {M X : Type} → (X → Proc {l} (NetSig M) X) → X → NView M X → Proc {l} (NetSig M) X
+mp-step {l} {M} {X} nx y vx = case vx of
+  v-halt → ret {l} {NetSig M} {X} y
+  v-send to m s → bind {l} {NetSig M} {Unit} {X} (net-send {l} {M} to m) (λ u → nx s)
+  v-recv k → bind {l} {NetSig M} {Rcv M} {X} (net-recv {l} {M}) (λ r → nx (k r))
+  v-now kn → bind {l} {NetSig M} {Word} {X} (net-now {l} {M}) (λ w → nx (kn w))
+  v-tau s → nx s

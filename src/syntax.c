@@ -13,6 +13,10 @@ enum { X_ID, X_NUM, X_STR, X_LP, X_RP, X_LB, X_RB, X_LC, X_RC, X_COMMA, X_SEMI, 
 typedef struct { int k; char *s; int line, col; } Tok;
 static Tok *xt; static int nxt, capxt;
 static const char *x_file;
+/* the source (the written store, below): a path as the repository names it, a file's text, a document's */
+static char *w_rel(const char *path);
+static char *src_text(const char *rel, size_t *len);
+static char *src_document(const char *full, size_t *len);
 static void x_push(int k, const char *s, size_t n, int line, int col) {
     if (nxt == capxt) { capxt = capxt ? capxt * 2 : 1024; xt = realloc(xt, (size_t)capxt * sizeof(Tok)); }
     char *b = malloc(n + 1); memcpy(b, s, n); b[n] = 0;
@@ -507,28 +511,14 @@ static Node *p_atom(void) {
         NX(); Tok *pt = NX();
         char *full = pt->s;
         if (pt->s[0] != '/' && cur_dir) { full = malloc(strlen(cur_dir) + strlen(pt->s) + 2); sprintf(full, "%s/%s", cur_dir, pt->s); }
-        FILE *fd = fopen(full, "rb");
-        if (!fd) x_err("document: no such file (the path is relative to the file being read):", pt);
-        Sha256 h; sha256_init(&h);
-        unsigned char buf[65536]; size_t k;
-        while ((k = fread(buf, 1, sizeof buf, fd)) > 0) sha256_update(&h, buf, k);
-        fclose(fd);
-        unsigned char dg[32]; sha256_final(&h, dg);
-        char hex[65]; for (int i = 0; i < 32; i++) sprintf(hex + 2 * i, "%02x", dg[i]);
-        /* the path the term holds is relative to the repository root (2026-11-15): the nearest
-         * directory above the file holding .git, so the value names its file on its own, wherever it
-         * is written; outside a repository, the path as written */
-        char *rel = pt->s; char *rp = realpath(full, NULL);
-        if (rp) {
-            char *d = strdup(rp); char *slash;
-            while ((slash = strrchr(d, '/')) && slash != d) {
-                *slash = 0;
-                char *g = malloc(strlen(d) + 6); sprintf(g, "%s/.git", d);
-                struct stat st; int found = stat(g, &st) == 0; free(g);
-                if (found) { rel = strdup(rp + strlen(d) + 1); break; }
-            }
-            free(d); free(rp);
-        }
+        /* the document as the source holds it (src_document): its hash is the hash of its bytes, which
+         * for a document held whole is its one piece's key in the source */
+        size_t dl = 0; char *dt = src_document(full, &dl);
+        if (!dt) x_err("document: no such document (the path is relative to the file being read):", pt);
+        char hex[65]; key_hash(dt, dl, hex); free(dt);
+        /* the path the term holds is relative to the repository root (2026-11-15), so the value names
+         * its document on its own, wherever it is written */
+        char *rel = w_rel(full);
         return lst(3, nsym("document-at"), text_term(rel), text_term(hex));
     }
     if (x_is(t, "history") && P1()->k == X_STR) {
@@ -581,12 +571,9 @@ static Node *p_atom(void) {
         NX(); Tok *pt = NX();
         char *full = pt->s;
         if (pt->s[0] != '/' && cur_dir) { full = malloc(strlen(cur_dir) + strlen(pt->s) + 2); sprintf(full, "%s/%s", cur_dir, pt->s); }
-        FILE *fd = fopen(full, "rb");
-        if (!fd) x_err("text: no such file (the path is relative to the file being read):", pt);
-        size_t cap = 65536, n = 0; char *buf = malloc(cap); size_t k;
-        while ((k = fread(buf + n, 1, cap - n - 1, fd)) > 0) { n += k; if (cap - n < 2) { cap *= 2; buf = realloc(buf, cap); } }
-        fclose(fd); buf[n] = 0;
-        if (strlen(buf) != n) x_err("text: the file holds a zero byte, which text does not carry:", pt);
+        size_t n = 0; char *buf = src_document(full, &n);
+        if (!buf) x_err("text: no such document (the path is relative to the file being read):", pt);
+        if (strlen(buf) != n) x_err("text: the document holds a zero byte, which text does not carry:", pt);
         Node *r = text_term(buf); free(buf);
         return r;
     }
@@ -2004,44 +1991,126 @@ static void w_item(int first, int end) {
 /* a piece stored: its bytes under their hash; the hash returned */
 static void w_piece(const char *b, size_t n, char out[65]) {
     key_hash(b, n, out);
-    char *p = store_path(out, "text"); if (!p) return;
-    struct stat st; if (stat(p, &st) != 0) { char *s = malloc(n + 1); memcpy(s, b, n); s[n] = 0; store_write(out, "text", s, false); free(s); }
+    char *p = src_path(out, "text");
+    struct stat st; if (stat(p, &st) != 0) { char *s = malloc(n + 1); memcpy(s, b, n); s[n] = 0; src_write(out, "text", s); free(s); }
     free(p);
 }
-/* a pointer file (written/<hex>, modules/<hex>, bound/<hex>) set to v when it is not v already */
+/* a pointer of the source (written/<hex>, modules/<hex>, names-of/<hex>) set to v when it is not v already */
 static void w_point(const char *dir, const char *name, const char *v) {
     SBuf hx = {0}; w_hex(&hx, name);
     if (!hx.b || hx.n > 250) { free(hx.b); return; }
-    char *cur = store_read(dir, hx.b);
-    if (!cur || strcmp(cur, v)) store_write(dir, hx.b, v, false);
+    char *cur = src_read(dir, hx.b);
+    if (!cur || strcmp(cur, v)) src_write(dir, hx.b, v);
     free(cur); free(hx.b);
 }
-/* the path from the repository root (the nearest directory above holding .git), else as given */
-static char *w_rel(const char *path) {
-    char *rp = realpath(path, NULL); if (!rp) return strdup(path);
-    char *d = strdup(rp); char *slash;
-    while ((slash = strrchr(d, '/')) && slash != d) {
-        *slash = 0;
+/* the repository's root (the nearest directory above the working one holding .git, else the working
+ * one), and the working directory from it */
+char *getcwd(char *, size_t);
+static char *repo_root, *cwd_rel;
+static void root_init(void) {
+    if (repo_root) return;
+    char *c = getcwd(NULL, 0); if (!c) c = strdup(".");
+    char *d = strdup(c);
+    for (;;) {
         char *g = malloc(strlen(d) + 6); sprintf(g, "%s/.git", d);
         struct stat st; int found = stat(g, &st) == 0; free(g);
-        if (found) { char *r = strdup(rp + strlen(d) + 1); free(d); free(rp); return r; }
+        if (found) break;
+        char *slash = strrchr(d, '/');
+        if (!slash || slash == d) { free(d); d = strdup(c); break; }
+        *slash = 0;
     }
-    free(d); return rp;
+    repo_root = d; cwd_rel = strdup(strlen(c) > strlen(d) ? c + strlen(d) + 1 : "");
+    free(c);
+}
+/* a path as the repository names it: from its root, `.` and `..` resolved by their letters alone, so
+ * a file the source holds need not exist; a path outside the repository stays absolute */
+static char *w_rel(const char *path) {
+    root_init();
+    SBuf in = {0};
+    if (path[0] == '/') sb_put(&in, path); else { sb_put(&in, repo_root); sb_put(&in, "/"); sb_put(&in, cwd_rel); sb_put(&in, "/"); sb_put(&in, path); }
+    char **seg = NULL; size_t cap = 0; int n = 0;
+    for (char *s = strtok(in.b, "/"); s; s = strtok(NULL, "/")) {
+        if (!strcmp(s, ".")) continue;
+        if (!strcmp(s, "..")) { if (n) n--; continue; }
+        GROW(seg, cap, (size_t)n + 1); seg[n++] = s;
+    }
+    SBuf out = {0}; sb_put(&out, "");
+    for (int i = 0; i < n; i++) { sb_put(&out, "/"); sb_put(&out, seg[i]); }
+    size_t rl = strlen(repo_root);
+    char *r = !strncmp(out.b, repo_root, rl) && out.b[rl] == '/' ? strdup(out.b + rl + 1) : strdup(out.b);
+    free(seg); free(in.b); free(out.b);
+    return r;
+}
+/* what the source holds: the repository's files, not the machine's scratch (build/) nor anything outside it */
+static bool w_held(const char *rel) { return rel[0] != '/' && strncmp(rel, "build/", 6) && strcmp(rel, "<printed>"); }
+/* a file of the repository as the source holds it, its module's pieces in order; one the source does
+ * not hold yet, read from the disk (the one reader), when it is there; else NULL */
+static char *src_text(const char *rel, size_t *len) {
+    SBuf hx = {0}; w_hex(&hx, rel);
+    char *mh = hx.b && hx.n <= 250 ? src_read("modules", hx.b) : NULL; free(hx.b);
+    if (mh) {
+        char *mod = src_read(mh, "module"); free(mh);
+        if (mod) {
+            SBuf o = {0}; sb_put(&o, "");
+            for (char *l = mod; *l; ) {
+                char *e = strchr(l, '\n'); if (!e) break; *e = 0;
+                char *t = src_read(l, "text"); if (!t) { free(mod); free(o.b); return NULL; }
+                sb_put(&o, t); free(t);
+                l = e + 1;
+            }
+            free(mod); if (len) *len = o.n; return o.b;
+        }
+    }
+    root_init();
+    char *abs = rel[0] == '/' ? strdup(rel) : malloc(strlen(repo_root) + strlen(rel) + 2);
+    if (rel[0] != '/') sprintf(abs, "%s/%s", repo_root, rel);
+    FILE *f = fopen(abs, "rb"); free(abs); if (!f) return NULL;
+    size_t capb = 65536, nb = 0; char *b = malloc(capb); size_t k;
+    while ((k = fread(b + nb, 1, capb - nb - 1, f)) > 0) { nb += k; if (capb - nb < 2) { capb *= 2; b = realloc(b, capb); } }
+    fclose(f); b[nb] = 0;
+    if (len) *len = nb;
+    return b;
+}
+/* a document (any file the source holds whole, not cut into declarations): one piece, its module and pointer */
+static void w_whole(const char *text, const char *rel) {
+    char h[65]; w_piece(text, strlen(text), h);
+    SBuf mod = {0}; sb_put(&mod, h); sb_put(&mod, "\n");
+    char mh[65]; key_hash(mod.b, mod.n, mh);
+    char *p = src_path(mh, "module"); struct stat st; if (stat(p, &st) != 0) src_write(mh, "module", mod.b); free(p);
+    w_point("modules", rel, mh);
+    free(mod.b);
+}
+/* a document by its path: the source's text (its length in len); a text document the source did not
+ * hold, recorded whole (a file holding a zero byte is not text and is read as it is) */
+static char *src_document(const char *full, size_t *len) {
+    char *rel = w_rel(full);
+    SBuf hx = {0}; w_hex(&hx, rel);
+    char *had = hx.b && hx.n <= 250 ? src_read("modules", hx.b) : NULL; free(hx.b);
+    char *t = src_text(rel, len);
+    size_t rl = strlen(rel);
+    if (t && !had && w_held(rel) && strlen(t) == *len && !(rl > 4 && !strcmp(rel + rl - 4, ".cub"))) w_whole(t, rel);
+    free(had); free(rel);
+    return t;
 }
 /* a name the file held when last read and holds no more: its pointer dropped, when it still points
  * to a piece of the file as it was (a name now declared in another file keeps that file's piece) */
 static void w_forget(const char *rel, const char *names, const char *pieces) {
     SBuf hx = {0}; w_hex(&hx, rel); if (!hx.b || hx.n > 250) { free(hx.b); return; }
-    char *old = store_read("names-of", hx.b); char *oldm = store_read("modules", hx.b); free(hx.b);
-    char *oldp = oldm ? store_read(oldm, "module") : NULL;
+    char *old = src_read("names-of", hx.b); char *oldm = src_read("modules", hx.b); free(hx.b);
+    char *oldp = oldm ? src_read(oldm, "module") : NULL;
     for (char *l = old ? old : (char *)""; *l; ) {
         char *e = strchr(l, '\n'); if (!e) break; *e = 0;
         bool kept = false;
         for (const char *q = names; *q; ) { const char *f = strchr(q, '\n'); if (!f) break; if ((size_t)(f - q) == strlen(l) && !strncmp(q, l, (size_t)(f - q))) { kept = true; break; } q = f + 1; }
         if (!kept) {
             SBuf nh = {0}; w_hex(&nh, l);
-            char *cur = nh.b && nh.n <= 250 ? store_read("written", nh.b) : NULL;
-            if (cur && oldp && strstr(oldp, cur) && !strstr(pieces, cur)) { char *p = store_path("written", nh.b); if (p) remove(p); free(p); }
+            char *cur = nh.b && nh.n <= 250 ? src_read("written", nh.b) : NULL;
+            if (cur && oldp && strstr(oldp, cur) && !strstr(pieces, cur)) {
+                char *p = src_path("written", nh.b); if (p) remove(p); free(p);
+                char *mo = src_read("module-of", nh.b);
+                if (mo && !strcmp(mo, rel)) { char *q = src_path("module-of", nh.b); remove(q); free(q); }
+                free(mo);
+            }
             free(cur); free(nh.b);
         }
         l = e + 1;
@@ -2049,7 +2118,7 @@ static void w_forget(const char *rel, const char *names, const char *pieces) {
     free(old); free(oldm); free(oldp);
 }
 static void w_file(const char *text, const char *path) {
-    if (!store_dir()) { nwitems = 0; return; }
+    { char *r0 = w_rel(path); bool held = w_held(r0); free(r0); if (!held) { nwitems = 0; return; } }
     size_t len = strlen(text);
     int nl = 0; size_t *off = malloc((len + 2) * sizeof(size_t));
     off[++nl] = 0;   /* off[k]: where line k begins (1-based) */
@@ -2072,22 +2141,61 @@ static void w_file(const char *text, const char *path) {
         if (i == np) break;
         w_piece(text + off[ps[i].first], off[ps[i].last + 1] - off[ps[i].first], h);
         sb_put(&mod, h); sb_put(&mod, "\n");
-        if (ps[i].name) { w_point("written", ps[i].name, h); sb_put(&names, ps[i].name); sb_put(&names, "\n"); }
+        if (ps[i].name) {
+            /* written/<name>: its piece; module-of/<name>: the path of the module holding it */
+            w_point("written", ps[i].name, h);
+            { char *r1 = w_rel(path); w_point("module-of", ps[i].name, r1); free(r1); }
+            sb_put(&names, ps[i].name); sb_put(&names, "\n");
+        }
         c = ps[i].last + 1;
     }
     if (mod.b) {
         char mh[65]; key_hash(mod.b, mod.n, mh);
-        char *p = store_path(mh, "module");
-        struct stat st; if (p && stat(p, &st) != 0) store_write(mh, "module", mod.b, false);
+        char *p = src_path(mh, "module");
+        struct stat st; if (p && stat(p, &st) != 0) src_write(mh, "module", mod.b);
         free(p);
         char *rel = w_rel(path); w_forget(rel, names.b, mod.b);
         w_point("modules", rel, mh);
         w_point("names-of", rel, names.b);
-        if (load_root) { char *rr = w_rel(load_root); w_point("roots", rel, rr); free(rr); }
+        if (load_root && store_dir()) {
+            /* roots/<path>: the file given to this machine that loads it (the machine's own, not the source's) */
+            char *rr = w_rel(load_root); SBuf hx = {0}; w_hex(&hx, rel);
+            if (hx.b && hx.n <= 250) { char *cur = store_read("roots", hx.b); if (!cur || strcmp(cur, rr)) store_write("roots", hx.b, rr, false); free(cur); }
+            free(hx.b); free(rr);
+        }
         free(rel);
     }
     free(names.b);
     free(mod.b); free(ps); free(off); nwitems = 0;
+}
+/* a text recorded in the source as the module at a path (absolute, as load_surface's): a .cub cut
+ * into its declarations as the reader cuts it, by layout alone (nothing is checked), any other
+ * document whole. `--ingest PATH ...` records each file on the disk under its own path (the one
+ * reader); `--record PATH FILE` records FILE's text as PATH's (hyperactive write) */
+static void record_source(const char *text, const char *path) {
+    size_t pl = strlen(path);
+    if (!(pl > 4 && !strcmp(path + pl - 4, ".cub"))) { char *rel = w_rel(path); w_whole(text, rel); free(rel); return; }
+    Tok *s_xt = xt, *s_lt = lt; int s_nxt = nxt, s_capxt = capxt, s_nlt = nlt, s_caplt = caplt, s_xp = xp;
+    const char *s_file = x_file;
+    xt = NULL; nxt = capxt = 0; lt = NULL; nlt = caplt = 0; x_file = path;
+    x_lex(text); x_layout(); xp = 0;
+    while (P0()->k != X_EOF) {
+        while (P0()->k == X_VS || P0()->k == X_VC) NX();
+        if (P0()->k == X_EOF) break;
+        bool imp = at("import"); int first = xp;
+        NX(); int d = 0;
+        while (P0()->k != X_EOF && !(d == 0 && P0()->k == X_VS)) { if (P0()->k == X_VO) d++; else if (P0()->k == X_VC) d--; NX(); }
+        if (!imp) {
+            w_item(first, xp);
+            /* an operator's equation (x ≡ y = …) belongs to its signature (_≡_ : …), as one declaration of the reader */
+            if (nwitems >= 2 && witems[nwitems - 2].name && first + 1 < nlt && lt[first + 1].k == X_ID) {
+                char opn[256]; snprintf(opn, sizeof opn, "_%s_", lt[first + 1].s);
+                if (!strcmp(witems[nwitems - 2].name, opn)) witems[nwitems - 1].name = witems[nwitems - 2].name;
+            }
+        }
+    }
+    w_file(text, path);
+    xt = s_xt; nxt = s_nxt; capxt = s_capxt; lt = s_lt; nlt = s_nlt; caplt = s_caplt; xp = s_xp; x_file = s_file;
 }
 static void load_surface(const char *text, const char *path, bool imports_only) {
     Tok *s_xt = xt, *s_lt = lt; int s_nxt = nxt, s_capxt = capxt, s_nlt = nlt, s_caplt = caplt, s_xp = xp;

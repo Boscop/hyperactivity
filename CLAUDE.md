@@ -2,7 +2,10 @@
 
 Run `./hyperactive` and walk every chunk (`./hyperactive next`, back with `./hyperactive prev`) before
 anything else. Then work as
-AI-AGENTS-WELCOME-TO-HYPERACTIVITY.md, “How to work”, says.
+AI-AGENTS-WELCOME-TO-HYPERACTIVITY.md, “How to work”, says. No file holds the code or the documents
+(2026-11-16): they are the source, `store/`, read and written only through `./hyperactive` (`def`,
+`write`, `remove`, by name or by path); `make` builds the machine first. A path below names a module
+of the source.
 
 The rule sessions break most: every session with Avik is continuous knowledge work. Nothing he says
 is casual conversation. In the same turn, each message's content goes where it acts: material for

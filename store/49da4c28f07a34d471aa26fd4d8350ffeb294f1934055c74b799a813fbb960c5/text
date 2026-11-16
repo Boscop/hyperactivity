@@ -1,0 +1,18 @@
+-- (part of language-support)
+x86_effective_addr : (proc_mode' : proc_mode) → (prefixes' : prefixes) → (temp_rip : Bits #48) → (rex_byte : Bits #8) → (r_m : Bits #3) → (mod_var : Bits #2) → (sib' : sib) → (num_imm_bytes : Bits #3) → MS ((Bits #64) × ZI)
+x86_effective_addr proc_mode' prefixes' temp_rip rex_byte r_m mod_var sib' num_imm_bytes =
+  let p4 : Bool
+      p4 = (weq #103 (prefixes-adr prefixes'))
+  in bindS {ZI} {((Bits #64) × ZI)} (select_address_size proc_mode' (Some prefixes')) (λ t'1 →
+       λ σ →
+         if (z-eq (zpos #2) t'1) then
+           the (MS ((Bits #64) × ZI))
+             (bindS {((Bits #16) × ZI)} {((Bits #64) × ZI)} (x86_effective_addr_16 proc_mode' temp_rip r_m mod_var) (λ t'2 →
+                let elem1 : Bits #16
+                    elem1 = (fst t'2)
+                    elem2 : ZI
+                    elem2 = (snd t'2)
+                in retS {((Bits #64) × ZI)} ((bv-zext #16 #64 elem1) , elem2))) σ
+         else
+           the (MS ((Bits #64) × ZI))
+             (x86_effective_addr_32_64 proc_mode' p4 temp_rip rex_byte r_m mod_var sib' num_imm_bytes) σ)

@@ -1,0 +1,17 @@
+-- equality is decided for every pair (pointers into different allocations are different: a
+-- pointer one past the end of one allocation is not the start of another here). An order is
+-- given between equal pointers and between places of one allocation, by offset; any other is
+-- unspecified (lib/mem/memory.cub's order by address answers it under a flat address space)
+ptr-cmp : CmpOp → MPtr → MPtr → MRes Bool
+ptr-cmp o p q = case o of
+  co-eq → mok (mp-eq p q)
+  co-ne → mok (not (mp-eq p q))
+  _ → (case mp-eq p q of
+    true → mok (cmp-by o true false false)
+    false → (case p of
+      mp-obj a x → (case q of
+        mp-obj b y → (case weq a b of
+          true → mok (cmp-by o false (wlt x y) (wlt y x))
+          false → mstop st-unspecified)
+        _ → mstop st-unspecified)
+      _ → mstop st-unspecified))

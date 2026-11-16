@@ -1,0 +1,14 @@
+-- E1 op= E2 ([expr.ass]/6) with E2's value and E1's glvalue in hand: E1's value converted to
+-- the type the operation is computed at, the operation, the result converted to E1's type
+cx-cassign : CxU → CExpr → CBinOp → CType → CType → CType → CType → CxR → CxR → CxEv CxR
+cx-cassign u e op lty comp res rty r y =
+  cx-bind {CxR} {CxR} (cx-lv-load u lty r) (λ old → case cx-is-ptr lty of
+    true → cx-bind {CxR} {CxR} (cx-binop u e op lty lty rty old y) (λ new →
+      cx-then {Unit} {CxR} (cx-lv-store u lty r new) (cx-ret {CxR} r))
+    false →
+      cx-bind {SV} {CxR} (cx-as-val old) (λ a →
+      cx-bind {SV} {CxR} (cx-cv u lty comp a) (λ a2 →
+      cx-bind {CxR} {CxR} (cx-binop u e op res comp rty (cxr-val a2) y) (λ v →
+      cx-bind {SV} {CxR} (cx-as-val v) (λ v2 →
+      cx-bind {SV} {CxR} (cx-cv u res lty v2) (λ new →
+      cx-then {Unit} {CxR} (cx-lv-store u lty r (cxr-val new)) (cx-ret {CxR} r)))))))

@@ -1,0 +1,13 @@
+o-run-comp : {O T S : Sig} {A X Y : Type} → (H1 : o-ObsOf T S X) → (H2 : o-ObsOf O T Y) → (t : Step S A) → (s1 : X) → (s2 : Y) →
+             o-run (o-compo H1 H2) t (s1 , s2) ≡ o-map {O} {(A × X) × Y} {A × (X × Y)} (λ x → o-assoc x) (o-run H2 (o-run H1 t s1) s2)
+o-run-comp H1 H2 (sdone a) s1 s2 = λ i → sdone (a , (s1 , s2))
+o-run-comp {O} {T} {S} {A} {X} {Y} H1 H2 (scmd c k) s1 s2 =
+  calc o-bind (o-map {O} {(Resp S c × X) × Y} {Resp S c × (X × Y)} (λ x → o-assoc x) (o-run H2 (H1 c s1) s2)) (λ rs → o-run (o-compo H1 H2) (k (fst rs)) (snd rs))
+     ≡ o-bind (o-run H2 (H1 c s1) s2) (λ x → o-run (o-compo H1 H2) (k (fst (fst x))) (snd (fst x) , snd x))
+         by o-bind-assoc {O} {(Resp S c × X) × Y} {Resp S c × (X × Y)} {A × (X × Y)} (o-run H2 (H1 c s1) s2) (λ x → sdone (o-assoc x)) (λ rs → o-run (o-compo H1 H2) (k (fst rs)) (snd rs))
+     ≡ o-bind (o-run H2 (H1 c s1) s2) (λ x → o-map {O} {(A × X) × Y} {A × (X × Y)} (λ y → o-assoc y) (o-run H2 (o-run H1 (k (fst (fst x))) (snd (fst x))) (snd x)))
+         by (λ i → o-bind (o-run H2 (H1 c s1) s2) (λ x → o-run-comp H1 H2 (k (fst (fst x))) (snd (fst x)) (snd x) i))
+     ≡ o-map {O} {(A × X) × Y} {A × (X × Y)} (λ y → o-assoc y) (o-bind (o-run H2 (H1 c s1) s2) (λ x → o-run H2 (o-run H1 (k (fst (fst x))) (snd (fst x))) (snd x)))
+         by sym (o-bind-assoc {O} {(Resp S c × X) × Y} {(A × X) × Y} {A × (X × Y)} (o-run H2 (H1 c s1) s2) (λ x → o-run H2 (o-run H1 (k (fst (fst x))) (snd (fst x))) (snd x)) (λ y → sdone (o-assoc y)))
+     ≡ o-map {O} {(A × X) × Y} {A × (X × Y)} (λ y → o-assoc y) (o-run H2 (o-bind (H1 c s1) (λ rs → o-run H1 (k (fst rs)) (snd rs))) s2)
+         by (λ i → o-map {O} {(A × X) × Y} {A × (X × Y)} (λ y → o-assoc y) (o-run-bind H2 (H1 c s1) (λ rs → o-run H1 (k (fst rs)) (snd rs)) s2 (~ i)))

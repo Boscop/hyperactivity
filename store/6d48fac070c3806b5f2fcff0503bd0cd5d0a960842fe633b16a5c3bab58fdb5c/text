@@ -1,0 +1,22 @@
+-- ++ and -- ([expr.pre.incr], [expr.post.incr]): x += 1 or x -= 1 at the operand's type: of
+-- an arithmetic type through the usual arithmetic conversions with int and back; of a
+-- pointer one element. pre: the result is the operand (a glvalue); post: its old value
+cx-incdec : CxU → CType → Bool → Bool → CxR → CxEv CxR
+cx-incdec u t inc pre r =
+  cx-bind {CxR} {CxR} (cx-lv-load u t r) (λ old → case cx-is-ptr t of
+    true → cx-bind {CxR} {CxR} (cx-ptr-plus u t old (ct-builtin ctb-int) (cxr-val (sv-i uq1)) (not inc)) (λ new →
+      cx-then {Unit} {CxR} (cx-lv-store u t r new) (cx-ret {CxR} (case pre of
+        true → r
+        false → old)))
+    false →
+      cx-bind {SV} {CxR} (cx-as-val old) (λ a →
+      cx-bind {CTy} {CxR} (cx-res {CTy} (cx-cty-of u t)) (λ c →
+      cx-bind {CTy × SV} {CxR} (cx-res {CTy × SV} (ct-arith (cxu-t u) (case inc of
+                                                                         true → ao-add
+                                                                         false → ao-sub) c ct-int a (sv-i uq1))) (λ cr →
+      cx-bind {SK} {CxR} (cx-res {SK} (ct-sk (cxu-t u) (fst cr))) (λ kc →
+      cx-bind {SK} {CxR} (cx-res {SK} (cx-sk u t)) (λ k →
+      cx-bind {SV} {CxR} (cx-cvk u kc k (snd cr)) (λ new →
+      cx-then {Unit} {CxR} (cx-lv-store u t r (cxr-val new)) (cx-ret {CxR} (case pre of
+        true → r
+        false → old)))))))))

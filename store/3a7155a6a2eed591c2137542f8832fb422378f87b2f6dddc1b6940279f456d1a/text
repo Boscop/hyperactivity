@@ -1,0 +1,20 @@
+-- a constructor call ([class.init]): zero-initialization first when the AST asks; a trivial
+-- constructor (cfb-defaulted: Sema left it trivial) does nothing, or as a copy or move copies
+-- the object representation ([class.copy.ctor]/14 for a trivial one)
+cx-construct : CxH → CxU → CExpr → CType → Word → CConstructKind → Bool → CxSub → List CType → CxEnv → CxMode → CxK → CxEv CxR
+cx-construct h u e t ctor ck zeroing args ats env mode k = case cx-tc t of
+  cxtc-record id → cx-with-dest (fst h) u t mode k (λ p k2 →
+    cx-bind {Word} {CxR} (cx-res {Word} (cx-obj-size u t ck)) (λ sz →
+    cx-then {Unit} {CxR} (case zeroing of
+                            true → cx-memset p uq0 sz
+                            false → cx-ret {Unit} unit)
+      (case cx-find-fn (cxu-ds u) ctor of
+         cxfn-none → cx-unsupported {CxR} (cxw-decl ctor)
+         cxfn fk parent virt inits f → (case cx-fn-body f of
+           cfb-defaulted → (case cx-fn-params f of
+             nil → k2 cxr-void
+             cons pv pvs → args env cxm-vals (λ vs → cx-bind {MPtr} {CxR} (cx-as-lv (cx-nth vs #0)) (λ src →
+               cx-then {Unit} {CxR} (cx-memmove p src sz) (k2 cxr-void))))
+           _ → args env (cxm-args (cx-ptypes (cx-fn-params f)) (cxu-ltr u)) (λ ps →
+                 cx-call-fn (fst h) u (ct-builtin ctb-void) ctor p ps (cx-ptypes (cx-fn-params f)) cxm-get (λ r → k2 cxr-void))))))
+  _ → cx-unsupported {CxR} (cxw-form #2 e)

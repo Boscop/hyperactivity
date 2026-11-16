@@ -1,0 +1,19 @@
+-- each branch: binders for its fields, hypotheses (the eliminations of the recursive fields),
+-- dimensions, then a body of type P (c fields dims), on the boundary's faces equal to the
+-- elimination of the boundary
+-- the motive at a recursive field (Ph T f: the hypothesis's type, T the field's type): for an
+-- indexed type (fording, %dnidx d > 0) whose motive was written as a λ over the index variables
+-- applied to them, (λ ix… v → R) n…, the hypothesis is at the field's own index (R[n := m] for
+-- f : D ps m), as Agda's unification of the index at the split gives; otherwise the motive at f
+hyp-motive d ps P Pv =
+  let k = %dnidx d
+      nu = %wsub (llen-w ps) k
+  in if %weq k #0 then (λ T f → Pv f)
+     else (case ix-motive P k lnil of
+             some P2 → (λ T f → (case %view T of wdata d2 ps2 → app-all (tval P2) (lsnoc (ldrop-n nu ps2) f); _ → hyp-opaque))
+             -- a motive not over the indices: the hypothesis is the motive at f only where f's
+             -- indices are the scrutinee's; elsewhere it is a value of an abstract type, usable as
+             -- nothing (typing it at the outer index let a vector of length m stand for one of n)
+             none → (λ T f → (case %view T of
+                                wdata d2 ps2 → if lall (λ q → uconv (fst q) (snd q)) (lzip (ldrop-n nu ps2) (ldrop-n nu ps)) then Pv f else hyp-opaque
+                                _ → hyp-opaque)))

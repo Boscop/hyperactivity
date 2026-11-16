@@ -1,0 +1,9 @@
+run-split-step : (stp : X86 → Outc exception Unit × X86) → (m n : Word) → ((s : X86) → fst (run-of stp m s) ≡ out-val unit → run-of stp (%wadd n m) s ≡ run-of stp n (snd (run-of stp m s)))
+  → (p : Outc exception Unit × X86) → fst (st-step {X86} {exception} {Unit} {Unit} (λ _ → run-of stp m) p) ≡ out-val unit
+  → st-step {X86} {exception} {Unit} {Unit} (λ _ → run-of stp (%wadd n m)) p ≡ run-of stp n (snd (st-step {X86} {exception} {Unit} {Unit} (λ _ → run-of stp m) p))
+run-split-step stp m n ih p =
+  case fst p return (λ o → fst (st-on {X86} {exception} {Unit} {Unit} o (λ _ → run-of stp m) (snd p)) ≡ out-val unit
+                         → st-on {X86} {exception} {Unit} {Unit} o (λ _ → run-of stp (%wadd n m)) (snd p) ≡ run-of stp n (snd (st-on {X86} {exception} {Unit} {Unit} o (λ _ → run-of stp m) (snd p)))) of
+    out-val u → λ h → ih (snd p) h
+    out-throw e → oc-throw-absurd {exception} {Unit} (the (Outc exception Unit × X86) (out-throw e , snd p) ≡ run-of stp n (snd p)) e unit
+    out-abort w → oc-abort-absurd {exception} {Unit} (the (Outc exception Unit × X86) (out-abort w , snd p) ≡ run-of stp n (snd p)) w unit

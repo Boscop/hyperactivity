@@ -1,0 +1,14 @@
+rm-copy-mem : (RTy → Word → Word → MPtr → MPtr → REv Unit) → Target → List RLayoutEntry → RTy → Word → Word → MPtr → MPtr → REv Unit
+rm-copy-mem cpy t ls ty da sa = case ty of
+  rty-array e n → (case n of
+    rty-const c →
+      sr-on (rm-size t ls e) (λ x dst src → rm-throw x) (λ es →
+      sr-on (rm-align t ls e) (λ x dst src → rm-throw x) (λ ea →
+        rm-copy-elems c es (cpy e (rm-wmin da ea) (rm-wmin sa ea))))
+    _ → λ dst src → rm-throw (rx-ill-formed (ri-open-type ty)))
+  _ → sr-on (rm-lay ls ty) (λ x dst src → rm-throw x) (λ l → case ly-tag-of l of
+    rtag-none → (case ly-variants-of l of
+      nil → λ dst src → rm-ret unit
+      cons v vs → rm-copy-fields (vl-fields-of v) cpy t ls da sa)
+    rtag-direct off size → rm-copy-tagged false off size (ly-variants-of l) cpy t ls da sa
+    rtag-niche off size → rm-copy-tagged true off size (ly-variants-of l) cpy t ls da sa)

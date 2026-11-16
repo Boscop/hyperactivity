@@ -1,0 +1,21 @@
+-- size and alignment of a closed type at a Target: scalars by the Target, arrays from their
+-- element, ADTs and tuples from the crate's layouts
+rm-size : Target → List RLayoutEntry → RTy → RSt Word
+rm-size t ls rty-bool = sr-ok (sk-size t sk-bool)
+rm-size t ls (rty-int k) = sr-ok (sk-size t (rm-ik t k))
+rm-size t ls rty-never = sr-ok #0
+rm-size t ls (rty-ref m p) = case rm-unsized p of
+  true → sr-ok (wmul #2 (tg-size t ck-ptr))
+  false → sr-ok (tg-size t ck-ptr)
+rm-size t ls (rty-ptr m p) = case rm-unsized p of
+  true → sr-ok (wmul #2 (tg-size t ck-ptr))
+  false → sr-ok (tg-size t ck-ptr)
+rm-size t ls (rty-array e n) = case n of
+  rty-const c → sr-map (λ s → wmul s c) (rm-size t ls e)
+  _ → sr-ill (ri-open-type (rty-array e n))
+rm-size t ls (rty-tuple ts) = case ts of
+  rtys-nil → sr-ok #0
+  _ → sr-map ly-size-of (rm-lay ls (rty-tuple ts))
+rm-size t ls (rty-adt i ts) = sr-map ly-size-of (rm-lay ls (rty-adt i ts))
+rm-size t ls (rty-fn-ptr ps r) = sr-ok (tg-size t ck-ptr)
+rm-size t ls ty = sr-ill (ri-class ty)

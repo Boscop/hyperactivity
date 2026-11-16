@@ -1,0 +1,10 @@
+-- the commands whose instruction does not depend on how a seq_cst store is emitted
+atom-x86-by : ((a : Word) → (v : Word) → Proc {lzero} TsoIS Unit) → Handler AtomS TsoIS
+atom-x86-by sc-store c =
+  case c return (λ x → Proc {lzero} TsoIS (atom-resp x)) of
+    at-load o a → cmd {lzero} {TsoIS} (t-load a)
+    at-store o a v → (case mo-is-seq-cst o of true → sc-store a v; false → cmd {lzero} {TsoIS} (t-store a v))
+    at-xchg o a v → cmd {lzero} {TsoIS} (t-xchg a v)
+    at-cas so fo a old new →
+      bind {lzero} {TsoIS} {Word} {Bool × Word} (cmd {lzero} {TsoIS} (t-cmpxchg a old new)) (λ r → ret {lzero} {TsoIS} {Bool × Word} (weq r old , r))
+    at-fence o → (case mo-is-seq-cst o of true → cmd {lzero} {TsoIS} t-mfence; false → at-unit)

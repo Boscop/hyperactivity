@@ -1,0 +1,16 @@
+rm-cast-unsize : RCx → ROperand → RTy → RTy → RFrame → REv RV
+rm-cast-unsize cx op sty dty =
+  sr-on (rm-pointee sty) (λ e fr → rm-throw e) (λ sp →
+  sr-on (rm-pointee dty) (λ e fr → rm-throw e) (λ dp →
+    let ev = rm-opd-rv cx op
+    in case dp of
+         rty-slice e → (case sp of
+           rty-array e2 n → (case n of
+             rty-const c → λ fr → rm-bind (ev fr) (λ v → rm-bind (rm-as-s v) (λ x →
+                                  rm-ret (rv-fat x (sv-i (uq-of-word c)))))
+             _ → λ fr → rm-throw (rx-ill-formed (ri-open-type sp)))
+           _ → λ fr → rm-throw (rx-unsupported (rz-cast rcast-unsize)))
+         rty-dyn tr → sr-on (cx-vtable cx sp tr) (λ e fr → rm-throw e) (λ vi →
+           λ fr → rm-bind (ev fr) (λ v → rm-bind (rm-as-s v) (λ x →
+                  rm-bind (rm-image-rv fr vi) (λ vt → rm-bind (rm-as-s vt) (λ y → rm-ret (rv-fat x y))))))
+         _ → λ fr → rm-throw (rx-unsupported (rz-cast rcast-unsize))))

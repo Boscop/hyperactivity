@@ -1,0 +1,16 @@
+cx-init-list : CxH → CxU → CExpr → CType → COptId → CxSub → Word → CxSub → CxEnv → CxMode → CxK → CxEv CxR
+cx-init-list h u e t uf filler m inits env mode k = case cx-tc t of
+  cxtc-record id → cx-with-dest (fst h) u t mode k (λ p k2 →
+    cx-bind {List CxSlot} {CxR} (cx-res {List CxSlot} (cx-rec-slots u id uf)) (λ ss →
+      inits (cx-env-agg env p) (cxm-inits p ss) (λ r → k2 cxr-void)))
+  cxtc-array el n → cx-with-dest (fst h) u t mode k (λ p k2 →
+    cx-bind {Word} {CxR} (cx-res {Word} (cx-size u el)) (λ sz →
+      inits env (cxm-inits p (cx-arr-slots el sz m)) (λ r →
+        cx-fill u p el sz m (wsub n m) filler env k2)))
+  cxtc-scalar → (case weq m #0 of
+    true → cx-bind {CxR} {CxR} (cx-zero u t) k
+    false → inits env cxm-vals (λ r → k (cx-nth r #0)))
+  cxtc-mfp → (case weq m #0 of
+    true → cx-bind {CxR} {CxR} (cx-zero u t) k
+    false → inits env cxm-vals (λ r → k (cx-nth r #0)))
+  _ → cx-unsupported {CxR} (cxw-expr e)

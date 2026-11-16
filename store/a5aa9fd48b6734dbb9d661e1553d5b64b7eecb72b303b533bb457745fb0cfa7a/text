@@ -1,0 +1,16 @@
+-- ---------------------------------------------------------------- the network as a world
+-- node i's command under the event it is scheduled with. Run: a send goes in flight, the clock
+-- is read, a receive times out. Delivery: a receive is answered with the packet, which leaves
+-- flight; a node that is not receiving refuses, and the packet stays where it was
+net-world : {M : Type} → NodeId → Ev M → World (NetSig M) (Net M)
+net-world {M} i e c n =
+  case c return (λ x → Sum (net-resp {M} x × Net M) (Net M)) of
+    n-send to m → (case e of
+                     ev-run → inl (unit , net-set-flight (cons (Pkt { p-from = i ; p-to = to ; p-msg = m }) (flight n)) n)
+                     ev-deliver p rest → inr n)
+    n-recv → (case e of
+                ev-run → inl (r-timeout , n)
+                ev-deliver p rest → inl (r-msg (p-from p) (p-msg p) , net-set-flight rest n))
+    n-now → (case e of
+               ev-run → inl (clock n , n)
+               ev-deliver p rest → inr n)

@@ -1,0 +1,73 @@
+-- (part of language-support)
+x86_near_jmp_op_en_m : (proc_mode' : proc_mode) → (start_rip : Bits #48) → (temp_rip : Bits #48) → (prefixes' : prefixes) → (rex_byte : Bits #8) → (opcode : Bits #8) → (modr_m' : modr_m) → (sib' : sib) → MS Unit
+x86_near_jmp_op_en_m proc_mode' start_rip temp_rip prefixes' rex_byte opcode modr_m' sib' =
+  let ctx' : Text
+      ctx' = #503644749043801796545804990786875495564719304013
+      r_m : Bits #3
+      r_m = (modr_m-r_m modr_m')
+      mod_var : Bits #2
+      mod_var = (modr_m-mod modr_m')
+      reg' : Bits #3
+      reg' = (modr_m-reg modr_m')
+      p2' : Bits #8
+      p2' = (prefixes-seg prefixes')
+      p4? : Bool
+      p4? = (weq #103 (prefixes-adr prefixes'))
+  in bindS {ZI} {Unit} (select_operand_size proc_mode' false rex_byte false prefixes' true true true) (λ t'1 →
+       onS {ZI} {Unit} (check_range (zpos #2) (zpos #8) t'1) (λ operand_size →
+         bindS {ZI} {Unit} (select_segment_register proc_mode' prefixes' mod_var r_m sib') (λ seg_reg →
+           let inst_ac? : Bool
+               inst_ac? = true
+           in bindS {((Bits #128) × ZI × (Bits #64))} {Unit} (x86_operand_from_modr_m_and_sib_bytes proc_mode' #0 operand_size inst_ac? false seg_reg prefixes' temp_rip rex_byte r_m mod_var sib' #0) (λ t'4 →
+                let jmp_addr : Bits #128
+                    jmp_addr = (fst t'4)
+                    increment_rip_by : ZI
+                    increment_rip_by = (fst (snd t'4))
+                    addr : Bits #64
+                    addr = (snd (snd t'4))
+                    jmp_addr : Bits #64
+                    jmp_addr = (bv-trunc #128 #64 jmp_addr)
+                    increment_rip_by : Bits #3
+                    increment_rip_by = (bits_of_int increment_rip_by (zpos #3))
+                in bindS {Bits #48} {Unit} (add_to_iptr proc_mode' temp_rip (bv-zext #3 #48 increment_rip_by)) (λ temp_rip →
+                     let badlength? : Option ZI
+                         badlength? = (check_instruction_length start_rip temp_rip #0)
+                     in let k'20 : Unit → MS Unit
+                            k'20 =
+                              λ t'7 →
+                                let jmp_addr : Bits #64
+                                    jmp_addr = (if (in_64bit_mode proc_mode') then jmp_addr else jmp_addr)
+                                in let k'17 : Bool → MS Unit
+                                       k'17 =
+                                         λ t'10 →
+                                           let k'14 : Unit → MS Unit
+                                               k'14 =
+                                                 λ t'12 →
+                                                   write_iptr proc_mode' (bv-trunc #64 #48 jmp_addr)
+                                           in λ σ →
+                                                if (b-not t'10) then
+                                                  the (MS Unit)
+                                                    (onS {Unit} {Unit} (x86_fault {Unit} #404781931059742614953428925532598112546968259949120850133657153144035839080556573153174575480851796977818471216982544937) (λ t'11 →
+                                                       k'14 t'11)) σ
+                                                else
+                                                  the (MS Unit)
+                                                    (k'14 unit) σ
+                                   in λ σ →
+                                        if (in_64bit_mode proc_mode') then
+                                          the (MS Unit)
+                                            (onS {Bool} {Unit} (canonical_address_p (bv-signed #64 jmp_addr)) (λ t'8 →
+                                               k'17 t'8)) σ
+                                        else
+                                          the (MS Unit)
+                                            (bindS {List (Bits #32)} {Unit} (getS {List (Bits #32)} x86-seg_hidden_limits) (λ seg_hidden_limits'9 →
+                                               let cs_limit : Bits #32
+                                                   cs_limit = (vec-get {Bits #32} #0 seg_hidden_limits'9 #1)
+                                               in k'17 (b-and (z-le (zpos #0) (bv-signed #64 jmp_addr)) (z-le (bv-signed #64 jmp_addr) (bv-unsigned #32 cs_limit))))) σ
+                        in λ σ →
+                             if (is_some {ZI} badlength?) then
+                               the (MS Unit)
+                                 (onS {Unit} {Unit} (x86_fault {Unit} #26527788633931292013587918063704349903878111884025584083023654650798916508749147338540209907045379711613433216615654445563689) (λ t'6 →
+                                    k'20 t'6)) σ
+                             else
+                               the (MS Unit)
+                                 (k'20 unit) σ)))))

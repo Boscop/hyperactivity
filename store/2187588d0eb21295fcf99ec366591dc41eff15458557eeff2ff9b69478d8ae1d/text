@@ -1,0 +1,55 @@
+-- (part of language-support)
+x86_movss_movsd_op_en_mr : (sp_dp : ZI) → (proc_mode' : proc_mode) → (start_rip : Bits #48) → (temp_rip : Bits #48) → (prefixes' : prefixes) → (rex_byte : Bits #8) → (opcode : Bits #8) → (modr_m' : modr_m) → (sib' : sib) → MS Unit
+x86_movss_movsd_op_en_mr sp_dp proc_mode' start_rip temp_rip prefixes' rex_byte opcode modr_m' sib' =
+  let ctx' : Text
+      ctx' = #2163137725939771834100097073774623680055948597946699566418
+      r_m : Bits #3
+      r_m = (modr_m-r_m modr_m')
+      mod_var : Bits #2
+      mod_var = (modr_m-mod modr_m')
+      reg' : Bits #3
+      reg' = (modr_m-reg modr_m')
+      operand_size : ZI
+      operand_size = (if (z-eq sp_dp (zpos #1)) then (zpos #8) else (zpos #4))
+  in onS {Bits #4} {Unit} (reg_index reg' rex_byte #2) (λ xmm_index →
+       bindS {Bits #128} {Unit} (xmmi_size (bits_of_int operand_size (zpos #5)) xmm_index) (λ xmm →
+         let p2' : Bits #8
+             p2' = (prefixes-seg prefixes')
+             p4? : Bool
+             p4? = (weq #103 (prefixes-adr prefixes'))
+         in bindS {ZI} {Unit} (select_segment_register proc_mode' prefixes' mod_var r_m sib') (λ seg_reg →
+              let k'14 : ((Bits #64) × ZI) → MS Unit
+                  k'14 =
+                    λ t'5 →
+                      let addr : Bits #64
+                          addr = (fst t'5)
+                          increment_rip_by : ZI
+                          increment_rip_by = (snd t'5)
+                          increment_rip_by : Bits #3
+                          increment_rip_by = (bits_of_int increment_rip_by (zpos #3))
+                      in bindS {Bits #48} {Unit} (add_to_iptr proc_mode' temp_rip (bv-zext #3 #48 increment_rip_by)) (λ temp_rip →
+                           let badlength? : Option ZI
+                               badlength? = (check_instruction_length start_rip temp_rip #0)
+                           in let k'11 : Unit → MS Unit
+                                  k'11 =
+                                    λ t'8 →
+                                      let inst_ac? : Bool
+                                          inst_ac? = true
+                                      in bindS {Unit} {Unit} (x86_operand_to_xmm_mem proc_mode' operand_size inst_ac? xmm seg_reg addr prefixes' rex_byte r_m mod_var sib') (λ t'9 →
+                                           write_iptr proc_mode' temp_rip)
+                              in λ σ →
+                                   if (is_some {ZI} badlength?) then
+                                     the (MS Unit)
+                                       (onS {Unit} {Unit} (x86_fault {Unit} #26527788633931292013587918063704349903878111884025584083023654650798916508749147338540209907045379711613433216615654445563689) (λ t'7 →
+                                          k'11 t'7)) σ
+                                   else
+                                     the (MS Unit)
+                                       (k'11 unit) σ)
+              in λ σ →
+                   if (weq mod_var #3) then
+                     the (MS Unit)
+                       (k'14 (#0 , (zpos #0))) σ
+                   else
+                     the (MS Unit)
+                       (bindS {((Bits #64) × ZI)} {Unit} (x86_effective_addr proc_mode' prefixes' temp_rip rex_byte r_m mod_var sib' #0) (λ t'4 →
+                          k'14 t'4)) σ)))

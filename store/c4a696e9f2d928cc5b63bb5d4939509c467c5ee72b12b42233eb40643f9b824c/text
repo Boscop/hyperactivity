@@ -1,0 +1,21 @@
+tm-same-sound : (s t : ETm) → tm-same s t ≡ true → s ≡ t
+tm-same-sound s t =
+  case s return (λ w → (t : ETm) → tm-same w t ≡ true → w ≡ t) of
+    etv v → λ t →
+      (case t return (λ w → tm-same (etv v) w ≡ true → etv v ≡ w) of
+         etv w → λ p → cong-etv (weq-sound v w p)
+         etc f → λ p → Empty-rec {lzero} {etv v ≡ etc f} (false≢true p)
+         eapp a b → λ p → Empty-rec {lzero} {etv v ≡ eapp a b} (false≢true p))
+    etc f → λ t →
+      (case t return (λ w → tm-same (etc f) w ≡ true → etc f ≡ w) of
+         etv w → λ p → Empty-rec {lzero} {etc f ≡ etv w} (false≢true p)
+         etc g → λ p → cong-etc (weq-sound f g p)
+         eapp a b → λ p → Empty-rec {lzero} {etc f ≡ eapp a b} (false≢true p))
+    eapp a b → λ t →
+      (case t return (λ w → tm-same (eapp a b) w ≡ true → eapp a b ≡ w) of
+         etv w → λ p → Empty-rec {lzero} {eapp a b ≡ etv w} (false≢true p)
+         etc g → λ p → Empty-rec {lzero} {eapp a b ≡ etc g} (false≢true p)
+         eapp c d → λ p →
+           cong-eapp (rec a c (andbt-l (tm-same a c) (tm-same b d) p))
+                     (rec b d (andbt-r (tm-same a c) (tm-same b d) p)))
+  t

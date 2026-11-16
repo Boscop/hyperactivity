@@ -1,0 +1,25 @@
+pull-pull : (n : Nat) (X0 X1 X2 : Type 1) (Y0 F0 Yc : X0 → Type 1) (Y1 F1 : X1 → Type 1) (F2 : X2 → Type 1)
+  (f0 : (x : X0) → Y0 x → X1) (g0 : (x : X0) (y : Y0 x) → F1 (f0 x y) → F0 x) (f1 : (x : X1) → Y1 x → X2) (g1 : (x : X1) (y : Y1 x) → F2 (f1 x y) → F1 x)
+  (gc : (x : X0) (y : Y0 x) → Y1 (f0 x y) → Yc x) (fc : (x : X0) → Yc x → X2) (gcf : (x : X0) (y : Yc x) → F2 (fc x y) → F0 x)
+  (q : PathP (λ i → (x : X0) (y : Y0 x) → Y1 (f0 x y) → X2) (λ x y w → fc x (gc x y w)) (λ x y w → f1 (f0 x y) w))
+  (qF : (x : X0) (y : Y0 x) (w : Y1 (f0 x y)) (E0 : F2 (f1 (f0 x y) w)) (E1 : F2 (fc x (gc x y w))) → PathP (λ i → F2 (q (~ i) x y w)) E0 E1 →
+     PathP (λ i → F0 x) (gcf x (gc x y w) E1) (g0 x y (g1 (f0 x y) w E0)))
+  (c : Cube n X0) (d : DCube n X0 Y0 c) (W : DCube n X1 Y1 (dcube-map n X0 Y0 X1 f0 c d)) (E : DCube n X2 F2 (dcube-map n X1 Y1 X2 f1 (dcube-map n X0 Y0 X1 f0 c d) W)) →
+  PathP (λ i → DCube n X0 F0 c)
+    (dcube-pull n X0 X2 Yc F0 F2 fc gcf c (dcube-pull n X0 X1 Y0 Yc Y1 f0 gc c d W)
+       (carry n X2 F2 (dcube-map n X1 Y1 X2 f1 (dcube-map n X0 Y0 X1 f0 c d) W) (dcube-map n X0 Yc X2 fc c (dcube-pull n X0 X1 Y0 Yc Y1 f0 gc c d W))
+          (λ i → map-pull n X0 X1 Y0 Yc Y1 f0 gc X2 fc f1 q c d W (~ i)) E))
+    (dcube-pull n X0 X1 Y0 F0 F1 f0 g0 c d (dcube-pull n X1 X2 Y1 F1 F2 f1 g1 (dcube-map n X0 Y0 X1 f0 c d) W E))
+pull-pull zero X0 X1 X2 Y0 F0 Yc Y1 F1 F2 f0 g0 f1 g1 gc fc gcf q qF c d W E =
+  qF c d W E (carry zero X2 F2 (f1 (f0 c d) W) (fc c (gc c d W)) (λ i → q (~ i) c d W) E)
+    (carry-fill zero X2 F2 (f1 (f0 c d) W) (fc c (gc c d W)) (λ i → q (~ i) c d W) E)
+pull-pull (suc n) X0 X1 X2 Y0 F0 Yc Y1 F1 F2 f0 g0 f1 g1 gc fc gcf q qF c d W E =
+  pull-pull n (Line X0) (Line X1) (Line X2) (LineO X0 Y0) (LineO X0 F0) (LineO X0 Yc) (LineO X1 Y1) (LineO X1 F1) (LineO X2 F2)
+    (lineo-map X0 Y0 X1 f0) (lineo-pull X0 X1 Y0 F0 F1 f0 g0) (lineo-map X1 Y1 X2 f1) (lineo-pull X1 X2 Y1 F1 F2 f1 g1)
+    (lineo-pull X0 X1 Y0 Yc Y1 f0 gc) (lineo-map X0 Yc X2 fc) (lineo-pull X0 X2 Yc F0 F2 fc gcf)
+    (λ i L D V → (q i (fst L) (fst D) (fst V) , q i (fst (snd L)) (fst (snd D)) (fst (snd V)) , λ j → q i (snd (snd L) j) (snd (snd D) j) (snd (snd V) j)))
+    (λ L D V Ea Eb P i →
+       (qF (fst L) (fst D) (fst V) (fst Ea) (fst Eb) (λ k → fst (P k)) i ,
+        qF (fst (snd L)) (fst (snd D)) (fst (snd V)) (fst (snd Ea)) (fst (snd Eb)) (λ k → fst (snd (P k))) i ,
+        λ j → qF (snd (snd L) j) (snd (snd D) j) (snd (snd V) j) (snd (snd Ea) j) (snd (snd Eb) j) (λ k → snd (snd (P k)) j) i))
+    c d W E

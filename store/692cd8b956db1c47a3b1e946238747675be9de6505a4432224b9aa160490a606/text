@@ -1,0 +1,12 @@
+-- atomically: run, validate, commit; on a failed validation retry, up to the fuel; the outcome
+-- carries whether it committed (a library STM over load/store with a log and retry; PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.11 “D24–D27 — The world”, its part D26)
+atomically : {A : Type} → Nat → Proc {lsuc lzero} TxS A → Proc {lzero} MemS (Outcome A)
+atomically {A} fuel p =
+  case fuel return (λ f → Proc {lzero} MemS (Outcome A)) of
+    zero → ret {lzero} {MemS} {Outcome A} stopped
+    suc f →
+      bind {lzero} {MemS} {A × TxLog} {Outcome A} (tx-run {A} p (nil , nil)) (λ r →
+      bind {lzero} {MemS} {Bool} {Outcome A} (tx-valid (fst (snd r))) (λ ok →
+        case ok of
+          true → bind {lzero} {MemS} {Unit} {Outcome A} (tx-commit (snd (snd r))) (λ u → ret {lzero} {MemS} {Outcome A} (done (fst r)))
+          false → rec f))

@@ -1,0 +1,20 @@
+-- ---------------------------------------------------------------- the rules that take sub-expressions' meanings
+-- a list of expressions in a list mode
+cx-list : CxU → CxMode → CxSub → CxSub → CxEnv → CxK → CxEv CxR
+cx-list u mode x xs env k = case mode of
+  cxm-args ps ltr → (case ps of
+    nil → cx-stop {CxR} st-ill-typed
+    cons pt pts → (case ltr of
+      true → cx-arg u pt x env (λ a → xs env (cxm-args pts ltr) (λ rest → k (cxr-cons a rest)))
+      false → xs env (cxm-args pts ltr) (λ rest → cx-arg u pt x env (λ a → k (cxr-cons a rest)))))
+  cxm-vals → (case cxu-ltr u of
+    true → x env cxm-get (λ a → xs env cxm-vals (λ rest → k (cxr-cons a rest)))
+    false → xs env cxm-vals (λ rest → x env cxm-get (λ a → k (cxr-cons a rest))))
+  cxm-oper ps ltr → (case ltr of
+    true → x env cxm-get (λ a → xs env (cxm-args ps (cxu-ltr u)) (λ rest → k (cxr-cons a rest)))
+    false → xs env (cxm-args ps (cxu-ltr u)) (λ rest → x env cxm-get (λ a → k (cxr-cons a rest))))
+  cxm-inits p slots → (case slots of
+    nil → cx-stop {CxR} st-ill-typed
+    cons s ss → cx-init-slot u p s x env (λ r → xs env (cxm-inits p ss) k))
+  cxm-get → cx-stop {CxR} st-ill-typed
+  cxm-init p → cx-stop {CxR} st-ill-typed

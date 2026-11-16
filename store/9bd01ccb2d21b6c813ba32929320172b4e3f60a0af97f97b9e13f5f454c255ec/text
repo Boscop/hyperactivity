@@ -1,0 +1,14 @@
+-- a constant of a register class other than a static's address: its value, decided before run time
+rm-const-rv : RCx → RConst → RSt RV
+rm-const-rv cx c = case c of
+  rc-int v k → sr-map rv-s (rm-int-sv (rm-ik (cx-t cx) k) v)
+  rc-bool b → sr-ok (rv-s (sv-b b))
+  rc-param i → (case rm-tys-nth (cx-args cx) i of
+    rty-const n → sr-ok (rv-s (sv-i (uq-of-word n)))
+    _ → sr-ill (ri-open-type (rty-const-param i)))
+  rc-zst ty → sr-ok rv-unit
+  rc-adt ty v fs → sr-ill ri-operand-class
+  rc-static i ty → sr-unsup (rz-const c)
+  rc-fn b a → sr-map (λ j → rv-s (rm-fn-ptr j)) (cx-inst cx b a)
+  rcs-nil → sr-ill ri-operand-class
+  rcs-cons x xs → sr-ill ri-operand-class

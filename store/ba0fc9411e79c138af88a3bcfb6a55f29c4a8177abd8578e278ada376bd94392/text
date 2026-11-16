@@ -1,0 +1,28 @@
+-- ---------------------------------------------------------------- push r64 (50+r)
+-- x86_push_general_register after the new stack pointer (push_and_pop.cub), as the model writes it
+push-k1 : (proc_mode' : proc_mode) → (start_rip : Bits #48) → (temp_rip : Bits #48) → (prefixes' : prefixes) → (rex_byte : Bits #8) →
+          (opcode : Bits #8) → (operand_size : ZI) → Bits #64 → MS Unit
+push-k1 proc_mode' start_rip temp_rip prefixes' rex_byte opcode operand_size =
+  λ new_rsp →
+           let reg' : Bits #3
+               reg' = (loghead_bits #8 (zpos #3) opcode)
+           in onS {Bits #4} {Unit} (reg_index reg' rex_byte #0) (λ t'4 →
+                bindS {Bits #64} {Unit} (rgfi_size (bits_of_int operand_size (zpos #4)) t'4 rex_byte) (λ sailval →
+                  let badlength? : Option ZI
+                      badlength? = (check_instruction_length start_rip temp_rip #0)
+                  in let k'13 : Unit → MS Unit
+                         k'13 =
+                           λ t'7 →
+                             bindS {ZI} {Unit} (select_address_size proc_mode' (Some prefixes')) (λ t'8 →
+                               bindS {Bool} {Unit} alignment_checking_enabled_p (λ t'9 →
+                                 bindS {Unit} {Unit} (wme_size proc_mode' t'8 operand_size (bv-sext #48 #64 (bv-trunc #64 #48 new_rsp)) None (zpos #2) (bv-zext #64 #128 sailval) t'9 false) (λ t'10 →
+                                   bindS {Unit} {Unit} (write_sptr proc_mode' new_rsp) (λ t'11 →
+                                     write_iptr proc_mode' temp_rip))))
+                     in λ σ →
+                          if (is_some {ZI} badlength?) then
+                            the (MS Unit)
+                              (onS {Unit} {Unit} (x86_fault {Unit} #26527788633931292013587918063704349903878111884025584083023654650798916508749147338540209907045379711613433216615654445563689) (λ t'6 →
+                                 k'13 t'6)) σ
+                          else
+                            the (MS Unit)
+                              (k'13 unit) σ))

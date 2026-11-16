@@ -1,0 +1,23 @@
+-- ---------------------------------------------------------------- binary and unary operators
+rm-binop-rv : RCx → RBinOp → ROperand → ROperand → RFrame → REv RV
+rm-binop-rv cx o a b =
+  sr-on (rm-opd-ty cx a) (λ e fr → rm-throw e) (λ aty →
+  sr-on (cx-class cx aty) (λ e fr → rm-throw e) (λ ac →
+    let ea = rm-opd-rv cx a
+        eb = rm-opd-rv cx b
+    in case o of
+         rbin-offset →
+           sr-on (rm-pointee aty) (λ e fr → rm-throw e) (λ pt →
+           sr-on (cx-size cx pt) (λ e fr → rm-throw e) (λ es →
+             λ fr → rm-bind (ea fr) (λ va → rm-bind (eb fr) (λ vb →
+                    rm-bind (rm-as-s va) (λ x → rm-bind (rm-as-s vb) (λ y →
+                    rm-bind (rm-res (sv-as-p x)) (λ p → rm-bind (rm-res (sv-as-i y)) (λ ix →
+                    rm-bind (rm-elem-ptr p es ix) (λ q → rm-ret (rv-s (sv-p q)))))))))))
+         rbin-cmp → λ fr → rm-throw (rx-ill-formed ri-operand-class)
+         _ → (case ac of
+           cl-scalar k →
+                         (let f = rm-binop o k
+                          in λ fr → rm-bind (ea fr) (λ va → rm-bind (eb fr) (λ vb →
+                                    rm-bind (rm-as-s va) (λ x → rm-bind (rm-as-s vb) (λ y →
+                                    rm-bind (f x y) (λ r → rm-ret (rv-s r)))))))
+           _ → λ fr → rm-throw (rx-unsupported (rz-binop o)))))

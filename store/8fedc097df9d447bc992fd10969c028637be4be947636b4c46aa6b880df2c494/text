@@ -1,0 +1,24 @@
+-- without a type: a λ at a fresh variable, a path at a fresh dimension, a type by its former
+qv-un bs v =
+  let w = %view v
+  in case w of
+       wlam f → let x = %var Uw in omap clam (qv-un (lcons (qv (var-level x)) bs) (f x))
+       wpair a b → obind (qv-un bs a) (λ ca → omap (cpair ca) (qv-un bs b))
+       wplam p → let i = %dim in omap cplam (qv-un (lcons (qd i) bs) (p @ i))
+       wiv r → some (q-iv bs r)
+       wface a → some (q-face bs a)
+       wsys b → q-sys bs (λ d → none) b
+       wgluev S a → obind (qv-un bs S) (λ cs → omap (cglue cs) (qv-un bs a))
+       wcon d c fs ds → omap (λ fc → ccon d c fc (lmap (q-iv bs) ds)) (oseq (lmap (qv-un bs) fs))
+       whcomp u a → 
+         let i = %dim
+         in obind (qv-un (lcons (qd i) bs) (u @ i)) (λ cu → omap (chcomp (cplam cu)) (qv-un bs a))
+       wwlit n → some (cwlit v)
+       wplit k b → some (cplit k b)
+       wbytes n → q-bytes v n
+       wpty k n → (if %weq k #4 then omap (cpty k) (qv-un bs n) else some (cpty k clzero))
+       wrec d fs → omap (crec d) (oseq (lmap (qv-un bs) fs))
+       wclock0 → some cclock0
+       wtick0 → some ctick0
+       wother → none
+       _ → if is-neu w then omap q-fst (qneu bs none v w) else qty bs v

@@ -1,0 +1,69 @@
+-- fragment k d c: fo c when c is in the fragment (d the binder depth, for the report), else the
+-- first construct outside it with its reason (k the walk's fuel, lib/codes.cub)
+fragment-n : Nat → Word → Code → Verdict
+fragment-n zero d c = not-fo reflect c
+fragment-n (suc k) d (cvar n) = fo (cvar n)
+fragment-n (suc k) d (cglob n) = fo (cglob n)
+fragment-n (suc k) d (clam b) = frag-wrap (fragment-n k (%wsucc d) b) (clam b)
+fragment-n (suc k) d (capp f a) = frag-both (fragment-n k d f) (fragment-n k d a) (capp f a)
+fragment-n (suc k) d (cpair a b) = frag-both (fragment-n k d a) (fragment-n k d b) (cpair a b)
+fragment-n (suc k) d (cfst p) = frag-wrap (fragment-n k d p) (cfst p)
+fragment-n (suc k) d (csnd p) = frag-wrap (fragment-n k d p) (csnd p)
+fragment-n (suc k) d (clet t b) = frag-both (fragment-n k d t) (fragment-n k (%wsucc d) b) (clet t b)
+fragment-n (suc k) d (cann t T) = fragment-n k d t
+-- a thunk is its value in compiled code: checked terms terminate and compiled code writes nothing
+-- outside its arena, so computing a delayed value early changes no answer (it may cost time)
+fragment-n (suc k) d (cthunk t) = fragment-n k d t
+fragment-n (suc k) d (cforce t) = fragment-n k d t
+fragment-n (suc k) d (ccon dd j fs lnil) =
+  if data-higher dd then not-fo higher (ccon dd j fs lnil) else frag-list (λ x → fragment-n k d x) fs (ccon dd j fs lnil)
+fragment-n (suc k) d (ccon dd j fs (lcons x xs)) = not-fo higher (ccon dd j fs (lcons x xs))
+fragment-n (suc k) d (ccase dd B x) =
+  if data-higher dd then not-fo higher (ccase dd B x)
+  else frag-both (frag-list (λ y → fragment-n k d y) B (ccase dd B x)) (fragment-n k d x) (ccase dd B x)
+fragment-n (suc k) d (celim dd P B x) =
+  if data-higher dd then not-fo higher (celim dd P B x)
+  else frag-both (frag-list (λ y → fragment-n k d y) B (celim dd P B x)) (fragment-n k d x) (celim dd P B x)
+fragment-n (suc k) d (cproj dd j x) = frag-wrap (fragment-n k d x) (cproj dd j x)
+fragment-n (suc k) d (cwlit n) = if %wlt n #18446744073709551616 then fo (cwlit n) else not-fo mult (cwlit n)
+fragment-n (suc k) d (cplit j b) = fo (cplit j b)
+fragment-n (suc k) d (cwsucc a) = frag-wrap (fragment-n k d a) (cwsucc a)
+fragment-n (suc k) d (cwop j a b) = frag-both (fragment-n k d a) (fragment-n k d b) (cwop j a b)
+fragment-n (suc k) d (cprim j as) = frag-list (λ x → fragment-n k d x) as (cprim j as)
+fragment-n (suc k) d (cwelim w z s mo) =
+  frag-both (frag-both (fragment-n k d w) (fragment-n k d z) (cwelim w z s mo)) (fragment-n k d s) (cwelim w z s mo)
+fragment-n (suc k) d cword = not-fo dep-type cword
+fragment-n (suc k) d (cpty j n) = not-fo dep-type (cpty j n)
+fragment-n (suc k) d (cpi m A B) = not-fo dep-type (cpi m A B)
+fragment-n (suc k) d (csigma A B) = not-fo dep-type (csigma A B)
+fragment-n (suc k) d (cuniv l) = not-fo dep-type (cuniv l)
+fragment-n (suc k) d (cdata dd ps) = not-fo dep-type (cdata dd ps)
+fragment-n (suc k) d (cpathp A a b) = not-fo dim (cpathp A a b)
+fragment-n (suc k) d (cplam b) = not-fo dim (cplam b)
+fragment-n (suc k) d (cpapp p r) = not-fo dim (cpapp p r)
+fragment-n (suc k) d ci0 = not-fo dim ci0
+fragment-n (suc k) d ci1 = not-fo dim ci1
+fragment-n (suc k) d (cneg r) = not-fo dim (cneg r)
+fragment-n (suc k) d (cmeet r s) = not-fo dim (cmeet r s)
+fragment-n (suc k) d (cjoin r s) = not-fo dim (cjoin r s)
+fragment-n (suc k) d (ceq0 r) = not-fo dim (ceq0 r)
+fragment-n (suc k) d (ceq1 r) = not-fo dim (ceq1 r)
+fragment-n (suc k) d (cfand a b) = not-fo dim (cfand a b)
+fragment-n (suc k) d (cfor a b) = not-fo dim (cfor a b)
+fragment-n (suc k) d cftt = not-fo dim cftt
+fragment-n (suc k) d cfff = not-fo dim cfff
+fragment-n (suc k) d (cforall b) = not-fo dim (cforall b)
+fragment-n (suc k) d csys0 = not-fo kan csys0
+fragment-n (suc k) d (csysc f t r) = not-fo kan (csysc f t r)
+fragment-n (suc k) d (ccomp A u a) = not-fo kan (ccomp A u a)
+fragment-n (suc k) d (cgluet A S) = not-fo kan (cgluet A S)
+fragment-n (suc k) d (cglue S a) = not-fo kan (cglue S a)
+fragment-n (suc k) d (cunglue S b) = not-fo kan (cunglue S b)
+fragment-n (suc k) d (chcompu A S) = not-fo kan (chcompu A S)
+fragment-n (suc k) d (cunglueu S b) = not-fo kan (cunglueu S b)
+fragment-n (suc k) d (chcomp u a) = not-fo kan (chcomp u a)
+fragment-n (suc k) d (ctrans dd psi ls x) = not-fo kan (ctrans dd psi ls x)
+-- a record of a codata type: a cell of its fields; a field of the type itself is delayed in
+-- compiled code (lib/x86.cub), so an infinite value is built only as far as it is observed
+fragment-n (suc k) d (crec dd fs) = frag-list (λ x → fragment-n k d x) fs (crec dd fs)
+fragment-n (suc k) d c = not-fo reflect c

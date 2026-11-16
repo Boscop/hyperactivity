@@ -1,0 +1,101 @@
+-- ea_to_la: from segmentation.sail (it calls what is defined after it there)
+-- (part of language-support)
+ea_to_la : (proc_mode' : proc_mode) → (eff_addr : Bits #64) → (seg_reg : ZI) → (nbytes : ZI) → MS (Bits #64)
+ea_to_la proc_mode' eff_addr seg_reg nbytes =
+  λ σ →
+    if (in_64bit_mode proc_mode') then
+      the (MS (Bits #64))
+        (let k'20 : (Bits #64) → MS (Bits #64)
+             k'20 =
+               λ lin_addr →
+                 onS {Bool} {Bits #64} (canonical_address_p (bv-signed #64 lin_addr)) (λ t'3 →
+                   let k'17 : Unit → MS (Bits #64)
+                       k'17 =
+                         λ t'5 →
+                           retS {Bits #64} lin_addr
+                   in λ σ →
+                        if (b-not t'3) then
+                          the (MS (Bits #64))
+                            (onS {Unit} {Bits #64} (x86_model_error {Unit} #21814826192473016117759527061750727496662368899126099) (λ t'4 →
+                               k'17 t'4)) σ
+                        else
+                          the (MS (Bits #64))
+                            (k'17 unit) σ)
+         in λ σ →
+              if (b-or (z-eq seg_reg (zpos #4)) (z-eq seg_reg (zpos #5))) then
+                the (MS (Bits #64))
+                  (bindS {((Bits #64) × ZI × (Bits #32))} {Bits #64} (segment_base_and_bounds Mode_64bit seg_reg) (λ t'1 →
+                     let base' : Bits #64
+                         base' = (fst t'1)
+                         lin_addr : Bits #64
+                         lin_addr = (bits_of_int (z-add (bv-unsigned #64 base') (bv-unsigned #64 eff_addr)) (zpos #64))
+                     in k'20 lin_addr)) σ
+              else
+                the (MS (Bits #64))
+                  (k'20 eff_addr) σ) σ
+    else if (in_compatibility_mode proc_mode') then
+      the (MS (Bits #64))
+        (let k'29 : Bool → MS (Bits #64)
+             k'29 =
+               λ t'8 →
+                 let k'26 : Unit → MS (Bits #64)
+                     k'26 =
+                       λ t'10 →
+                         bindS {((Bits #64) × ZI × (Bits #32))} {Bits #64} (segment_base_and_bounds proc_mode' seg_reg) (λ t'11 →
+                           let base' : Bits #64
+                               base' = (fst t'11)
+                               lower_bound : ZI
+                               lower_bound = (fst (snd t'11))
+                               upper_bound : Bits #32
+                               upper_bound = (snd (snd t'11))
+                               base' : Bits #32
+                               base' = (bv-trunc #64 #32 base')
+                               lower_bound : Bits #33
+                               lower_bound = (bits_of_int lower_bound (zpos #33))
+                               first_addr : Bits #64
+                               first_addr = eff_addr
+                               last_addr : ZI
+                               last_addr = (z-add (bv-signed #64 eff_addr) (z-add nbytes (zneg #1)))
+                           in let k'23 : Unit → MS (Bits #64)
+                                  k'23 =
+                                    λ t'13 →
+                                      let lin_addr : Bits #32
+                                          lin_addr = (bits_of_int (z-add (bv-unsigned #32 base') (bv-unsigned #32 (bv-trunc #64 #32 eff_addr))) (zpos #32))
+                                      in retS {Bits #64} (bv-zext #32 #64 lin_addr)
+                              in λ σ →
+                                   if (b-not (b-and (z-le (bv-unsigned #33 lower_bound) (bv-signed #64 first_addr)) (z-le last_addr (bv-unsigned #32 upper_bound)))) then
+                                     the (MS (Bits #64))
+                                       (onS {Unit} {Bits #64} (x86_model_error {Unit} #1300697115506830038381759936674696651557914956) (λ t'12 →
+                                          k'23 t'12)) σ
+                                   else
+                                     the (MS (Bits #64))
+                                       (k'23 unit) σ)
+                 in λ σ →
+                      if t'8 then
+                        the (MS (Bits #64))
+                          (onS {Unit} {Bits #64} (x86_model_error {Unit} #21814860404509169194758645849519540950299536998551378) (λ t'9 →
+                             k'26 t'9)) σ
+                      else
+                        the (MS (Bits #64))
+                          (k'26 unit) σ
+         in λ σ →
+              if (b-not (z-eq seg_reg (zpos #1))) then
+                the (MS (Bits #64))
+                  (let k'31 : Bool → MS (Bits #64)
+                       k'31 =
+                         λ t'7 →
+                           k'29 t'7
+                   in λ σ →
+                        if (b-not (z-eq seg_reg (zpos #2))) then
+                          the (MS (Bits #64))
+                            (bindS {List (Bits #16)} {Bits #64} (getS {List (Bits #16)} x86-seg_visibles) (λ seg_visibles'6 →
+                               k'31 (z-lt (bv-unsigned #16 (vec-get {Bits #16} #0 seg_visibles'6 (z-nat seg_reg))) (zpos #4)))) σ
+                        else
+                          the (MS (Bits #64))
+                            (k'31 false) σ) σ
+              else
+                the (MS (Bits #64))
+                  (k'29 false) σ) σ
+    else
+      the (MS (Bits #64))
+        (liftS {Bits #64} (x86_model_error {Bits #64} #1430326534880091636827201117228958513375655924002173436997)) σ

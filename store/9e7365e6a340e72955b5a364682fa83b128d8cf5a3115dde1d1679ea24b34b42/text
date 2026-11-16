@@ -1,0 +1,22 @@
+pull-gen : (n : Nat) (X X' X1 X1' : Type 1) (Y F : X → Type 1) (F' : X' → Type 1) (Y1 F1 : X1 → Type 1) (F1' : X1' → Type 1)
+  (f : (x : X) → Y x → X') (g : (x : X) (y : Y x) → F' (f x y) → F x) (f1 : (x : X1) → Y1 x → X1') (g1 : (x : X1) (y : Y1 x) → F1' (f1 x y) → F1 x)
+  (φ : X → X1) (φY : (x : X) → Y x → Y1 (φ x)) (φF : (x : X) → F x → F1 (φ x)) (φ' : X' → X1') (φF' : (x : X') → F' x → F1' (φ' x))
+  (q : PathP (λ i → (xq : X) (yq : Y xq) → X1') (λ xq yq → φ' (f xq yq)) (λ xq yq → f1 (φ xq) (φY xq yq)))
+  (qF : (x : X) (y : Y x) (e : F' (f x y)) (e1 : F1' (f1 (φ x) (φY x y))) → PathP (λ i → F1' (q i x y)) (φF' (f x y) e) e1 →
+     PathP (λ i → F1 (φ x)) (φF x (g x y e)) (g1 (φ x) (φY x y) e1))
+  (c : Cube n X) (d : DCube n X Y c) (e : DCube n X' F' (dcube-map n X Y X' f c d))
+  (E1 : DCube n X1' F1' (dcube-map n X1 Y1 X1' f1 (cube-map n X X1 φ c) (dcube-reidx n X X1 Y Y1 φ φY c d))) →
+  PathP (λ i → DCube n X1' F1' (dmap-gen n X X1 Y Y1 X' X1' φ φY φ' f f1 q c d i)) (dcube-reidx n X' X1' F' F1' φ' φF' (dcube-map n X Y X' f c d) e) E1 →
+  PathP (λ i → DCube n X1 F1 (cube-map n X X1 φ c)) (dcube-reidx n X X1 F F1 φ φF c (dcube-pull n X X' Y F F' f g c d e))
+    (dcube-pull n X1 X1' Y1 F1 F1' f1 g1 (cube-map n X X1 φ c) (dcube-reidx n X X1 Y Y1 φ φY c d) E1)
+pull-gen zero X X' X1 X1' Y F F' Y1 F1 F1' f g f1 g1 φ φY φF φ' φF' q qF c d e E1 P = qF c d e E1 P
+pull-gen (suc n) X X' X1 X1' Y F F' Y1 F1 F1' f g f1 g1 φ φY φF φ' φF' q qF c d e E1 P =
+  pull-gen n (Line X) (Line X') (Line X1) (Line X1') (LineO X Y) (LineO X F) (LineO X' F') (LineO X1 Y1) (LineO X1 F1) (LineO X1' F1')
+    (lineo-map X Y X' f) (lineo-pull X X' Y F F' f g) (lineo-map X1 Y1 X1' f1) (lineo-pull X1 X1' Y1 F1 F1' f1 g1)
+    (line-map X X1 φ) (lineo-reidx X X1 Y Y1 φ φY) (lineo-reidx X X1 F F1 φ φF) (line-map X' X1' φ') (lineo-reidx X' X1' F' F1' φ' φF')
+    (λ i L D → (q i (fst L) (fst D) , q i (fst (snd L)) (fst (snd D)) , λ j → q i (snd (snd L) j) (snd (snd D) j)))
+    (λ L D E Ea Pa i →
+       (qF (fst L) (fst D) (fst E) (fst Ea) (λ k → fst (Pa k)) i ,
+        qF (fst (snd L)) (fst (snd D)) (fst (snd E)) (fst (snd Ea)) (λ k → fst (snd (Pa k))) i ,
+        λ j → qF (snd (snd L) j) (snd (snd D) j) (snd (snd E) j) (snd (snd Ea) j) (λ k → snd (snd (Pa k)) j) i))
+    c d e E1 P

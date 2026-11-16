@@ -1,0 +1,65 @@
+-- (part of language-support)
+sar_spec_32 : (dst' : Bits #32) → (src : Bits #6) → (input_rflags : rflagsbits) → MF ((Bits #32) × rflagsbits × rflagsbits)
+sar_spec_32 dst' src input_rflags =
+  let neg_src : Bits #33
+      neg_src = (bits_of_int (z-negate (bv-unsigned #6 src)) (zpos #33))
+      raw_result_not_sign_extended : Bits #32
+      raw_result_not_sign_extended = (bits_of_int (ash_int (bv-unsigned #32 dst') (bv-signed #33 neg_src)) (zpos #32))
+  in let k'14 : ZI → MF ((Bits #32) × rflagsbits × rflagsbits)
+         k'14 =
+           λ raw_result →
+             let result' : Bits #32
+                 result' = (bits_of_int raw_result (zpos #32))
+             in let k'9 : (rflagsbits × rflagsbits) → MF ((Bits #32) × rflagsbits × rflagsbits)
+                    k'9 =
+                      λ t'8 →
+                        let output_rflags : rflagsbits
+                            output_rflags = (fst t'8)
+                            undefined_flags : rflagsbits
+                            undefined_flags = (snd t'8)
+                        in retF {((Bits #32) × rflagsbits × rflagsbits)} (result' , output_rflags , undefined_flags)
+                in if (weq src #0) then
+                     (k'9 (input_rflags , #0))
+                   else if (weq src #1) then
+                     (let cf' : Bits #1
+                          cf' = (bv-slice #32 dst' #0 #0)
+                      in bindF {Bits #1} {((Bits #32) × rflagsbits × rflagsbits)} (pf_spec32 result') (λ pf' →
+                           let zf : Bits #1
+                               zf = (zf_spec (bv-unsigned #32 result'))
+                               sf : Bits #1
+                               sf = (sf_spec32 result')
+                               of' : ZI
+                               of' = (zpos #0)
+                               output_rflags : rflagsbits
+                               output_rflags = (rflagsbits-set-of (rflagsbits-set-sf (rflagsbits-set-zf (rflagsbits-set-pf (rflagsbits-set-cf input_rflags cf') pf') zf) sf) (bits_of_int of' (zpos #1)))
+                               undefined_flags : rflagsbits
+                               undefined_flags = (rflagsbits-set-af #0 #1)
+                           in k'9 (output_rflags , undefined_flags)))
+                   else if (z-le (zpos #32) (bv-unsigned #6 src)) then
+                     (bindF {Bits #1} {((Bits #32) × rflagsbits × rflagsbits)} (pf_spec32 result') (λ pf' →
+                        let zf : Bits #1
+                            zf = (zf_spec (bv-unsigned #32 result'))
+                            sf : Bits #1
+                            sf = (sf_spec32 result')
+                            output_rflags : rflagsbits
+                            output_rflags = (rflagsbits-set-sf (rflagsbits-set-zf (rflagsbits-set-pf input_rflags pf') zf) sf)
+                            undefined_flags : rflagsbits
+                            undefined_flags = (rflagsbits-set-of (rflagsbits-set-af (rflagsbits-set-cf #0 #1) #1) #1)
+                        in k'9 (output_rflags , undefined_flags)))
+                   else
+                     (bindF {Bits #1} {((Bits #32) × rflagsbits × rflagsbits)} (bitslice #32 dst' (z-sub (bv-unsigned #6 src) (zpos #1)) (zpos #1)) (λ cf' →
+                        bindF {Bits #1} {((Bits #32) × rflagsbits × rflagsbits)} (pf_spec32 result') (λ pf' →
+                          let zf : Bits #1
+                              zf = (zf_spec (bv-unsigned #32 result'))
+                              sf : Bits #1
+                              sf = (sf_spec32 result')
+                              output_rflags : rflagsbits
+                              output_rflags = (rflagsbits-set-sf (rflagsbits-set-zf (rflagsbits-set-pf (rflagsbits-set-cf input_rflags cf') pf') zf) sf)
+                              undefined_flags : rflagsbits
+                              undefined_flags = (rflagsbits-set-of (rflagsbits-set-af #0 #1) #1)
+                          in k'9 (output_rflags , undefined_flags))))
+     in if (weq (logbit_bits #32 (zpos #31) dst') #1) then
+          (bindF {ZI} {((Bits #32) × rflagsbits × rflagsbits)} (binary_logext (zpos #32) (bv-unsigned #32 dst')) (λ t'1 →
+             k'14 (loghead_int (zpos #32) (ash_int t'1 (bv-signed #33 neg_src)))))
+        else
+          (k'14 (bv-unsigned #32 raw_result_not_sign_extended))

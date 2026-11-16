@@ -1,0 +1,14 @@
+-- a call of an overloaded operator: a member's first operand is its object
+cx-opcall : CxH → CxU → CType → List CType → CxSub → CxSub → CxEnv → CxMode → CxK → CxEv CxR
+cx-opcall h u t ats callee args env mode k = callee env cxm-get (λ c → case c of
+  cxr-bound nothing fid virt → (case cx-find-fn (cxu-ds u) fid of
+    cxfn-none → cx-unsupported {CxR} (cxw-decl fid)
+    cxfn fk parent v2 inits f → args env (cxm-oper (cx-ptypes (cx-fn-params f)) (cx-op-ltr u (cx-fn-name f))) (λ r → case r of
+      cxr-cons o parms → cx-bind {MPtr} {CxR} (cx-as-lv o) (λ this → cx-bind {Word} {CxR} (cx-dispatch u this fid virt) (λ f2 →
+        cx-call-fn (fst h) u t f2 this parms (cx-ptypes (cx-fn-params f)) mode k))
+      _ → cx-stop {CxR} st-ill-typed))
+  cxr-val v → cx-bind {MPtr} {CxR} (cx-res {MPtr} (sv-as-p v)) (λ fp → cx-bind {Word} {CxR} (cx-fn-of fp) (λ fid →
+    case cx-find-fn (cxu-ds u) fid of
+      cxfn-none → cx-unsupported {CxR} (cxw-decl fid)
+      cxfn fk parent v2 inits f → cx-apply h u t fid cx-null args ats (cx-op-ltr u (cx-fn-name f)) env mode k))
+  _ → cx-stop {CxR} st-ill-typed)

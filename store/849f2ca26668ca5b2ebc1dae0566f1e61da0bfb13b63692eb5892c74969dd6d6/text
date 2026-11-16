@@ -1,0 +1,23 @@
+conv T u v =
+  case %view T of
+    wpi A B → 
+      case %clos u v of
+        csame ps u2 v2 → if env-pairs ps then true else let x = %var A in conv (B x) (u2 x) (v2 x)
+        cdiff u2 v2 → let x = %var A in conv (B x) (u2 x) (v2 x)
+    wsigma A B → if conv A (fst u) (fst v) then conv (B (fst u)) (snd u) (snd v) else false
+    wpath L a b → let i = %dim in conv (L @ i) (u @ i) (v @ i)
+    wu l → conv-ty u v
+    wlevel → lvl-eq (lvl-of u) (lvl-of v)
+    wglue A S → 
+      if conv A (unglue S u) (unglue S v)
+        then lall (λ d → conv (%restrict d (Glue A S)) (%restrict d u) (%restrict d v))
+               (%clauses (faceof S))
+        else false
+    whcompu A S → 
+      if conv A (%unglueU S u) (%unglueU S v)
+        then lall (λ d → conv (%restrict d (%hcompU A S)) (%restrict d u) (%restrict d v))
+               (%clauses (faceof S))
+        else false
+    wsys bs → lall (λ b → let d = fst b in conv (snd b) (%restrict d u) (%restrict d v)) bs
+    wdata d ps → conv-data d ps u v
+    _ → uconv u v

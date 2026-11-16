@@ -1,0 +1,24 @@
+-- rewrite-anywhere r t: the first position in pre-order where the rule applies, rewritten; the
+-- binder depth is tracked so that a metavariable never captures (match refuses it)
+rewrite-first r t =
+  case rewrite-root r t of
+    some t2 → some t2
+    none →
+      (case t of
+         clam x → omap clam (rewrite-first r x)
+         capp f a → (case rewrite-first r f of some f2 → some (capp f2 a); none → omap (capp f) (rewrite-first r a))
+         cpair a b → (case rewrite-first r a of some a2 → some (cpair a2 b); none → omap (cpair a) (rewrite-first r b))
+         cfst p → omap cfst (rewrite-first r p)
+         csnd p → omap csnd (rewrite-first r p)
+         clet a b → (case rewrite-first r a of some a2 → some (clet a2 b); none → omap (clet a) (rewrite-first r b))
+         ccon d c fs ds → omap (λ fs2 → ccon d c fs2 ds) (rewrite-first-list r fs)
+         ccase d B x → (case rewrite-first r x of some x2 → some (ccase d B x2); none → omap (λ B2 → ccase d B2 x) (rewrite-first-list r B))
+         celim d P B x → (case rewrite-first r x of some x2 → some (celim d P B x2); none → (case rewrite-first-list r B of some B2 → some (celim d P B2 x); none → omap (λ P2 → celim d P2 B x) (rewrite-first r P)))
+         cforce x → omap cforce (rewrite-first r x)
+         cthunk x → omap cthunk (rewrite-first r x)
+         cdata d ps → omap (cdata d) (rewrite-first-list r ps)
+         cwsucc a → omap cwsucc (rewrite-first r a)
+         cwelim w z st mo → (case rewrite-first r w of some w2 → some (cwelim w2 z st mo); none → (case rewrite-first r z of some z2 → some (cwelim w z2 st mo); none → omap (λ st2 → cwelim w z st2 mo) (rewrite-first r st)))
+         cwop o a b → (case rewrite-first r a of some a2 → some (cwop o a2 b); none → omap (cwop o a) (rewrite-first r b))
+         cprim q as → omap (cprim q) (rewrite-first-list r as)
+         _ → none)

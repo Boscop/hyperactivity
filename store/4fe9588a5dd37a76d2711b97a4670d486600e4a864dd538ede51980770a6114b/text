@@ -1,0 +1,8 @@
+pre-ptr-add : MPtr → Word → UInt64 → AMem → MRes Unit
+pre-ptr-add p elsize i s = case p of
+  mp-null → m-chk (uq-iszero i) ub-ptr-arith
+  mp-fn f → mstop st-ill-typed
+  _ → mr-bind (tb-find (am-table s) (mp-address p)) (λ e →
+    mr-bind (m-chk (ar-live e) ub-dead) (λ u → case uq-isneg i of
+      false → m-chk (not (wlt (wadd (ar-base e) (ar-size e)) (wadd (mp-address p) (wmul (u64toWord i) elsize)))) ub-ptr-arith
+      true → m-chk (not (wlt (wsub (mp-address p) (ar-base e)) (wmul (u64toWord (uq-neg i)) elsize))) ub-ptr-arith))

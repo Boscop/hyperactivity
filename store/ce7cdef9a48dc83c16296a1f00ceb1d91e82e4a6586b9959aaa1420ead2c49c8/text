@@ -1,0 +1,58 @@
+linux-on-w : (pf : Platform) → LittleEndian pf → Word → Handler Linux W
+linux-on-w pf le sc c = case c return (λ x → Proc {lzero} W (lx-resp x)) of
+  lx-clock-gettime →
+    lx-bw {Sum Errno Word} {Sum Errno Timespec} (lx-sys pf sys-clock-gettime (pf-clock pf) (%wadd sc #24) #0 #0 #0 #0) (λ r →
+    lx-bw {Word} {Sum Errno Timespec} (load-at (%wadd sc #24)) (λ s →
+    lx-bw {Word} {Sum Errno Timespec} (load-at (%wadd sc #32)) (λ ns →
+      lx-rw {Sum Errno Timespec} (case r of inl e → inl e; inr z → inr (Timespec { ts-sec = s ; ts-nsec = ns })))))
+  lx-nanosleep t →
+    lx-bw {Unit} {Sum Errno Unit} (store-at (%wadd sc #24) (ts-sec t)) (λ u →
+    lx-bw {Unit} {Sum Errno Unit} (store-at (%wadd sc #32) (ts-nsec t)) (λ u2 →
+      lx-unit (lx-sys pf sys-nanosleep (%wadd sc #24) #0 #0 #0 #0 #0)))
+  lx-read fd buf len → lx-count len (lx-sys pf sys-read fd buf len #0 #0 #0)
+  lx-write fd buf len → lx-count len (lx-sys pf sys-write fd buf len #0 #0 #0)
+  lx-open path flags mode → lx-sys pf sys-open path flags mode #0 #0 #0
+  lx-close fd → lx-unit (lx-sys pf sys-close fd #0 #0 #0 #0 #0)
+  lx-mmap addr len prot flags fd off → lx-sys pf sys-mmap addr len prot flags fd off
+  lx-munmap addr len → lx-unit (lx-sys pf sys-munmap addr len #0 #0 #0 #0)
+  lx-mprotect addr len prot → lx-unit (lx-sys pf sys-mprotect addr len prot #0 #0 #0)
+  lx-socket domain type proto → lx-sys pf sys-socket domain type proto #0 #0 #0
+  lx-bind fd a →
+    lx-bw {Unit} {Sum Errno Unit} (lx-put-addr sc a) (λ u → lx-unit (lx-sys pf sys-bind fd sc #16 #0 #0 #0))
+  lx-listen fd backlog → lx-unit (lx-sys pf sys-listen fd backlog #0 #0 #0 #0)
+  lx-accept4 fd flags →
+    lx-bw {Unit} {Sum Errno (Word × SockAddr)} (lx-clear-addr sc) (λ u →
+    lx-bw {Sum Errno Word} {Sum Errno (Word × SockAddr)} (lx-sys pf sys-accept4 fd sc (%wadd sc #16) flags #0 #0) (λ r →
+    lx-bw {SockAddr} {Sum Errno (Word × SockAddr)} (lx-get-addr sc) (λ a →
+      lx-rw {Sum Errno (Word × SockAddr)} (case r of inl e → inl e; inr nfd → inr (nfd , a)))))
+  lx-connect fd a →
+    lx-bw {Unit} {Sum Errno Unit} (lx-put-addr sc a) (λ u → lx-unit (lx-sys pf sys-connect fd sc #16 #0 #0 #0))
+  lx-recvfrom fd buf len flags →
+    lx-bw {Unit} {Sum Errno (Upto len × SockAddr)} (lx-clear-addr sc) (λ u →
+    lx-bw {Sum Errno Word} {Sum Errno (Upto len × SockAddr)} (lx-sys pf sys-recvfrom fd buf len (%wand flags #4294967263) sc (%wadd sc #16)) (λ r →
+    lx-bw {SockAddr} {Sum Errno (Upto len × SockAddr)} (lx-get-addr sc) (λ a →
+      lx-rw {Sum Errno (Upto len × SockAddr)}
+        (case r of inl e → inl e; inr n → (case lx-upto len n of inl e2 → inl e2; inr k → inr (k , a))))))
+  lx-sendto fd buf len flags a →
+    lx-bw {Unit} {Sum Errno (Upto len)} (lx-put-addr sc a) (λ u → lx-count len (lx-sys pf sys-sendto fd buf len flags sc #16))
+  lx-setsockopt fd level name val →
+    lx-bw {Unit} {Sum Errno Unit} (store-at (%wadd sc #40) val) (λ u → lx-unit (lx-sys pf sys-setsockopt fd level name (%wadd sc #40) #4 #0))
+  lx-epoll-create1 flags → lx-sys pf sys-epoll-create1 flags #0 #0 #0 #0 #0
+  lx-epoll-ctl ep op fd ev →
+    lx-bw {Unit} {Sum Errno Unit} (store-at (%wadd sc #48) (ev-events ev)) (λ u →
+    lx-bw {Unit} {Sum Errno Unit} (store-at (%wadd (%wadd sc #48) (pf-epoll-data-off pf)) (ev-data ev)) (λ u2 →
+      lx-unit (lx-sys pf sys-epoll-ctl ep op fd (%wadd sc #48) #0 #0)))
+  lx-epoll-wait ep max timeout →
+    lx-bw {Sum Errno Word} {Sum Errno (Upto max × List EpollEvent)} (lx-sys pf sys-epoll-wait ep (%wadd sc #64) (lx-clamp max) timeout #0 #0) (λ r →
+    lx-bw {List EpollEvent} {Sum Errno (Upto max × List EpollEvent)} (lx-events pf (%wadd sc #64) (lx-clamp (case r of inl e → #0; inr n → n))) (λ evs →
+      lx-rw {Sum Errno (Upto max × List EpollEvent)}
+        (case r of inl e → inl e; inr n → (case lx-upto max n of inl e2 → inl e2; inr k → inr (k , evs)))))
+  lx-futex-wait addr val → lx-unit (lx-sys pf sys-futex addr #0 val #0 #0 #0)
+  lx-futex-wake addr n → lx-count n (lx-sys pf sys-futex addr #1 n #0 #0 #0)
+  lx-getpid → sys-call (pf-sysnr pf sys-getpid) #0 #0 #0 #0 #0 #0
+  lx-exit-group ec → lx-bw {Word} {Unit} (sys-call (pf-sysnr pf sys-exit-group) ec #0 #0 #0 #0 #0) (λ r → lx-rw {Unit} unit)
+  lx-alloc n → alloc-bytes n
+  lx-peek8 a → load8-at a
+  lx-poke8 a v → store8-at a v
+  lx-peek64 a → load-at a
+  lx-poke64 a v → store-at a v

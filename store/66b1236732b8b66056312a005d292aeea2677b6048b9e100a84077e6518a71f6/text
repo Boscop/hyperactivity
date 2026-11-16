@@ -1,0 +1,20 @@
+rm-rv-mem : RCx → RRvalue → RTy → Word → RFrame → MPtr → REv Unit
+rm-rv-mem cx rv dty al = case rv of
+  rrv-use op rt → rm-opd-into cx op dty al
+  rrv-repeat op n →
+    sr-on (rm-elem dty) (λ e fr p → rm-throw e) (λ et →
+    sr-on (cx-size cx et) (λ e fr p → rm-throw e) (λ es →
+    sr-on (cx-align cx et) (λ e fr p → rm-throw e) (λ ea → case cx-ty cx n of
+      rty-const c → rm-repeat c es (rm-opd-into cx op et (rm-wmin al ea))
+      _ → λ fr p → rm-throw (rx-ill-formed (ri-open-type n)))))
+  rrv-aggregate k ops → rm-agg-mem cx k ops dty al
+  rrv-cast k op ty → (case k of
+    rcast-transmute → rm-transmute-mem cx op dty al
+    _ → λ fr p → rm-throw (rx-unsupported (rz-cast k)))
+  rrv-binop o a b → (case o of
+    rbin-cmp → rm-cmp3-into cx a b dty
+    _ → λ fr p → rm-throw (rx-ill-formed ri-operand-class))
+  rrv-ref k p → λ fr p2 → rm-throw (rx-ill-formed ri-operand-class)
+  rrv-raw-ptr m p → λ fr p2 → rm-throw (rx-ill-formed ri-operand-class)
+  rrv-unop o a → λ fr p → rm-throw (rx-ill-formed ri-operand-class)
+  rrv-discriminant p → λ fr p2 → rm-throw (rx-ill-formed ri-operand-class)

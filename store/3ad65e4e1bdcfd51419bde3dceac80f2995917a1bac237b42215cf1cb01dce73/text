@@ -1,0 +1,35 @@
+-- (part of language-support)
+two_byte_opcode_execute-case28 : (proc_mode' : proc_mode) → (start_rip : Bits #48) → (temp_rip : Bits #48) → (prefixes' : prefixes) → (rex_byte : Bits #8) → (opcode : Bits #8) → (modr_m' : modr_m) → (sib' : sib) → MS Unit
+two_byte_opcode_execute-case28 proc_mode' start_rip temp_rip prefixes' rex_byte opcode modr_m' sib' =
+  let reg' : Bits #3
+      reg' = (modr_m-reg modr_m')
+      t'535 : Bool
+      t'535 =
+        if (b-and (in_64bit_mode proc_mode') (logbitp_bits #8 (zpos #2) rex_byte)) then
+          (b-not (weq reg' #0))
+        else
+          (b-or (weq reg' #1) (b-or (weq reg' #5) (b-or (weq reg' #6) (weq reg' #7))))
+  in let k'2292 : Unit → MS Unit
+         k'2292 =
+           λ t'540 →
+             x86_mov_control_regs_op_en_mr proc_mode' start_rip temp_rip prefixes' rex_byte opcode modr_m' sib'
+     in λ σ →
+          if (b-or (weq #240 (prefixes-lck prefixes')) t'535) then
+            the (MS Unit)
+              (onS {Unit} {Unit} (x86_fault {Unit} #172777358377) (λ t'536 →
+                 k'2292 t'536)) σ
+          else
+            the (MS Unit)
+              (bindS {List (Bits #16)} {Unit} (getS {List (Bits #16)} x86-seg_visibles) (λ seg_visibles'537 →
+                 let k'2295 : Unit → MS Unit
+                     k'2295 =
+                       λ t'539 →
+                         k'2292 unit
+                 in λ σ →
+                      if (b-not (z-eq (bv-unsigned #2 (segment_selectorbits-rpl (vec-get {Bits #16} #0 seg_visibles'537 #1))) (zpos #0))) then
+                        the (MS Unit)
+                          (onS {Unit} {Unit} (x86_fault {Unit} #172776443945) (λ t'538 →
+                             k'2295 t'538)) σ
+                      else
+                        the (MS Unit)
+                          (k'2295 unit) σ)) σ

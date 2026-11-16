@@ -1,0 +1,20 @@
+sm-xor-after-v : (u v : Expr) → (B : List Byte) → (a : Nat) → (rest : List Byte) → sm-drop a B ≡ list-append (sm-code (Xor u v)) rest →
+  (S : List Byte) → (x : Byte) →
+  sm-run B (sm-size v) (plus (list-length (sm-code u)) a , cons (denote u x) S , x , sm-running)
+  ≡ (plus (list-length (sm-code v)) (plus (list-length (sm-code u)) a) , cons (denote v x) (cons (denote u x) S) , x , sm-running) →
+  sm-run B (sm-size (Xor u v)) (a , S , x , sm-running)
+  ≡ sm-run B (suc zero) (sm-run B (sm-size v) (plus (list-length (sm-code u)) a , cons (denote u x) S , x , sm-running)) →
+  sm-run B (sm-size (Xor u v)) (a , S , x , sm-running)
+  ≡ (suc (plus (list-length (sm-code v)) (plus (list-length (sm-code u)) a)) , cons (xorB 8 (denote u x) (denote v x)) S , x , sm-running)
+sm-xor-after-v u v B a rest p S x hv h = sm-trans
+  (sm-run B (sm-size (Xor u v)) (a , S , x , sm-running))
+  (sm-run B (suc zero) (sm-run B (sm-size v) (plus (list-length (sm-code u)) a , cons (denote u x) S , x , sm-running)))
+  (suc (plus (list-length (sm-code v)) (plus (list-length (sm-code u)) a)) , cons (xorB 8 (denote u x) (denote v x)) S , x , sm-running)
+  h
+  (sm-trans
+    (sm-run B (suc zero) (sm-run B (sm-size v) (plus (list-length (sm-code u)) a , cons (denote u x) S , x , sm-running)))
+    (sm-run B (suc zero) (plus (list-length (sm-code v)) (plus (list-length (sm-code u)) a) , cons (denote v x) (cons (denote u x) S) , x , sm-running))
+    (suc (plus (list-length (sm-code v)) (plus (list-length (sm-code u)) a)) , cons (xorB 8 (denote u x) (denote v x)) S , x , sm-running)
+    (λ i → sm-run B (suc zero) (hv i))
+    (λ i → sm-fetch (sm-at-03 u v B a rest (sm-at-v u v B a rest (sm-at-u u v B a rest p)) i)
+             (plus (list-length (sm-code v)) (plus (list-length (sm-code u)) a)) (cons (denote v x) (cons (denote u x) S)) x))

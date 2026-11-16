@@ -1,0 +1,52 @@
+-- (part of language-support)
+shrd_spec_16 : (dst' : Bits #16) → (src : Bits #16) → (cnt : Bits #6) → (input_rflags : rflagsbits) → MF ((Bits #16) × Bool × rflagsbits × rflagsbits)
+shrd_spec_16 dst' src cnt input_rflags =
+  let src_dst : Bits #32
+      src_dst = (bv-or #32 (bits_of_int (ash_left_int (bv-unsigned #16 src) (zpos #16)) (zpos #32)) (bv-zext #16 #32 dst'))
+      neg_cnt : Bits #17
+      neg_cnt = (bits_of_int (z-negate (bv-unsigned #6 cnt)) (zpos #17))
+      output_dst : Bits #16
+      output_dst = (bits_of_int (ash_int (bv-unsigned #32 src_dst) (bv-signed #17 neg_cnt)) (zpos #16))
+  in let k'6 : (rflagsbits × rflagsbits) → MF ((Bits #16) × Bool × rflagsbits × rflagsbits)
+         k'6 =
+           λ t'5 →
+             let output_rflags : rflagsbits
+                 output_rflags = (fst t'5)
+                 undefined_flags : rflagsbits
+                 undefined_flags = (snd t'5)
+             in retF {((Bits #16) × Bool × rflagsbits × rflagsbits)} (output_dst , (z-lt (zpos #16) (bv-unsigned #6 cnt)) , output_rflags , undefined_flags)
+     in if (weq cnt #0) then
+          (k'6 (input_rflags , #0))
+        else if (weq cnt #1) then
+          (let cf' : Bits #1
+               cf' = (bv-slice #16 dst' #0 #0)
+               of' : ZI
+               of' = (if (weq (logbit_bits #16 (zpos #15) dst') (logbit_bits #16 (zpos #15) output_dst)) then (zpos #0) else (zpos #1))
+           in bindF {Bits #1} {((Bits #16) × Bool × rflagsbits × rflagsbits)} (pf_spec16 output_dst) (λ pf' →
+                let zf : Bits #1
+                    zf = (zf_spec (bv-unsigned #16 output_dst))
+                    sf : Bits #1
+                    sf = (sf_spec16 output_dst)
+                    output_rflags : rflagsbits
+                    output_rflags = (rflagsbits-set-sf (rflagsbits-set-zf (rflagsbits-set-pf (rflagsbits-set-of (rflagsbits-set-cf input_rflags cf') (bits_of_int of' (zpos #1))) pf') zf) sf)
+                    undefined_flags : rflagsbits
+                    undefined_flags = (rflagsbits-set-af #0 #1)
+                in k'6 (output_rflags , undefined_flags)))
+        else if (z-le (bv-unsigned #6 cnt) (zpos #16)) then
+          (bindF {Bits #1} {((Bits #16) × Bool × rflagsbits × rflagsbits)} (bitslice #16 dst' (z-sub (bv-unsigned #6 cnt) (zpos #1)) (zpos #1)) (λ cf' →
+             bindF {Bits #1} {((Bits #16) × Bool × rflagsbits × rflagsbits)} (pf_spec16 output_dst) (λ pf' →
+               let zf : Bits #1
+                   zf = (zf_spec (bv-unsigned #16 output_dst))
+                   sf : Bits #1
+                   sf = (sf_spec16 output_dst)
+                   output_rflags : rflagsbits
+                   output_rflags = (rflagsbits-set-sf (rflagsbits-set-zf (rflagsbits-set-pf (rflagsbits-set-cf input_rflags cf') pf') zf) sf)
+                   undefined_flags : rflagsbits
+                   undefined_flags = (rflagsbits-set-of (rflagsbits-set-af #0 #1) #1)
+               in k'6 (output_rflags , undefined_flags))))
+        else
+          (let output_rflags : rflagsbits
+               output_rflags = input_rflags
+               undefined_flags : rflagsbits
+               undefined_flags = (rflagsbits-set-cf (rflagsbits-set-of (rflagsbits-set-pf (rflagsbits-set-zf (rflagsbits-set-sf (rflagsbits-set-af input_rflags #1) #1) #1) #1) #1) #1)
+           in k'6 (output_rflags , undefined_flags))

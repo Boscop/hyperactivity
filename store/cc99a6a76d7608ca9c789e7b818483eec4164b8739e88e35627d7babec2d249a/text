@@ -1,0 +1,33 @@
+rm-call : RCx → RCallee → List ROperand → RPlace → Word → RCall → RFrame → REv RNext
+rm-call cx f args dest target =
+  let ea = rm-args args cx
+      fin = rm-ret-into cx dest
+  in case f of
+       rcallee-fn b a →
+         sr-on (cx-inst cx b a) (λ e call fr → rm-throw e) (λ j →
+           λ call fr → rm-bind (ea fr) (λ slots →
+                       rm-bind (call j slots) (λ r →
+                       rm-bind (fin fr r) (λ f2 → rm-ret (rn-goto f2 target)))))
+       rcallee-dyn tr m →
+         λ call fr → rm-bind (ea fr) (λ slots → case slots of
+           nil → rm-throw (rx-ill-formed ri-arity)
+           cons s0 rest → (case s0 of
+             sl-mem q → rm-throw (rx-ill-formed ri-operand-class)
+             sl-none → rm-throw (rx-ill-formed ri-operand-class)
+             sl-reg v → (case v of
+               rv-fat p vt →
+                 rm-bind (rm-res (sv-as-p vt)) (λ vp →
+                 rm-bind (rm-elem-ptr vp (tg-size (cx-t cx) ck-ptr) (uq-of-word (wadd #3 m))) (λ q →
+                 rm-bind (rm-load (cx-t cx) sk-ptr (tg-align (cx-t cx) ck-ptr) q) (λ fp →
+                 rm-bind (rm-fn-of fp) (λ j →
+                 rm-bind (call j (cons (sl-reg (rv-s p)) rest)) (λ r →
+                 rm-bind (fin fr r) (λ f2 → rm-ret (rn-goto f2 target)))))))
+               _ → rm-throw (rx-ill-formed ri-operand-class))))
+       rcallee-ptr op →
+         (let ef = rm-opd-rv cx op
+          in λ call fr → rm-bind (ef fr) (λ fv →
+                         rm-bind (rm-as-s fv) (λ x →
+                         rm-bind (rm-fn-of x) (λ j →
+                         rm-bind (ea fr) (λ slots →
+                         rm-bind (call j slots) (λ r →
+                         rm-bind (fin fr r) (λ f2 → rm-ret (rn-goto f2 target))))))))

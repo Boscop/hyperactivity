@@ -1,0 +1,41 @@
+-- (part of language-support)
+x86_lea : (proc_mode' : proc_mode) → (start_rip : Bits #48) → (temp_rip : Bits #48) → (prefixes' : prefixes) → (rex_byte : Bits #8) → (opcode : Bits #8) → (modr_m' : modr_m) → (sib' : sib) → MS Unit
+x86_lea proc_mode' start_rip temp_rip prefixes' rex_byte opcode modr_m' sib' =
+  let ctx' : Text
+      ctx' = #24831603289900353
+      r_m : Bits #3
+      r_m = (modr_m-r_m modr_m')
+      mod_var : Bits #2
+      mod_var = (modr_m-mod modr_m')
+      reg' : Bits #3
+      reg' = (modr_m-reg modr_m')
+      p4? : Bool
+      p4? = (weq #103 (prefixes-adr prefixes'))
+  in bindS {ZI} {Unit} (select_operand_size proc_mode' false rex_byte false prefixes' false false false) (λ t'1 →
+       onS {ZI} {Unit} (check_range (zpos #2) (zpos #8) t'1) (λ register_size →
+         bindS {((Bits #64) × ZI)} {Unit} (x86_effective_addr proc_mode' prefixes' temp_rip rex_byte r_m mod_var sib' #0) (λ t'3 →
+           let m' : Bits #64
+               m' = (fst t'3)
+               increment_rip_by : ZI
+               increment_rip_by = (snd t'3)
+               increment_rip_by : Bits #3
+               increment_rip_by = (bits_of_int increment_rip_by (zpos #3))
+           in bindS {Bits #48} {Unit} (add_to_iptr proc_mode' temp_rip (bv-zext #3 #48 increment_rip_by)) (λ temp_rip →
+                let badlength? : Option ZI
+                    badlength? = (check_instruction_length start_rip temp_rip #0)
+                in let k'10 : Unit → MS Unit
+                       k'10 =
+                         λ t'6 →
+                           let m' : Bits #64
+                               m' = (bv-mask #64 (trunc_signed #64 register_size m'))
+                           in onS {Bits #4} {Unit} (reg_index reg' rex_byte #2) (λ t'7 →
+                                bindS {Unit} {Unit} (write_rgfi_size (bits_of_int register_size (zpos #4)) t'7 m' rex_byte) (λ t'8 →
+                                  write_iptr proc_mode' temp_rip))
+                   in λ σ →
+                        if (is_some {ZI} badlength?) then
+                          the (MS Unit)
+                            (onS {Unit} {Unit} (x86_fault {Unit} #26527788633931292013587918063704349903878111884025584083023654650798916508749147338540209907045379711613433216615654445563689) (λ t'5 →
+                               k'10 t'5)) σ
+                        else
+                          the (MS Unit)
+                            (k'10 unit) σ))))

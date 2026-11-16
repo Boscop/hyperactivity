@@ -1,0 +1,12 @@
+-- unsigned division with remainder, divisor not zero: one bit of the quotient per step from the
+-- top (the remainder's bit shifted out is a carry: the subtraction is then exact modulo 2^128)
+dq-div-go : Nat → DQ → DQ → DQ → DQ → DQ × DQ
+dq-div-go zero a b q r = (q , r)
+dq-div-go (suc k) a b q r =
+  let carry = dq-isneg r
+      r2 = dq-or (dq-shl r uq1) (dq-shr a (u64 #127))
+      q2 = dq-shl q uq1
+      a2 = dq-shl a uq1
+  in case m-or carry (not (dq-ult r2 b)) of
+       true → dq-div-go k a2 b (dq-or q2 dq1) (dq-sub r2 b)
+       false → dq-div-go k a2 b q2 r2

@@ -1,0 +1,11 @@
+-- the names in a directory with their kinds (4 a directory, 8 a regular file)
+h-typed-entries : Word → Word → Word → Nat → Proc W (List (List Word × Word))
+h-typed-entries buf off n zero = ret nil
+h-typed-entries buf off n (suc k) =
+  if wlt off n then
+    bind (load8-at (wadd buf (wadd off #16))) (λ lo → bind (load8-at (wadd buf (wadd off #17))) (λ hi →
+    bind (load8-at (wadd buf (wadd off #18))) (λ ty →
+    bind (h-name-at (wadd buf (wadd off #19)) (toNat #256)) (λ name →
+    bind (h-typed-entries buf (wadd off (wadd lo (wshl hi #8))) n k) (λ rest →
+    ret {lzero} {W} (if orB (h-eq name ".") (h-eq name "..") then rest else cons (name , ty) rest))))))
+  else ret {lzero} {W} nil

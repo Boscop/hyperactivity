@@ -1,0 +1,25 @@
+-- the usual arithmetic conversions: the common type of two arithmetic operands. double if either
+-- is, else float if either is, else on the promoted types: the same type; of two of one
+-- signedness the higher rank; else the unsigned one when its rank is at least the signed one's,
+-- else the signed one when it holds every value of the unsigned one, else the signed one's
+-- unsigned counterpart. A pointer has no common type with anything: the meaning stops
+ct-uac-int : Target → CTy → CTy → CTy
+ct-uac-int t a b = case ct-signed t a of
+  true → (case ct-signed t b of
+    true → (case wlt (ct-rank a) (ct-rank b) of
+      true → b
+      false → a)
+    false → (case wlt (ct-rank b) (ct-rank a) of
+      false → b
+      true → (case ct-fits-signed t b a of
+        true → a
+        false → ct-unsigned-of a)))
+  false → (case ct-signed t b of
+    false → (case wlt (ct-rank a) (ct-rank b) of
+      true → b
+      false → a)
+    true → (case wlt (ct-rank a) (ct-rank b) of
+      false → a
+      true → (case ct-fits-signed t a b of
+        true → b
+        false → ct-unsigned-of b)))

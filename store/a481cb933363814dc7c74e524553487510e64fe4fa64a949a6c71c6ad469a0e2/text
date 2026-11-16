@@ -1,0 +1,19 @@
+-- Level's constructors: lzero lsuc lmax lomega
+-- (2026-11-12): a level stuck on a variable (`g n`, `g : Nat → Level` by
+-- cases) used to fall to `_ → lv0` and be read as lzero, which accepted Type : Type (`h51 : (n :
+-- Nat) → Type (g51 n) → Type; h51 n X = X` with `k51 = h51 (suc zero) Type`). Fixed: every level
+-- that is not a constructor is an atom, the value itself, compared by uconv in lvl-le; h51 is now
+-- refused ("expected: Type, actual: Type (case n …)"). Run 2026-11-12: library 1907 passed / 52
+-- failed, every definition's outcome identical to before the fix; lib/nbe.cub + examples 280/0;
+-- brunerie −2 at 4 workers; work files 247/0.
+lvl-of v =
+  case %view v of
+    wcon d c fs ds → 
+      if %weq c #0
+        then lv0
+        else if %weq c #1
+               then lvl-suc (lvl-of (lhead fs))
+               else if %weq c #2
+                      then lvl-max (lvl-of (lhead fs)) (lvl-of (lhead (ltail fs)))
+                      else lvw
+    _ → lvl #0 (single (v , #0))

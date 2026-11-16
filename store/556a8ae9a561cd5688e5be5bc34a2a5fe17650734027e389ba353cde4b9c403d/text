@@ -1,0 +1,36 @@
+-- (part of language-support)
+rcr_spec_32 : (dst' : Bits #32) → (src : Bits #6) → (input_rflags : rflagsbits) → MF ((Bits #32) × rflagsbits × rflagsbits)
+rcr_spec_32 dst' src input_rflags =
+  let input_cf : Bits #1
+      input_cf = (rflagsbits-cf input_rflags)
+      new_dst : Bits #33
+      new_dst = (changeSlice_bits #33 (bv-zext #32 #33 dst') (zpos #32) (zpos #1) input_cf)
+      raw_result : Bits #33
+      raw_result = (rotate_right_bits #33 new_dst (zpos #33) (bv-unsigned #6 src))
+      result' : Bits #32
+      result' = (bv-trunc #33 #32 raw_result)
+  in let k'3 : (rflagsbits × rflagsbits) → MF ((Bits #32) × rflagsbits × rflagsbits)
+         k'3 =
+           λ t'2 →
+             let output_rflags : rflagsbits
+                 output_rflags = (fst t'2)
+                 undefined_flags : rflagsbits
+                 undefined_flags = (snd t'2)
+             in retF {((Bits #32) × rflagsbits × rflagsbits)} (result' , output_rflags , undefined_flags)
+     in if (weq src #0) then
+          (k'3 (input_rflags , #0))
+        else if (weq src #1) then
+          (let cf' : Bits #1
+               cf' = (logbit_bits #33 (zpos #32) raw_result)
+           in bindF {ZI} {((Bits #32) × rflagsbits × rflagsbits)} (b_xor (bv-unsigned #1 (logbit_bits #32 (zpos #31) result')) (bv-unsigned #1 (bv-slice #32 result' #30 #30))) (λ of' →
+                let output_rflags : rflagsbits
+                    output_rflags = (rflagsbits-set-of (rflagsbits-set-cf input_rflags cf') (bits_of_int of' (zpos #1)))
+                in k'3 (output_rflags , #0)))
+        else
+          (let cf' : Bits #1
+               cf' = (logbit_bits #33 (zpos #32) raw_result)
+               output_rflags : rflagsbits
+               output_rflags = (rflagsbits-set-cf input_rflags cf')
+               undefined_flags : rflagsbits
+               undefined_flags = (rflagsbits-set-of #0 #1)
+           in k'3 (output_rflags , undefined_flags))

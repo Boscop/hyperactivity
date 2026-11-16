@@ -1,0 +1,23 @@
+rm-term : RCx → RTerm → RCall → RFrame → REv RNext
+rm-term cx tm = case tm of
+  rt-goto bb → λ call fr → rm-ret (rn-goto fr bb)
+  rt-switch-int op arms other →
+    (let f = rm-switch cx op arms other
+     in λ call fr → f fr)
+  rt-return → λ call fr → rm-return fr
+  rt-unreachable → λ call fr → rm-throw (rx-ub rub-unreachable)
+  rt-call f args dest target uw → (case rm-unwind-ok uw of
+    true → rm-call cx f args dest target
+    false → λ call fr → rm-throw (rx-unsupported (rz-unwind uw)))
+  rt-assert c e m target uw → (case rm-unwind-ok uw of
+    true →
+      (let f = rm-assert cx c e m target
+       in λ call fr → f fr)
+    false → λ call fr → rm-throw (rx-unsupported (rz-unwind uw)))
+  rt-drop p target uw → (case rm-unwind-ok uw of
+    true →
+      sr-on (rm-place-ty cx p) (λ e call fr → rm-throw e) (λ pty →
+        let addr = rm-place-addr cx p
+            g = rm-drop-glue (cx-depth cx) cx pty
+        in λ call fr → rm-bind (addr fr) (λ q → rm-then (g call q) (rm-ret (rn-goto fr target))))
+    false → λ call fr → rm-throw (rx-unsupported (rz-unwind uw)))

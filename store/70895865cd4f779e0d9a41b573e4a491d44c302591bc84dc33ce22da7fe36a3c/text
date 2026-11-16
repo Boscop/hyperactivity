@@ -1,0 +1,21 @@
+-- ---------------------------------------------------------------- the handler
+mem-flat : Target → (c : MemC) → Step W (m-resp c)
+mem-flat t c = case c return (λ y → Step W (m-resp y)) of
+  m-alloc kd z size al → scmd (w-alloc (wadd size al)) (λ a → case z of
+    true → o-bind {W} {Unit} {MPtr} (fl-fill (w-roundup a al) size #0) (λ u → sdone (mp-addr (w-roundup a al)))
+    false → sdone (mp-addr (w-roundup a al)))
+  m-release kd p → sdone unit
+  m-free p → sdone unit
+  m-load k al p → o-map {W} {DQ} {SV} (λ r → sv-dec t k (dq-en (tg-endian t) (sk-size t k) r)) (fl-rd (mp-address p) (sk-size t k))
+  m-store k al p v → (case sv-enc k v of
+    mok r → fl-wr (mp-address p) (sk-size t k) (dq-en (tg-endian t) (sk-size t k) r)
+    mub w → sdone unit
+    mstop w → sdone unit)
+  m-ptr-add p e i → sdone (fl-ptr-add p e i)
+  m-ptr-diff p q e → sdone (fl-ptr-diff p q e)
+  m-ptr-cmp o p q → sdone (fl-ptr-cmp o p q)
+  m-ptr-int sg w p → sdone (fl-ptr-int sg w p)
+  m-int-ptr sg w v → sdone (fl-int-ptr t sg w v)
+  m-memmove d s n → o-bind {W} {List Word} {Unit} (fl-bytes-rev (mp-address s) n) (λ bs → fl-bytes-put bs (mp-address d) n)
+  m-memcpy d s n → o-bind {W} {List Word} {Unit} (fl-bytes-rev (mp-address s) n) (λ bs → fl-bytes-put bs (mp-address d) n)
+  m-memset d v n → fl-fill (mp-address d) n (u64toWord (u64and v (u64 #255)))

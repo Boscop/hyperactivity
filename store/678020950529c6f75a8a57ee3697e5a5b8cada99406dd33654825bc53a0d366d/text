@@ -1,0 +1,20 @@
+runs-run-val : (stp : X86Step) → (stop j : Word) → ((s1 : X86) → run-ok stp stop j s1 ≡ true → Runs stp stop j s1 (snd (run-of stp j s1))) →
+               (s : X86) → weq (x86-rip s) stop ≡ false → (o : Outc exception Unit) → fst (stp s) ≡ o →
+               (case o return (λ _ → Bool) of
+                  out-val u → run-ok stp stop j (snd (stp s))
+                  out-throw e → false
+                  out-abort w → false) ≡ true →
+               Runs stp stop (%wsucc j) s (snd (run-of stp (%wsucc j) s))
+runs-run-val stp stop j ih s ne o eo =
+  case o return (λ o2 → fst (stp s) ≡ o2 → (case o2 return (λ _ → Bool) of
+                                              out-val u → run-ok stp stop j (snd (stp s))
+                                              out-throw e → false
+                                              out-abort w → false) ≡ true →
+                        Runs stp stop (%wsucc j) s (snd (run-of stp (%wsucc j) s))) of
+    out-val u → λ q h →
+      (case u return (λ u2 → fst (stp s) ≡ out-val u2 → Runs stp stop (%wsucc j) s (snd (run-of stp (%wsucc j) s))) of
+         unit → λ q2 → runs-run-tail stp stop j s ne q2 (ih (snd (stp s)) h))
+      q
+    out-throw e → λ q h → bool-ft (Runs stp stop (%wsucc j) s (snd (run-of stp (%wsucc j) s))) h
+    out-abort w → λ q h → bool-ft (Runs stp stop (%wsucc j) s (snd (run-of stp (%wsucc j) s))) h
+  eo

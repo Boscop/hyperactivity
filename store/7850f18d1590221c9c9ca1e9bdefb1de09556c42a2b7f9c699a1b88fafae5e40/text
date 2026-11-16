@@ -1,0 +1,11 @@
+-- a supervisor as a process: spawn the key, await the handle; on an outcome the strategy answers
+-- restart for, spawn it again (restart is instantiating the known key), up to the fuel
+supervise-by : {A : Type} → Nat → Strategy A → PKey → Proc {lzero} (SupS A) (Outcome A)
+supervise-by {A} fuel s k =
+  (case fuel return (λ f → Nat → Proc {lzero} (SupS A) (Outcome A)) of
+     zero → λ n → ret {lzero} {SupS A} {Outcome A} stopped
+     suc f2 → λ n →
+       bind {lzero} {SupS A} {Word} {Outcome A} (cmd {lzero} {SupS A} (spawn k)) (λ h →
+       bind {lzero} {SupS A} {Outcome A} {Outcome A} (cmd {lzero} {SupS A} (await h)) (λ o →
+         case s o (suc n) of restart → rec f2 (suc n); give-up → ret {lzero} {SupS A} {Outcome A} o)))
+  zero

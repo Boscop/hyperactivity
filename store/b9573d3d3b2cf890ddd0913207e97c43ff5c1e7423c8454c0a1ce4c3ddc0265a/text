@@ -1,0 +1,22 @@
+-- (part of language-support)
+gpr_sub_spec_4 : (dst' : Bits #32) → (src : Bits #32) → (input_rflags : rflagsbits) → MF ((Bits #32) × rflagsbits × rflagsbits)
+gpr_sub_spec_4 dst' src input_rflags =
+  let signed_raw_result : Bits #33
+      signed_raw_result = (bits_of_int (z-sub (bv-signed #32 dst') (bv-signed #32 src)) (zpos #33))
+      result' : Bits #32
+      result' = (bv-trunc #33 #32 signed_raw_result)
+      cf' : Bits #1
+      cf' = (bool_to_bits (z-lt (bv-unsigned #32 dst') (bv-unsigned #32 src)))
+  in bindF {Bits #1} {((Bits #32) × rflagsbits × rflagsbits)} (pf_spec32 result') (λ pf' →
+       let af : Bits #1
+           af = (sub_af_spec32 dst' src)
+           zf : Bits #1
+           zf = (zf_spec (bv-unsigned #32 result'))
+           sf : Bits #1
+           sf = (sf_spec32 result')
+       in bindF {Bits #1} {((Bits #32) × rflagsbits × rflagsbits)} (of_spec32 signed_raw_result) (λ of' →
+            let output_rflags : rflagsbits
+                output_rflags = (rflagsbits-set-of (rflagsbits-set-sf (rflagsbits-set-zf (rflagsbits-set-af (rflagsbits-set-pf (rflagsbits-set-cf input_rflags cf') pf') af) zf) sf) of')
+                undefined_flags : rflagsbits
+                undefined_flags = #0
+            in retF {((Bits #32) × rflagsbits × rflagsbits)} (result' , output_rflags , undefined_flags)))

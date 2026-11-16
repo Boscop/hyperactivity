@@ -1,0 +1,21 @@
+cx-ptr-mem : CxU → Bool → CType → CxR → CxR → CxEv CxR
+cx-ptr-mem u indirect rt x y =
+  cx-bind {MPtr} {CxR} (case indirect of
+    true → cx-as-ptr x
+    false → cx-as-lv x) (λ p → case y of
+    cxr-val v → cx-bind {UInt64} {CxR} (cx-res {UInt64} (sv-as-i v)) (λ off → case u64eq off uq-ones of
+      true → cx-ub {CxR} ub-null
+      false → cx-bind {MPtr} {CxR} (cx-ptr-add p #1 off) (λ q → cx-ret {CxR} (cxr-lv q #0)))
+    cxr-mfp f adj → cx-bind {MPtr} {CxR} (cx-ptr-add p #1 adj) (λ this → case f of
+      sv-p fp → cx-bind {Word} {CxR} (cx-fn-of fp) (λ fid → cx-ret {CxR} (cxr-bound this fid false))
+      sv-i so →
+        cx-bind {Word} {CxR} (cx-res {Word} (mr-bind (cx-mp-class rt) (cx-vptr-off (cxu-ds u) #64))) (λ vo →
+        cx-bind {MPtr} {CxR} (cx-sub this vo) (λ vpp →
+        cx-bind {SV} {CxR} (cx-load u sk-ptr vpp) (λ vp →
+        cx-bind {MPtr} {CxR} (cx-res {MPtr} (sv-as-p vp)) (λ vt →
+        cx-bind {MPtr} {CxR} (cx-ptr-add vt #1 so) (λ sp →
+        cx-bind {SV} {CxR} (cx-load u sk-ptr sp) (λ fv →
+        cx-bind {MPtr} {CxR} (cx-res {MPtr} (sv-as-p fv)) (λ fp →
+        cx-bind {Word} {CxR} (cx-fn-of fp) (λ fid → cx-ret {CxR} (cxr-bound this fid false)))))))))
+      _ → cx-stop {CxR} st-ill-typed)
+    _ → cx-stop {CxR} st-ill-typed)

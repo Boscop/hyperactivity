@@ -1,0 +1,26 @@
+-- the bits of the format's value nearest to (-1)^sign · m · 2^e (e a two's-complement exponent);
+-- beyond the largest finite value, the infinity. With x the exponent of m's top bit, the unit of
+-- the result is q = max (x - (p - 1)) qmin; the integer r = m · 2^(e - q) rounded has at most
+-- p + 1 bits, and the bits are ((q - qmin) << (p - 1)) + r: r's top bit is the exponent field's
+-- unit (a subnormal has none, a carry out of the rounding raises the exponent)
+fp-pack : FF → Bool → DQ → UInt64 → UInt64
+fp-pack f sign m e =
+  let sbit = (case sign of
+        true → ff-sign f
+        false → uq0)
+  in case dq-iszero m of
+       true → sbit
+       false →
+         (let x = u64add (u64sub (dq-bitlen m) uq1) e
+              q = uq-smax (u64sub x (ff-p1 f)) (uq-neg (ff-nqmin f))
+              sh = u64sub q e
+              r = (case uq-slt uq0 sh of
+                     true → dq-round-shr m sh
+                     false → fst (dq-shl m (uq-neg sh)))
+              ef = u64add q (ff-nqmin f)
+          in case u64lt ef (ff-emax f) of
+               false → u64or sbit (u64shl (ff-emax f) (ff-p1 f))
+               true → (let b = u64add (u64shl ef (ff-p1 f)) r
+                       in case u64lt (u64shr b (ff-p1 f)) (ff-emax f) of
+                            true → u64or sbit b
+                            false → u64or sbit (u64shl (ff-emax f) (ff-p1 f))))

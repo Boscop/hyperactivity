@@ -1,0 +1,16 @@
+-- an action applied: the state it reaches, or none when it is not valid there
+hy-step : Nat → HyState → List (List Word) → Sum Unit HyState
+hy-step count (hy-walking k) a =
+  if h-eq (hy-head a) "next" then inr (if hy-same-nat k count then hy-working else hy-walking (suc k)) else
+  if h-eq (hy-head a) "prev" then inr (hy-walking (hy-pred k)) else inl unit
+hy-step count hy-working a =
+  if h-eq (hy-head a) "decompose" then (if h-null (hy-second a) then inl unit else inr (hy-reading (hy-second a))) else
+  if orB (h-has (hy-head a) hy-work-words) (h-has (hy-head a) hy-bridge-words) then inr hy-working else inl unit
+hy-step count (hy-reading f) a =
+  if h-eq (hy-head a) "pull"
+  then (if hy-ranges-ok (list-map h-number (hy-rest a)) then inr (hy-decomposing f (list-map h-number (hy-rest a))) else inl unit) else
+  if h-eq (hy-head a) "finish" then inr hy-working else
+  if h-eq (hy-head a) "part" then inr (hy-reading f) else inl unit
+hy-step count (hy-decomposing f xy) a =
+  if h-has (hy-head a) (cons "self-contained" (cons "re-expressed" nil)) then inr (hy-reading f) else
+  if h-eq (hy-head a) "part" then inr (hy-decomposing f xy) else inl unit

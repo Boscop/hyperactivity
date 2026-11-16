@@ -1,0 +1,21 @@
+-- a delete-expression ([expr.delete]): of a null pointer, nothing; else the object destroyed
+-- (through the vtable's deleting destructor when the class's destructor is virtual, which
+-- also deallocates) and the deallocation function called. An array of a type with a
+-- non-trivial destructor needs the count new[] kept, which is not written (Limits).
+cx-delete : CxH → CxU → CExpr → Bool → CType → CxR → CxEv CxR
+cx-delete h u e array pt r =
+  cx-bind {MPtr} {CxR} (cx-as-ptr r) (λ p → cx-bind {Bool} {CxR} (cx-is-null u p) (λ z → case z of
+    true → cx-ret {CxR} cxr-void
+    false → (case array of
+      true → (case cx-plain (cx-pointee pt) of
+        true → cx-then {Unit} {CxR} (cx-free p) (cx-ret {CxR} cxr-void)
+        false → cx-unsupported {CxR} (cxw-form #3 e))
+      false → (case cx-tc (cx-pointee pt) of
+        cxtc-record id → (case cx-find-dtor (cxu-ds u) id of
+          cxfn-none → cx-then {Unit} {CxR} (cx-free p) (cx-ret {CxR} cxr-void)
+          cxfn fk parent virt inits f → (case virt of
+            true → cx-bind {Word} {CxR} (cx-virtual u id (cx-fn-id f) true p) (λ f2 →
+              cx-bind {CxR} {CxR} ((fst h) f2 p nil cx-null) (λ x → cx-ret {CxR} cxr-void))
+            false → cx-then {Unit} {CxR} (cx-destroy (cx-pointee pt) (fst h) u p)
+                      (cx-then {Unit} {CxR} (cx-free p) (cx-ret {CxR} cxr-void))))
+        _ → cx-then {Unit} {CxR} (cx-free p) (cx-ret {CxR} cxr-void)))))

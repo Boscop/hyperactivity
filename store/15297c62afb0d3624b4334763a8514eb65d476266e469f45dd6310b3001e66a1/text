@@ -1,0 +1,22 @@
+dgdiag : (I : Lst Entry → Type 2) (Ln : (sq : Lst Entry) → I sq → I sq) (K : (sq : Lst Entry) → I sq → Type 1)
+  (pd : (sq : Lst Entry) → I (lcons e-dim sq) → I sq) (pt : (s : TyShape) (sq : Lst Entry) → I (lcons (e-ty s) sq) → I sq) (O : DgOps I Ln K pd pt)
+  (J : (sq : Lst Entry) → I sq → Type 2) (LnJ : (sq : Lst Entry) (iq : I sq) → J sq iq → J sq (Ln sq iq))
+  (pdJ : (sq : Lst Entry) (iq : I (lcons e-dim sq)) → J (lcons e-dim sq) iq → J sq (pd sq iq))
+  (ptJ : (s : TyShape) (sq : Lst Entry) (iq : I (lcons (e-ty s) sq)) → J (lcons (e-ty s) sq) iq → J sq (pt s sq iq))
+  (D : (sq : Lst Entry) (iq : I sq) → J sq iq → K sq iq → Type 1) → DDgOps I Ln K pd pt O J LnJ pdJ ptJ D →
+  (sk : Lst Entry) (k : Word) (i : I sk) (j : J sk i) (x : K sk (Ln sk i)) → D sk (Ln sk i) (LnJ sk i j) x → D sk i j (gdiag I Ln K pd pt O sk k i x)
+dgdiag I Ln K pd pt O J LnJ pdJ ptJ D P lnil k i j x y = fst P i j x y
+dgdiag I Ln K pd pt O J LnJ pdJ ptJ D P (lcons (e-ty s) sk) k i j x y =
+  bool-elim1 (λ b → D (lcons (e-ty s) sk) i j (if b then fst (snd O) s sk i x
+                     else fst (snd (snd (snd O))) s sk i (gdiag I Ln K pd pt O sk (%wsub k #1) (pt s sk i) (fst (snd (snd O)) s sk i x))))
+    (fst (snd P) s sk i j x y)
+    (fst (snd (snd (snd P))) s sk i j (gdiag I Ln K pd pt O sk (%wsub k #1) (pt s sk i) (fst (snd (snd O)) s sk i x))
+       (dgdiag I Ln K pd pt O J LnJ pdJ ptJ D P sk (%wsub k #1) (pt s sk i) (ptJ s sk i j) (fst (snd (snd O)) s sk i x) (fst (snd (snd P)) s sk i j x y)))
+    (weq k #0)
+dgdiag I Ln K pd pt O J LnJ pdJ ptJ D P (lcons e-dim sk) k i j x y =
+  bool-elim1 (λ b → D (lcons e-dim sk) i j (if b then fst (snd (snd (snd (snd O)))) sk i x
+                     else snd (snd (snd (snd (snd (snd O))))) sk i (gdiag I Ln K pd pt O sk (%wsub k #1) (pd sk i) (fst (snd (snd (snd (snd (snd O))))) sk i x))))
+    (fst (snd (snd (snd (snd P)))) sk i j x y)
+    (snd (snd (snd (snd (snd (snd P))))) sk i j (gdiag I Ln K pd pt O sk (%wsub k #1) (pd sk i) (fst (snd (snd (snd (snd (snd O))))) sk i x))
+       (dgdiag I Ln K pd pt O J LnJ pdJ ptJ D P sk (%wsub k #1) (pd sk i) (pdJ sk i j) (fst (snd (snd (snd (snd (snd O))))) sk i x) (fst (snd (snd (snd (snd (snd P))))) sk i j x y)))
+    (weq k #0)

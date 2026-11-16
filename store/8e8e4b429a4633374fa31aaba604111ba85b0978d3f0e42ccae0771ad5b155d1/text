@@ -1,0 +1,33 @@
+-- ---------------------------------------------------------------- the operations by kind
+-- conversion between every pair of kinds. Pointer ↔ integer needs the memory (an allocation's
+-- address) and the Target's choice: it is lib/mem/memory.cub's, and stops here
+sv-conv : SK → SK → SV → MRes SV
+sv-conv from to v = case from of
+  sk-int s1 w1 → (case to of
+    sk-int s2 w2 → mr-map (dq-to-int s2 w2) (sv-int-dq s1 w1 v)
+    sk-bool → mr-map (λ a → sv-b (not (dq-iszero a))) (sv-int-dq s1 w1 v)
+    sk-f32 → mr-map sv-f (int-to-f32 s1 w1 v)
+    sk-f64 → mr-map sv-d (int-to-f64 s1 w1 v)
+    sk-ptr → mstop st-ill-typed)
+  sk-bool → (case to of
+    sk-int s2 w2 → mr-map (λ b → dq-to-int s2 w2 (uq-b b , uq0)) (sv-as-b v)
+    sk-bool → mr-map sv-b (sv-as-b v)
+    sk-f32 → mr-map (λ b → sv-f (f64-narrow (f64 (u64toWord (uq-b b))))) (sv-as-b v)
+    sk-f64 → mr-map (λ b → sv-d (f64 (u64toWord (uq-b b)))) (sv-as-b v)
+    sk-ptr → mstop st-ill-typed)
+  sk-f32 → (case to of
+    sk-int s2 w2 → mr-bind (sv-as-f v) (λ x → f64-to-int s2 w2 (f32-widen x))
+    sk-bool → mr-map (λ x → sv-b (not (f64eq (f32-widen x) f64-zero))) (sv-as-f v)
+    sk-f32 → mr-map sv-f (sv-as-f v)
+    sk-f64 → mr-map (λ x → sv-d (f32-widen x)) (sv-as-f v)
+    sk-ptr → mstop st-ill-typed)
+  sk-f64 → (case to of
+    sk-int s2 w2 → mr-bind (sv-as-d v) (λ x → f64-to-int s2 w2 x)
+    sk-bool → mr-map (λ x → sv-b (not (f64eq x f64-zero))) (sv-as-d v)
+    sk-f32 → mr-map (λ x → sv-f (f64-narrow x)) (sv-as-d v)
+    sk-f64 → mr-map sv-d (sv-as-d v)
+    sk-ptr → mstop st-ill-typed)
+  sk-ptr → (case to of
+    sk-bool → mr-map (λ p → sv-b (not (mp-eq p mp-null))) (sv-as-p v)
+    sk-ptr → mr-map sv-p (sv-as-p v)
+    _ → mstop st-ill-typed)

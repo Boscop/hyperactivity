@@ -1,0 +1,12 @@
+wb-loop-step : (w : Word) → (n : ZI) → (addr : Word) → (ak : Text) → (value : Word) → (j : Word) →
+               ((i : ZI) → (f : FR) → WbOk w addr j i →
+                  st-loop-up {X86} {exception} {Unit} j i unit (wb-body w n addr ak value) (fs f)
+                    ≡ the (MF Unit × X86) (out-val unit , fs (f-mem-set (wb-mem w n addr value j i (f-mem f)) f))) →
+               (i : ZI) → (f : FR) → WbOk w addr (%wsucc j) i →
+               st-loop-up {X86} {exception} {Unit} (%wsucc j) i unit (wb-body w n addr ak value) (fs f)
+                 ≡ the (MF Unit × X86) (out-val unit , fs (f-mem-set (wb-mem w n addr value (%wsucc j) i (f-mem f)) f))
+wb-loop-step w n addr ak value j ih i f h =
+  loop-step {Unit} j i unit unit (wb-body w n addr ak value) (fs f)
+    (fs (f-mem-set (mem-store-n (f-mem f) #1 (bv-mask #64 (wb-phys w addr i)) (wb-byte n value i)) f))
+    (wb-step w n addr ak value i f (fst h))
+  ∙ ih (z-add i (zpos #1)) (f-mem-set (mem-store-n (f-mem f) #1 (bv-mask #64 (wb-phys w addr i)) (wb-byte n value i)) f) (snd h)

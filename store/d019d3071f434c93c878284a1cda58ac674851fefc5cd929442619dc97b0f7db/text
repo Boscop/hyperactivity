@@ -1,0 +1,24 @@
+-- a new-expression ([expr.new]): the array bound; the allocation function called with the
+-- size (and the placement arguments), sequenced before the initializer (/19); the initializer
+cx-new : CxH → CxU → CExpr → CType → Bool → COptId → CxSub → CType → CxSub → Bool → CxSub → CxEnv → CxK → CxEv CxR
+cx-new h u e t array opnew size sizet placement hasinit init env k =
+  (λ (withn : (Word → CxEv CxR) → CxEv CxR) → withn (λ n →
+     cx-bind {Word} {CxR} (cx-res {Word} (cx-size u (cx-pointee t))) (λ sz → case opnew of
+       coi-none → cx-unsupported {CxR} (cxw-form #4 e)
+       coi-some fid → (case cx-find-fn (cxu-ds u) fid of
+         cxfn-none → cx-unsupported {CxR} (cxw-decl fid)
+         cxfn fk parent virt inits f → (case cx-fn-body f of
+           cfb-none → placement env cxm-vals (λ pv →
+             cx-bind {CxR} {CxR} (cx-builtin u f (cx-ptypes (cx-fn-params f)) (cxr-cons (cxr-val (sv-i (uq-of-word (wmul n sz)))) pv) nil) (λ r →
+             cx-bind {MPtr} {CxR} (cx-as-ptr r) (λ p → case hasinit of
+               false → k (cxr-val (sv-p p))
+               true → (case array of
+                 true → init env (cxm-init p) (λ x → k (cxr-val (sv-p p)))
+                 false → cx-init-slot u p (cxsl (cx-pointee t) #0 cbw-none #0) init env (λ x → k (cxr-val (sv-p p)))))))
+           _ → cx-unsupported {CxR} (cxw-form #4 e))))))
+  (λ kn → case array of
+     false → kn #1
+     true → size env cxm-get (λ r → cx-bind {SV} {CxR} (cx-as-val r) (λ v → cx-bind {UInt64} {CxR} (cx-index u sizet v) (λ x →
+       case uq-isneg x of
+         true → cx-stop {CxR} st-unsupported
+         false → kn (u64toWord x)))))

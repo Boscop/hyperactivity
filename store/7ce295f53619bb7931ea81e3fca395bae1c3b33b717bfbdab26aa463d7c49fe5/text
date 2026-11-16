@@ -1,0 +1,12 @@
+rc-instr : {R : Type} → List Word → Word → (c : Atom) → (atom-resp c → RcRun R) → RcRun R
+rc-instr dom t c =
+  case c return (λ x → (atom-resp x → RcRun R) → RcRun R) of
+    at-load o a → λ k nx es ms acc → tso-over-w dom (λ v acc2 → k v (%wsucc nx) (cons (tso-ev nx t k-R a v #0) es) (cons (nx , o) ms) acc2) acc
+    at-store o a v → λ k nx es ms acc → k unit (%wsucc nx) (cons (tso-ev nx t k-W a #0 v) es) (cons (nx , o) ms) acc
+    at-xchg o a v → λ k nx es ms acc → tso-over-w dom (λ vr acc2 → k vr (%wsucc nx) (cons (tso-ev nx t k-L a vr v) es) (cons (nx , o) ms) acc2) acc
+    at-cas so fo a old new → λ k nx es ms acc →
+      tso-over-w dom (λ vr acc2 →
+        if weq vr old
+        then k (true , vr) (%wsucc nx) (cons (tso-ev nx t k-L a vr new) es) (cons (nx , so) ms) acc2
+        else k (false , vr) (%wsucc nx) (cons (tso-ev nx t k-R a vr #0) es) (cons (nx , fo) ms) acc2) acc
+    at-fence o → λ k nx es ms acc → k unit (%wsucc nx) (cons (tso-ev nx t k-F #0 #0 #0) es) (cons (nx , o) ms) acc

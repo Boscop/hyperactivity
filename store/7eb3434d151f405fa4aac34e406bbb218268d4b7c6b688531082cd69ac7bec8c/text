@@ -1,0 +1,27 @@
+merge-count : {o : Ord} →
+              (a : El o) →
+              (xs ys : List (El o)) → count a (merge xs ys) ≡ plus (count a xs) (count a ys)
+merge-count a xs =
+  case xs return (λ w → (ys : List (El o)) → count a (merge w ys) ≡ plus (count a w) (count a ys)) of
+    nil → λ ys i → count a ys
+    cons x xs1 → 
+      λ ys →
+        case ys return (λ w →
+                          count a (merge (cons x xs1) w) ≡ plus (count a (cons x xs1)) (count a w)) of
+          nil → symN (plus-zero (count a (cons x xs1)))
+          cons y ys1 → 
+            case leq x y return (λ bb →
+                                   count a
+                                     (if bb
+                                        then cons x (merge xs1 (cons y ys1))
+                                        else cons y (merge (cons x xs1) ys1)) ≡ plus
+                                                                                  (count a
+                                                                                     (cons x xs1))
+                                                                                  (count a
+                                                                                     (cons y ys1))) of
+              true → 
+                transN (congN (plus (one-if (eqo a x))) (rec xs1 (cons y ys1)))
+                  (symN (plus-assoc (one-if (eqo a x)) (count a xs1) (count a (cons y ys1))))
+              false → 
+                transN (congN (plus (one-if (eqo a y))) (rec ys1))
+                  (plus-comm-mid (one-if (eqo a y)) (count a (cons x xs1)) (count a ys1))

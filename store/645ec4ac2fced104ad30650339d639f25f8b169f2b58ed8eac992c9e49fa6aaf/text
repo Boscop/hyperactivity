@@ -1,0 +1,15 @@
+-- E.m and E->m with E evaluated
+cx-member : CxU → CExpr → Bool → Bool → CRefKind → Word → CxR → CxEnv → CxEv CxR
+cx-member u e arrow qual k id b env =
+  cx-bind {MPtr × Word} {CxR} (case arrow of
+    true → cx-bind {MPtr} {MPtr × Word} (cx-as-ptr b) (λ p → cx-ret {MPtr × Word} (p , #0))
+    false → (case b of
+      cxr-lv p al → cx-ret {MPtr × Word} (p , al)
+      _ → cx-stop {MPtr × Word} st-ill-typed)) (λ pa → case k of
+    crk-field → cx-bind {CRecord × CField} {CxR} (cx-res {CRecord × CField} (cx-field-any (cxu-ds u) id)) (λ rf →
+      cx-field-lv u (fst rf) (snd rf) (fst pa) (snd pa))
+    crk-method → (case cx-find-fn (cxu-ds u) id of
+      cxfn-none → cx-unsupported {CxR} (cxw-decl id)
+      cxfn fk parent virt inits f → cx-ret {CxR} (cxr-bound (fst pa) id (m-and virt (not qual))))
+    crk-var → cx-var-ref u env id
+    _ → cx-unsupported {CxR} (cxw-expr e))

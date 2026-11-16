@@ -1,0 +1,30 @@
+elab-step : Cv → Rec → Rec
+elab-step cv rec Γ vs (cdata d lnil) m-ty =
+  o-bind (d ≡ #0) (Out Γ (cdata d lnil) m-ty) (w-dec d #0)
+    (λ p → c-derived (s-bool , one-mean Γ , der-code j-ty Γ s-bool c-bool (cdata d lnil) (one-mean Γ) (λ i → cdata (p (~ i)) lnil) (dty-bool Γ (one-mean Γ))))
+elab-step cv rec Γ vs (cpi m cA cB) m-ty =
+  o-bind (m ≡ #2) (Out Γ (cpi m cA cB) m-ty) (w-dec m #2)
+    (λ pm → d-bind (Out Γ cA m-ty) (Out Γ (cpi m cA cB) m-ty) (rec Γ vs cA m-ty)
+       (λ rA → ty-pi-1 rec Γ vs m cA cB pm (fst rA) (fst (snd rA)) (snd (snd rA))))
+elab-step cv rec Γ vs (csigma cA cB) m-ty =
+  d-bind (Out Γ cA m-ty) (Out Γ (csigma cA cB) m-ty) (rec Γ vs cA m-ty) (λ rA → ty-sig-1 rec Γ vs cA cB (fst rA) (fst (snd rA)) (snd (snd rA)))
+elab-step cv rec Γ vs (cvar k) m-inf =
+  o-bind ((v : VarP (fst Γ)) × var-word (fst Γ) v ≡ k) (Out Γ (cvar k) m-inf) (var-find (fst Γ) (var-word (fst Γ)) k)
+    (λ r → c-derived (var-shape (fst Γ) (fst r) , varCube Γ (fst r) ,
+       der-code j-tm Γ (var-shape (fst Γ) (fst r)) (cvar (var-word (fst Γ) (fst r))) (cvar k) (varCube Γ (fst r)) (λ i → cvar (snd r i)) (dvar Γ (fst r))))
+elab-step cv rec Γ vs (capp f c) m-inf = d-bind (Out Γ f m-inf) (Out Γ (capp f c) m-inf) (rec Γ vs f m-inf) (λ r → app-1 rec Γ vs f c (fst r) (fst (snd r)) (snd (snd r)))
+elab-step cv rec Γ vs (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf =
+  o-bind (d ≡ #0) (Out Γ (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf) (w-dec d #0) (case-1 rec Γ vs cP x t f d)
+elab-step cv rec Γ vs (cpapp p r) m-inf = d-bind (Out Γ p m-inf) (Out Γ (cpapp p r) m-inf) (rec Γ vs p m-inf) (λ rp → papp-1 Γ p r (fst rp) (fst (snd rp)) (snd (snd rp)))
+elab-step cv rec Γ vs (cfst p) m-inf = d-bind (Out Γ p m-inf) (Out Γ (cfst p) m-inf) (rec Γ vs p m-inf) (λ r → inf-fst Γ p (fst r) (fst (snd r)) (snd (snd r)))
+elab-step cv rec Γ vs (csnd p) m-inf = d-bind (Out Γ p m-inf) (Out Γ (csnd p) m-inf) (rec Γ vs p m-inf) (λ r → inf-snd Γ p (fst r) (fst (snd r)) (snd (snd r)))
+elab-step cv rec Γ vs (ccon d k lnil lnil) (m-chk s T ct) =
+  o-bind (d ≡ #0) (Out Γ (ccon d k lnil lnil) (m-chk s T ct)) (w-dec d #0) (λ pd → chk-con-at Γ d k s T ct pd)
+elab-step cv rec Γ vs (clam c₀) (m-chk s T ct) = lam-at rec Γ vs c₀ s T ct
+elab-step cv rec Γ vs (cpair c1 c2) (m-chk s T ct) = pair-at rec Γ vs c1 c2 s T ct
+elab-step cv rec Γ vs (cplam c₀) (m-chk s T ct) = plam-chk cv rec Γ vs c₀ s T ct
+elab-step cv rec Γ vs c (m-chk s T ct) = d-bind (Out Γ c m-inf) (Out Γ c (m-chk s T ct)) (rec Γ vs c m-inf) (switch cv Γ vs c s T ct)
+elab-step cv rec Γ vs (cpathp (cplam cL) c0 c1) m-ty =
+  d-bind (Out (dext Γ) cL m-ty) (Out Γ (cpathp (cplam cL) c0 c1) m-ty) (rec (dext Γ) (dext-vals Γ vs) cL m-ty)
+    (λ rL → pty-2 rec Γ vs cL c0 c1 (fst rL) (fst (snd rL)) (snd (snd rL)))
+elab-step cv rec Γ vs c m = c-refused

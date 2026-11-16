@@ -1,0 +1,39 @@
+-- the four axioms over the annotated events ns and the orderings ms
+rc11-axioms : List (Word × MOrd) → List TsoN → Bool
+rc11-axioms ms ns =
+  (let n = tso-len ns
+       sb = rc-rel tso-po ns
+       rf = rc-rel tso-rf ns
+       mo = rc-rel tso-co ns
+       rb = rc-rel tso-fr ns
+       ws = rc-ids (λ k o → tso-k-writes k) ms ns
+       us = rc-ids (λ k o → andB (tso-k-reads k) (tso-k-writes k)) ms ns
+       fs = rc-ids (λ k o → tso-k-isF k) ms ns
+       e-rel = rc-ids (λ k o → mo-ge-rel o) ms ns
+       e-acq = rc-ids (λ k o → mo-ge-acq o) ms ns
+       e-sc = rc-ids (λ k o → mo-is-seq-cst o) ms ns
+       f-sc = rc-ids (λ k o → andB (tso-k-isF k) (mo-is-seq-cst o)) ms ns
+       eco = rc-plus n (rc-union rf (rc-union mo rb))
+       -- rs = [W] ; sb|loc? ; [W] ; (rf ; rmw)*
+       rs0 = rc-union (rc-id ws) (rc-cod ws (rc-dom ws (rc-rel rc-sb-loc ns)))
+       rfu = rc-cod us rf
+       rs = rc-union rs0 (rc-comp rs0 (rc-plus n rfu))
+       -- sw = [E ⊒ rel] ; ([F] ; sb)? ; rs ; rf ; [R] ; (sb ; [F])? ; [E ⊒ acq]
+       sw0 = rc-comp rs rf
+       sw1 = rc-union sw0 (rc-comp (rc-dom fs sb) sw0)
+       sw2 = rc-union sw1 (rc-comp sw1 (rc-cod fs sb))
+       sw = rc-cod e-acq (rc-dom e-rel sw2)
+       hb = rc-plus n (rc-union sb sw)
+       -- scb = sb ∪ sb|≠loc ; hb ; sb|≠loc ∪ hb|loc ∪ mo ∪ rb
+       sbn = rc-rel rc-sb-nloc ns
+       scb = rc-union sb (rc-union (rc-comp sbn (rc-comp hb sbn)) (rc-union (rc-loc ns hb) (rc-union mo rb)))
+       -- psc_base = ([E_sc] ∪ [F_sc] ; hb?) ; scb ; ([E_sc] ∪ hb? ; [F_sc])
+       pl = rc-union (rc-id e-sc) (rc-dom f-sc hb)
+       pr = rc-union (rc-id e-sc) (rc-cod f-sc hb)
+       psc-base = rc-comp pl (rc-comp scb pr)
+       -- psc_F = [F_sc] ; (hb ∪ hb ; eco ; hb) ; [F_sc]
+       psc-f = rc-cod f-sc (rc-dom f-sc (rc-union hb (rc-comp hb (rc-comp eco hb))))
+   in andB (andB (rc-irreflexive hb) (rc-irreflexive (rc-comp hb eco)))                -- coherence
+        (andB (rc-irreflexive (rc-comp rb mo))                                        -- atomicity
+          (andB (rc-irreflexive (rc-plus n (rc-union psc-base psc-f)))                -- SC
+                (rc-irreflexive (rc-plus n (rc-union sb rf))))))                      -- no thin air

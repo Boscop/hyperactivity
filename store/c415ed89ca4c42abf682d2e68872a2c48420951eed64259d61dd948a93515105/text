@@ -1,0 +1,10 @@
+-- the names in a directory (not . and ..)
+h-dir-entries : Word → Word → Word → Nat → Proc W (List (List Word))
+h-dir-entries buf off n zero = ret nil
+h-dir-entries buf off n (suc k) =
+  if wlt off n then
+    bind (load8-at (wadd buf (wadd off #16))) (λ lo → bind (load8-at (wadd buf (wadd off #17))) (λ hi →
+    bind (h-name-at (wadd buf (wadd off #19)) (toNat #256)) (λ name →
+    bind (h-dir-entries buf (wadd off (wadd lo (wshl hi #8))) n k) (λ rest →
+    ret {lzero} {W} (if orB (h-eq name ".") (h-eq name "..") then rest else cons name rest)))))
+  else ret {lzero} {W} nil

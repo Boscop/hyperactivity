@@ -1,0 +1,12 @@
+-- ---------------------------------------------------------------- the network over Linux
+-- a node's commands as Linux commands on a bound UDP socket fd with a 32-byte buffer buf:
+-- send writes the four words and sends them to the addressee's address (a node that is not in
+-- the configuration, and a failed send, are a lost packet); receive takes one datagram and
+-- reads the four words, its sender the node the source address belongs to (an error or a short
+-- datagram is a timeout); now is the platform's clock in nanoseconds
+dp-poke4 : {l : Level} → Word → Wire → Proc {l} Linux Unit
+dp-poke4 {l} buf w =
+  bind {l} {Linux} {Unit} {Unit} (lx {l} (lx-poke64 buf (fst w))) (λ u1 →
+  bind {l} {Linux} {Unit} {Unit} (lx {l} (lx-poke64 (%wadd buf #8) (fst (snd w)))) (λ u2 →
+  bind {l} {Linux} {Unit} {Unit} (lx {l} (lx-poke64 (%wadd buf #16) (fst (snd (snd w))))) (λ u3 →
+  lx {l} (lx-poke64 (%wadd buf #24) (snd (snd (snd w)))))))

@@ -1,0 +1,21 @@
+-- so n rounds empty a list of at most n nodes
+tso-peels-nil : {A : Type} → (n : Nat) → (rel : A → A → Bool) → (st : A → Nat) → (ns : List A) → TsoMono rel st ns →
+                tso-len ns < suc n → TsoIsNil (tso-peels n rel ns)
+tso-peels-nil zero rel st ns mono hl =
+  (case ns return (λ l → tso-len l < suc zero → TsoIsNil l) of
+     nil → λ h → unit
+     cons y r → λ h → Empty-rec h) hl
+tso-peels-nil (suc n) rel st ns mono hl =
+  (case ns return (λ l → TsoMono rel st l → tso-len l < suc (suc n) → TsoIsNil (tso-peels (suc n) rel l)) of
+     nil → λ mono2 h → unit
+     cons y r → λ mono2 h →
+       (case tso-len-eq (tso-peel rel (cons y r)) (cons y r)
+          return (λ b → (isTrue b → isTrue (tso-len-eq (tso-peel rel (cons y r)) (cons y r))) →
+                        TsoIsNil (if b then tso-peel rel (cons y r) else tso-peels n rel (tso-peel rel (cons y r)))) of
+          true → λ ev → Empty-rec (tso-len-eq-lt (tso-peel rel (cons y r)) (cons y r) (tso-peel-shrinks rel st y r mono2) (ev unit))
+          false → λ ev →
+            tso-peels-nil n rel st (tso-peel rel (cons y r))
+              (λ a b ma mb e → mono2 a b (tso-keep-sub (λ x → tso-any (λ z → rel z x) (cons y r)) (cons y r) a ma)
+                                         (tso-keep-sub (λ x → tso-any (λ z → rel z x) (cons y r)) (cons y r) b mb) e)
+              (<-step (tso-len (tso-peel rel (cons y r))) (suc (tso-len r)) (suc n) (tso-peel-shrinks rel st y r mono2) h))
+       (λ u → u)) mono hl

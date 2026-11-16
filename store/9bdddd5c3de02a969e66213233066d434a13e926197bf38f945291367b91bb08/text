@@ -1,0 +1,11 @@
+-- &place and &raw place at the type of the result: a thin pointer is the place's address; a
+-- wide one (the place is a slice or a dyn, reached by a deref) is the pointer derefed
+rm-ref-of : RCx → RPlace → RTy → RFrame → REv RV
+rm-ref-of cx pl dty =
+  sr-on (cx-class cx dty) (λ e fr → rm-throw e) (λ c → case c of
+    cl-scalar k →
+                  (let addr = rm-place-addr cx pl
+                   in λ fr → rm-bind (addr fr) (λ q → rm-ret (rv-s (sv-p q))))
+    cl-fat mk → (case pl of
+      rplace l ps → sr-on (rm-init-deref ps) (λ e fr → rm-throw e) (λ ps2 → rm-place-rv cx (rplace l ps2)))
+    _ → λ fr → rm-throw (rx-ill-formed ri-operand-class))

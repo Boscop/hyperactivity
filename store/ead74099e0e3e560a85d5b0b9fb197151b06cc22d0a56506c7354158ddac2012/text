@@ -1,0 +1,38 @@
+-- (part of language-support)
+x86_inc_dec_4x : (proc_mode' : proc_mode) → (start_rip : Bits #48) → (temp_rip : Bits #48) → (prefixes' : prefixes) → (rex_byte : Bits #8) → (opcode : Bits #8) → (modr_m' : modr_m) → (sib' : sib) → MS Unit
+x86_inc_dec_4x proc_mode' start_rip temp_rip prefixes' rex_byte opcode modr_m' sib' =
+  let ctx' : Text
+      ctx' = #1789305589160514475955042737009752
+  in bindS {ZI} {Unit} (select_operand_size proc_mode' false #0 false prefixes' false false false) (λ t'1 →
+       onS {ZI} {Unit} (check_range (zpos #2) (zpos #4) t'1) (λ operand_size →
+         let badlength? : Option ZI
+             badlength? = (check_instruction_length start_rip temp_rip #0)
+         in let k'11 : Unit → MS Unit
+                k'11 =
+                  λ t'4 →
+                    let reg' : Bits #3
+                        reg' = (bv-trunc #8 #3 (bv-and #8 #7 opcode))
+                    in bindS {Bits #64} {Unit} (rgfi_size (bits_of_int operand_size (zpos #4)) (bv-zext #3 #4 reg') #0) (λ operand →
+                         bindS {rflagsbits} {Unit} (getS {rflagsbits} x86-rflags) (λ input_rflags →
+                           let old_cf : Bits #1
+                               old_cf = (rflagsbits-cf input_rflags)
+                           in onS {((Bits #64) × rflagsbits × rflagsbits)} {Unit} (gpr_arith_logic_spec operand_size (if (logbitp_bits #8 (zpos #3) opcode) then (zpos #4) else (zpos #0)) operand #1 input_rflags) (λ t'7 →
+                                let result' : Bits #64
+                                    result' = (fst t'7)
+                                    output_rflags : rflagsbits
+                                    output_rflags = (fst (snd t'7))
+                                    undefined_flags : rflagsbits
+                                    undefined_flags = (snd (snd t'7))
+                                    output_rflags : rflagsbits
+                                    output_rflags = (rflagsbits-set-cf output_rflags old_cf)
+                                in bindS {Unit} {Unit} (write_user_rflags output_rflags undefined_flags) (λ t'8 →
+                                     bindS {Unit} {Unit} (write_rgfi_size (bits_of_int operand_size (zpos #4)) (bv-zext #3 #4 reg') result' #0) (λ t'9 →
+                                       write_iptr proc_mode' temp_rip)))))
+            in λ σ →
+                 if (is_some {ZI} badlength?) then
+                   the (MS Unit)
+                     (onS {Unit} {Unit} (x86_fault {Unit} #26527788633931292013587918063704349903878111884025584083023654650798916508749147338540209907045379711613433216615654445563689) (λ t'3 →
+                        k'11 t'3)) σ
+                 else
+                   the (MS Unit)
+                     (k'11 unit) σ))

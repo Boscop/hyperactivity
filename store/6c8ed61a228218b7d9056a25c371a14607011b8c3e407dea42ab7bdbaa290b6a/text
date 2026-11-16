@@ -1,0 +1,26 @@
+-- admission adds an identifier outside U; a fill removes an open identifier absent from the ledger
+-- before appending it; cancellation shrinks the open domain; receive and stale leave the sets
+gw-step-J : (B : Nat) → (mv : GwMove) → (s : GwState) → gw-allowed B mv s → gw-JK s → gw-JK (gw-move mv s)
+gw-step-J B (gw-admit i q) s a h =
+  ((fst (fst h)
+   , ((λ x m → inr (fst (snd (fst h)) x m))
+   , (λ x m m2 → case m2 of
+        inl p → fst a (subst {_} {_} {_} {λ z → cr-mem z (gw-U s)} p (fst (snd (fst h)) x m))
+        inr m3 → snd (snd (fst h)) x m m3)))
+  , (λ x m → case m of
+       inl p → inl p
+       inr m3 → inr (snd h x m3)))
+gw-step-J B (gw-receive m) s a h = h
+gw-step-J B (gw-fill i q) s a h =
+  ((gw-nodup-ids-snoc (gw-L s) (the (Nat × Nat) (i , q)) (fst (fst h)) (λ m → snd (snd (fst h)) i m (gw-mem-key i q (gw-O s) (snd a)))
+   , ((λ x m → case gw-mem-ids-snoc x (gw-L s) (the (Nat × Nat) (i , q)) m of
+         inl l → fst (snd (fst h)) x l
+         inr b → subst {_} {_} {_} {λ z → cr-mem z (gw-U s)} (λ k → b (~ k)) (snd h i (gw-mem-key i q (gw-O s) (snd a))))
+   , (λ x m m2 → case gw-mem-ids-snoc x (gw-L s) (the (Nat × Nat) (i , q)) m of
+         inl l → snd (snd (fst h)) x l (gw-keys-remove x i (gw-O s) m2)
+         inr b → gw-remove-gone i (gw-O s) (subst {_} {_} {_} {λ z → cr-mem z (gw-ids (gw-remove i (gw-O s)))} b m2))))
+  , (λ x m → snd h x (gw-keys-remove x i (gw-O s) m)))
+gw-step-J B (gw-cancel i) s a h =
+  ((fst (fst h) , (fst (snd (fst h)) , (λ x m m2 → snd (snd (fst h)) x m (gw-keys-remove x i (gw-O s) m2))))
+  , (λ x m → snd h x (gw-keys-remove x i (gw-O s) m)))
+gw-step-J B gw-stale s a h = h

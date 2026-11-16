@@ -1,0 +1,18 @@
+-- the slot of a virtual function in its class's vtable, counted from the address point
+cx-slot-go : List CVTEntry → Word → Bool → Word → MRes Word
+cx-slot-go nil f del i = mstop st-ill-typed
+cx-slot-go (cons e es) f del i = case e of
+  cvt-method id → (case weq id f of
+    true → mok i
+    false → cx-slot-go es f del (wadd i #1))
+  cvt-pure id → (case weq id f of
+    true → mok i
+    false → cx-slot-go es f del (wadd i #1))
+  cvt-complete-dtor id → (case m-and (weq id f) (not del) of
+    true → mok i
+    false → cx-slot-go es f del (wadd i #1))
+  cvt-deleting-dtor id → (case m-and (weq id f) del of
+    true → mok i
+    false → cx-slot-go es f del (wadd i #1))
+  cvt-offset-to-top v → cx-slot-go es f del (wadd i #1)
+  cvt-rtti → cx-slot-go es f del (wadd i #1)

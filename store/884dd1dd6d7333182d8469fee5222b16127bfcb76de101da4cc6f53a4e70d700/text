@@ -1,0 +1,15 @@
+-- a transmute whose result is of a register class: the bytes of the operand read at the
+-- result's class. An object operand is read where it is; a register operand of the same kind
+-- is the value; otherwise its bytes are written to a temporary and read back.
+rm-cast-transmute : RCx → ROperand → RTy → RClass → RTy → RClass → RFrame → REv RV
+rm-cast-transmute cx op sty sc dty dc = case sc of
+  cl-mem → (case op of
+    rop-const c → λ fr → rm-throw (rx-unsupported (rz-transmute sty dty))
+    rop-copy pl → rm-transmute-rd cx pl dc
+    rop-move pl → rm-transmute-rd cx pl dc)
+  cl-scalar ks → (case dc of
+    cl-scalar kd → (case rm-sk-same ks kd of
+      true → rm-opd-rv cx op
+      false → rm-transmute-tmp cx op sty sc dc)
+    _ → rm-transmute-tmp cx op sty sc dc)
+  _ → rm-transmute-tmp cx op sty sc dc

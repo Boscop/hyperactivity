@@ -1,0 +1,18 @@
+rm-agg-mem : RCx → RAggregate → List ROperand → RTy → Word → RFrame → MPtr → REv Unit
+rm-agg-mem cx k ops dty al = case k of
+  rag-array →
+    sr-on (rm-elem dty) (λ e fr p → rm-throw e) (λ et →
+    sr-on (cx-size cx et) (λ e fr p → rm-throw e) (λ es →
+    sr-on (cx-align cx et) (λ e fr p → rm-throw e) (λ ea →
+      rm-agg-elems ops cx et es (rm-wmin al ea) #0)))
+  rag-tuple →
+    sr-on (rm-lay (cx-ls cx) dty) (λ e fr p → rm-throw e) (λ l → case ly-variants-of l of
+      nil → λ fr p → rm-throw (rx-ill-formed (ri-no-variant dty #0))
+      cons v vs → rm-agg-fields ops cx (vl-fields-of v) al)
+  rag-adt a v gs →
+    sr-on (rm-lay (cx-ls cx) dty) (λ e fr p → rm-throw e) (λ l →
+    sr-on (rm-nth (ly-variants-of l) v (ri-no-variant dty v)) (λ e fr p → rm-throw e) (λ vl →
+      let body = rm-agg-fields ops cx (vl-fields-of vl) al
+          tag = rm-set-tag (cx-t cx) l dty v
+      in λ fr p → rm-then (body fr p) (tag p)))
+  rag-raw-ptr pt m → λ fr p → rm-throw (rx-ill-formed ri-operand-class)

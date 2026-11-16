@@ -1,0 +1,28 @@
+-- THE THEOREM (up to context, the shape of lib/obs.cub's o-runsim-context): for every process
+-- C over the memory signature and a world's, from an abstract memory and a flat memory with
+-- the same bytes, the meaning of C is refined by the compiled C: until the meaning fails they
+-- issue the same commands of the world, and if it ends they end in the same result with the
+-- same bytes. Nothing per program.
+mem-sound : {S : Sig} {A : Type} → (t : Target) → (C : Step (MK S) A) → (s : AMem) → (fm : FM) → am-data s ≡ fm →
+  m-Ref {MT S} {A × AMem} {A × FM} (MRel {A}) (std-run {S} {A} t C s) (flat-run {S} {A} t C fm)
+mem-sound t (sdone a) s fm e = ((λ i → a) , e)
+mem-sound {S} {A} t (scmd c k) s fm e =
+  subst {lzero} {lzero} {Step (MT S) (A × FM)}
+    {λ z → m-Ref {MT S} {A × AMem} {A × FM} (MRel {A}) (std-run {S} {A} t (scmd c k) s) z}
+    {o-bind {MT S} {Resp (MK S) c × FM} {A × FM}
+       (o-run {MT S} {MT S} {Resp (MK S) c} {FM} (fm-obs {S}) (mem-flat-k {S} t c) fm)
+       (λ x → o-run {MT S} {MT S} {A} {FM} (fm-obs {S}) (o-handle {MK S} {MT S} {A} (mem-flat-k {S} t) (k (fst x))) (snd x))}
+    {flat-run {S} {A} t (scmd c k) fm}
+    (sym (o-run-bind {MT S} {MT S} {Resp (MK S) c} {A} {FM} (fm-obs {S}) (mem-flat-k {S} t c)
+            (λ r → o-handle {MK S} {MT S} {A} (mem-flat-k {S} t) (k r)) fm))
+    (m-ref-bind {MT S} {Resp (MK S) c × AMem} {Resp (MK S) c × FM} {A × AMem} {A × FM} (MRel {Resp (MK S) c}) (MRel {A})
+       (std-step {S} t c s)
+       (o-run {MT S} {MT S} {Resp (MK S) c} {FM} (fm-obs {S}) (mem-flat-k {S} t c) fm)
+       (λ rs → std-run {S} {A} t (k (fst rs)) (snd rs))
+       (λ x → o-run {MT S} {MT S} {A} {FM} (fm-obs {S}) (o-handle {MK S} {MT S} {A} (mem-flat-k {S} t) (k (fst x))) (snd x))
+       (std-step-ref {S} t c s fm e)
+       (λ a b q → subst {lzero} {lzero} {Resp (MK S) c}
+                    {λ z → m-Ref {MT S} {A × AMem} {A × FM} (MRel {A}) (std-run {S} {A} t (k (fst a)) (snd a))
+                             (flat-run {S} {A} t (k z) (snd b))}
+                    {fst a} {fst b} (fst q)
+                    (mem-sound {S} {A} t (k (fst a)) (snd a) (snd b) (snd q))))

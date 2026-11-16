@@ -1,0 +1,15 @@
+-- (9.9) the whole program: #(e) + 1 steps from address 0 and the empty stack halt with e's meaning
+sm-program-halts : (e : Expr) → (x : Byte) →
+  sm-run (sm-program e) (plus (sm-size e) (suc zero)) (zero , nil , x , sm-running)
+  ≡ (suc (plus (list-length (sm-code e)) zero) , cons (denote e x) nil , x , sm-halted)
+sm-program-halts e x = sm-trans
+  (sm-run (sm-program e) (plus (sm-size e) (suc zero)) (zero , nil , x , sm-running))
+  (sm-run (sm-program e) (suc zero) (sm-run (sm-program e) (sm-size e) (zero , nil , x , sm-running)))
+  (suc (plus (list-length (sm-code e)) zero) , cons (denote e x) nil , x , sm-halted)
+  (sm-run-plus (sm-program e) (sm-size e) (suc zero) (zero , nil , x , sm-running))
+  (sm-trans
+    (sm-run (sm-program e) (suc zero) (sm-run (sm-program e) (sm-size e) (zero , nil , x , sm-running)))
+    (sm-run (sm-program e) (suc zero) (plus (list-length (sm-code e)) zero , cons (denote e x) nil , x , sm-running))
+    (suc (plus (list-length (sm-code e)) zero) , cons (denote e x) nil , x , sm-halted)
+    (λ i → sm-run (sm-program e) (suc zero) (sm-extends e (sm-program e) zero (cons opff nil) (λ j → sm-program e) nil x i))
+    (λ i → sm-fetch (sm-at-end e i) (plus (list-length (sm-code e)) zero) (cons (denote e x) nil) x))

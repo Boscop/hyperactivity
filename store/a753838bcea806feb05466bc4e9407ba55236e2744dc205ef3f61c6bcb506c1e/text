@@ -1,0 +1,10 @@
+-- a comparison ([expr.rel], [expr.eq]) at the operands' type: pointers by the memory
+cx-cmp : CxU → CExpr → CmpOp → CType → CxR → CxR → CxEv CxR
+cx-cmp u e o lt x y = case cx-tc lt of
+  cxtc-scalar → cx-bind {SK} {CxR} (cx-res {SK} (cx-sk u lt)) (λ k → case cx-sk-ptr k of
+    true → cx-bind {MPtr} {CxR} (cx-as-ptr x) (λ p → cx-bind {MPtr} {CxR} (cx-as-ptr y) (λ q →
+             cx-bind {Bool} {CxR} (cx-ptr-cmp u o p q) (λ b → cx-val (sv-b b))))
+    false → cx-bind {SV} {CxR} (cx-as-val x) (λ a → cx-bind {SV} {CxR} (cx-as-val y) (λ b →
+              cx-bind {Bool} {CxR} (cx-res {Bool} (sv-cmp o k a b)) (λ r → cx-val (sv-b r)))))
+  cxtc-mfp → cx-unsupported {CxR} (cxw-form #1 e)
+  _ → cx-stop {CxR} st-ill-typed

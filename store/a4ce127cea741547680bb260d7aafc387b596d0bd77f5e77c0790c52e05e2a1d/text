@@ -1,0 +1,17 @@
+rm-agg-rv : RCx → RAggregate → List ROperand → RFrame → REv RV
+rm-agg-rv cx k ops = case k of
+  rag-raw-ptr pt m → (case ops of
+    cons a as → (case as of
+      cons b bs → (case rm-unsized (cx-ty cx pt) of
+        true →
+               (let ea = rm-opd-rv cx a
+                    eb = rm-opd-rv cx b
+                in λ fr → rm-bind (ea fr) (λ va → rm-bind (eb fr) (λ vb →
+                          rm-bind (rm-as-s va) (λ x → rm-bind (rm-as-s vb) (λ y → rm-ret (rv-fat x y))))))
+        false → rm-opd-rv cx a)
+      nil → λ fr → rm-throw (rx-ill-formed ri-arity))
+    nil → λ fr → rm-throw (rx-ill-formed ri-arity))
+  rag-tuple → (case ops of
+    nil → λ fr → rm-ret rv-unit
+    cons a as → λ fr → rm-throw (rx-ill-formed ri-operand-class))
+  _ → λ fr → rm-throw (rx-ill-formed ri-operand-class)

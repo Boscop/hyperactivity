@@ -1,0 +1,24 @@
+-- the frame at entry: rm-frame-go locals cx blocks argc index image arguments. Local 0 (the
+-- result) and the locals without a StorageLive are made; the arguments are the slots given;
+-- after the locals come the image's slots (the addresses of the statics and the vtables).
+rm-frame-go : List RLocal → RCx → List RBlock → Word → Word → List RSlot → List RSlot → REv RFrame
+rm-frame-go nil cx bs argc i = λ img args → case args of
+  nil → rm-ret img
+  cons a rs → rm-throw (rx-ill-formed ri-arity)
+rm-frame-go (cons loc ls) cx bs argc i =
+  let rest = rm-frame-go ls cx bs argc (wadd i #1)
+  in case m-and (not (weq i #0)) (not (wlt argc i)) of
+       true → λ img args → (case args of
+         nil → rm-throw (rx-ill-formed ri-arity)
+         cons a rs → rm-bind (rest img rs) (λ fr → rm-ret (cons a fr)))
+       false →
+         sr-on (cx-class cx (cx-ty cx (rl-ty loc))) (λ e img args → rm-throw e) (λ c → case c of
+           cl-mem → (case m-and (not (weq i #0)) (rm-has-live bs i) of
+             true → λ img args → rm-bind (rest img args) (λ fr → rm-ret (cons sl-none fr))
+             false →
+               sr-on (cx-size cx (cx-ty cx (rl-ty loc))) (λ e img args → rm-throw e) (λ sz →
+               sr-on (cx-align cx (cx-ty cx (rl-ty loc))) (λ e img args → rm-throw e) (λ al →
+                 λ img args → rm-bind (rm-alloc sz al) (λ p →
+                              rm-bind (rest img args) (λ fr → rm-ret (cons (sl-mem p) fr))))))
+           cl-unit → λ img args → rm-bind (rest img args) (λ fr → rm-ret (cons (sl-reg rv-unit) fr))
+           _ → λ img args → rm-bind (rest img args) (λ fr → rm-ret (cons (sl-reg rv-dead) fr)))

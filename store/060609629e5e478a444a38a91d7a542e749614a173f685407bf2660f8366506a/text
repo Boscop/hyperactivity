@@ -1,0 +1,29 @@
+-- cx tbl env d c: the bytes leaving c's value in rax; d slots are pushed; tbl the definitions'
+-- offsets
+cx-n : Nat → Tbl → XEnv → Word → Code → Lst Word
+cx-n zero tbl env d c = i-ud2
+cx-n (suc k) tbl env d (cvar n) = i-ld-rbp (x-disp (x-place env n))
+cx-n (suc k) tbl env d (cglob g) = x-gref (λ e2 d2 c2 → cx-n k tbl e2 d2 c2) tbl env d g lnil
+cx-n (suc k) tbl env d (capp f a) =
+  (let sp = x-spine (capp f a) in
+   case fst sp return (λ _ → Lst Word) of
+     cglob g → x-gref (λ e2 d2 c2 → cx-n k tbl e2 d2 c2) tbl env d g (snd sp)
+     h → x-applies (λ e2 d2 c2 → cx-n k tbl e2 d2 c2) tbl env d (cx-n k tbl env d h) (snd sp))
+cx-n (suc k) tbl env d (clet t b) = xcat3 (cx-n k tbl env d t) i-push-rax (l-app (cx-n k tbl (lcons (x-slot d) env) (%wsucc d) b) (i-add-rsp #8))
+cx-n (suc k) tbl env d (cann t T) = cx-n k tbl env d t
+cx-n (suc k) tbl env d (cpair a b) = x-cell (λ e2 d2 c2 → cx-n k tbl e2 d2 c2) env d #0 (lcons a (lcons b lnil))
+cx-n (suc k) tbl env d (cfst p) = l-app (cx-n k tbl env d p) (i-ld-rax #8)
+cx-n (suc k) tbl env d (crec dd fs) = x-cell (λ e2 d2 c2 → cx-n k tbl e2 d2 c2) env d #0 fs
+cx-n (suc k) tbl env d (cproj dd j p) = l-app (cx-n k tbl env d p) (i-ld-rax (xmul8 (%wsucc j)))
+cx-n (suc k) tbl env d (csnd p) = l-app (cx-n k tbl env d p) (i-ld-rax #16)
+cx-n (suc k) tbl env d (ccon dd j fs ds) =
+  if %weq dd x-nat-d then x-nat-con (λ e2 d2 c2 → cx-n k tbl e2 d2 c2) env d fs
+  else (if l-isnil fs then i-mov-rax-imm j else x-cell (λ e2 d2 c2 → cx-n k tbl e2 d2 c2) env d j fs)
+cx-n (suc k) tbl env d (ccase dd B x) = if %weq dd x-nat-d then x-nat-case (λ e2 d2 c2 → cx-n k tbl e2 d2 c2) env d B x else x-case (λ e2 d2 c2 → cx-n k tbl e2 d2 c2) env d dd B x
+cx-n (suc k) tbl env d (cwlit n) = i-mov-rax-imm n
+cx-n (suc k) tbl env d (cplit j b) = i-mov-rax-imm b
+cx-n (suc k) tbl env d (cwsucc a) = xcat3 (cx-n k tbl env d a) i-add1 i-over-if-c
+cx-n (suc k) tbl env d (cwop j a b) = x-bin (λ e2 d2 c2 → cx-n k tbl e2 d2 c2) env d a b (x-wop j)
+cx-n (suc k) tbl env d (cprim j as) = x-prim (λ e2 d2 c2 → cx-n k tbl e2 d2 c2) env d j as
+cx-n (suc k) tbl env d (cwelim w z s mo) = x-loop (λ e2 d2 c2 → cx-n k tbl e2 d2 c2) env d w z s
+cx-n (suc k) tbl env d c = i-ud2

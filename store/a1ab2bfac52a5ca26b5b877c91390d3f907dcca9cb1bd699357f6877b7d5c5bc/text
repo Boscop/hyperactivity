@@ -1,0 +1,20 @@
+-- the drop of a value of a closed type at a pointer: its own Drop impl called with the
+-- pointer, then its fields dropped in declaration order (an array: its elements). A type
+-- nothing in which needs dropping: nothing. An enum with a field that needs dropping is not
+-- written (the samples have none): rx-unsupported.
+rm-drop-glue : Word → RCx → RTy → RCall → MPtr → REv Unit
+rm-drop-glue d cx =
+  %welimP (λ x → RTy → RCall → MPtr → REv Unit) d (λ ty call p → rm-throw (rx-ill-formed ri-layout-depth))
+    (λ k again ty → sr-on (rm-needs-drop (cx-depth cx) cx ty) (λ e call p → rm-throw e) (λ nd → case nd of
+       false → λ call p → rm-ret unit
+       true → (case ty of
+         rty-array e n → (case n of
+           rty-const c → sr-on (cx-size cx e) (λ x call p → rm-throw x) (λ es → rm-drop-elems c es (again e))
+           _ → λ call p → rm-throw (rx-ill-formed (ri-open-type ty)))
+         _ →
+           sr-on (rm-drop-find (cr-drops (cx-crate cx)) (cr-instances (cx-crate cx)) ty) (λ x call p → rm-throw x) (λ o →
+           sr-on (rm-lay (cx-ls cx) ty) (λ x call p → rm-throw x) (λ l → case o of
+             ro-none → rm-drop-body cx ty l again
+             ro-some j →
+               (let fields = rm-drop-body cx ty l again
+                in λ call p → rm-bind (call j (cons (sl-reg (rv-s (sv-p p))) nil)) (λ r → fields call p)))))))

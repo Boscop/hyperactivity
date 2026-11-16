@@ -1,0 +1,19 @@
+-- k computed steps
+q-run-at : (stp : X86Step) → (stop j : Word) → (Q : Opt X86 → Type) → Q none →
+           ((s1 : X86) → run-ok stp stop j s1 ≡ true → QAll stp stop Q (snd (run-of stp j s1)) → QAll stp stop Q s1) →
+           (s : X86) → (b : Bool) → weq (x86-rip s) stop ≡ b →
+           (if b then false else (case fst (stp s) return (λ _ → Bool) of
+                                    out-val u → run-ok stp stop j (snd (stp s))
+                                    out-throw e → false
+                                    out-abort w → false)) ≡ true →
+           QAll stp stop Q (snd (run-of stp (%wsucc j) s)) → QAll stp stop Q s
+q-run-at stp stop j Q q0 ih s b eb =
+  case b return (λ c → weq (x86-rip s) stop ≡ c →
+                       (if c then false else (case fst (stp s) return (λ _ → Bool) of
+                                                out-val u → run-ok stp stop j (snd (stp s))
+                                                out-throw e → false
+                                                out-abort w → false)) ≡ true →
+                       QAll stp stop Q (snd (run-of stp (%wsucc j) s)) → QAll stp stop Q s) of
+    true → λ e h qa → bool-ft (QAll stp stop Q s) h
+    false → λ e h qa → q-run-val stp stop j Q q0 ih s e (fst (stp s)) refl h qa
+  eb

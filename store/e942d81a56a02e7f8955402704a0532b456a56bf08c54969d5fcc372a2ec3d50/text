@@ -1,0 +1,25 @@
+-- rm_low_32: from physical_memory.sail (it calls what is defined after it there)
+-- (part of language-support)
+rm_low_32 : (addr : ZI) → MS (Bits #32)
+rm_low_32 addr =
+  bindS {Bool} {Bits #32} (getS {Bool} x86-app_view) (λ app_view'1 →
+    onS {Unit} {Bits #32} (fl-assert {exception} (b-not app_view'1) #10766557306235811165391993617916461646257293381573685554) (λ _ →
+      bindS {Bits #8} {Bits #32} (memi #64 (bits_of_int addr (zpos #64))) (λ t'3 →
+        let byte0 : Bits #8
+            byte0 = (loghead_bits #8 (zpos #8) t'3)
+        in bindS {Bits #8} {Bits #32} (memi #64 (bits_of_int (z-add (zpos #1) addr) (zpos #64))) (λ t'4 →
+             let byte1 : Bits #8
+                 byte1 = (loghead_bits #8 (zpos #8) t'4)
+                 word0 : Bits #16
+                 word0 = (bv-or #16 (bits_of_int (ash_left_int (bv-unsigned #8 byte1) (zpos #8)) (zpos #16)) (bv-zext #8 #16 byte0))
+             in bindS {Bits #8} {Bits #32} (memi #64 (bits_of_int (z-add (zpos #2) addr) (zpos #64))) (λ t'5 →
+                  let byte2 : Bits #8
+                      byte2 = (loghead_bits #8 (zpos #8) t'5)
+                  in bindS {Bits #8} {Bits #32} (memi #64 (bits_of_int (z-add (zpos #3) addr) (zpos #64))) (λ t'6 →
+                       let byte3 : Bits #8
+                           byte3 = (loghead_bits #8 (zpos #8) t'6)
+                           word1 : Bits #16
+                           word1 = (bv-or #16 (bits_of_int (ash_left_int (bv-unsigned #8 byte3) (zpos #8)) (zpos #16)) (bv-zext #8 #16 byte2))
+                           dword : Bits #32
+                           dword = (bv-or #32 (bits_of_int (ash_left_int (bv-unsigned #16 word1) (zpos #16)) (zpos #32)) (bv-zext #16 #32 word0))
+                       in retS {Bits #32} dword))))))

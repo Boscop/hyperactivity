@@ -1,0 +1,16 @@
+-- ---------------------------------------------------------------- the guarded form: bisimulation
+-- lib/proc.cub's GProc (a process that may run forever, with silent steps). Bisimilarity is a
+-- relation defined by guarded recursion: both end in equal results; or both issue the same
+-- command and, one tick later, continue bisimilar at each response; or both take a silent step
+-- and continue bisimilar one tick later. The relation is the fixed point of og-BisimF; "later
+-- bisimilar" is the delayed fixed point at a tick, which og-later/og-unlater convert along pfix
+og-BisimF : {κ : Clock} {S : Sig} {A : Type} → ▸ κ (GProc κ S A → GProc κ S A → Type) → GProc κ S A → GProc κ S A → Type
+og-BisimF rc (gret a) (gret b) = a ≡ b
+og-BisimF rc (gret a) (gcmd c2 k2) = Empty
+og-BisimF rc (gret a) (gtau t2) = Empty
+og-BisimF rc (gcmd c k) (gret b) = Empty
+og-BisimF {κ} {S} {A} rc (gcmd c k) (gcmd c2 k2) = (e : c ≡ c2) × ((r : Resp S c) → (r2 : Resp S c2) → PathP (λ i → Resp S (e i)) r r2 → (α : Tick κ) → rc α (k r α) (k2 r2 α))
+og-BisimF rc (gcmd c k) (gtau t2) = Empty
+og-BisimF rc (gtau t) (gret b) = Empty
+og-BisimF rc (gtau t) (gcmd c2 k2) = Empty
+og-BisimF {κ} {S} {A} rc (gtau t) (gtau t2) = (α : Tick κ) → rc α (t α) (t2 α)

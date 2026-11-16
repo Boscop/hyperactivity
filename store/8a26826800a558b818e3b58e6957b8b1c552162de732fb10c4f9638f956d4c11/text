@@ -1,0 +1,176 @@
+infer c =
+  case c of
+    tv x T → typed T
+    tg n V → typed (%gty n)
+    tguess k g t V → guess-infer k g t
+    thole k V → err c E-implicit opq opq
+    tspine t V → solve-spine t none
+    tapp f a V → 
+      case infer f of
+        typed T → 
+          case %view T of
+            wpi A B → and-then (tick-arg A a) (and-then (check a A) (typed (B (tval a))))
+            _ → err f E-notfun T opq
+        r → r
+    tclock → err c E-clocktype opq opq
+    ttick k V → err c E-clocktype opq opq
+    tclock0 → typed Clock
+    ttick0 → err c E-tickarg opq opq
+    tfst p V → 
+      case infer p of
+        typed T → (case %view T of wsigma A B → typed A; _ → err p E-notpair T opq)
+        r → r
+    tsnd p V → 
+      case infer p of
+        typed T → (case %view T of wsigma A B → typed (B (fst (tval p))); _ → err p E-notpair T opq)
+        r → r
+    tpapp p r V → 
+      case infer p of
+        typed T → 
+          case %view T of
+            wpath L a b → if check-iv r then typed (L @ tval r) else err r E-notiv opq opq
+            _ → err p E-notpath T opq
+        r2 → r2
+    tuniv l V → and-then (check l Level) (typed (Type (lsuc (tval l))))
+    tlevel → typed Uw
+    tlzero → typed Level
+    tlsuc l V → and-then (check l Level) (typed Level)
+    tlmax a b V → and-then (check a Level) (and-then (check b Level) (typed Level))
+    tpi A nm b V → infer-pi A nm b
+    tsigma A nm b V → infer-binder A nm b
+    tpathp A a b V → 
+      case A of
+        -- a λ guessed a function's is a line
+        tguess k g t V2 → (if %weq g #0 then redo k else infer (tpathp t a b V))
+        tplam nX X LV → 
+          let i = %dim nX
+          in case infer-level (X i) of
+               typed l → and-then (check a (LV @ 0)) (and-then (check b (LV @ 1)) (typed (Type l)))
+               r → r
+        -- a line of types given as a term: a path in a universe
+        _ → 
+          case infer A of
+            typed TA → 
+              case %view TA of
+                wpath L T0 T1 → 
+                  case %view (L @ %dim) of
+                    wu l → 
+                      let Lv = tval A
+                      in and-then (check a (Lv @ 0)) (and-then (check b (Lv @ 1)) (typed (Type l)))
+                    _ → err A E-notline TA opq
+                _ → err A E-notline TA opq
+            r → r
+    tgluet A S V → 
+      case infer-level A of
+        typed l → 
+          let Av = tval A in and-then (check-sys S ((T : Type l) × %Equiv T Av)) (typed (Type l))
+        r → r
+    tunglue S b V → 
+      case infer b of
+        typed T → (case %view T of wglue A S2 → typed A; _ → err b E-notglue T opq)
+        r → r
+    thcompu A S V → 
+      case infer-level A of
+        typed l → let Av = tval A in and-then (check-lines S Av l) (typed (Type l))
+        r → r
+    tunglueu S b V → 
+      case infer b of
+        typed T → (case %view T of whcompu A S2 → typed A; _ → err b E-notglue T opq)
+        r → r
+    tcomp A u a V → check-comp c A u a
+    tlet t nm b V → 
+      case infer t of
+        typed T → (case %view T of wtick k → err t E-tickarg T opq; _ → infer (b (tval t) T))
+        r → r
+    tann t T V → 
+      case infer-sort T of typed s → let Tv = tval T in and-then (check t Tv) (typed Tv); r → r
+    tdata d ps V → let de = %dent d in and-then (check-tele c (dtel de) ps) (typed (Type (dlvl de)))
+    -- a constructor of a data type without parameters infers that type (a scrutinee rebuilt from a
+    -- branch's fields, let k = C x… in …, is such an application)
+    tcon d c2 fs ds V →
+      (case fst (params-fresh (dtel (%dent d)) lnil) of
+         lnil → let D = mkdata d lnil in and-then (check c D) (typed D)
+         _ → err c E-noinfer opq opq)
+    telim d P B x F V → 
+      case infer x of
+        typed T → 
+          case %view T of
+            wdata d2 ps → 
+              if %weq d d2
+                then case motive-level-d d ps P of
+                       typed s → 
+                         let Pv = tval P
+                         in and-then (check-brs c d Pv (hyp-motive d ps P Pv) F (ctors-at d ps) B #0) (typed (Pv (tval x)))
+                       r → r
+                else err x E-notdata T opq
+            _ → err x E-notdata T opq
+        r → r
+    thcomp u a V → 
+      case infer a of
+        typed T → 
+          case %view T of
+            wdata d ps → 
+              if orb (is-hit d ps) (tube-covers u)
+                then let Tv = mkdata d ps in and-then (check-hcomp Tv u a) (typed Tv)
+                else err c E-hcompset T opq
+            _ → err a E-notdata T opq
+        r → r
+    -- a case without a motive: the type of a branch without hypotheses, every branch checked at it
+    tcase d B x F V → 
+      case infer x of
+        typed X → 
+          case %view X of
+            wdata d2 ps → 
+              if %weq d d2
+                then case case-type d (ctors-at d ps) B of
+                       typed R → and-then (check-branches c d ps (λ y → R) F B) (typed R)
+                       _ → err c E-noinfer opq opq
+                else err x E-notdata X opq
+            _ → err x E-notdata X opq
+        r → r
+    tforce t V → infer t
+    -- a delayed term has the type of the term (a thunk is transparent to typing, as force is)
+    tthunk t V → infer t
+    trec d fs V → refused opq E-literal opq opq
+    -- a field of a value of a codata type: its type at the type's parameters and the value's fields
+    tproj d k x V → 
+      case infer x of
+        typed T → 
+          case %view T of
+            wdata d2 ps → 
+              if andb (%weq d d2) (is-codata d)
+                then typed (cofield-ty d ps (tval x) k)
+                else err x E-notcodata T opq
+            _ → err x E-notcodata T opq
+        r → r
+    tword → typed Type
+    tlit V → typed Word
+    twsucc a V → and-then (check a Word) (typed Word)
+    twop k a b V → 
+      and-then (check a Word) (and-then (check b Word) (typed (if %wlt k #2 then Bool else Word)))
+    -- the elimination of a word: P #0 at zero, P n → P (n+1) at a successor
+    twelim P w z s V →
+      and-then (check w Word)
+        (case P of
+           -- a motive left to find (a quoted word recursion has none): the constant one at the
+           -- zero case's type, the common non-dependent case
+           thole k V2 →
+             (case infer z of
+                typed Z →
+                  let x = %var Word
+                  in (case qty (lcons (qv (var-level x)) lnil) Z of
+                        some cz → elab (lcons (k , some (clam cz)) lnil)
+                        none → err c E-implicit opq opq)
+                r → r)
+           _ →
+             (case motive-level Word P of
+                typed l → 
+                  let Pv = tval P
+                  in and-then (check z (Pv #0))
+                       (and-then (check s ((n : Word) → Pv n → Pv (%wsucc n))) (typed (Pv (tval w))))
+                r → r))
+    -- a line: its type is the path of its body's types between its ends
+    tplam nm b V → 
+      let i = %dim nm
+      in case infer (b i) of typed Ti → typed (PathP (%abs i Ti) (V @ 0) (V @ 1)); r → r
+    _ → err c E-noinfer opq opq

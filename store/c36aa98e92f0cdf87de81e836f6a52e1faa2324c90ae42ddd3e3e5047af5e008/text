@@ -1,0 +1,12 @@
+cx-declref : CxU → CExpr → CType → CRefKind → Word → CxEnv → CxEv CxR
+cx-declref u e t k id env = case k of
+  crk-function → cx-ret {CxR} (cxr-lv (cx-fn-ptr id) #0)
+  crk-method → (case cx-find-fn (cxu-ds u) id of
+    cxfn-none → cx-unsupported {CxR} (cxw-decl id)
+    cxfn fk parent virt inits f → cx-ret {CxR} (cxr-bound cx-null id virt))
+  crk-var → cx-var-ref u env id
+  crk-parm → cx-var-ref u env id
+  crk-enum-constant → cx-bind {CType × CInt} {CxR} (cx-res {CType × CInt} (cx-enumerator (cxu-ds u) id)) (λ tv →
+    cx-bind {SK} {CxR} (cx-res {SK} (cx-sk u t)) (λ sk → cx-bind {SV} {CxR} (cx-res {SV} (cx-lit sk (cx-cint (snd tv)))) cx-val))
+  crk-field → cx-bind {CRecord × CField} {CxR} (cx-res {CRecord × CField} (cx-field-any (cxu-ds u) id)) (λ rf →
+    cx-val (sv-i (uq-of-word (wquot (cx-fld-bits (snd rf)) #8))))

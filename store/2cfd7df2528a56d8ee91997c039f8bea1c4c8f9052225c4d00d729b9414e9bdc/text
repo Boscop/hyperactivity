@@ -1,0 +1,15 @@
+-- (9.13) seq: the content of StablePrefix and RelocOK is that admissibility of b₁ ++ b₂ at a gives
+-- admissibility of b₁ at a and of b₂ at a + |b₁| in the same image
+block-seq : {S C Ev B : Type} → (adm : C → Nat → List B → Type) → (exec : C → S → List Ev → S → Type) → (pc : S → Nat) →
+  (R1 R2 : S → List Ev → S → Type) → (a : Nat) → (P Q R : S → Type) →
+  ((c : C) → (s s1 s2 : S) → (t1 t2 : List Ev) → exec c s t1 s1 → exec c s1 t2 s2 → exec c s (list-append t1 t2) s2) →
+  (B1 : BlockR adm exec pc R1 a P Q) → (B2 : BlockR adm exec pc R2 (plus a (list-length (fst B1))) Q R) →
+  ((c : C) → adm c a (list-append (fst B1) (fst B2)) → adm c a (fst B1) × adm c (plus a (list-length (fst B1))) (fst B2)) →
+  BlockR adm exec pc (seq-rel R1 R2) a P R
+block-seq {S} {C} {Ev} {B} adm exec pc R1 R2 a P Q R cat B1 B2 split = (list-append (fst B1) (fst B2) , λ c h s ps →
+  blk-retarget exec pc (seq-rel R1 R2) c s R (plus (plus a (list-length (fst B1))) (list-length (fst B2))) (plus a (list-length (list-append (fst B1) (fst B2))))
+    (transN (plus-assoc a (list-length (fst B1)) (list-length (fst B2))) (congN (plus a) (sym (blk-length-append (fst B1) (fst B2)))))
+    (blk-join exec pc R1 R2 Q R (plus a (list-length (fst B1))) (plus (plus a (list-length (fst B1))) (list-length (fst B2))) cat c s
+      (snd B1 c (fst (split c h)) s ps)
+      (snd B2 c (snd (split c h)) (fst (snd (snd B1 c (fst (split c h)) s ps)))
+        (fst (snd (snd (snd (snd B1 c (fst (split c h)) s ps)))) , fst (snd (snd (snd (snd (snd B1 c (fst (split c h)) s ps)))))))))

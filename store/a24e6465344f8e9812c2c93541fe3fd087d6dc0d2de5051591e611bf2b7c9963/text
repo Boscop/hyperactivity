@@ -1,0 +1,21 @@
+-- the result of a call put in the destination: a register value written; an object copied
+-- from the callee's result allocation, which is then released
+rm-ret-into : RCx → RPlace → RFrame → RSlot → REv RFrame
+rm-ret-into cx pl =
+  sr-on (rm-place-ty cx pl) (λ e fr r → rm-throw e) (λ dty →
+  sr-on (cx-class cx dty) (λ e fr r → rm-throw e) (λ c → case c of
+    cl-mem →
+      sr-on (rm-place-al cx pl) (λ e fr r → rm-throw e) (λ al →
+      sr-on (cx-align cx dty) (λ e fr r → rm-throw e) (λ ta →
+        let addr = rm-place-addr cx pl
+            cp = cx-copy cx dty al ta
+        in λ fr r → case r of
+             sl-reg v → rm-throw (rx-ill-formed ri-operand-class)
+             sl-none → rm-throw (rx-ill-formed ri-operand-class)
+             sl-mem q → rm-bind (addr fr) (λ d → rm-then (cp d q) (rm-then (rm-release q) (rm-ret fr)))))
+    _ →
+      (let wr = rm-place-wr cx pl
+       in λ fr r → case r of
+            sl-reg v → wr fr v
+            sl-mem q → rm-throw (rx-ill-formed ri-operand-class)
+            sl-none → rm-throw (rx-ill-formed ri-operand-class))))

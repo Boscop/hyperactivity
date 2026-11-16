@@ -1,0 +1,12 @@
+-- supervise fuel s p w st: run p; when the strategy answers restart, run it again from the state
+-- the world was left in; the outcome, the state and the number of runs
+supervise : {S : Sig} {A : Type} {St : Type} → Nat → Strategy A → Proc {lzero} S A → World S St → St → Outcome A × (St × Nat)
+supervise fuel s p w st =
+  (case fuel return (λ f → St → Nat → Outcome A × (St × Nat)) of
+     zero → λ st2 n → (stopped , (st2 , n))
+     suc k → λ st2 n →
+       (let r = runp {S} {A} {St} p w st2
+        in case s (fst r) (suc n) of
+             restart → rec k (snd r) (suc n)
+             give-up → (fst r , (snd r , suc n))))
+  st zero

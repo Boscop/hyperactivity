@@ -1,0 +1,27 @@
+-- x-lift c st: (c' , st'), every elimination in c made a call
+x-lift-n : Nat → Code → LS → Code × LS
+x-lift-n zero c st = (c , st)
+x-lift-n (suc k) (capp f a) st =
+  (let sp = x-spine (capp f a)
+       ra = x-lift-l (λ c2 st2 → x-lift-n k c2 st2) (snd sp) st
+   in case fst sp return (λ _ → Code × LS) of
+        celim dd P B x → (let rx = x-lift-n k x (snd ra) in x-lift-made (λ c2 st2 → x-lift-n k c2 st2) (x-elim dd B (fst rx) (fst ra) (snd rx)))
+        h → (let rh = x-lift-n k h (snd ra) in (x-apps (fst rh) (fst ra) , snd rh)))
+x-lift-n (suc k) (celim dd P B x) st = (let rx = x-lift-n k x st in x-lift-made (λ c2 st2 → x-lift-n k c2 st2) (x-elim dd B (fst rx) lnil (snd rx)))
+x-lift-n (suc k) (clam b) st = x-lift-clo (λ c2 st2 → x-lift-n k c2 st2) (clam b) st
+x-lift-n (suc k) (cfst p) st = (let r = x-lift-n k p st in (cfst (fst r) , snd r))
+x-lift-n (suc k) (csnd p) st = (let r = x-lift-n k p st in (csnd (fst r) , snd r))
+x-lift-n (suc k) (cproj dd j p) st = (let r = x-lift-n k p st in (cproj dd j (fst r) , snd r))
+x-lift-n (suc k) (cwsucc a) st = (let r = x-lift-n k a st in (cwsucc (fst r) , snd r))
+x-lift-n (suc k) (crec dd fs) st = (let r = x-lift-l (λ c2 st2 → x-lift-n k c2 st2) fs st in (crec dd (fst r) , snd r))
+x-lift-n (suc k) (cann t T) st = x-lift-n k t st
+x-lift-n (suc k) (clet t b) st = (let r1 = x-lift-n k t st in let r2 = x-lift-n k b (snd r1) in (clet (fst r1) (fst r2) , snd r2))
+x-lift-n (suc k) (cpair a b) st = (let r1 = x-lift-n k a st in let r2 = x-lift-n k b (snd r1) in (cpair (fst r1) (fst r2) , snd r2))
+x-lift-n (suc k) (cwop j a b) st = (let r1 = x-lift-n k a st in let r2 = x-lift-n k b (snd r1) in (cwop j (fst r1) (fst r2) , snd r2))
+x-lift-n (suc k) (ccon dd j fs ds) st = (let r = x-lift-l (λ c2 st2 → x-lift-n k c2 st2) fs st in (ccon dd j (fst r) ds , snd r))
+x-lift-n (suc k) (cprim j as) st = (let r = x-lift-l (λ c2 st2 → x-lift-n k c2 st2) as st in (cprim j (fst r) , snd r))
+x-lift-n (suc k) (ccase dd B x) st =
+  (let r1 = x-lift-brs (λ c2 st2 → x-lift-n k c2 st2) dd #0 B st in let r2 = x-lift-n k x (snd r1) in (ccase dd (fst r1) (fst r2) , snd r2))
+x-lift-n (suc k) (cwelim w z s mo) st =
+  (let r1 = x-lift-n k w st in let r2 = x-lift-n k z (snd r1) in let r3 = x-lift-under (λ c2 st2 → x-lift-n k c2 st2) #2 s (snd r2) in (cwelim (fst r1) (fst r2) (fst r3) mo , snd r3))
+x-lift-n (suc k) c st = (c , st)

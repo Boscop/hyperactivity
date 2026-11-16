@@ -1,0 +1,31 @@
+lx-enc : (c : LinuxCmd) → lx-resp c → List Word
+lx-enc c = case c return (λ x → lx-resp x → List Word) of
+  lx-clock-gettime → lx-enc-sum {Timespec} (λ t → cons (ts-sec t) (cons (ts-nsec t) nil))
+  lx-nanosleep t → lx-enc-sum {Unit} lx-enc-unit
+  lx-read fd buf len → lx-enc-sum {Upto len} (lx-enc-upto len)
+  lx-write fd buf len → lx-enc-sum {Upto len} (lx-enc-upto len)
+  lx-open path flags mode → lx-enc-sum {Word} lx-enc-word
+  lx-close fd → lx-enc-sum {Unit} lx-enc-unit
+  lx-mmap addr len prot flags fd off → lx-enc-sum {Word} lx-enc-word
+  lx-munmap addr len → lx-enc-sum {Unit} lx-enc-unit
+  lx-mprotect addr len prot → lx-enc-sum {Unit} lx-enc-unit
+  lx-socket domain type proto → lx-enc-sum {Word} lx-enc-word
+  lx-bind fd a → lx-enc-sum {Unit} lx-enc-unit
+  lx-listen fd backlog → lx-enc-sum {Unit} lx-enc-unit
+  lx-accept4 fd flags → lx-enc-sum {Word × SockAddr} (λ r → cons (fst r) (lx-enc-addr (snd r)))
+  lx-connect fd a → lx-enc-sum {Unit} lx-enc-unit
+  lx-recvfrom fd buf len flags → lx-enc-sum {Upto len × SockAddr} (λ r → cons (fst (fst r)) (lx-enc-addr (snd r)))
+  lx-sendto fd buf len flags a → lx-enc-sum {Upto len} (lx-enc-upto len)
+  lx-setsockopt fd level name val → lx-enc-sum {Unit} lx-enc-unit
+  lx-epoll-create1 flags → lx-enc-sum {Word} lx-enc-word
+  lx-epoll-ctl ep op fd ev → lx-enc-sum {Unit} lx-enc-unit
+  lx-epoll-wait ep max timeout → lx-enc-sum {Upto max × List EpollEvent} (λ r → cons (fst (fst r)) (lx-enc-events (snd r)))
+  lx-futex-wait addr val → lx-enc-sum {Unit} lx-enc-unit
+  lx-futex-wake addr n → lx-enc-sum {Upto n} (lx-enc-upto n)
+  lx-getpid → lx-enc-word
+  lx-exit-group ec → lx-enc-unit
+  lx-alloc n → lx-enc-word
+  lx-peek8 a → lx-enc-word
+  lx-poke8 a v → lx-enc-unit
+  lx-peek64 a → lx-enc-word
+  lx-poke64 a v → lx-enc-unit

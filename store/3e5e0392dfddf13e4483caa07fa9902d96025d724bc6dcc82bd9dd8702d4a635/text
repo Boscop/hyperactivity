@@ -1,0 +1,17 @@
+runs-run-at : (stp : X86Step) → (stop j : Word) → ((s1 : X86) → run-ok stp stop j s1 ≡ true → Runs stp stop j s1 (snd (run-of stp j s1))) →
+              (s : X86) → (b : Bool) → weq (x86-rip s) stop ≡ b →
+              (if b then false else (case fst (stp s) return (λ _ → Bool) of
+                                       out-val u → run-ok stp stop j (snd (stp s))
+                                       out-throw e → false
+                                       out-abort w → false)) ≡ true →
+              Runs stp stop (%wsucc j) s (snd (run-of stp (%wsucc j) s))
+runs-run-at stp stop j ih s b eb =
+  case b return (λ c → weq (x86-rip s) stop ≡ c →
+                       (if c then false else (case fst (stp s) return (λ _ → Bool) of
+                                                out-val u → run-ok stp stop j (snd (stp s))
+                                                out-throw e → false
+                                                out-abort w → false)) ≡ true →
+                       Runs stp stop (%wsucc j) s (snd (run-of stp (%wsucc j) s))) of
+    true → λ e h → bool-ft (Runs stp stop (%wsucc j) s (snd (run-of stp (%wsucc j) s))) h
+    false → λ e h → runs-run-val stp stop j ih s e (fst (stp s)) refl h
+  eb

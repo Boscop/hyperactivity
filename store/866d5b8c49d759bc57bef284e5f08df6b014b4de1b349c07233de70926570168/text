@@ -1,0 +1,21 @@
+-- CType → MTy (lib/mem/layout.cub): a scalar type is its C type at the Target; an enumeration
+-- its underlying type; a pointer, and a reference where it has storage, a pointer; a class the
+-- record of its id (its layout is the unit's, below); a pointer to data member a ptrdiff_t; a
+-- pointer to member function two of them. void and function types are not object types.
+cx-mty : Target → List CDecl → CType → MRes MTy
+cx-mty t ds (ct-builtin b) = mr-map ty-c (cx-cty b)
+cx-mty t ds (ct-pointer u) = mok (ty-c ct-ptr)
+cx-mty t ds (ct-lref u) = mok (ty-c ct-ptr)
+cx-mty t ds (ct-rref u) = mok (ty-c ct-ptr)
+cx-mty t ds (ct-array u n) = mr-map (λ e → ty-arr e n) (cx-mty t ds u)
+cx-mty t ds (ct-record id) = mok (ty-rec id)
+cx-mty t ds (ct-enum id) = mr-bind (cx-enum-under ds id) (λ u → case cx-strip u of
+  ct-builtin b → mr-map ty-c (cx-cty b)
+  _ → mstop st-ill-typed)
+cx-mty t ds (ct-function ret ps va cn vo rf ne) = mstop st-ill-typed
+cx-mty t ds (ct-member-pointer cls u) = case cx-tc u of
+  cxtc-fn → mok (ty-arr (ty-sk (cx-ptrdiff-sk t) (tg-align t ck-ptr)) #2)
+  _ → mok (ty-sk (cx-ptrdiff-sk t) (tg-align t ck-ptr))
+cx-mty t ds (ct-qual cn vo rs u) = cx-mty t ds u
+cx-mty t ds ct-nil = mstop st-ill-typed
+cx-mty t ds (ct-cons x xs) = mstop st-ill-typed

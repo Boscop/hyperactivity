@@ -1,0 +1,14 @@
+-- ---------------------------------------------------------------- temporaries and result objects
+-- the object a class or array prvalue initializes: the one asked for, or, asked for its
+-- result, a temporary that lives until the full-expression's continuation returns and is then
+-- destroyed ([class.temporary]/4), its address the result
+cx-with-dest : CxCall → CxU → CType → CxMode → CxK → (MPtr → CxK → CxEv CxR) → CxEv CxR
+cx-with-dest call u t mode k body = case mode of
+  cxm-init p → body p k
+  cxm-get →
+    cx-bind {Word} {CxR} (cx-res {Word} (cx-size u t)) (λ sz →
+    cx-bind {Word} {CxR} (cx-res {Word} (cx-align u t)) (λ al →
+    cx-bind {MPtr} {CxR} (cx-alloc ak-auto false sz al) (λ q →
+      cx-finally {CxR} (body q (λ r → k (cxr-lv q #0)))
+        (cx-then {Unit} {Unit} (cx-destroy t call u q) (cx-release ak-auto q)))))
+  _ → cx-stop {CxR} st-ill-typed

@@ -1,0 +1,17 @@
+-- ---------------------------------------------------------------- initialization of parts
+-- the object (or bit-field, or reference member) at a slot of the object at p initialized by
+-- an expression ([dcl.init]): a class or an array by the expression itself; a reference by
+-- the glvalue's address; a scalar by the value
+cx-init-slot : CxU → MPtr → CxSlot → CxSub → CxEnv → CxK → CxEv CxR
+cx-init-slot u p s sub env k = case cx-tc (cx-slot-type s) of
+  cxtc-record id → cx-bind {CxR} {CxR} (cx-slot-ptr p s) (λ lv → cx-bind {MPtr} {CxR} (cx-as-lv lv) (λ q → sub env (cxm-init q) k))
+  cxtc-array el n → cx-bind {CxR} {CxR} (cx-slot-ptr p s) (λ lv → cx-bind {MPtr} {CxR} (cx-as-lv lv) (λ q → sub env (cxm-init q) k))
+  cxtc-ref t → sub env cxm-get (λ r → cx-bind {MPtr} {CxR} (cx-as-lv r) (λ ref →
+    cx-bind {CxR} {CxR} (cx-slot-ptr p s) (λ lv → cx-bind {MPtr} {CxR} (cx-as-lv lv) (λ q →
+      cx-then {Unit} {CxR} (cx-store u sk-ptr q (sv-p ref)) (k cxr-void)))))
+  cxtc-scalar → sub env cxm-get (λ r → cx-bind {CxR} {CxR} (cx-slot-ptr p s) (λ lv →
+    cx-then {Unit} {CxR} (cx-lv-store u (cx-slot-type s) lv r) (k cxr-void)))
+  cxtc-mfp → sub env cxm-get (λ r → cx-bind {CxR} {CxR} (cx-slot-ptr p s) (λ lv →
+    cx-then {Unit} {CxR} (cx-lv-store u (cx-slot-type s) lv r) (k cxr-void)))
+  cxtc-void → cx-stop {CxR} st-ill-typed
+  cxtc-fn → cx-stop {CxR} st-ill-typed

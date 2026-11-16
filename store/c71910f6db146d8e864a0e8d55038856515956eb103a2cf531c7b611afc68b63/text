@@ -1,0 +1,110 @@
+-- ia32e_la_to_pa_page_directory: from paging.sail (it calls what is defined after it there)
+-- (part of language-support)
+ia32e_la_to_pa_page_directory : (lin_addr : Bits #48) → (base_addr : Bits #52) → (u_s_acc : Bits #1) → (r_w_acc : Bits #1) → (x_d_acc : Bits #1) → (wp : Bits #1) → (smep : Bits #1) → (smap' : Bits #1) → (ac : Bits #1) → (nxe : Bits #1) → (r_w_x : Text) → (cpl : Bits #2) → MS ZI
+ia32e_la_to_pa_page_directory lin_addr base_addr u_s_acc r_w_acc x_d_acc wp smep smap' ac nxe r_w_x cpl =
+  bindS {Bool} {ZI} (getS {Bool} x86-app_view) (λ app_view'1 →
+    onS {Unit} {ZI} (fl-assert {exception} (b-not app_view'1) #583512835017589007664157297346753842) (λ _ →
+      onS {ZI} {ZI} (binary_logext (zpos #48) (bv-unsigned #48 (loghead_bits #48 (zpos #48) lin_addr))) (λ lin_addr →
+        let base_addr : Bits #52
+            base_addr = (changeSlice_bits #52 (loghead_bits #52 (zpos #52) base_addr) (zpos #0) (zpos #12) #0)
+        in onS {Bits #52} {ZI} (page_directory_entry_addr (bits_of_int lin_addr (zpos #48)) base_addr) (λ p_entry_addr →
+             bindS {Bits #64} {ZI} (rm_low_64 (bv-unsigned #52 p_entry_addr)) (λ entry →
+               let u_s_all : Bits #1
+                   u_s_all = (bv-and #1 u_s_acc (page_user_supervisor entry))
+                   r_w_all : Bits #1
+                   r_w_all = (bv-and #1 r_w_acc (page_read_write entry))
+                   x_d_all : Bits #1
+                   x_d_all = (bv-and #1 x_d_acc (page_execute_disable entry))
+               in bindS {(Bool × ZI)} {ZI} (paging_entry_no_page_fault_p #1 (bits_of_int lin_addr (zpos #48)) entry u_s_all r_w_all x_d_all wp smep smap' ac nxe r_w_x cpl (struct_paging_entry_no_page_fault_p-mk (zpos #0))) (λ t'6 →
+                    let fault_flg : Bool
+                        fault_flg = (fst t'6)
+                        sailval : ZI
+                        sailval = (snd t'6)
+                    in let k'34 : Unit → MS ZI
+                           k'34 =
+                             λ t'8 →
+                               λ σ →
+                                 if (weq (page_size entry) #1) then
+                                   the (MS ZI)
+                                     (bindS {Bool} {ZI} (getS {Bool} x86-marking_view) (λ marking_view'9 →
+                                        let k'22 : Unit → MS ZI
+                                            k'22 =
+                                              λ t'14 →
+                                                retS {ZI} (changeSlice_int (ash_left_int (bv-unsigned #31 (ia32e_pde_2mb_pagebits-page entry)) (zpos #21)) (zpos #0) (zpos #21) (bv-unsigned #21 (bv-of-int #21 lin_addr #0)))
+                                        in λ σ →
+                                             if marking_view'9 then
+                                               the (MS ZI)
+                                                 (let accessed : Bits #1
+                                                      accessed = (accessed_bit entry)
+                                                      dirty : Bits #1
+                                                      dirty = (dirty_bit entry)
+                                                      t'10 : (Bool × ia32e_page_tablesbits)
+                                                      t'10 = (if (weq accessed #0) then (true , (set_accessed_bit entry)) else (false , entry))
+                                                      updated? : Bool
+                                                      updated? = (fst t'10)
+                                                      entry : ia32e_page_tablesbits
+                                                      entry = (snd t'10)
+                                                      t'11 : (Bool × ia32e_page_tablesbits)
+                                                      t'11 = (if (b-and (weq dirty #0) (str-eq r_w_x #14935)) then (true , (set_dirty_bit entry)) else (updated? , entry))
+                                                      updated? : Bool
+                                                      updated? = (fst t'11)
+                                                      entry : ia32e_page_tablesbits
+                                                      entry = (snd t'11)
+                                                  in let k'24 : Unit → MS ZI
+                                                         k'24 =
+                                                           λ t'13 →
+                                                             k'22 unit
+                                                     in λ σ →
+                                                          if updated? then
+                                                            the (MS ZI)
+                                                              (bindS {Unit} {ZI} (wm_low_64 p_entry_addr entry) (λ t'12 →
+                                                                 k'24 t'12)) σ
+                                                          else
+                                                            the (MS ZI)
+                                                              (k'24 unit) σ) σ
+                                             else
+                                               the (MS ZI)
+                                                 (k'22 unit) σ)) σ
+                                 else
+                                   the (MS ZI)
+                                     (let page_table_base_addr : ZI
+                                          page_table_base_addr = (ash_left_int (bv-unsigned #40 (ia32e_pde_pg_tablebits-pt entry)) (zpos #12))
+                                      in bindS {ZI} {ZI} (ia32e_la_to_pa_page_table (bits_of_int lin_addr (zpos #48)) (bits_of_int page_table_base_addr (zpos #52)) u_s_all r_w_all x_d_all wp smep smap' ac nxe r_w_x cpl) (λ t'15 →
+                                           let p_addr : Bits #52
+                                               p_addr = (bits_of_int t'15 (zpos #52))
+                                           in bindS {Bool} {ZI} (getS {Bool} x86-marking_view) (λ marking_view'16 →
+                                                let k'28 : Unit → MS ZI
+                                                    k'28 =
+                                                      λ t'20 →
+                                                        retS {ZI} (bv-unsigned #52 p_addr)
+                                                in λ σ →
+                                                     if marking_view'16 then
+                                                       the (MS ZI)
+                                                         (bindS {Bits #64} {ZI} (rm_low_64 (bv-unsigned #52 p_entry_addr)) (λ entry →
+                                                            let accessed : Bits #1
+                                                                accessed = (accessed_bit entry)
+                                                                entry : ia32e_page_tablesbits
+                                                                entry = (if (weq accessed #0) then (set_accessed_bit entry) else entry)
+                                                            in let k'30 : Unit → MS ZI
+                                                                   k'30 =
+                                                                     λ t'19 →
+                                                                       k'28 unit
+                                                               in λ σ →
+                                                                    if (weq accessed #0) then
+                                                                      the (MS ZI)
+                                                                        (bindS {Unit} {ZI} (wm_low_64 p_entry_addr entry) (λ t'18 →
+                                                                           k'30 t'18)) σ
+                                                                    else
+                                                                      the (MS ZI)
+                                                                        (k'30 unit) σ)) σ
+                                                     else
+                                                       the (MS ZI)
+                                                         (k'28 unit) σ))) σ
+                       in λ σ →
+                            if fault_flg then
+                              the (MS ZI)
+                                (onS {Unit} {ZI} (x86_model_error {Unit} #379586103215660304002164) (λ t'7 →
+                                   k'34 t'7)) σ
+                            else
+                              the (MS ZI)
+                                (k'34 unit) σ))))))

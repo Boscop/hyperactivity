@@ -1,0 +1,21 @@
+rm-cast : RCx → RCastKind → ROperand → RTy → RFrame → REv RV
+rm-cast cx k op dty =
+  sr-on (rm-opd-ty cx op) (λ e fr → rm-throw e) (λ sty →
+  sr-on (cx-class cx sty) (λ e fr → rm-throw e) (λ sc →
+  sr-on (cx-class cx dty) (λ e fr → rm-throw e) (λ dc → case k of
+    rcast-int-to-int → rm-cast-int cx op sty sc dc
+    rcast-transmute → rm-cast-transmute cx op sty sc dty dc
+    rcast-ptr-to-ptr → (case dc of
+      cl-scalar kd →
+                     (let ev = rm-opd-rv cx op
+                      in λ fr → rm-bind (ev fr) (λ v → case v of
+                           rv-s x → rm-ret (rv-s x)
+                           rv-fat a m → rm-ret (rv-s a)
+                           rv-dead → rm-throw (rx-ub rub-dead-local)
+                           rv-unit → rm-throw (rx-ill-formed ri-operand-class)))
+      cl-fat mk → (case sc of
+        cl-fat mk2 → rm-opd-rv cx op
+        _ → λ fr → rm-throw (rx-unsupported (rz-cast rcast-ptr-to-ptr)))
+      _ → λ fr → rm-throw (rx-ill-formed ri-operand-class))
+    rcast-unsize → rm-cast-unsize cx op sty dty
+    rcast-reify-fn-pointer → rm-opd-rv cx op)))

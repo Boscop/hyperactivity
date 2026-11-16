@@ -1,0 +1,9 @@
+-- a store: a copy of the bytes (8 + the data padded to 8, from the arena, copied with rep movsb), the
+-- value stored in the copy, the copy the result. The original is never written: a buffer is shared
+-- whenever a variable naming it occurs again, and copying is what makes that true of the bytes (an
+-- in-place store needs ownership the checker tracks, the 1-linear resources of B11 (PLAN.md revision 8, 9 Nov 2026, git 91167ad638c0:PLAN.md, §18.1 “B11 — Multiplicities (static side)”), and is not done here)
+x-store : Enc → XEnv → Word → Word → Code → Code → Code → Lst Word
+x-store ce env d w b off v =
+  xcat6 (ce env d b) i-push-rax (ce env (%wsucc d) off) i-push-rax (ce env (%wadd d #2) v)
+        (xcat5 i-mov-rdx-rax i-pop-rcx i-pop-rax x-copy-bytes
+               (xcat4 i-push-rax i-add-rax-rcx (x-st w) i-pop-rax))

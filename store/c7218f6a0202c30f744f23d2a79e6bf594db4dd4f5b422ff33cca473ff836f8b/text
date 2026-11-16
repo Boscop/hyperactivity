@@ -1,0 +1,19 @@
+-- ---------------------------------------------------------------- one node's process
+-- open and bind the socket at the node's address, take the buffer, run the role's machine
+-- through net-on-linux, and leave with the corpus's status of the state it stopped in. The
+-- fuel (the configuration's bound on the machine's steps) is written to the buffer and read
+-- back, so that it is a value of the run: a bound known to the compiler is unfolded by it. A node id outside the configuration is a process that ends at once
+dp-node-at : {l : Level} {M St : Type} → Corpus M St → ConfigData → Sum NodeCfg Unit → Proc {l} Linux (Sum Errno Word)
+dp-node-at {l} {M} {St} cp cf n = case n of
+  inl nc →
+    lx-then {l} {Word} {Word} (lx {l} (lx-socket #2 #2 #0)) (λ fd →
+    lx-then {l} {Unit} {Word} (lx {l} (lx-bind fd (nc-addr nc))) (λ u →
+    bind {l} {Linux} {Word} {Sum Errno Word} (lx {l} (lx-alloc #32)) (λ buf →
+    bind {l} {Linux} {Unit} {Sum Errno Word} (lx {l} (lx-poke64 buf (cf-fuel cf))) (λ u1 →
+    bind {l} {Linux} {Word} {Sum Errno Word} (lx {l} (lx-peek64 buf)) (λ fuel →
+    bind {l} {Linux} {St} {Sum Errno Word}
+      (handle-l {l} {NetSig M} {Linux} {St} (net-on-linux {l} {M} (cp-codec cp) (cf-nodes cf) fd buf)
+         (mach-proc-w {lsuc l} {M} {St} (cp-view cp (nc-role nc)) fuel (cp-init cp (nc-role nc)))) (λ st →
+    bind {l} {Linux} {Unit} {Sum Errno Word} (lx {l} (lx-exit-group (cp-exit cp st))) (λ u2 →
+    ret {l} {Linux} {Sum Errno Word} (inr (cp-exit cp st)))))))))
+  inr u → ret {l} {Linux} {Sum Errno Word} (inr #0)

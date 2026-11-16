@@ -1,0 +1,20 @@
+-- lib/os/linux.cub — Linux's system calls as a typed world (archive/2026-11-11/PLAN-rev9.md, revision 9, 9 Nov 2026, sha256 4d012c3a10fd…, §6 “Phases 2–8: everything that will be built”, “Phase 3 — The OS as a world”, item 1 “The syscall world”). Loaded after
+-- lib/os/platform.cub.
+--
+-- Linux is a signature (lib/proc.cub): a command per system call with a response type that says
+-- what the kernel answers, and linux-on-w the handler that performs each by the drivers' one raw
+-- command (lib/world.cub's w-sys: the number and six words in, rax out) and the memory commands.
+-- A response is Sum Errno R: the kernel's negative range decoded once (lx-decode), R what a
+-- success carries, with the facts the kernel guarantees as fields (a count read is at most the
+-- count asked: Upto len). The handler decides each fact on the word the kernel returned; a word
+-- outside the contract is answered as the error os-breach (0, which is no errno), so the
+-- contract is assumed nowhere in a process's own text: it is lib/os/contract.cub's model that
+-- states it, and the handler that refuses to pass on what breaks it.
+--
+-- Buffers are addresses (lx-alloc; lx-peek/lx-poke read and write them); structures are values
+-- (SockAddr, Timespec, EpollEvent) the handler writes into a scratch area by the layouts below,
+-- each stated once. The handler is at a Platform (the numbers, the clock, the epoll_event
+-- layout) with the fact that it is little-endian, which the word layouts rely on.
+-- ---------------------------------------------------------------- errors and counts
+Errno : Type
+Errno = Word

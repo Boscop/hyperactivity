@@ -1,0 +1,35 @@
+-- the projections applied to a pointer: rm-proj-go projs cx type variant alignment frame pointer
+rm-proj-go : List RProj → RCx → RTy → Word → Word → RFrame → MPtr → REv MPtr
+rm-proj-go nil cx ty var al = λ fr p → rm-ret p
+rm-proj-go (cons pr ps) cx ty var al = case pr of
+  rproj-deref →
+    sr-on (rm-pointee ty) (λ e fr p → rm-throw e) (λ t2 →
+    sr-on (cx-align cx t2) (λ e fr p → rm-throw e) (λ a2 →
+      let rest = rm-proj-go ps cx t2 #0 a2
+      in λ fr p → rm-bind (rm-load (cx-t cx) sk-ptr al p) (λ v →
+                  rm-bind (rm-res (sv-as-p v)) (λ q → rest fr q))))
+  rproj-field i ft →
+    sr-on (rm-field-off cx ty var i) (λ e fr p → rm-throw e) (λ off →
+    sr-on (cx-align cx (cx-ty cx ft)) (λ e fr p → rm-throw e) (λ fa →
+      let rest = rm-proj-go ps cx (cx-ty cx ft) #0 (rm-wmin al fa)
+      in λ fr p → rm-bind (rm-off p off) (λ q → rest fr q)))
+  rproj-index l →
+    sr-on (rm-elem ty) (λ e fr p → rm-throw e) (λ et →
+    sr-on (cx-size cx et) (λ e fr p → rm-throw e) (λ es →
+    sr-on (cx-align cx et) (λ e fr p → rm-throw e) (λ ea →
+      let rest = rm-proj-go ps cx et #0 (rm-wmin al ea)
+      in λ fr p → rm-bind (rm-reg-int fr l) (λ ix →
+                  rm-bind (rm-elem-ptr p es ix) (λ q → rest fr q)))))
+  rproj-const-index o n fe →
+    sr-on (rm-elem ty) (λ e fr p → rm-throw e) (λ et →
+    sr-on (cx-size cx et) (λ e fr p → rm-throw e) (λ es →
+    sr-on (cx-align cx et) (λ e fr p → rm-throw e) (λ ea →
+      let rest = rm-proj-go ps cx et #0 (rm-wmin al ea)
+      in case fe of
+           false → λ fr p → rm-bind (rm-off p (wmul o es)) (λ q → rest fr q)
+           true → (case ty of
+             rty-array e2 n2 → (case n2 of
+               rty-const c → λ fr p → rm-bind (rm-off p (wmul (wsub c o) es)) (λ q → rest fr q)
+               _ → λ fr p → rm-throw (rx-ill-formed (ri-open-type ty)))
+             _ → λ fr p → rm-throw (rx-unsupported rz-const-index-from-end-of-slice)))))
+  rproj-downcast v → rm-proj-go ps cx ty v al

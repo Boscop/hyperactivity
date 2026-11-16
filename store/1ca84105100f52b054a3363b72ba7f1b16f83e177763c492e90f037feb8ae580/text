@@ -1,0 +1,57 @@
+-- (part of language-support)
+shr_spec_16 : (dst' : Bits #16) → (src : Bits #6) → (input_rflags : rflagsbits) → MF ((Bits #16) × rflagsbits × rflagsbits)
+shr_spec_16 dst' src input_rflags =
+  let neg_src : Bits #17
+      neg_src = (bits_of_int (z-negate (bv-unsigned #6 src)) (zpos #17))
+      raw_result : Bits #16
+      raw_result = (bits_of_int (ash_int (bv-unsigned #16 dst') (bv-signed #17 neg_src)) (zpos #16))
+      result' : Bits #16
+      result' = raw_result
+  in let k'7 : (rflagsbits × rflagsbits) → MF ((Bits #16) × rflagsbits × rflagsbits)
+         k'7 =
+           λ t'6 →
+             let output_rflags : rflagsbits
+                 output_rflags = (fst t'6)
+                 undefined_flags : rflagsbits
+                 undefined_flags = (snd t'6)
+             in retF {((Bits #16) × rflagsbits × rflagsbits)} (result' , output_rflags , undefined_flags)
+     in if (weq src #0) then
+          (k'7 (input_rflags , #0))
+        else if (weq src #1) then
+          (let cf' : Bits #1
+               cf' = (bv-slice #16 dst' #0 #0)
+           in bindF {Bits #1} {((Bits #16) × rflagsbits × rflagsbits)} (pf_spec16 result') (λ pf' →
+                let zf : Bits #1
+                    zf = (zf_spec (bv-unsigned #16 result'))
+                    sf : Bits #1
+                    sf = (sf_spec16 result')
+                    of' : Bits #1
+                    of' = (bv-slice #16 dst' #15 #15)
+                    output_rflags : rflagsbits
+                    output_rflags = (rflagsbits-set-of (rflagsbits-set-sf (rflagsbits-set-zf (rflagsbits-set-pf (rflagsbits-set-cf input_rflags cf') pf') zf) sf) of')
+                    undefined_flags : rflagsbits
+                    undefined_flags = (rflagsbits-set-af #0 #1)
+                in k'7 (output_rflags , undefined_flags)))
+        else if (z-le (zpos #16) (bv-unsigned #6 src)) then
+          (bindF {Bits #1} {((Bits #16) × rflagsbits × rflagsbits)} (pf_spec16 result') (λ pf' →
+             let zf : Bits #1
+                 zf = (zf_spec (bv-unsigned #16 result'))
+                 sf : Bits #1
+                 sf = (sf_spec16 result')
+                 output_rflags : rflagsbits
+                 output_rflags = (rflagsbits-set-sf (rflagsbits-set-zf (rflagsbits-set-pf input_rflags pf') zf) sf)
+                 undefined_flags : rflagsbits
+                 undefined_flags = (rflagsbits-set-of (rflagsbits-set-af (rflagsbits-set-cf #0 #1) #1) #1)
+             in k'7 (output_rflags , undefined_flags)))
+        else
+          (bindF {Bits #1} {((Bits #16) × rflagsbits × rflagsbits)} (bitslice #16 dst' (z-sub (bv-unsigned #6 src) (zpos #1)) (zpos #1)) (λ cf' →
+             bindF {Bits #1} {((Bits #16) × rflagsbits × rflagsbits)} (pf_spec16 result') (λ pf' →
+               let zf : Bits #1
+                   zf = (zf_spec (bv-unsigned #16 result'))
+                   sf : Bits #1
+                   sf = (sf_spec16 result')
+                   output_rflags : rflagsbits
+                   output_rflags = (rflagsbits-set-sf (rflagsbits-set-zf (rflagsbits-set-pf (rflagsbits-set-cf input_rflags cf') pf') zf) sf)
+                   undefined_flags : rflagsbits
+                   undefined_flags = (rflagsbits-set-of (rflagsbits-set-af #0 #1) #1)
+               in k'7 (output_rflags , undefined_flags))))

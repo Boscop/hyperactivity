@@ -1,0 +1,19 @@
+-- (part of language-support)
+wz128 : (reg' : Bits #5) → (sailval : Bits #128) → (keywords : struct_wz128) → MS Unit
+wz128 reg' sailval keywords =
+  bindS {List (Bits #512)} {Unit} (getS {List (Bits #512)} x86-zmms) (λ zmms'1 →
+    let data' : Bits #512
+        data' = (vec-get {Bits #512} #0 zmms'1 (z-nat (bv-unsigned #5 reg')))
+        regtype' : Bits #3
+        regtype' = (bits_of_int (struct_wz128-regtype keywords) (zpos #3))
+        data' : Bits #512
+        data' =
+          if (weq regtype' #2) then
+            (bv-zext #128 #512 (loghead_bits #512 (zpos #128) data'))
+          else if (weq regtype' #3) then
+            (bv-zext #256 #512 (loghead_bits #512 (zpos #256) data'))
+          else
+            data'
+    in bindS {List (Bits #512)} {Unit} (getS {List (Bits #512)} x86-zmms) (λ zmms'3 →
+         bindS {Unit} {Unit} (putS (x86-set-zmms (vec-set {Bits #512} zmms'3 (z-nat (bv-unsigned #5 reg')) (changeSlice_bits #512 data' (zpos #0) (zpos #128) sailval)))) (λ _ →
+           retS {Unit} unit)))

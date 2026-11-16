@@ -1,0 +1,26 @@
+-- a constant of an ADT type written at a pointer: rm-const-into c cx type fields. At an
+-- rc-adt node the type is the constant's own; at a list of field constants (rcs-cons) the
+-- fields are the layouts of the fields they fill.
+rm-const-into : RConst → RCx → RTy → List RFieldLayout → MPtr → REv Unit
+rm-const-into (rc-adt ty v fs) cx ty0 fls =
+  sr-on (rm-lay (cx-ls cx) (cx-ty cx ty)) (λ e p → rm-throw e) (λ l →
+  sr-on (rm-nth (ly-variants-of l) v (ri-no-variant (cx-ty cx ty) v)) (λ e p → rm-throw e) (λ vl →
+    let body = rm-const-into fs cx (cx-ty cx ty) (vl-fields-of vl)
+        tag = rm-set-tag (cx-t cx) l (cx-ty cx ty) v
+    in λ p → rm-then (body p) (tag p)))
+rm-const-into (rc-zst ty) cx ty0 fls = λ p → rm-ret unit
+rm-const-into rcs-nil cx ty0 fls = λ p → rm-ret unit
+rm-const-into (rcs-cons c cs) cx ty0 fls = case fls of
+  nil → λ p → rm-throw (rx-ill-formed ri-arity)
+  cons f fr →
+    sr-on (cx-class cx (rf-ty f)) (λ e p → rm-throw e) (λ cl →
+      let rest = rm-const-into cs cx ty0 fr
+      in case cl of
+           cl-mem →
+                    (let one = rm-const-into c cx (rf-ty f) nil
+                     in λ p → rm-bind (rm-off p (rf-off f)) (λ q → rm-then (one q) (rest p)))
+           cl-unit → rest
+           _ → sr-on (rm-const-rv cx c) (λ e p → rm-throw e) (λ v →
+                 λ p → rm-bind (rm-off p (rf-off f)) (λ q →
+                       rm-then (rm-wr-at (cx-t cx) cl #1 q v) (rest p))))
+rm-const-into c cx ty0 fls = λ p → rm-throw (rx-unsupported (rz-const c))

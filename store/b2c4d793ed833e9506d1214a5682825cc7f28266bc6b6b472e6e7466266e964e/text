@@ -1,0 +1,14 @@
+-- a word loop: the bound (slot d), the counter (slot d+1, from 0), the state (slot d+2); while the
+-- counter is below the bound the step computes the next state; then the state
+x-loop : Enc → XEnv → Word → Code → Code → Code → Lst Word
+x-loop ce env d w z s =
+  let bnd = x-slot d
+      ctr = x-slot (%wsucc d)
+      acc = x-slot (%wadd d #2)
+      env2 = lcons acc (lcons ctr env)
+      step = xcat4 (ce env2 (%wadd d #3) (x-loop-body s)) (i-st-rbp (x-disp acc))
+                   (l-app (i-ld-rbp (x-disp ctr)) i-add1) (i-st-rbp (x-disp ctr))
+      test = xcat3 (i-ld-rbp (x-disp ctr)) (i-ldc-rbp (x-disp bnd)) i-cmp
+      body = l-app step (i-jmp (xneg32 (%wadd (l-count test) (%wadd #6 (%wadd (l-count step) #5)))))
+      head = xcat6 (ce env d w) i-push-rax (i-mov-rax-imm #0) i-push-rax (ce env (%wadd d #2) z) i-push-rax
+  in xcat5 head test (i-jcc j-ae (l-count body)) body (l-app (i-ld-rbp (x-disp acc)) (i-add-rsp #24))

@@ -1,0 +1,51 @@
+-- (part of language-support)
+add_to_sptr : (proc_mode' : proc_mode) → (sptr : Bits #64) → (delta' : Bits #64) → MS (Bits #64)
+add_to_sptr proc_mode' sptr delta' =
+  let sptr_plus_delta : Bits #65
+      sptr_plus_delta = (bits_of_int (z-add (bv-signed #64 sptr) (bv-signed #64 delta')) (zpos #65))
+  in λ σ →
+       if (in_64bit_mode proc_mode') then
+         the (MS (Bits #64))
+           (let sptr_plus_delta : Bits #64
+                sptr_plus_delta = (bv-trunc #65 #64 sptr_plus_delta)
+            in onS {Bool} {Bits #64} (canonical_address_p (bv-signed #64 sptr_plus_delta)) (λ t'1 →
+                 λ σ →
+                   if t'1 then
+                     the (MS (Bits #64))
+                       (retS {Bits #64} sptr_plus_delta) σ
+                   else
+                     the (MS (Bits #64))
+                       (liftS {Bits #64} (x86_model_error {Bits #64} #6140327694473350715032079795660151005132160353761638364606630286163)) σ)) σ
+       else if (in_compatibility_mode proc_mode') then
+         the (MS (Bits #64))
+           (bindS {List (Bits #32)} {Bits #64} (getS {List (Bits #32)} x86-seg_hidden_limits) (λ seg_hidden_limits'4 →
+              let ss_limit : Bits #32
+                  ss_limit = (vec-get {Bits #32} #0 seg_hidden_limits'4 #2)
+              in bindS {List (Bits #16)} {Bits #64} (getS {List (Bits #16)} x86-seg_hidden_attrs) (λ seg_hidden_attrs'5 →
+                   let ss_attr : Bits #16
+                       ss_attr = (vec-get {Bits #16} #0 seg_hidden_attrs'5 #2)
+                       ss_b : Bits #1
+                       ss_b = (data_segment_descriptor_attributesbits-d_b ss_attr)
+                       ss_e : Bits #1
+                       ss_e = (data_segment_descriptor_attributesbits-e ss_attr)
+                       ss_lower : ZI
+                       ss_lower = (if (weq ss_e #1) then (z-add (zpos #1) (bv-unsigned #32 ss_limit)) else (zpos #0))
+                       ss_upper : Bits #32
+                       ss_upper = (if (weq ss_e #1) then (if (weq ss_b #1) then #4294967295 else #65535) else ss_limit)
+                       sptr_plus_delta : Bits #32
+                       sptr_plus_delta = (if (weq ss_b #1) then (bv-trunc #65 #32 sptr_plus_delta) else (bv-zext #16 #32 (bv-trunc #65 #16 sptr_plus_delta)))
+                   in let k'11 : Unit → MS (Bits #64)
+                          k'11 =
+                            λ t'7 →
+                              retS {Bits #64} (bv-zext #32 #64 sptr_plus_delta)
+                      in λ σ →
+                           if (b-not (b-and (z-le ss_lower (bv-unsigned #32 sptr_plus_delta)) (z-le (bv-unsigned #32 sptr_plus_delta) (bv-unsigned #32 ss_upper)))) then
+                             the (MS (Bits #64))
+                               (onS {Unit} {Bits #64} (x86_model_error {Unit} #1572031679975605293305646752405216553472715127576586585289089396069203) (λ t'6 →
+                                  k'11 t'6)) σ
+                           else
+                             the (MS (Bits #64))
+                               (k'11 unit) σ))) σ
+       else
+         the (MS (Bits #64))
+           (liftS {Bits #64} (x86_model_error {Bits #64} #1430326534880091636827201117228958513375655924002173436997)) σ

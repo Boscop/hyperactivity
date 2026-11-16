@@ -1,0 +1,35 @@
+-- memcpy ([cstring.syn], C17, ISO/IEC 9899:2018, 7.24.2.1 “The memcpy function”: overlapping objects are undefined); the replaceable
+-- allocation functions ([new.delete.single], [new.delete.array]: storage of dynamic duration,
+-- aligned for any object; the size as a number of bytes) and the non-allocating placement
+-- forms ([new.delete.placement]: the pointer given); the deallocation functions; the
+-- overflow builtins. vals: the arguments' results; ats: their types; pts: the parameter types
+cx-builtin : CxU → CFunction → List CType → CxR → List CType → CxEv CxR
+cx-builtin u f pts vals ats = case cx-builtin-of (cx-fn-name f) of
+  cxbi-memcpy →
+    cx-bind {MPtr} {CxR} (cx-as-ptr (cx-nth vals #0)) (λ d →
+    cx-bind {MPtr} {CxR} (cx-as-ptr (cx-nth vals #1)) (λ s →
+    cx-bind {SV} {CxR} (cx-as-val (cx-nth vals #2)) (λ n →
+    cx-bind {UInt64} {CxR} (cx-res {UInt64} (sv-as-i n)) (λ nn →
+    cx-then {Unit} {CxR} (cx-memcpy d s (u64toWord nn)) (cx-val (sv-p d))))))
+  cxbi-new → (case weq (cx-len (cx-ptypes-len pts)) #1 of
+    true →
+      cx-bind {SV} {CxR} (cx-as-val (cx-nth vals #0)) (λ n →
+      cx-bind {UInt64} {CxR} (cx-res {UInt64} (sv-as-i n)) (λ nn →
+      cx-bind {MPtr} {CxR} (cx-alloc ak-dynamic false (u64toWord nn) (tg-alloc-align (cxu-t u))) (λ p → cx-val (sv-p p))))
+    false → (case weq (cx-len (cx-ptypes-len pts)) #2 of
+      true → (case cx-is-ptr (cx-tnth pts #1) of
+        true → cx-ret {CxR} (cx-nth vals #1)
+        false → cx-unsupported {CxR} (cxw-builtin (cx-fn-id f)))
+      false → cx-unsupported {CxR} (cxw-builtin (cx-fn-id f))))
+  cxbi-delete → cx-bind {MPtr} {CxR} (cx-as-ptr (cx-nth vals #0)) (λ p → cx-then {Unit} {CxR} (cx-free p) (cx-ret {CxR} cxr-void))
+  cxbi-mul-overflow →
+    cx-bind {SV} {CxR} (cx-as-val (cx-nth vals #0)) (λ a →
+    cx-bind {SV} {CxR} (cx-as-val (cx-nth vals #1)) (λ b →
+    cx-bind {MPtr} {CxR} (cx-as-ptr (cx-nth vals #2)) (λ rp →
+      cx-overflow u true (cx-tnth ats #0) (cx-tnth ats #1) (cx-pointee (cx-tnth ats #2)) a b rp)))
+  cxbi-add-overflow →
+    cx-bind {SV} {CxR} (cx-as-val (cx-nth vals #0)) (λ a →
+    cx-bind {SV} {CxR} (cx-as-val (cx-nth vals #1)) (λ b →
+    cx-bind {MPtr} {CxR} (cx-as-ptr (cx-nth vals #2)) (λ rp →
+      cx-overflow u false (cx-tnth ats #0) (cx-tnth ats #1) (cx-pointee (cx-tnth ats #2)) a b rp)))
+  cxbi-none → cx-unsupported {CxR} (cxw-builtin (cx-fn-id f))

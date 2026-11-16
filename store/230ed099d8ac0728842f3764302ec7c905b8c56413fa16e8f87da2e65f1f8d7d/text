@@ -1,0 +1,67 @@
+qneu bs E v (wvar l T) = qn (q-var-at bs v l #0) T
+-- a copattern definition, stuck: its name; a field of a neutral: at the field's type
+qneu bs E v (wcofix n T) = qn (cglob n) T
+qneu bs E v (wproj d k x T) =
+  obind (qneu bs none x (%view x))
+    (λ q →
+       qn (cproj d k (fst q)) (case %view (snd q) of wdata d2 ps → cofield-ty d ps x k; _ → opq))
+qneu bs E v (wapp f a T) =
+  obind (qneu bs none f (%view f))
+    (λ p →
+       let cf = fst p
+       in case %view (snd p) of
+            wpi A B → omap (λ ca → (capp cf ca , B a)) (quote bs A a)
+            _ → omap (λ ca → (capp cf ca , opq)) (qv-un bs a))
+qneu bs E v (wfst p T) =
+  obind (qneu bs none p (%view p))
+    (λ q → qn (cfst (fst q)) (case %view (snd q) of wsigma A B → A; _ → opq))
+qneu bs E v (wsnd p T) =
+  obind (qneu bs none p (%view p))
+    (λ q → qn (csnd (fst q)) (case %view (snd q) of wsigma A B → B (fst p); _ → opq))
+qneu bs E v (wpapp p r T) =
+  obind (qneu bs none p (%view p))
+    (λ q → qn (cpapp (fst q) (q-iv bs r)) (case %view (snd q) of wpath L a b → L @ r; _ → opq))
+qneu bs E v (wcomp A u a0 T) =
+  obind (q-tyline bs A)
+    (λ cA →
+       obind (q-linein bs A u)
+         (λ cu → obind (quote bs (A @ 0) a0) (λ ca → qn (ccomp cA cu ca) (A @ 1))))
+qneu bs E v (wunglue S b T) =
+  obind (qneu bs none b (%view b))
+    (λ q →
+       case %view (snd q) of
+         wglue A SG → 
+           case %view S of
+             wsys sb → omap (λ cs → (cunglue cs (fst q) , A)) (q-gsys bs A sb)
+             _ → omap (λ cs → (cunglue cs (fst q) , A)) (qv-un bs S)
+         _ → omap (λ cs → (cunglue cs (fst q) , opq)) (qv-un bs S))
+qneu bs E v (wunglueu S b T) =
+  obind (qneu bs none b (%view b))
+    (λ q →
+       case %view (snd q) of
+         whcompu A SG → omap (λ cs → (cunglueu cs (fst q) , A)) (qv-un bs S)
+         _ → omap (λ cs → (cunglueu cs (fst q) , opq)) (qv-un bs S))
+qneu bs E v (welim d x f T) = q-elim bs E d x f
+qneu bs E v (wtrans d psi ls x T) = q-trans bs d psi ls x
+qneu bs E v (wwplus k x) =
+  omap (λ cx → (if %weq k #1 then cwsucc cx else cwop #2 cx (cwlit k) , Word)) (quote bs Word x)
+qneu bs E v (wwop k a b) =
+  obind (quote bs Word a)
+    (λ ca → omap (λ cb → (cwop k ca cb , if %wlt k #2 then Bool else Word)) (quote bs Word b))
+-- (with its motive, when it has one: z quoted at P 0, the step at its type, the motive's code kept on
+-- the elimination, where the lowering reads the loop's state type; at P x)
+qneu bs E v (wwelim x z s mo) =
+  case mo of
+    some P → 
+      obind (quote bs Word x)
+        (λ cx → obind (quote bs (P #0) z) (λ cz → obind (q-wstep-p bs P s) (λ cs → omap (λ cP → (cwelim cx cz cs (some cP) , P x)) (quote bs (Word → Uw) P))))
+    none → 
+      obind (quote bs Word x)
+        (λ cx → obind (qv-un bs z) (λ cz → omap (λ cs → (cwelim cx cz cs none , opq)) (q-wstep bs s)))
+-- a primitive operation stuck on a neutral: the operation's code at its arguments' codes (each
+-- quoted as the value it is: a variable, a literal, a further operation), at the operation's result
+-- type (lib/code.cub prim-apply names the numbering)
+qneu bs E v (wprim k as) =
+  omap (λ cs → (cprim k (if prim-access k then (case bytes-len-code bs (lhead as) of some n → lsnoc cs n; none → cs) else cs) , prim-ty k))
+    (q-prim-args bs as)
+qneu bs E v _ = omap (λ c → (c , opq)) (qv-un bs v)

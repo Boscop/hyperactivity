@@ -1,0 +1,10 @@
+-- the proof rule: a measure into Nat such that at every time the goal holds or the measure is
+-- smaller at some time (which is what fairness is used to show)
+lm-go : {M St : Type} → (goal : FState M St → Type) → (beh : Beh M St) → (g0 : FState M St) → (chs : AdvSeq) → (mu : FState M St → Nat) →
+        ((t : Nat) → Sum (goal (fleet-at {M} {St} beh chs g0 t)) ((s : Nat) × (mu (fleet-at {M} {St} beh chs g0 s) < mu (fleet-at {M} {St} beh chs g0 t)))) →
+        (n : Nat) → (t : Nat) → mu (fleet-at {M} {St} beh chs g0 t) < n → (T : Nat) × goal (fleet-at {M} {St} beh chs g0 T)
+lm-go {M} {St} goal beh g0 chs mu prem zero t h = Empty-rec h
+lm-go {M} {St} goal beh g0 chs mu prem (suc n) t h =
+  case prem t of
+    inl gl → (t , gl)
+    inr d → lm-go {M} {St} goal beh g0 chs mu prem n (fst d) (<-step (mu (fleet-at {M} {St} beh chs g0 (fst d))) (mu (fleet-at {M} {St} beh chs g0 t)) n (snd d) h)

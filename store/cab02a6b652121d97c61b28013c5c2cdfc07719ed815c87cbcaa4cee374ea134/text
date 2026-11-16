@@ -1,0 +1,10 @@
+-- one transaction step against the log: a load reads the pending write if any, else memory,
+-- recording what it saw; a store is recorded, not performed
+tx-step : (c : Cmd TxS) → TxLog → Proc {lzero} MemS (tx-resp c × TxLog)
+tx-step c lg =
+  case c return (λ x → Proc {lzero} MemS (tx-resp x × TxLog)) of
+    tload a →
+      (case log-find a (snd lg) of
+         inl v → ret {lzero} {MemS} {Word × TxLog} (v , lg)
+         inr u → bind {lzero} {MemS} {Word} {Word × TxLog} (cmd {lzero} {MemS} (mload a)) (λ v → ret {lzero} {MemS} {Word × TxLog} (v , (cons (a , v) (fst lg) , snd lg))))
+    tstore a v → ret {lzero} {MemS} {Unit × TxLog} (unit , (fst lg , cons (a , v) (snd lg)))

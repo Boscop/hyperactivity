@@ -1,0 +1,14 @@
+rm-stmt : RCx → RStmt → RFrame → REv RFrame
+rm-stmt cx s = case s of
+  rs-assign pl rv →
+    sr-on (rm-place-ty cx pl) (λ e fr → rm-throw e) (λ dty →
+    sr-on (rm-place-is-reg cx pl) (λ e fr → rm-throw e) (λ isr → case isr of
+      true →
+        (let ev = rm-rv-val cx rv dty
+         in λ fr → rm-bind (ev fr) (λ v → rm-ret (fr-set fr (rm-place-local pl) (sl-reg v))))
+      false → sr-on (rm-place-al cx pl) (λ e fr → rm-throw e) (λ al →
+        let addr = rm-place-addr cx pl
+            wr = rm-rv-into cx rv dty al
+        in λ fr → rm-bind (addr fr) (λ p → rm-then (wr fr p) (rm-ret fr)))))
+  rs-storage-live l → rm-storage cx l true
+  rs-storage-dead l → rm-storage cx l false

@@ -1,0 +1,20 @@
+-- the three-way comparison: the variant Less, Equal or Greater (0, 1, 2) of the result's enum
+rm-cmp3-into : RCx → ROperand → ROperand → RTy → RFrame → MPtr → REv Unit
+rm-cmp3-into cx a b dty =
+  sr-on (rm-opd-ty cx a) (λ e fr p → rm-throw e) (λ aty →
+  sr-on (cx-class cx aty) (λ e fr p → rm-throw e) (λ ac →
+  sr-on (rm-lay (cx-ls cx) dty) (λ e fr p → rm-throw e) (λ l → case ac of
+    cl-scalar k →
+      (let ea = rm-opd-rv cx a
+           eb = rm-opd-rv cx b
+           t0 = rm-set-tag (cx-t cx) l dty #0
+           t1 = rm-set-tag (cx-t cx) l dty #1
+           t2 = rm-set-tag (cx-t cx) l dty #2
+       in λ fr p → rm-bind (ea fr) (λ va → rm-bind (eb fr) (λ vb →
+                   rm-bind (rm-as-s va) (λ x → rm-bind (rm-as-s vb) (λ y →
+                   rm-bind (rm-res (sv-cmp co-lt k x y)) (λ lt → case lt of
+                     true → t0 p
+                     false → rm-bind (rm-res (sv-cmp co-eq k x y)) (λ eq → case eq of
+                       true → t1 p
+                       false → t2 p)))))))
+    _ → λ fr p → rm-throw (rx-unsupported (rz-binop rbin-cmp)))))

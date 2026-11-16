@@ -270,22 +270,41 @@ static const char *store_dir(void) {
     if (!looked) { looked = true; d = getenv("CUBICAL_STORE"); if (!d && !getenv("CUBICAL_NOCACHE")) d = ".cubical-store"; if (d && !*d) d = NULL; }
     return d;
 }
-static char *store_path(const char *key, const char *file) {
-    const char *d = store_dir(); if (!d) return NULL;
+/* the source (2026-11-16, Avik: "there will be no file system (asap)"): the written code and documents
+ * as objects every session shares, store/ at the repository's root: each piece of text
+ * (<hash>/text), each module's list of pieces (<hash>/module), and the pointers modules/<path>,
+ * written/<name>, module-of/<name>, names-of/<path> (lib/host.cub reads them as h-source). The rest of the store above
+ * is the machine's own, kept per machine. */
+static void root_init(void);
+static char *repo_root;
+static const char *source_dir(void) {
+    static char *d;
+    if (!d) { root_init(); d = malloc(strlen(repo_root) + 7); sprintf(d, "%s/store", repo_root); }
+    return d;
+}
+static char *path_in(const char *d, const char *key, const char *file) {
+    if (!d) return NULL;
     char *p = malloc(strlen(d) + strlen(key) + strlen(file) + 4); sprintf(p, "%s/%s%s%s", d, key, *file ? "/" : "", file);
     return p;
 }
-static char *store_read(const char *key, const char *file) {
-    char *p = store_path(key, file); if (!p) return NULL;
+static char *read_in(const char *d, const char *key, const char *file) {
+    char *p = path_in(d, key, file); if (!p) return NULL;
     FILE *f = fopen(p, "rb"); free(p); if (!f) return NULL;
     fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
     char *b = malloc((size_t)n + 1); size_t got = fread(b, 1, (size_t)n, f); b[got] = 0; fclose(f);
     return b;
 }
-static void store_write(const char *key, const char *file, const char *text, bool append) {
-    char *p = store_path(key, file); if (!p) return;
-    char *dir = store_path(key, "");
-    mkdir(store_dir(), 0777); mkdir(dir, 0777); free(dir);
+static void write_in(const char *d, const char *key, const char *file, const char *text, bool append);
+static char *store_path(const char *key, const char *file) { return path_in(store_dir(), key, file); }
+static char *store_read(const char *key, const char *file) { return read_in(store_dir(), key, file); }
+static void store_write(const char *key, const char *file, const char *text, bool append) { write_in(store_dir(), key, file, text, append); }
+static char *src_path(const char *key, const char *file) { return path_in(source_dir(), key, file); }
+static char *src_read(const char *key, const char *file) { return read_in(source_dir(), key, file); }
+static void src_write(const char *key, const char *file, const char *text) { write_in(source_dir(), key, file, text, false); }
+static void write_in(const char *d, const char *key, const char *file, const char *text, bool append) {
+    char *p = path_in(d, key, file); if (!p) return;
+    char *dir = path_in(d, key, "");
+    mkdir(d, 0777); mkdir(dir, 0777); free(dir);
     if (append) { FILE *f = fopen(p, "a"); free(p); if (!f) return; fputs(text, f); fclose(f); return; }
     /* a whole entry is written beside it and renamed over it (atomic on POSIX): a machine killed while
      * writing, or another machine reading the same store, never sees a truncated entry */

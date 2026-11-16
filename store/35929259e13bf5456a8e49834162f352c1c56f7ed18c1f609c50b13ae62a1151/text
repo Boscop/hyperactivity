@@ -1,0 +1,27 @@
+-- (part of language-support)
+write_sptr : (proc_mode' : proc_mode) → (sptr : Bits #64) → MS Unit
+write_sptr proc_mode' sptr =
+  λ σ →
+    if (in_64bit_mode proc_mode') then
+      the (MS Unit)
+        (write_rgfi (zpos #4) sptr) σ
+    else if (in_compatibility_mode proc_mode') then
+      the (MS Unit)
+        (bindS {List (Bits #16)} {Unit} (getS {List (Bits #16)} x86-seg_hidden_attrs) (λ seg_hidden_attrs'2 →
+           let ss_attr : Bits #16
+               ss_attr = (vec-get {Bits #16} #0 seg_hidden_attrs'2 #2)
+               ss_b : Bits #1
+               ss_b = (data_segment_descriptor_attributesbits-d_b ss_attr)
+           in λ σ →
+                if (weq ss_b #1) then
+                  the (MS Unit)
+                    (write_rgfi (zpos #4) (bv-zext #32 #64 (bv-trunc #64 #32 sptr))) σ
+                else
+                  the (MS Unit)
+                    (bindS {Bits #64} {Unit} (rgfi (zpos #4)) (λ rsp_var →
+                       let rsp_new : Bits #64
+                           rsp_new = (changeSlice_bits #64 rsp_var (zpos #0) (zpos #16) (bv-trunc #64 #16 sptr))
+                       in write_rgfi (zpos #4) rsp_new)) σ)) σ
+    else
+      the (MS Unit)
+        (retS {Unit} unit) σ

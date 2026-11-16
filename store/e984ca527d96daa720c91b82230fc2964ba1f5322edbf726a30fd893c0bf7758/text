@@ -1,0 +1,15 @@
+-- an index or a count of elements as a signed 64-bit number: an unsigned value that is not
+-- one is beyond every array ([expr.add]/4: undefined)
+cx-index : CxU → CType → SV → CxEv UInt64
+cx-index u ty v = cx-bind {SK} {UInt64} (cx-res {SK} (cx-sk u ty)) (λ k → case k of
+  sk-int sg w → (case w of
+    iw128 → cx-stop {UInt64} st-unsupported
+    _ → cx-bind {UInt64} {UInt64} (cx-res {UInt64} (sv-as-i v)) (λ x → case sg of
+      true → cx-ret {UInt64} x
+      false → (case uq-isneg x of
+        true → cx-ub {UInt64} ub-ptr-arith
+        false → cx-ret {UInt64} x)))
+  sk-bool → cx-bind {Bool} {UInt64} (cx-res {Bool} (sv-as-b v)) (λ b → cx-ret {UInt64} (uq-b b))
+  sk-f32 → cx-stop {UInt64} st-ill-typed
+  sk-f64 → cx-stop {UInt64} st-ill-typed
+  sk-ptr → cx-stop {UInt64} st-ill-typed)

@@ -1,0 +1,10 @@
+-- ---------------------------------------------------------------- the bookkeeping after a command
+-- an allocation at the world's address: refused (a stop: the world's placement is not one the
+-- table can hold) when it is 0, below the Target's first base, misaligned, or touches an
+-- allocation; else entered, its bytes marked written exactly when it was asked zeroed
+post-alloc : Target → AKind → Bool → Word → Word → MPtr → AMem → MRes ATI
+post-alloc t kd z size al r s =
+  mr-map (λ u → ( cons (ARec { ar-base = mp-address r ; ar-size = size ; ar-align = al ; ar-live = true ; ar-kind = kd }) (am-table s)
+               , in-set (am-init s) (mp-address r) size z ))
+    (m-need (m-and (not (wlt (mp-address r) (tg-base t)))
+            (m-and (weq (wrem (mp-address r) al) #0) (tb-clear (am-table s) (mp-address r) size))) st-unsupported)

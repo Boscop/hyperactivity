@@ -1,0 +1,17 @@
+-- wr08: from register_readers_and_writers.sail (it calls what is defined after it there)
+-- (part of language-support)
+wr08 : (reg' : Bits #4) → (rex : Bits #8) → (byte : Bits #8) → MS Unit
+wr08 reg' rex byte =
+  let reg' : ZI
+      reg' = (bv-unsigned #4 reg')
+  in λ σ →
+       if (b-or (b-not (weq rex #0)) (z-lt reg' (zpos #4))) then
+         the (MS Unit)
+           (bindS {Bits #64} {Unit} (rgfi reg') (λ qword →
+              write_rgfi reg' (changeSlice_bits #64 (bv-slice #64 qword #63 #0) (zpos #0) (zpos #8) byte))) σ
+       else
+         the (MS Unit)
+           (let index' : Bits #4
+                index' = (bits_of_int (z-sub (bv-unsigned #4 (bits_of_int reg' (zpos #4))) (zpos #4)) (zpos #4))
+            in bindS {Bits #64} {Unit} (rgfi (bv-unsigned #4 index')) (λ qword →
+                 write_rgfi (bv-unsigned #4 index') (changeSlice_bits #64 (bv-slice #64 qword #63 #0) (zpos #8) (zpos #8) byte))) σ

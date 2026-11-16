@@ -1,0 +1,16 @@
+-- the word operations (lib/code.cub cwop): eq, lt (Bool: true 0, false 1), add (overflow past
+-- 2^64 leaves), max, truncated subtraction, mul, div, mod, and, or, xor, (shl: refused), shr
+x-wop : Word → Lst Word
+x-wop k =
+  if %weq k #0 then l-app i-cmp (i-set cc-ne)
+  else if %weq k #1 then l-app i-cmp (i-set cc-ae)
+  else if %weq k #2 then l-app i-add i-over-if-c
+  else if %weq k #3 then l-app i-cmp i-cmovb
+  else if %weq k #4 then xcat3 i-sub (i-jcc j-ae #2) i-xor-eax
+  -- mul rcx (the product in rdx:rax, carry when rdx ≠ 0: the overflow exit); x / 0 = 0, x mod 0 = x
+  else if %weq k #5 then l-app (xb3 #72 #247 #225) i-over-if-c
+  else if %weq k #6 then x-udiv false
+  else if %weq k #7 then x-udiv true
+  else if %weq k #8 then i-and else if %weq k #9 then i-or else if %weq k #10 then i-xor
+  -- shr: 0 when the count is 64 or more (cmp rcx, 63; jbe +4; xor eax, eax; jmp +3; shr rax, cl)
+  else xcat5 (xb4 #72 #131 #249 #63) (xb2 #118 #4) (xb2 #49 #192) (xb2 #235 #3) (xb3 #72 #211 #232)

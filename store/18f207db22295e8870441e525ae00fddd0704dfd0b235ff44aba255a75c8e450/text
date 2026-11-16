@@ -1,0 +1,18 @@
+-- C's left shift (C17, ISO/IEC 9899:2018, 6.5.7 “Bitwise shift operators”): of a signed kind, a negative operand is undefined, and so is a
+-- result the kind cannot represent (the shift back must give the operand, and no sign appear)
+int-shl-c : Bool → IW → Bool → IW → SV → SV → MRes SV
+int-shl-c sg w sgc wc a c = case sg of
+  false → int-shl sg w sgc wc a c
+  true → mr-bind (shift-count w sgc wc c) (λ n → case w of
+    iw128 → mr-bind (sv-as-w a) (λ x → case dq-isneg x of
+      true → mub ub-shift-negative
+      false → (let r = dq-shl x n
+               in case m-and (not (dq-isneg r)) (dq-eq (dq-shr r n) x) of
+                    true → mok (sv-of-dq r)
+                    false → mub ub-signed-overflow))
+    _ → mr-bind (sv-as-i a) (λ x → case uq-isneg x of
+      true → mub ub-shift-negative
+      false → (let r = uq-sx w (u64shl x n)
+               in case m-and (not (uq-isneg r)) (u64eq (u64shr r n) x) of
+                    true → mok (sv-i r)
+                    false → mub ub-signed-overflow)))

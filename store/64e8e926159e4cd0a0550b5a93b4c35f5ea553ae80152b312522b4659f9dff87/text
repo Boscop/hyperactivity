@@ -1,0 +1,81 @@
+eval-g e c =
+  case c of
+    cvar n → cl-at e n
+    cglob n → %gval n
+    clam b → λ x → eval-g (lcons x e) b
+    capp f a → eval-g e f (eval-g e a)
+    cpair a b → (eval-g e a , eval-g e b)
+    cfst p → fst (eval-g e p)
+    csnd p → snd (eval-g e p)
+    cpi m A B → %pim m (eval-g e A) (λ x → eval-g (lcons x e) B)
+    csigma A B → (x : eval-g e A) × eval-g (lcons x e) B
+    cuniv l → Type (eval-g e l)
+    cpathp A a b → PathP (eval-g e A) (eval-g e a) (eval-g e b)
+    cplam b → λ (i : I) → eval-g (lcons i e) b
+    cpapp p r → eval-g e p @ eval-g e r
+    ci0 → i0
+    ci1 → i1
+    cneg r → ~ (eval-g e r)
+    cmeet r s → eval-g e r /\ eval-g e s
+    cjoin r s → eval-g e r \/ eval-g e s
+    ceq0 r → ((eval-g e r) = 0)
+    ceq1 r → ((eval-g e r) = 1)
+    cfand a b → %fand (eval-g e a) (eval-g e b)
+    cfor a b → %for (eval-g e a) (eval-g e b)
+    cftt → tt
+    cfff → ff
+    cforall b → (∀ i → (eval-g (lcons i e) b))
+    csys0 → []
+    csysc f t r → sys+ (eval-g e f) (eval-g e t) (eval-g e r)
+    ccomp A u a → comp (eval-g e A) (eval-g e u) (eval-g e a)
+    cgluet A S → Glue (eval-g e A) (eval-g e S)
+    cglue S a → glue (eval-g e S) (eval-g e a)
+    cunglue S b → unglue (eval-g e S) (eval-g e b)
+    chcompu A S → %hcompU (eval-g e A) (eval-g e S)
+    cunglueu S b → %unglueU (eval-g e S) (eval-g e b)
+    clet t b → let x = eval-g e t in eval-g (lcons x e) b
+    cann t T → eval-g e t
+    cdata d ps → app-all (dt-former (%dtab d)) (cl-map (eval-g e) ps)
+    ccon d k fs ds → 
+      app-all (cl-at (dt-cons (%dtab d)) k) (cl-app (cl-map (eval-g e) fs) (cl-map (eval-g e) ds))
+    celim d P B x → 
+      app-all (dt-elim (%dtab d) (eval-g e P))
+        (cl-app (cl-map (eval-g e) B) (lcons (eval-g e x) lnil))
+    ccase d B x → 
+      app-all (dt-case (%dtab d)) (cl-app (cl-map (eval-g e) B) (lcons (eval-g e x) lnil))
+    chcomp u a → hcompD (eval-g e u) (eval-g e a)
+    cdlam b → λ i → eval-g (lcons i e) b
+    cforce t → force (eval-g e t)
+    cthunk t → delay (eval-g e t)
+    clevel → Level
+    clzero → lzero
+    clsuc l → lsuc (eval-g e l)
+    clmax a b → lmax (eval-g e a) (eval-g e b)
+    cword → Word
+    cwlit n → n
+    cpty k n → (if %weq k #4 then %bytesty (eval-g e n) else %pty k)
+    cplit k b → %pval k b
+    cwsucc a → %wsucc (eval-g e a)
+    cwop k a b → 
+      let x = eval-g e a
+          y = eval-g e b
+      in if %weq k #0
+           then %weq x y
+           else if %weq k #1
+                  then %wlt x y
+                  else if %weq k #2 then %wadd x y else if %weq k #3 then %wmax x y else if %weq k #4 then %wsub x y
+                  else if %weq k #5 then %wmul x y else if %weq k #6 then %wdiv x y else if %weq k #7 then %wmod x y
+                  else if %weq k #8 then %wand x y else if %weq k #9 then %wor x y else if %weq k #10 then %wxor x y
+                  else if %weq k #11 then %wshl x y else %wshr x y
+    cprim k as → prim-apply k (cl-map (eval-g e) as)
+    cwelim w z s mo → (case mo of some P → %welimP (eval-g e P) (eval-g e w) (eval-g e z) (eval-g e s); none → %welim (eval-g e w) (eval-g e z) (eval-g e s))
+    ctrans d psi ls x → 
+      app-all (%dtrans d)
+        (lcons (eval-g e psi) (cl-app (cl-map (eval-g e) ls) (lcons (eval-g e x) lnil)))
+    cproj d k x → cl-at (dt-cons (%dtab d)) k (eval-g e x)
+    crec d fs → app-all (dt-elim (%dtab d)) (cl-map (eval-g e) fs)
+    cfree x → x
+    cclock → Clock
+    ctick k → Tick (eval-g e k)
+    cclock0 → κ0
+    ctick0 → ⋄

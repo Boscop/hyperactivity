@@ -1,0 +1,22 @@
+-- an argument initializes a new object of the parameter's type ([expr.call]/7); a reference
+-- parameter is bound to the argument's object and has none
+cx-arg : CxU → CType → CxSub → CxEnv → CxK → CxEv CxR
+cx-arg u pt x env k = case cx-tc pt of
+  cxtc-ref t → x env cxm-get (λ r → cx-bind {MPtr} {CxR} (cx-as-lv r) (λ p → k (cxr-parm p false)))
+  cxtc-record id →
+    cx-bind {Word} {CxR} (cx-res {Word} (cx-size u pt)) (λ sz →
+    cx-bind {Word} {CxR} (cx-res {Word} (cx-align u pt)) (λ al →
+    cx-bind {MPtr} {CxR} (cx-alloc ak-auto false sz al) (λ q → x env (cxm-init q) (λ r → k (cxr-parm q true)))))
+  cxtc-scalar → x env cxm-get (λ r →
+    cx-bind {Word} {CxR} (cx-res {Word} (cx-size u pt)) (λ sz →
+    cx-bind {Word} {CxR} (cx-res {Word} (cx-align u pt)) (λ al →
+    cx-bind {MPtr} {CxR} (cx-alloc ak-auto false sz al) (λ q →
+      cx-then {Unit} {CxR} (cx-lv-store u pt (cxr-lv q #0) r) (k (cxr-parm q true))))))
+  cxtc-mfp → x env cxm-get (λ r →
+    cx-bind {Word} {CxR} (cx-res {Word} (cx-size u pt)) (λ sz →
+    cx-bind {Word} {CxR} (cx-res {Word} (cx-align u pt)) (λ al →
+    cx-bind {MPtr} {CxR} (cx-alloc ak-auto false sz al) (λ q →
+      cx-then {Unit} {CxR} (cx-lv-store u pt (cxr-lv q #0) r) (k (cxr-parm q true))))))
+  cxtc-array el n → cx-stop {CxR} st-ill-typed
+  cxtc-void → cx-stop {CxR} st-ill-typed
+  cxtc-fn → cx-stop {CxR} st-ill-typed

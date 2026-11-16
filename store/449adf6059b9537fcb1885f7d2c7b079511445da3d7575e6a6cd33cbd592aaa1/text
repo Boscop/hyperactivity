@@ -1,0 +1,11 @@
+rm-copy-tagged : Bool → Word → Word → List RVariantLayout → (RTy → Word → Word → MPtr → MPtr → REv Unit) → Target → List RLayoutEntry → Word → Word → MPtr → MPtr → REv Unit
+rm-copy-tagged niche off size vs cpy t ls da sa =
+  sr-on (rm-tag-sk size) (λ e dst src → rm-throw e) (λ tk →
+    let go = rm-copy-variants vs (λ fs → rm-copy-fields fs cpy t ls da sa)
+               (λ tg dst → rm-bind (rm-off dst off) (λ q → rm-store t tk #1 q (sv-i tg)))
+               (case niche of
+                  true → rm-copy-fields (rm-untagged-fields vs) cpy t ls da sa
+                  false → λ dst src → rm-throw (rx-ub rub-invalid-discriminant))
+    in λ dst src → rm-bind (rm-off src off) (λ q →
+                   rm-bind (rm-load t tk #1 q) (λ tv →
+                   rm-bind (rm-res (sv-as-i tv)) (λ tg → go tg dst src))))

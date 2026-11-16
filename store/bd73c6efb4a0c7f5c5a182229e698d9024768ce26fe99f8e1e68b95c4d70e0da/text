@@ -1,0 +1,15 @@
+-- ---------------------------------------------------------------- through the compiler
+-- #jit compiles a definition whose parameters cross its boundary (words, byte strings); AMem
+-- does not cross (an allocation is a dependent pair: its bytes' length is its size's), so the
+-- compiled definition takes the array's bytes, n and the fuel, builds the memory with the one
+-- allocation int a[4] (16 bytes, alignment 4, base 65536; stored as 24 bytes: the last window's
+-- 8 more), runs sum-c at x86-64-sysv with p = &a[0], and returns (status , value): 0 and the
+-- sum; 1 undefined behaviour; 2 a stop; 3 any other way out.
+-- The fuel is a parameter on purpose: at a literal fuel the specializer unrolls the loop that
+-- many times (the recursion is on the fuel), so the fuel must be a run-time value.
+sum-mem-of : Bytes 24 → AMem
+sum-mem-of b =
+  AMem { mem-allocs = cons (Alloc { al-id = #0 ; al-size = #16 ; al-align = #4 ; al-live = true
+                                  ; al-kind = ak-auto ; al-base = #65536 ; al-zeroed = true
+                                  ; al-data = b ; al-init = bytes 24 }) nil
+       ; mem-count = #1 ; mem-next = #65553 }

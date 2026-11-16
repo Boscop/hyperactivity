@@ -1,0 +1,10 @@
+-- a receive on a socket bound to b: the first datagram for it, its first len bytes stored at buf
+-- (the rest of the datagram is discarded), the count and the sender
+k-recv : (len : Word) → SockAddr → Word → Bool → KState → KAns (Upto len × SockAddr)
+k-recv len b buf blocking st =
+  case k-next-dgram b (k-net st) of
+    inr u → (if blocking then k-refuse {Upto len × SockAddr} st else k-err {Upto len × SockAddr} #11 st)
+    inl p → (case lx-upto len (k-min len (k-len (dg-data (fst p)))) of
+               inl e → inl (inl e , st)
+               inr k → inl (inr (k , dg-from (fst p)) ,
+                            KState { st | k-mem = k-store-bytes (k-mem st) buf (k-take len (dg-data (fst p))) ; k-net = snd p }))

@@ -1,0 +1,24 @@
+spine-walk c T args hs sg oE =
+  case args of
+    lnil →
+      let sg2 = case oE of none → sg; some E → vmatch hs T E sg
+      in spine-done c hs (level-close hs (level-close hs sg2))
+    lcons a rest →
+      case %view T of
+        wpi A B →
+          case a of
+            thole k V → spine-walk c (B V) rest (lcons (k , V , A) hs) sg oE
+            _ →
+              if inferable a then
+                (case infer a of
+                   typed Ta → spine-walk c (B (tval a)) rest hs (vmatch hs A Ta sg) oE
+                   elab ds → elab ds
+                   redo k → redo k
+                   _ → spine-walk c (B (tval a)) rest hs sg oE)
+              else
+                (case lam-arg hs A B (unguess a) sg of
+                   typed sg2 → spine-walk c (B (tval a)) rest hs sg2 oE
+                   elab ds → elab ds
+                   redo k → redo k
+                   _ → spine-walk c (B (tval a)) rest hs sg oE)
+        _ → err c E-notfun T opq

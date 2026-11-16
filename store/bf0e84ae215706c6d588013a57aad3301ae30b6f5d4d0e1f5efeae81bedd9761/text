@@ -1,0 +1,42 @@
+-- ---------------------------------------------------------------- matching
+-- match k b p t s: pattern p (with k pattern-bound variables above which are metavariables),
+-- under b binders inside the pattern so far, against t; s the match so far; none on failure.
+-- A metavariable binds t shifted down by b (t's variables bound inside the pattern's binders
+-- cannot escape: those below b make the match fail)
+match k b p t s =
+  case p of
+    cvar n →
+      if %wlt n (%wadd k b)
+        then (case t of cvar m → if %weq n m then some s else none; _ → none)
+        else (let m = %wsub n (%wadd k b)
+              in if mentions-below b t then none
+                 else (case mlookup s m of
+                         none → some (mcons m (unshift b t) s)
+                         some c → if code-same c (unshift b t) then some s else none))
+    cglob n → (case t of cglob m → if %weq n m then some s else none; _ → none)
+    clam x → (case t of clam y → match k (%wsucc b) x y s; _ → none)
+    capp f x → (case t of capp g y → (case match k b f g s of some s2 → match k b x y s2; none → none); _ → none)
+    cpair x y → (case t of cpair x2 y2 → (case match k b x x2 s of some s2 → match k b y y2 s2; none → none); _ → none)
+    cfst x → (case t of cfst y → match k b x y s; _ → none)
+    csnd x → (case t of csnd y → match k b x y s; _ → none)
+    clet a x → (case t of clet a2 y → (case match k b a a2 s of some s2 → match k (%wsucc b) x y s2; none → none); _ → none)
+    ccon d c fs ds → (case t of ccon d2 c2 fs2 ds2 → if andb (%weq d d2) (%weq c c2) then match-list k b fs fs2 s else none; _ → none)
+    celim d P B x → (case t of celim d2 P2 B2 y → if %weq d d2 then (case match k b P P2 s of some s2 → (case match-list k b B B2 s2 of some s3 → match k b x y s3; none → none); none → none) else none; _ → none)
+    ccase d B x → (case t of ccase d2 B2 y → if %weq d d2 then (case match-list k b B B2 s of some s2 → match k b x y s2; none → none) else none; _ → none)
+    cforce x → (case t of cforce y → match k b x y s; _ → none)
+    cthunk x → (case t of cthunk y → match k b x y s; _ → none)
+    cdata d ps → (case t of cdata d2 ps2 → if %weq d d2 then match-list k b ps ps2 s else none; _ → none)
+    cwlit n → (case t of cwlit m → if %weq n m then some s else none; _ → none)
+    cwelim w z st mo → (case t of cwelim w2 z2 st2 mo2 → (case match k b w w2 s of some s2 → (case match k b z z2 s2 of some s3 → match k b st st2 s3; none → none); none → none); _ → none)
+    cwsucc x → (case t of cwsucc y → match k b x y s; _ → none)
+    cwop o x y → (case t of cwop o2 x2 y2 → if %weq o o2 then (case match k b x x2 s of some s2 → match k b y y2 s2; none → none) else none; _ → none)
+    cann a T → match k b a t s
+    -- the word type, primitive types and literals, stuck primitives, Π and Σ (a motive or a field's
+    -- type in a normal form)
+    cword → (case t of cword → some s; _ → none)
+    cpty q n → (case t of cpty q2 n2 → if %weq q q2 then match k b n n2 s else none; _ → none)
+    cplit q x → (case t of cplit q2 x2 → if andb (%weq q q2) (%weq x x2) then some s else none; _ → none)
+    cprim q as → (case t of cprim q2 as2 → if %weq q q2 then match-list k b as as2 s else none; _ → none)
+    cpi m x y → (case t of cpi m2 x2 y2 → if %weq m m2 then (case match k b x x2 s of some s2 → match k (%wsucc b) y y2 s2; none → none) else none; _ → none)
+    csigma x y → (case t of csigma x2 y2 → (case match k b x x2 s of some s2 → match k (%wsucc b) y y2 s2; none → none); _ → none)
+    _ → none

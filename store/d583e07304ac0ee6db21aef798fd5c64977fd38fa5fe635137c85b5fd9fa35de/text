@@ -1,0 +1,13 @@
+-- a transmute into memory: an object operand copied at the destination's type from where it
+-- is; a register operand's value written
+rm-transmute-mem : RCx → ROperand → RTy → Word → RFrame → MPtr → REv Unit
+rm-transmute-mem cx op dty al =
+  sr-on (rm-opd-ty cx op) (λ e fr p → rm-throw e) (λ sty →
+  sr-on (cx-class cx sty) (λ e fr p → rm-throw e) (λ sc → case sc of
+    cl-mem → (case op of
+      rop-const c → λ fr p → rm-throw (rx-unsupported (rz-transmute sty dty))
+      rop-copy pl → rm-transmute-cp cx pl dty al
+      rop-move pl → rm-transmute-cp cx pl dty al)
+    _ →
+        (let ev = rm-opd-rv cx op
+         in λ fr p → rm-bind (ev fr) (λ v → rm-wr-at (cx-t cx) sc al p v))))

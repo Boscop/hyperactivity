@@ -1,0 +1,59 @@
+-- (part of language-support)
+x86_inc_dec_fe_ff : (proc_mode' : proc_mode) → (start_rip : Bits #48) → (temp_rip : Bits #48) → (prefixes' : prefixes) → (rex_byte : Bits #8) → (opcode : Bits #8) → (modr_m' : modr_m) → (sib' : sib) → MS Unit
+x86_inc_dec_fe_ff proc_mode' start_rip temp_rip prefixes' rex_byte opcode modr_m' sib' =
+  let ctx' : Text
+      ctx' = #30019566359353210034224558288120797021766
+      r_m : Bits #3
+      r_m = (modr_m-r_m modr_m')
+      mod_var : Bits #2
+      mod_var = (modr_m-mod modr_m')
+      reg' : Bits #3
+      reg' = (modr_m-reg modr_m')
+      p2' : Bits #8
+      p2' = (prefixes-seg prefixes')
+      p4? : Bool
+      p4? = (weq #103 (prefixes-adr prefixes'))
+      select_byte_operand : Bool
+      select_byte_operand = (weq #0 (bv-and #8 #1 opcode))
+  in bindS {ZI} {Unit} (select_operand_size proc_mode' select_byte_operand rex_byte false prefixes' false false false) (λ r_mem_size →
+       bindS {ZI} {Unit} (select_segment_register proc_mode' prefixes' mod_var r_m sib') (λ seg_reg →
+         let inst_ac? : Bool
+             inst_ac? = true
+         in bindS {((Bits #128) × ZI × (Bits #64))} {Unit} (x86_operand_from_modr_m_and_sib_bytes proc_mode' #0 r_mem_size inst_ac? false seg_reg prefixes' temp_rip rex_byte r_m mod_var sib' #0) (λ t'3 →
+              let r_mem : Bits #128
+                  r_mem = (fst t'3)
+                  increment_rip_by : ZI
+                  increment_rip_by = (fst (snd t'3))
+                  addr : Bits #64
+                  addr = (snd (snd t'3))
+                  increment_rip_by : Bits #3
+                  increment_rip_by = (bits_of_int increment_rip_by (zpos #3))
+              in bindS {Bits #48} {Unit} (add_to_iptr proc_mode' temp_rip (bv-zext #3 #48 increment_rip_by)) (λ temp_rip →
+                   let badlength? : Option ZI
+                       badlength? = (check_instruction_length start_rip temp_rip #0)
+                   in let k'12 : Unit → MS Unit
+                          k'12 =
+                            λ t'6 →
+                              bindS {rflagsbits} {Unit} (getS {rflagsbits} x86-rflags) (λ input_rflags →
+                                let old_cf : Bits #1
+                                    old_cf = (rflagsbits-cf input_rflags)
+                                in onS {((Bits #64) × rflagsbits × rflagsbits)} {Unit} (gpr_arith_logic_spec r_mem_size (if (weq reg' #0) then (zpos #0) else (zpos #4)) (bv-trunc #128 #64 r_mem) #1 input_rflags) (λ t'8 →
+                                     let result' : Bits #64
+                                         result' = (fst t'8)
+                                         output_rflags : rflagsbits
+                                         output_rflags = (fst (snd t'8))
+                                         undefined_flags : rflagsbits
+                                         undefined_flags = (snd (snd t'8))
+                                         output_rflags : rflagsbits
+                                         output_rflags = (rflagsbits-set-cf output_rflags old_cf)
+                                     in bindS {Unit} {Unit} (write_user_rflags output_rflags undefined_flags) (λ t'9 →
+                                          bindS {Unit} {Unit} (x86_operand_to_reg_mem proc_mode' r_mem_size inst_ac? false (bv-zext #64 #128 result') seg_reg addr prefixes' rex_byte r_m mod_var sib') (λ t'10 →
+                                            write_iptr proc_mode' temp_rip))))
+                      in λ σ →
+                           if (is_some {ZI} badlength?) then
+                             the (MS Unit)
+                               (onS {Unit} {Unit} (x86_fault {Unit} #26527788633931292013587918063704349903878111884025584083023654650798916508749147338540209907045379711613433216615654445563689) (λ t'5 →
+                                  k'12 t'5)) σ
+                           else
+                             the (MS Unit)
+                               (k'12 unit) σ))))

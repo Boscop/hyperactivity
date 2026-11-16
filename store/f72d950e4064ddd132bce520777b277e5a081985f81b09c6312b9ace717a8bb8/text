@@ -1,0 +1,11 @@
+-- a value written to a place of a register class: the frame after it
+rm-place-wr : RCx → RPlace → RFrame → RV → REv RFrame
+rm-place-wr cx pl =
+  sr-on (rm-place-is-reg cx pl) (λ e fr v → rm-throw e) (λ isr → case isr of
+    true → λ fr v → rm-ret (fr-set fr (rm-place-local pl) (sl-reg v))
+    false →
+      sr-on (rm-place-ty cx pl) (λ e fr v → rm-throw e) (λ ty →
+      sr-on (cx-class cx ty) (λ e fr v → rm-throw e) (λ c →
+      sr-on (rm-place-al cx pl) (λ e fr v → rm-throw e) (λ al →
+        let addr = rm-place-addr cx pl
+        in λ fr v → rm-bind (addr fr) (λ p → rm-then (rm-wr-at (cx-t cx) c al p v) (rm-ret fr))))))

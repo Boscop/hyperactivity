@@ -1,0 +1,13 @@
+tso-ax-instr : {R : Type} → List Word → Word → (i : TsoI) → (tsoi-resp i → TsoAxRun R) → TsoAxRun R
+tso-ax-instr dom t i =
+  case i return (λ x → (tsoi-resp x → TsoAxRun R) → TsoAxRun R) of
+    t-load a → λ k nx es acc → tso-over-w dom (λ v acc2 → k v (%wsucc nx) (cons (tso-ev nx t k-R a v #0) es) acc2) acc
+    t-store a v → λ k nx es acc → k unit (%wsucc nx) (cons (tso-ev nx t k-W a #0 v) es) acc
+    t-xchg a v → λ k nx es acc → tso-over-w dom (λ vr acc2 → k vr (%wsucc nx) (cons (tso-ev nx t k-L a vr v) es) acc2) acc
+    t-cmpxchg a o n → λ k nx es acc → tso-over-w dom (λ vr acc2 → k vr (%wsucc nx) (cons (tso-ev nx t k-L a vr (if weq vr o then n else vr)) es) acc2) acc
+    t-mfence → λ k nx es acc → k unit (%wsucc nx) (cons (tso-ev nx t k-F #0 #0 #0) es) acc
+    t-loadn a n → λ k → tso-ax-readn (tso-nat n) dom t a #0 #0 k
+    t-storen a n v → λ k nx es acc → k unit (wadd nx n) (tso-ax-writen (tso-nat n) t a #0 v nx es) acc
+    t-rmwn a n f → λ k nx es acc →
+      tso-ax-pickn (tso-nat n) dom #0 #0
+        (λ old acc2 → k old (wadd nx n) (tso-ax-lockn (tso-nat n) t a #0 old (f old) nx es) acc2) acc

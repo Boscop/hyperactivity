@@ -1,0 +1,12 @@
+-- a pointer to member function in memory: two words. The first is the function's address, or
+-- for a virtual function the offset of its slot from the vtable's address point; the second
+-- is twice the adjustment of this, plus 1 for a virtual function (the Itanium C++ ABI's 2.3
+-- variant for targets whose function addresses carry no alignment, as this machine's do not)
+cx-mfp-load : CxU → MPtr → CxEv CxR
+cx-mfp-load u p =
+  cx-bind {MPtr} {CxR} (cx-ptr-add p #1 (uq-of-word (cx-wsize u))) (λ q →
+  cx-bind {SV} {CxR} (cx-load u (cx-pd u) q) (λ a2 →
+  cx-bind {UInt64} {CxR} (cx-res {UInt64} (sv-as-i a2)) (λ x →
+    case uq-iszero (u64and x uq1) of
+      true → cx-bind {SV} {CxR} (cx-load u sk-ptr p) (λ f → cx-ret {CxR} (cxr-mfp f (uq-sar x uq1)))
+      false → cx-bind {SV} {CxR} (cx-load u (cx-pd u) p) (λ f → cx-ret {CxR} (cxr-mfp f (uq-sar x uq1))))))

@@ -1,0 +1,12 @@
+-- a cast to a base class along a path ([conv.ptr]/3: of a null pointer, null)
+cx-to-base : CxU → List Word → CType → CxR → CxEv CxR
+cx-to-base u path st r = case r of
+  cxr-lv p al → cx-bind {Word} {CxR} (cx-res {Word} (mr-bind (cx-rec-of st) (cx-path-off path (cxu-ds u)))) (λ off → case weq off #0 of
+    true → cx-ret {CxR} r
+    false → cx-bind {MPtr} {CxR} (cx-sub p off) (λ q → cx-ret {CxR} (cxr-lv q #0)))
+  cxr-val v → cx-bind {Word} {CxR} (cx-res {Word} (mr-bind (cx-rec-of (cx-pointee st)) (cx-path-off path (cxu-ds u)))) (λ off → case weq off #0 of
+    true → cx-ret {CxR} r
+    false → cx-bind {MPtr} {CxR} (cx-res {MPtr} (sv-as-p v)) (λ p → cx-bind {Bool} {CxR} (cx-is-null u p) (λ z → case z of
+      true → cx-ret {CxR} r
+      false → cx-bind {MPtr} {CxR} (cx-sub p off) (λ q → cx-val (sv-p q)))))
+  _ → cx-stop {CxR} st-ill-typed

@@ -1,0 +1,15 @@
+-- ---------------------------------------------------------------- projection
+-- the endpoint projection to a role, by guarded recursion: a step the role is not part of is a
+-- silent tick (so that the projection stays productive and the roles' tick counts agree)
+gproject : Word → GChor κ → GProc κ LocS Unit
+gproject me gcend = gret unit
+gproject me (gxfer a b v k) =
+  (case weq me a of
+     true → gcmd (send b v) (λ u → λ α → gproject me (k α))
+     false → (case weq me b of
+                true → gcmd (recvf a) (λ w → λ α → gproject me (k α))
+                false → gtau (λ α → gproject me (k α))))
+gproject me (gchoice a l r) =
+  (case weq me a of
+     true → gcmd pick (λ lbl → λ β → gcmd (tell lbl) (λ u → λ α → case weq lbl #0 of true → gproject me (l α); false → gproject me (r α)))
+     false → gcmd (offer a) (λ lbl → λ α → case weq lbl #0 of true → gproject me (l α); false → gproject me (r α)))

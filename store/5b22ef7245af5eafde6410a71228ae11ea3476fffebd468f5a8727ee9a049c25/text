@@ -1,0 +1,10 @@
+-- an epoll_wait's answer from the ready events: them, or with none ready the timeout passed
+-- (milliseconds), or the refusal of a wait nothing ends
+k-wait : (max : Word) → List EpollEvent → Word → KState → KAns (Upto max × List EpollEvent)
+k-wait max evs timeout st =
+  case lx-upto max (k-len {EpollEvent} evs) of
+    inl e → inl (inl e , st)
+    inr k → (if %weq (fst k) #0
+               then (if %weq timeout #4294967295 then k-refuse {Upto max × List EpollEvent} st
+                     else inl (inr (k , evs) , KState { st | k-clock = %wadd (k-clock st) (%wmul timeout #1000000) }))
+               else inl (inr (k , evs) , st))

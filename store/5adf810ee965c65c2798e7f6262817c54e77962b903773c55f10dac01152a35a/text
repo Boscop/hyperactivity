@@ -1,0 +1,49 @@
+-- (part of language-support)
+x86_movhps_movhpd_op_en_rm : (proc_mode' : proc_mode) → (start_rip : Bits #48) → (temp_rip : Bits #48) → (prefixes' : prefixes) → (rex_byte : Bits #8) → (opcode : Bits #8) → (modr_m' : modr_m) → (sib' : sib) → MS Unit
+x86_movhps_movhpd_op_en_rm proc_mode' start_rip temp_rip prefixes' rex_byte opcode modr_m' sib' =
+  let ctx' : Text
+      ctx' = #141763394007188886674026638063104550816914548445478622965092941
+      r_m : Bits #3
+      r_m = (modr_m-r_m modr_m')
+      mod_var : Bits #2
+      mod_var = (modr_m-mod modr_m')
+      reg' : Bits #3
+      reg' = (modr_m-reg modr_m')
+  in onS {Bits #4} {Unit} (reg_index reg' rex_byte #2) (λ xmm_index →
+       let p2' : Bits #8
+           p2' = (prefixes-seg prefixes')
+           p4? : Bool
+           p4? = (weq #103 (prefixes-adr prefixes'))
+       in bindS {ZI} {Unit} (select_segment_register proc_mode' prefixes' mod_var r_m sib') (λ seg_reg →
+            let inst_ac? : Bool
+                inst_ac? = true
+            in bindS {((Bits #128) × ZI × (Bits #64))} {Unit} (x86_operand_from_modr_m_and_sib_bytes proc_mode' #1 (zpos #8) inst_ac? false seg_reg prefixes' temp_rip rex_byte r_m mod_var sib' #0) (λ t'3 →
+                 let mem : Bits #128
+                     mem = (fst t'3)
+                     increment_rip_by : ZI
+                     increment_rip_by = (fst (snd t'3))
+                     v_addr : Bits #64
+                     v_addr = (snd (snd t'3))
+                     mem : Bits #64
+                     mem = (bv-trunc #128 #64 mem)
+                 in bindS {Bits #48} {Unit} (add_to_iptr proc_mode' temp_rip (bits_of_int increment_rip_by (zpos #48))) (λ temp_rip →
+                      let badlength? : Option ZI
+                          badlength? = (check_instruction_length start_rip temp_rip #0)
+                      in let k'10 : Unit → MS Unit
+                             k'10 =
+                               λ t'6 →
+                                 bindS {Bits #128} {Unit} (xmmi_size #8 xmm_index) (λ t'7 →
+                                   let low_qword : Bits #64
+                                       low_qword = (bv-trunc #128 #64 t'7)
+                                       result' : Bits #128
+                                       result' = (bv-append #64 #64 mem low_qword)
+                                   in bindS {Unit} {Unit} (write_xmmi_size #16 xmm_index (bv-unsigned #128 result')) (λ t'8 →
+                                        write_iptr proc_mode' temp_rip))
+                         in λ σ →
+                              if (is_some {ZI} badlength?) then
+                                the (MS Unit)
+                                  (onS {Unit} {Unit} (x86_fault {Unit} #26527788633931292013587918063704349903878111884025584083023654650798916508749147338540209907045379711613433216615654445563689) (λ t'5 →
+                                     k'10 t'5)) σ
+                              else
+                                the (MS Unit)
+                                  (k'10 unit) σ))))

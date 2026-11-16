@@ -1,0 +1,31 @@
+-- the body at its type: λs and lines as check takes them (a line's ends compared with the type's,
+-- a record with a value field by field), then the record, each field at its type, the earlier
+-- fields the record's own
+check-codef c T =
+  case c of
+    tguess k g t V →
+      if %weq g #0 then (case %view T of wpath L a b → redo k; _ → check-codef t T)
+      else if %weq g #1 then (case %view T of wpi A B → redo k; _ → check-codef t T)
+      else check-codef t T
+    tlam nm b V → 
+      case %view T of
+        wpi A B → let x = %var nm A in check-codef (b x A) (B x)
+        _ → err c E-mismatch T opq
+    tplam nm b V → 
+      case %view T of
+        wpath L a0 a1 → 
+          let i = %dim nm
+          in and-then (check-codef (b i) (L @ i))
+               (let v0 = V @ 0
+                    v1 = V @ 1
+                in and-then (chk (conv (L @ 0) v0 a0) (err c E-end0 a0 v0))
+                     (chk (conv (L @ 1) v1 a1) (err c E-end1 a1 v1)))
+        _ → err c E-mismatch T opq
+    trec d fs V → 
+      case %view T of
+        wdata d2 ps → 
+          if andb (%weq d d2) (is-codata d)
+            then check-recfields c (cofields-at d ps) fs
+            else err c E-mismatch T opq
+        _ → err c E-mismatch T opq
+    _ → refused opq E-literal opq opq

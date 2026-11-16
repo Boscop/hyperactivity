@@ -1,0 +1,66 @@
+-- ia32e_la_to_pa_pml4_table: from paging.sail (it calls what is defined after it there)
+-- (part of language-support)
+ia32e_la_to_pa_pml4_table : (lin_addr : Bits #48) → (base_addr : Bits #52) → (wp : Bits #1) → (smep : Bits #1) → (smap' : Bits #1) → (ac : Bits #1) → (nxe : Bits #1) → (r_w_x : Text) → (cpl : Bits #2) → MS (Bits #52)
+ia32e_la_to_pa_pml4_table lin_addr base_addr wp smep smap' ac nxe r_w_x cpl =
+  bindS {Bool} {Bits #52} (getS {Bool} x86-app_view) (λ app_view'1 →
+    onS {Unit} {Bits #52} (fl-assert {exception} (b-not app_view'1) #583512835017589007664157297346819888) (λ _ →
+      onS {ZI} {Bits #52} (binary_logext (zpos #48) (bv-unsigned #48 (loghead_bits #48 (zpos #48) lin_addr))) (λ lin_addr →
+        let base_addr : Bits #52
+            base_addr = (changeSlice_bits #52 (loghead_bits #52 (zpos #52) base_addr) (zpos #0) (zpos #12) #0)
+        in onS {Bits #52} {Bits #52} (pml4_table_entry_addr (bits_of_int lin_addr (zpos #48)) base_addr) (λ p_entry_addr →
+             bindS {Bits #64} {Bits #52} (rm_low_64 (bv-unsigned #52 p_entry_addr)) (λ entry →
+               let u_s_all : Bits #1
+                   u_s_all = (page_user_supervisor entry)
+                   r_w_all : Bits #1
+                   r_w_all = (page_read_write entry)
+                   x_d_all : Bits #1
+                   x_d_all = (page_execute_disable entry)
+               in bindS {(Bool × ZI)} {Bits #52} (paging_entry_no_page_fault_p #3 (bits_of_int lin_addr (zpos #48)) entry u_s_all r_w_all x_d_all wp smep smap' ac nxe r_w_x cpl (struct_paging_entry_no_page_fault_p-mk (zpos #0))) (λ t'6 →
+                    let fault_flg : Bool
+                        fault_flg = (fst t'6)
+                        sailval : ZI
+                        sailval = (snd t'6)
+                    in let k'21 : Unit → MS (Bits #52)
+                           k'21 =
+                             λ t'8 →
+                               let page_dir_ptr_table_base_addr : ZI
+                                   page_dir_ptr_table_base_addr = (ash_left_int (bv-unsigned #40 (ia32e_pml4ebits-pdpt entry)) (zpos #12))
+                               in bindS {ZI} {Bits #52} (ia32e_la_to_pa_page_dir_ptr_table (bits_of_int lin_addr (zpos #48)) (bits_of_int page_dir_ptr_table_base_addr (zpos #52)) u_s_all r_w_all x_d_all wp smep smap' ac nxe r_w_x cpl) (λ t'9 →
+                                    let p_addr : Bits #52
+                                        p_addr = (bits_of_int t'9 (zpos #52))
+                                    in bindS {Bool} {Bits #52} (getS {Bool} x86-marking_view) (λ marking_view'10 →
+                                         let k'15 : Unit → MS (Bits #52)
+                                             k'15 =
+                                               λ t'14 →
+                                                 retS {Bits #52} p_addr
+                                         in λ σ →
+                                              if marking_view'10 then
+                                                the (MS (Bits #52))
+                                                  (bindS {Bits #64} {Bits #52} (rm_low_64 (bv-unsigned #52 p_entry_addr)) (λ entry →
+                                                     let accessed : Bits #1
+                                                         accessed = (accessed_bit entry)
+                                                         entry : ia32e_page_tablesbits
+                                                         entry = (if (weq accessed #0) then (set_accessed_bit entry) else entry)
+                                                     in let k'17 : Unit → MS (Bits #52)
+                                                            k'17 =
+                                                              λ t'13 →
+                                                                k'15 unit
+                                                        in λ σ →
+                                                             if (weq accessed #0) then
+                                                               the (MS (Bits #52))
+                                                                 (bindS {Unit} {Bits #52} (wm_low_64 p_entry_addr entry) (λ t'12 →
+                                                                    k'17 t'12)) σ
+                                                             else
+                                                               the (MS (Bits #52))
+                                                                 (k'17 unit) σ)) σ
+                                              else
+                                                the (MS (Bits #52))
+                                                  (k'15 unit) σ))
+                       in λ σ →
+                            if fault_flg then
+                              the (MS (Bits #52))
+                                (onS {Unit} {Bits #52} (x86_model_error {Unit} #379586103215660304002164) (λ t'7 →
+                                   k'21 t'7)) σ
+                            else
+                              the (MS (Bits #52))
+                                (k'21 unit) σ))))))

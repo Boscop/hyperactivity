@@ -1,0 +1,15 @@
+-- ---------------------------------------------------------------- from a trace to an execution
+-- the candidate execution a trace yields (the trace earliest first): an event per instruction,
+-- rf as the machine recorded each read's source, the order on writes as the order in which
+-- writes reached memory (flushes and locked instructions)
+tso-exec-of : List TsoL → TsoX
+tso-exec-of nil = tso-x nil nil nil
+tso-exec-of (cons l r) =
+  (case tso-exec-of r of
+     tso-x es rf co →
+       (case l of
+          l-read t id a v src → tso-x (cons (tso-ev id t k-R a v #0) es) (cons (id , src) rf) co
+          l-write t id a v → tso-x (cons (tso-ev id t k-W a #0 v) es) rf co
+          l-flush t id a v → tso-x es rf (cons id co)
+          l-locked t id a vr src vw → tso-x (cons (tso-ev id t k-L a vr vw) es) (cons (id , src) rf) (cons id co)
+          l-fence t id → tso-x (cons (tso-ev id t k-F #0 #0 #0) es) rf co))

@@ -1,0 +1,14 @@
+-- the end of an object's lifetime by its destructor ([class.dtor]); an array's elements in
+-- reverse order; a scalar has none
+cx-destroy : CType → CxCall → CxU → MPtr → CxEv Unit
+cx-destroy (ct-record id) call u p = cx-bind {Word} {Unit} (cx-res {Word} (cx-dtor-of u id)) (λ d → case weq d #0 of
+  true → cx-ret {Unit} unit
+  false → cx-bind {CxR} {Unit} (call (wsub d #1) p nil cx-null) (λ r → cx-ret {Unit} unit))
+cx-destroy (ct-array e n) call u p = case cx-plain e of
+  true → cx-ret {Unit} unit
+  false → cx-bind {Word} {Unit} (cx-res {Word} (cx-size u e)) (λ sz →
+    %welimP (λ x → CxEv Unit) n (cx-ret {Unit} unit)
+      (λ j acc → cx-then {Unit} {Unit}
+         (cx-bind {MPtr} {Unit} (cx-sub p (wmul j sz)) (λ q → cx-destroy e call u q)) acc))
+cx-destroy (ct-qual cn vo rs e) call u p = cx-destroy e call u p
+cx-destroy t call u p = cx-ret {Unit} unit

@@ -1,0 +1,16 @@
+-- the variables (relative to depth d) an occurrence that counts reaches
+x-nd-n : Nat → Rel → Lst (Word × Word) → Word → Code → Lst Word → Lst Word
+x-nd-n zero R ars d c acc = acc
+x-nd-n (suc k) R ars d (cvar n) acc = if %wlt n d then acc else x-ins (%wsub n d) acc
+x-nd-n (suc k) R ars d (cglob g) acc = acc
+x-nd-n (suc k) R ars d (clam b) acc = x-nd-n k R ars (%wsucc d) b acc
+x-nd-n (suc k) R ars d (clet t b) acc = x-nd-n k R ars (%wsucc d) b (x-nd-n k R ars d t acc)
+x-nd-n (suc k) R ars d (ccase dd lnil x) acc = acc
+x-nd-n (suc k) R ars d (ccase dd (lcons b0 r) x) acc = x-nd-l (λ c2 a2 → x-nd-n k R ars d c2 a2) (lcons b0 r) (x-nd-n k R ars d x acc)
+x-nd-n (suc k) R ars d (cwelim w z st mo) acc = x-nd-n k R ars d w (x-nd-n k R ars d z (x-nd-n k R ars d st acc))
+x-nd-n (suc k) R ars d (capp f a) acc =
+  (let sp = x-spine (capp f a) in
+   case fst sp return (λ _ → Lst Word) of
+     cglob g → x-nd-args (λ c2 a2 → x-nd-n k R ars d c2 a2) R ars g #0 (snd sp) acc
+     h → x-nd-l (λ c2 a2 → x-nd-n k R ars d c2 a2) (lcons h (snd sp)) acc)
+x-nd-n (suc k) R ars d c acc = x-nd-l (λ c2 a2 → x-nd-n k R ars d c2 a2) (code-kids c) acc

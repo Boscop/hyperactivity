@@ -1,0 +1,94 @@
+check c T =
+  case c of
+    tguess k g t V → guess-check k g t T
+    tspine t V → solve-spine t (some T)
+    -- a delayed term checks as the term (delay (λ x → b) against A → B)
+    tthunk t V → check t T
+    tforce t V → check t T
+    -- comp _ u a against T: the line is the constant one at T (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.12 “E28 — Elaboration”; holes in composition lines)
+    tcomp A u a V →
+      (case line-hole A of
+         some k → (case const-line T of some cl → elab (lcons (k , some cl) lnil); none → err c E-implicit opq opq)
+         none → (case infer c of typed T2 → chk (conv-ty T2 T) (err c E-mismatch T T2); r → r))
+    tlam nm b V → 
+      case %view T of
+        wpi A B → 
+          let x = %var nm A
+          in and-then (check (b x A) (B x))
+               (and-then (mult-ok x (b x A) A (%pimult T))
+                 (case %view A of
+                    wtick k → chk (notb (tick-bad x lnil (b x A))) (err c E-tick opq opq)
+                    _ → ok))
+        _ → err c E-mismatch T opq
+    tpair a b V → 
+      case %view T of
+        wsigma A B → and-then (check a A) (check b (B (tval a)))
+        _ → err c E-mismatch T opq
+    tplam nm b V → 
+      case %view T of
+        wpath L a0 a1 → 
+          let i = %dim nm
+          in and-then (check (b i) (L @ i))
+               (let v0 = V @ 0
+                    v1 = V @ 1
+                in and-then (chk (conv (L @ 0) v0 a0) (err c E-end0 a0 v0))
+                     (chk (conv (L @ 1) v1 a1) (err c E-end1 a1 v1)))
+        _ → err c E-mismatch T opq
+    tglue S a V → 
+      case %view T of
+        wglue A S2 → 
+          and-then (check a A)
+            (and-then (chk (%feq (sys-face S) (faceof S2)) (err c E-glueface opq opq))
+               (and-then (check-sys S (Glue A S2))
+                  (let av = tval a
+                   in rall
+                        (λ b →
+                           rall
+                             (λ d →
+                                let w = unglue (%restrict d S2) (tval (br-at d b))
+                                    x = %restrict d av
+                                in chk (conv (%restrict d A) w x) (err c E-gluebr x w))
+                             (%clauses (tval (fst b)))) (sys-bs S))))
+        whcompu A S2 → 
+          and-then (check a A)
+            (and-then (chk (%feq (sys-face S) (faceof S2)) (err c E-glueface opq opq))
+               (and-then (check-sys S (%hcompU A S2))
+                  (let av = tval a
+                   in rall
+                        (λ b →
+                           rall
+                             (λ d →
+                                let w = %unglueU (%restrict d S2) (tval (br-at d b))
+                                    x = %restrict d av
+                                in chk (conv (%restrict d A) w x) (err c E-gluebr x w))
+                             (%clauses (tval (fst b)))) (sys-bs S))))
+        _ → err c E-mismatch T opq
+    tlet t nm b V → 
+      case infer t of
+        typed Ty → (case %view Ty of wtick k → err t E-tickarg Ty opq; _ → check (b (tval t) Ty) T)
+        r → r
+    tcon d c2 fs ds V → 
+      case %view T of
+        wdata d2 ps → 
+          if %weq d d2
+            then (if %linear d then err c E-linear-intro opq opq else check-con c (centry d c2 ps) fs ds)
+            else err c E-mismatch T opq
+        _ → err c E-mismatch T opq
+    thcomp u a V → 
+      case %view T of
+        wdata d ps → 
+          if orb (is-hit d ps) (tube-covers u)
+            then let Tv = mkdata d ps in and-then (check a Tv) (check-hcomp Tv u a)
+            else err c E-hcompset T opq
+        _ → err c E-mismatch T opq
+    tcase d B x F V → 
+      case infer x of
+        typed X → 
+          case %view X of
+            wdata d2 ps → 
+              if %weq d d2 then check-branches c d ps (λ y → T) F B else err x E-notdata X opq
+            _ → err x E-notdata X opq
+        r → r
+    -- a record stands only as a copattern definition's body (check-codef)
+    trec d fs V → refused opq E-literal opq opq
+    _ → (case infer c of typed T2 → chk (conv-ty T2 T) (err c E-mismatch T T2); r → r)

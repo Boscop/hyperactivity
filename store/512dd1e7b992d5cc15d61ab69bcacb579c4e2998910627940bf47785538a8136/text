@@ -1,0 +1,11 @@
+-- the call of a function of the unit with its parameter objects made: a class result is
+-- initialized in the object asked for (or a temporary); the parameters end when the function
+-- returns or with the full-expression, as the unit's parameter says ([expr.call]/6)
+cx-call-fn : CxCall → CxU → CType → Word → MPtr → CxR → List CType → CxMode → CxK → CxEv CxR
+cx-call-fn call u t fid this parms pts mode k =
+  (λ (go : MPtr → CxK → CxEv CxR) → case cx-tc t of
+     cxtc-record id → cx-with-dest call u t mode k go
+     _ → go cx-null k)
+  (λ dest k2 → case cxu-parm-full u of
+     true → cx-finally {CxR} (cx-bind {CxR} {CxR} (call fid this (cx-parm-ptrs parms) dest) k2) (cx-parms-end parms pts call u)
+     false → cx-bind {CxR} {CxR} (cx-finally {CxR} (call fid this (cx-parm-ptrs parms) dest) (cx-parms-end parms pts call u)) k2)

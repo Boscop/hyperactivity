@@ -1,0 +1,17 @@
+-- + - with overflow undefined: a signed kind by the scalar layer's rule, an unsigned one by the
+-- wrapped result being on the wrong side of the first operand
+rm-unchecked : Bool → SK → SV → SV → REv SV
+rm-unchecked add k a b = case k of
+  sk-int sg w → (case sg of
+    true → rm-res (sv-arith (case add of
+                               true → ao-add
+                               false → ao-sub) k a b)
+    false → rm-bind (rm-res (sv-as-i a)) (λ x → rm-bind (rm-res (sv-as-i b)) (λ y →
+      case add of
+        true → rm-bind (rm-res (ni-op ao-add false w x y)) (λ r → case u64lt r x of
+          true → rm-throw (rx-ub rub-unchecked-overflow)
+          false → rm-ret (sv-i r))
+        false → (case u64lt x y of
+          true → rm-throw (rx-ub rub-unchecked-overflow)
+          false → rm-res (mr-map sv-i (ni-op ao-sub false w x y))))))
+  _ → rm-stop st-ill-typed

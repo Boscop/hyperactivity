@@ -1,0 +1,32 @@
+-- (part of language-support)
+two_byte_opcode_execute-case5 : (proc_mode' : proc_mode) → (start_rip : Bits #48) → (temp_rip : Bits #48) → (prefixes' : prefixes) → (rex_byte : Bits #8) → (opcode : Bits #8) → (modr_m' : modr_m) → (sib' : sib) → MS Unit
+two_byte_opcode_execute-case5 proc_mode' start_rip temp_rip prefixes' rex_byte opcode modr_m' sib' =
+  λ σ →
+    if (in_64bit_mode proc_mode') then
+      the (MS Unit)
+        (let k'2033 : Bool → MS Unit
+             k'2033 =
+               λ t'214 →
+                 let k'2030 : Unit → MS Unit
+                     k'2030 =
+                       λ t'216 →
+                         x86_syscall_both_views proc_mode' start_rip temp_rip prefixes' rex_byte opcode modr_m' sib'
+                 in λ σ →
+                      if t'214 then
+                        the (MS Unit)
+                          (onS {Unit} {Unit} (x86_fault {Unit} #172777358377) (λ t'215 →
+                             k'2030 t'215)) σ
+                      else
+                        the (MS Unit)
+                          (k'2030 unit) σ
+         in λ σ →
+              if (weq #240 (prefixes-lck prefixes')) then
+                the (MS Unit)
+                  (k'2033 true) σ
+              else
+                the (MS Unit)
+                  (bindS {Bits #64} {Unit} (read_msr (zpos #0)) (λ t'213 →
+                     k'2033 (weq (ia32_eferbits-sce (bv-trunc #64 #12 t'213)) #0))) σ) σ
+    else
+      the (MS Unit)
+        (liftS {Unit} (x86_fault {Unit} #35450568791633019080445828289251570610832481668774949946961636167982556879174149304260345664107514966141168347825900548810313793061510770541575357593085250385449)) σ

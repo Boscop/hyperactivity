@@ -1,0 +1,14 @@
+-- thread t (counting from j) takes its next instruction; no answer when t has finished, is not
+-- a thread, or the instruction is not enabled
+tso-go : List TsoThread → Word → Word → TsoSt → Sum (List TsoThread × TsoSt) Unit
+tso-go nil t j s = inr unit
+tso-go (cons th r) t j s =
+  if weq t j
+  then (case th of
+          sdone a → inr unit
+          scmd i k → (case tso-world (tso-do t i) s of
+                        inl p → inl (cons (k (fst p)) r , snd p)
+                        inr s2 → inr unit))
+  else (case tso-go r t (%wsucc j) s of
+          inl p → inl (cons th (fst p) , snd p)
+          inr u → inr unit)

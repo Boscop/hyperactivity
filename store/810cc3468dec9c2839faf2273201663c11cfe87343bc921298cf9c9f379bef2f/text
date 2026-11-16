@@ -1,0 +1,23 @@
+-- write_canonical_address_to_memory: from linear_memory.sail (it calls what is defined after it there)
+-- (part of language-support)
+write_canonical_address_to_memory : (lin_addr : Bits #48) → (canonical_address : Bits #48) → MS Unit
+write_canonical_address_to_memory lin_addr canonical_address =
+  let seven__plus_lin_addr : Bits #50
+      seven__plus_lin_addr = (bits_of_int (z-add (zpos #7) (bv-signed #48 lin_addr)) (zpos #50))
+  in onS {Bool} {Unit} (canonical_address_p (bv-signed #50 seven__plus_lin_addr)) (λ t'1 →
+       λ σ →
+         if t'1 then
+           the (MS Unit)
+             (bindS {Bool} {Unit} (getS {Bool} x86-app_view) (λ app_view'2 →
+                λ σ →
+                  if app_view'2 then
+                    the (MS Unit)
+                      (wb #48 (zpos #8) lin_addr #14935 (loghead_bits #48 (zpos #64) canonical_address)) σ
+                  else
+                    the (MS Unit)
+                      (let canonical_address_unsigned_val : Bits #64
+                           canonical_address_unsigned_val = (loghead_bits #48 (zpos #64) canonical_address)
+                       in wml64 lin_addr canonical_address_unsigned_val) σ)) σ
+         else
+           the (MS Unit)
+             (liftS {Unit} (x86_model_error {Unit} #3893082825329448266142030917680592375096772677027779301794281916473054010626051375143853387634)) σ)

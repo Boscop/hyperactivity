@@ -1,0 +1,10 @@
+-- binary64 to binary32, rounded to nearest (ties to even); a NaN becomes quiet with its payload's top bits
+f64-narrow : Float64 → Float32
+f64-narrow x =
+  let b = f64-bits x
+      s = u64shl (u64shr b (u64 #63)) (u64 #31)
+  in f32-of-bits (case u64eq (ff-exp ff64 b) (ff-emax ff64) of
+       true → (case uq-iszero (ff-frac ff64 b) of
+         true → u64or s (u64 #2139095040)
+         false → u64or s (u64or (u64 #2143289344) (u64shr (ff-frac ff64 b) (u64 #29))))
+       false → fp-pack ff32 (ff-neg ff64 b) (dq-zx (ff-mant ff64 b)) (ff-e ff64 b))

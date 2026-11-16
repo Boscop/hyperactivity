@@ -1,0 +1,17 @@
+-- a rewrite at a position by an equation whose left side is the subterm there preserves the value
+rw-sound : (m : Model) (p : Pos) (l r : ETm) → tev m l ≡ tev m r →
+           (t : ETm) → tm-same (subterm p t) l ≡ true → tev m t ≡ tev m (replace p r t)
+rw-sound m p l r h t q =
+  case p return (λ w → (t : ETm) → tm-same (subterm w t) l ≡ true → tev m t ≡ tev m (replace w r t)) of
+    here → λ t q → catw (congt m (tm-same-sound t l q)) h
+    pl q2 → λ t →
+      (case t return (λ w → tm-same (subterm (pl q2) w) l ≡ true → tev m w ≡ tev m (replace (pl q2) r w)) of
+         etv v → λ q i → fst m v
+         etc f → λ q i → fst (snd m) f
+         eapp a b → λ q i → snd (snd m) (rec q2 a q i) (tev m b))
+    pr q2 → λ t →
+      (case t return (λ w → tm-same (subterm (pr q2) w) l ≡ true → tev m w ≡ tev m (replace (pr q2) r w)) of
+         etv v → λ q i → fst m v
+         etc f → λ q i → fst (snd m) f
+         eapp a b → λ q i → snd (snd m) (tev m a) (rec q2 b q i))
+  t q

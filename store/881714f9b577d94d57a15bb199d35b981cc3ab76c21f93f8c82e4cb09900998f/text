@@ -1,0 +1,32 @@
+-- (part of language-support)
+select_operand_size : (proc_mode' : proc_mode) → (byte_operand? : Bool) → (rex_byte : Bits #8) → (imm? : Bool) → (prefixes' : prefixes) → (default64? : Bool) → (ignore_rex? : Bool) → (ignore_p3_64? : Bool) → MS ZI
+select_operand_size proc_mode' byte_operand? rex_byte imm? prefixes' default64? ignore_rex? ignore_p3_64? =
+  λ σ →
+    if byte_operand? then
+      the (MS ZI)
+        (retS {ZI} (zpos #1)) σ
+    else if (in_64bit_mode proc_mode') then
+      the (MS ZI)
+        (let t'2 : ZI
+             t'2 =
+               if (b-and (logbitp_bits #8 (zpos #3) rex_byte) (b-not ignore_rex?)) then
+                 (if imm? then (zpos #4) else (zpos #8))
+               else
+                 (let t'1 : ZI
+                      t'1 =
+                        if (b-and (weq #102 (prefixes-opr prefixes')) (b-not ignore_p3_64?)) then
+                          (zpos #2)
+                        else
+                          (if default64? then (zpos #8) else (zpos #4))
+                  in t'1)
+         in retS {ZI} t'2) σ
+    else
+      the (MS ZI)
+        (bindS {List (Bits #16)} {ZI} (getS {List (Bits #16)} x86-seg_hidden_attrs) (λ seg_hidden_attrs'3 →
+           let cs_attr : Bits #16
+               cs_attr = (vec-get {Bits #16} #0 seg_hidden_attrs'3 #1)
+               cs_d : Bits #1
+               cs_d = (code_segment_descriptor_attributesbits-d cs_attr)
+               p3? : Bool
+               p3? = (weq #102 (prefixes-opr prefixes'))
+           in retS {ZI} (if (weq cs_d #1) then (if p3? then (zpos #2) else (zpos #4)) else (if p3? then (zpos #4) else (zpos #2))))) σ

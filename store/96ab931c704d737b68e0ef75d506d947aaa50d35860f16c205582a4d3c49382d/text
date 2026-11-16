@@ -1,0 +1,21 @@
+-- mutual exclusion, over a trace (earliest first). A thread holds the lock from its successful
+-- exchange (a locked event on #0 reading 0 and writing 1) until it executes the releasing
+-- store (a write event of 0 to #0: its entering the buffer, before it reaches memory).
+-- `holder` is #0 when no thread holds, t + 1 when thread t does. The trace is refused when a
+-- thread acquires while one holds, releases without holding, or touches the counter (#1)
+-- without holding
+spin-mutex : List TsoL → Word → Bool
+spin-mutex nil holder = true
+spin-mutex (cons l r) holder =
+  (case l of
+     l-read t id a v src → if weq a #1 then (if weq holder (%wsucc t) then spin-mutex r holder else false) else spin-mutex r holder
+     l-write t id a v →
+       if weq a #1 then (if weq holder (%wsucc t) then spin-mutex r holder else false)
+       else if weq a #0 then (if weq holder (%wsucc t) then spin-mutex r #0 else false)
+       else spin-mutex r holder
+     l-flush t id a v → spin-mutex r holder
+     l-locked t id a vr src vw →
+       if andB (weq a #0) (andB (weq vr #0) (weq vw #1))
+       then (if weq holder #0 then spin-mutex r (%wsucc t) else false)
+       else spin-mutex r holder
+     l-fence t id → spin-mutex r holder)

@@ -1,0 +1,12 @@
+-- the inductive invariant of the composed program: D + |u| = N + |u₀|
+par-count : {CP CQ M N E : Type} → (stepP : CP → ParLab M N E → CP → Type) → (stepQ : CQ → ParLab N M E → CQ → Type) →
+  (mvs : List (ParMove CP CQ M N E)) → (s : ParState CP CQ M N) → par-allowed-run stepP stepQ mvs s →
+  plus (par-recvs mvs) (list-length (fst (snd (snd (par-run mvs s))))) ≡ plus (par-sends mvs) (list-length (fst (snd (snd s))))
+par-count stepP stepQ nil s h = λ k → list-length (fst (snd (snd s)))
+par-count stepP stepQ (cons mv r) s h =
+  transN (plus-assoc (par-is-recv mv) (par-recvs r) (list-length (fst (snd (snd (par-run r (par-move mv s)))))))
+  (transN (congN (plus (par-is-recv mv)) (par-count stepP stepQ r (par-move mv s) (snd h)))
+  (transN (plus-comm-mid (par-is-recv mv) (par-sends r) (list-length (fst (snd (snd (par-move mv s))))))
+  (transN (congN (plus (par-sends r)) (par-step-count stepP stepQ mv s (fst h)))
+  (transN (plus-comm-mid (par-sends r) (par-is-send mv) (list-length (fst (snd (snd s)))))
+  (sym (plus-assoc (par-is-send mv) (par-sends r) (list-length (fst (snd (snd s))))))))))

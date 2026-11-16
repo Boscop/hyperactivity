@@ -1,0 +1,10 @@
+-- ---------------------------------------------------------------- computing a layout (the C rule)
+-- members in order, each at the next multiple of its alignment: the fields, the end, the
+-- greatest alignment so far
+lay-go : List (Word × MTy) → Target → LayEnv → Word → Word → MRes (List Field × (Word × Word))
+lay-go nil t env cur al = mok (nil , (cur , al))
+lay-go (cons m ms) t env cur al =
+  mr-bind (ty-size t env (snd m)) (λ sz →
+  mr-bind (ty-align t env (snd m)) (λ a →
+  mr-map (λ r → (cons (Field { fd-name = fst m ; fd-off = w-roundup cur a ; fd-ty = snd m }) (fst r) , snd r))
+         (lay-go ms t env (wadd (w-roundup cur a) sz) (wmax al a))))

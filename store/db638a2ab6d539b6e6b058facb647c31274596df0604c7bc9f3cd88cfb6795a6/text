@@ -1,0 +1,21 @@
+-- the unary operators on a value
+cx-unop : CxU → CExpr → CUnOp → CType → CxR → CxEv CxR
+cx-unop u e op t x = case op of
+  uo-plus → cx-ret {CxR} x
+  uo-minus → cx-bind {SV} {CxR} (cx-as-val x) (λ a → cx-bind {SK} {CxR} (cx-res {SK} (cx-sk u t)) (λ k →
+    cx-bind {SV} {CxR} (cx-res {SV} (sv-neg k a)) cx-val))
+  uo-not → cx-bind {SV} {CxR} (cx-as-val x) (λ a → cx-bind {SK} {CxR} (cx-res {SK} (cx-sk u t)) (λ k →
+    cx-bind {SV} {CxR} (cx-res {SV} (sv-not k a)) cx-val))
+  uo-lnot → cx-bind {Bool} {CxR} (cx-truth x) (λ b → cx-val (sv-b (not b)))
+  uo-deref → cx-bind {MPtr} {CxR} (cx-as-ptr x) (λ p → cx-ret {CxR} (cxr-lv p #0))
+  uo-addr-of → (case x of
+    cxr-lv p al → (case cx-tc t of
+      cxtc-mfp → cx-ret {CxR} (cxr-mfp (sv-p p) uq0)
+      _ → cx-val (sv-p p))
+    cxr-val v → cx-ret {CxR} x
+    cxr-mfp f adj → cx-ret {CxR} x
+    _ → cx-stop {CxR} st-ill-typed)
+  uo-post-inc → cx-stop {CxR} st-ill-typed
+  uo-post-dec → cx-stop {CxR} st-ill-typed
+  uo-pre-inc → cx-stop {CxR} st-ill-typed
+  uo-pre-dec → cx-stop {CxR} st-ill-typed

@@ -1,0 +1,12 @@
+-- so, when node i is run k steps after t, there is a time at which it is run with the state it
+-- had at t (the first of its runs from t on)
+wait-run : {M St : Type} → (beh : Beh M St) → (chs : AdvSeq) → (g0 : FState M St) → (i : NodeId) → (k t : Nat) →
+           isTrue (adv-is-run i (chs (nt-later k t))) → (IsRecvV {M} {St} (beh i (fst (fleet-at {M} {St} beh chs g0 t) i)) → Empty) →
+           (t2 : Nat) × (isTrue (adv-is-run i (chs t2)) × Path St (fst (fleet-at {M} {St} beh chs g0 t2) i) (fst (fleet-at {M} {St} beh chs g0 t) i))
+wait-run {M} {St} beh chs g0 i zero t h hn = (t , (h , (λ x → fst (fleet-at {M} {St} beh chs g0 t) i)))
+wait-run {M} {St} beh chs g0 i (suc k) t h hn =
+  case nt-bdec (adv-is-run i (chs t)) of
+    inl e → (t , (eq→isTrue {adv-is-run i (chs t)} e , (λ x → fst (fleet-at {M} {St} beh chs g0 t) i)))
+    inr e → (let p = step-other {M} {St} beh (chs t) (fleet-at {M} {St} beh chs g0 t) i e hn
+             in let r = wait-run {M} {St} beh chs g0 i k (suc t) h (subst {lzero} {lzero} {St} {λ y → IsRecvV {M} {St} (beh i y) → Empty} (sym p) hn)
+             in (fst r , (fst (snd r) , concat (snd (snd r)) p)))

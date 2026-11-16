@@ -1,0 +1,13 @@
+-- a vtable in memory: the drop slot (null: no drop glue), the size, the alignment, the methods
+rm-init-vtables : List RVtable → Target → List RInstance → REv (List RSlot)
+rm-init-vtables nil t is = rm-ret nil
+rm-init-vtables (cons v vs) t is = case v of
+  rvtable ty tr size al dr ms → (case dr of
+    rdrop-fn b args → rm-throw (rx-unsupported (rz-type ty))
+    rdrop-none →
+      rm-bind (rm-alloc-static (wmul (wadd #3 (rm-clen ms)) (tg-size t ck-ptr)) (tg-align t ck-ptr)) (λ p →
+      rm-then (rm-store t sk-ptr (tg-align t ck-ptr) p rm-null)
+     (rm-then (rm-bind (rm-off p (tg-size t ck-ptr)) (λ q → rm-store t (rm-usize t) (tg-align t ck-ptr) q (sv-i (uq-of-word size))))
+     (rm-then (rm-bind (rm-off p (wmul #2 (tg-size t ck-ptr))) (λ q → rm-store t (rm-usize t) (tg-align t ck-ptr) q (sv-i (uq-of-word al))))
+     (rm-then (rm-init-methods ms t is p (wmul #3 (tg-size t ck-ptr)))
+     (rm-bind (rm-init-vtables vs t is) (λ r → rm-ret (cons (sl-reg (rv-s (sv-p p))) r))))))))

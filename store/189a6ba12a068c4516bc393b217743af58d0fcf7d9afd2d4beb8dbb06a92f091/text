@@ -1,0 +1,58 @@
+-- (part of language-support)
+x86_operand_from_modr_m_and_sib_bytes : (proc_mode' : proc_mode) → (reg_type : Bits #1) → (operand_size : ZI) → (inst_ac? : Bool) → (memory_ptr? : Bool) → (seg_reg : ZI) → (prefixes' : prefixes) → (temp_rip : Bits #48) → (rex_byte : Bits #8) → (r_m : Bits #3) → (mod_var : Bits #2) → (sib' : sib) → (num_imm_bytes : Bits #3) → MS ((Bits #128) × ZI × (Bits #64))
+x86_operand_from_modr_m_and_sib_bytes proc_mode' reg_type operand_size inst_ac? memory_ptr? seg_reg prefixes' temp_rip rex_byte r_m mod_var sib' num_imm_bytes =
+  let k'22 : ((Bits #64) × ZI) → MS ((Bits #128) × ZI × (Bits #64))
+      k'22 =
+        λ t'2 →
+          let addr : Bits #64
+              addr = (fst t'2)
+              increment_rip_by : ZI
+              increment_rip_by = (snd t'2)
+          in let k'13 : (Bits #128) → MS ((Bits #128) × ZI × (Bits #64))
+                 k'13 =
+                   λ operand →
+                     retS {((Bits #128) × ZI × (Bits #64))} (operand , increment_rip_by , addr)
+             in λ σ →
+                  if (weq mod_var #3) then
+                    the (MS ((Bits #128) × ZI × (Bits #64)))
+                      (let k'15 : (Bits #128) → MS ((Bits #128) × ZI × (Bits #64))
+                           k'15 =
+                             λ t'7 →
+                               k'13 t'7
+                       in λ σ →
+                            if (weq reg_type #0) then
+                              the (MS ((Bits #128) × ZI × (Bits #64)))
+                                (onS {Bits #4} {((Bits #128) × ZI × (Bits #64))} (reg_index r_m rex_byte #0) (λ t'3 →
+                                   bindS {Bits #64} {((Bits #128) × ZI × (Bits #64))} (rgfi_size (bits_of_int operand_size (zpos #4)) t'3 rex_byte) (λ t'4 →
+                                     k'15 (bv-zext #64 #128 t'4)))) σ
+                            else
+                              the (MS ((Bits #128) × ZI × (Bits #64)))
+                                (onS {Bits #4} {((Bits #128) × ZI × (Bits #64))} (reg_index r_m rex_byte #0) (λ t'5 →
+                                   bindS {Bits #128} {((Bits #128) × ZI × (Bits #64))} (xmmi_size (bits_of_int operand_size (zpos #5)) t'5) (λ t'6 →
+                                     k'15 t'6))) σ) σ
+                  else
+                    the (MS ((Bits #128) × ZI × (Bits #64)))
+                      (let k'19 : Bool → MS ((Bits #128) × ZI × (Bits #64))
+                           k'19 =
+                             λ check_alignment? →
+                               bindS {ZI} {((Bits #128) × ZI × (Bits #64))} (select_address_size proc_mode' (Some prefixes')) (λ addr_size →
+                                 let base_reg : Option ZI
+                                     base_reg = (select_base_register proc_mode' rex_byte r_m mod_var sib')
+                                 in bindS {Bits #128} {((Bits #128) × ZI × (Bits #64))} (rme_size proc_mode' addr_size operand_size addr base_reg seg_reg #14930 check_alignment? memory_ptr?) (λ t'11 →
+                                      k'13 t'11))
+                       in λ σ →
+                            if inst_ac? then
+                              the (MS ((Bits #128) × ZI × (Bits #64)))
+                                (bindS {Bool} {((Bits #128) × ZI × (Bits #64))} alignment_checking_enabled_p (λ t'8 →
+                                   k'19 t'8)) σ
+                            else
+                              the (MS ((Bits #128) × ZI × (Bits #64)))
+                                (k'19 false) σ) σ
+  in λ σ →
+       if (weq mod_var #3) then
+         the (MS ((Bits #128) × ZI × (Bits #64)))
+           (k'22 (#0 , (zpos #0))) σ
+       else
+         the (MS ((Bits #128) × ZI × (Bits #64)))
+           (bindS {((Bits #64) × ZI)} {((Bits #128) × ZI × (Bits #64))} (x86_effective_addr proc_mode' prefixes' temp_rip rex_byte r_m mod_var sib' num_imm_bytes) (λ t'1 →
+              k'22 t'1)) σ

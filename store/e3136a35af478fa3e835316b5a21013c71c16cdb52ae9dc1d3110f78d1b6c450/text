@@ -1,0 +1,13 @@
+-- up to bind, for runs: similar first parts, and continuations similar from related states
+o-runsim-bind : {O S1 S2 : Sig} {A B X Y : Type} → (Rel : X → Y → Type) → (H1 : o-ObsOf O S1 X) → (H2 : o-ObsOf O S2 Y) →
+                (t : Step S1 A) → (u : Step S2 A) → (f : A → Step S1 B) → (g : A → Step S2 B) → (s1 : X) → (s2 : Y) →
+                o-RunSim Rel H1 t s1 H2 u s2 →
+                ((a : A) → (x : X) → (y : Y) → Rel x y → o-RunSim Rel H1 (f a) x H2 (g a) y) →
+                o-RunSim Rel H1 (o-bind t f) s1 H2 (o-bind u g) s2
+o-runsim-bind {O} {S1} {S2} {A} {B} {X} {Y} Rel H1 H2 t u f g s1 s2 h hk =
+  comp (λ i → o-BisimR {O} {B × X} {B × Y} (o-StRel {B} {X} {Y} Rel) (o-run-bind H1 t f s1 (~ i)) (o-run-bind H2 u g s2 (~ i))) (λ i → [])
+    (o-bisimR-bind {O} {A × X} {A × Y} {B × X} {B × Y} (o-StRel {A} {X} {Y} Rel) (o-StRel {B} {X} {Y} Rel)
+       (o-run H1 t s1) (o-run H2 u s2)
+       (λ x → o-run H1 (f (fst x)) (snd x)) (λ y → o-run H2 (g (fst y)) (snd y)) h
+       (λ x y q → comp (λ i → o-BisimR {O} {B × X} {B × Y} (o-StRel {B} {X} {Y} Rel) (o-run H1 (f (fst x)) (snd x)) (o-run H2 (g (fst q i)) (snd y))) (λ i → [])
+                    (hk (fst x) (snd x) (snd y) (snd q))))

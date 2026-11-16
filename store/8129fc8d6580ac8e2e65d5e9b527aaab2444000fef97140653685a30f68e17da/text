@@ -1,0 +1,11 @@
+-- the alignment of a place: its type's, but no more than the alignment of the place it is a
+-- part of (a field of a packed struct is aligned as the struct); a deref starts again from
+-- the pointee's
+rm-proj-al : List RProj → RCx → RTy → Word → RSt Word
+rm-proj-al nil cx ty al = sr-ok al
+rm-proj-al (cons pr ps) cx ty al = case pr of
+  rproj-deref → sr-bind (rm-pointee ty) (λ t2 → sr-bind (cx-align cx t2) (λ a2 → rm-proj-al ps cx t2 a2))
+  rproj-field i ft → sr-bind (cx-align cx (cx-ty cx ft)) (λ fa → rm-proj-al ps cx (cx-ty cx ft) (rm-wmin al fa))
+  rproj-index l → sr-bind (rm-elem ty) (λ t2 → sr-bind (cx-align cx t2) (λ a2 → rm-proj-al ps cx t2 (rm-wmin al a2)))
+  rproj-const-index o n fe → sr-bind (rm-elem ty) (λ t2 → sr-bind (cx-align cx t2) (λ a2 → rm-proj-al ps cx t2 (rm-wmin al a2)))
+  rproj-downcast v → rm-proj-al ps cx ty al

@@ -1,0 +1,101 @@
+-- (part of language-support)
+x86_call_ff_2_op_en_m : (proc_mode' : proc_mode) → (start_rip : Bits #48) → (temp_rip : Bits #48) → (prefixes' : prefixes) → (rex_byte : Bits #8) → (opcode : Bits #8) → (modr_m' : modr_m) → (sib' : sib) → MS Unit
+x86_call_ff_2_op_en_m proc_mode' start_rip temp_rip prefixes' rex_byte opcode modr_m' sib' =
+  let ctx' : Text
+      ctx' = #128933055751464893961182354582776949145861796801869
+      r_m : Bits #3
+      r_m = (modr_m-r_m modr_m')
+      mod_var : Bits #2
+      mod_var = (modr_m-mod modr_m')
+      reg' : Bits #3
+      reg' = (modr_m-reg modr_m')
+  in bindS {ZI} {Unit} (select_operand_size proc_mode' false rex_byte false prefixes' true true true) (λ t'1 →
+       onS {ZI} {Unit} (check_range (zpos #2) (zpos #8) t'1) (λ operand_size →
+         let p2' : Bits #8
+             p2' = (prefixes-seg prefixes')
+             p4? : Bool
+             p4? = (weq #103 (prefixes-adr prefixes'))
+         in bindS {ZI} {Unit} (select_segment_register proc_mode' prefixes' mod_var r_m sib') (λ seg_reg →
+              let inst_ac? : Bool
+                  inst_ac? = true
+              in bindS {((Bits #128) × ZI × (Bits #64))} {Unit} (x86_operand_from_modr_m_and_sib_bytes proc_mode' #0 operand_size inst_ac? false seg_reg prefixes' temp_rip rex_byte r_m mod_var sib' #0) (λ t'4 →
+                   let call_rip : Bits #128
+                       call_rip = (fst t'4)
+                       increment_rip_by : ZI
+                       increment_rip_by = (fst (snd t'4))
+                       addr : Bits #64
+                       addr = (snd (snd t'4))
+                       call_rip : Bits #64
+                       call_rip = (bv-trunc #128 #64 call_rip)
+                       increment_rip_by : Bits #3
+                       increment_rip_by = (bits_of_int increment_rip_by (zpos #3))
+                   in bindS {Bits #48} {Unit} (add_to_iptr proc_mode' temp_rip (bv-zext #3 #48 increment_rip_by)) (λ next_rip →
+                        let badlength? : Option ZI
+                            badlength? = (check_instruction_length start_rip next_rip #0)
+                        in let k'38 : Unit → MS Unit
+                               k'38 =
+                                 λ t'7 →
+                                   let call_rip : Bits #64
+                                       call_rip = (if (in_64bit_mode proc_mode') then call_rip else call_rip)
+                                   in let k'34 : Bool → MS Unit
+                                          k'34 =
+                                            λ t'11 →
+                                              let k'31 : Unit → MS Unit
+                                                  k'31 =
+                                                    λ t'13 →
+                                                      bindS {Bits #64} {Unit} (read_sptr proc_mode') (λ rsp_var →
+                                                        bindS {ZI} {Unit} (select_address_size proc_mode' None) (λ addr_size →
+                                                          bindS {Bits #64} {Unit} (add_to_sptr proc_mode' rsp_var (bits_of_int (z-negate addr_size) (zpos #64))) (λ new_rsp →
+                                                            bindS {Bool} {Unit} alignment_checking_enabled_p (λ check_alignment? →
+                                                              let k'28 : Unit → MS Unit
+                                                                  k'28 =
+                                                                    λ t'25 →
+                                                                      bindS {Unit} {Unit} (write_iptr proc_mode' (bv-trunc #64 #48 call_rip)) (λ t'26 →
+                                                                        write_sptr proc_mode' new_rsp)
+                                                              in λ σ →
+                                                                   if (in_64bit_mode proc_mode') then
+                                                                     the (MS Unit)
+                                                                       (bindS {ZI} {Unit} (select_address_size proc_mode' (Some prefixes')) (λ t'18 →
+                                                                          bindS {Bool} {Unit} alignment_checking_enabled_p (λ t'19 →
+                                                                            bindS {Unit} {Unit} (wme_size Mode_64bit t'18 addr_size (bv-sext #48 #64 (bv-trunc #64 #48 new_rsp)) None (zpos #2) (bv-sext #48 #128 next_rip) t'19 false) (λ t'20 →
+                                                                              k'28 t'20)))) σ
+                                                                   else
+                                                                     the (MS Unit)
+                                                                       (bindS {ZI} {Unit} (select_address_size proc_mode' (Some prefixes')) (λ t'21 →
+                                                                          let t'22 : Bits #128
+                                                                              t'22 =
+                                                                                if (z-eq addr_size (zpos #2)) then
+                                                                                  (bv-zext #32 #128 (bv-zext #16 #32 (bv-trunc #48 #16 next_rip)))
+                                                                                else
+                                                                                  (bv-zext #32 #128 (bv-trunc #48 #32 next_rip))
+                                                                          in bindS {Bool} {Unit} alignment_checking_enabled_p (λ t'23 →
+                                                                               bindS {Unit} {Unit} (wme_size proc_mode' t'21 addr_size (bv-sext #48 #64 (bv-trunc #64 #48 new_rsp)) None (zpos #2) t'22 t'23 false) (λ t'24 →
+                                                                                 k'28 t'24)))) σ))))
+                                              in λ σ →
+                                                   if (b-not t'11) then
+                                                     the (MS Unit)
+                                                       (onS {Unit} {Unit} (x86_fault {Unit} #404781931059742614953428925532598112546968259949120850133657153144035839080556573153174575480851796847825479671850029097) (λ t'12 →
+                                                          k'31 t'12)) σ
+                                                   else
+                                                     the (MS Unit)
+                                                       (k'31 unit) σ
+                                      in λ σ →
+                                           if (in_64bit_mode proc_mode') then
+                                             the (MS Unit)
+                                               (onS {Bool} {Unit} (canonical_address_p (bv-signed #64 call_rip)) (λ t'8 →
+                                                  k'34 t'8)) σ
+                                           else if (z-le (zpos #0) (bv-signed #64 call_rip)) then
+                                             the (MS Unit)
+                                               (bindS {List (Bits #32)} {Unit} (getS {List (Bits #32)} x86-seg_hidden_limits) (λ seg_hidden_limits'9 →
+                                                  k'34 (z-le (bv-signed #64 call_rip) (bv-unsigned #32 (vec-get {Bits #32} #0 seg_hidden_limits'9 #1))))) σ
+                                           else
+                                             the (MS Unit)
+                                               (k'34 false) σ
+                           in λ σ →
+                                if (is_some {ZI} badlength?) then
+                                  the (MS Unit)
+                                    (onS {Unit} {Unit} (x86_fault {Unit} #26527788633931292013587918063704349903878111884025584083023654650798916508749147338540209907045379711613433216615654445563689) (λ t'6 →
+                                       k'38 t'6)) σ
+                                else
+                                  the (MS Unit)
+                                    (k'38 unit) σ)))))

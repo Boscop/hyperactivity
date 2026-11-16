@@ -1,0 +1,18 @@
+-- a temporary materialized from a prvalue ([conv.rval]) with the storage duration Clang
+-- determined: of the full-expression; of the reference it is bound to (automatic: the
+-- declaration ends it, cxr-ext; static: it is never ended by an entry)
+cx-materialize : CxCall → CxU → CType → CStorageDuration → CxSub → CxEnv → CxK → CxEv CxR
+cx-materialize call u t sd sub env k =
+  cx-bind {Word} {CxR} (cx-res {Word} (cx-size u t)) (λ sz →
+  cx-bind {Word} {CxR} (cx-res {Word} (cx-align u t)) (λ al →
+  cx-bind {MPtr} {CxR} (cx-alloc (case sd of
+                                    csd-static → ak-static
+                                    _ → ak-auto) false sz al) (λ q →
+    (λ (after : CxEv CxR → CxEv CxR) → case cx-tc t of
+       cxtc-record id → after (sub env (cxm-init q) (λ r → k (cxr-lv q #0)))
+       cxtc-array el n → after (sub env (cxm-init q) (λ r → k (cxr-lv q #0)))
+       _ → after (sub env cxm-get (λ r → cx-then {Unit} {CxR} (cx-lv-store u t (cxr-lv q #0) r) (k (cxr-lv q #0)))))
+    (λ body → case sd of
+       csd-full-expression → cx-finally {CxR} body (cx-then {Unit} {Unit} (cx-destroy t call u q) (cx-release ak-auto q))
+       csd-automatic → cx-bind {CxR} {CxR} body (λ a → cx-ret {CxR} (cxr-ext q t a))
+       csd-static → body))))

@@ -1,0 +1,36 @@
+quote bs T v =
+  case %view T of
+    wpi A B → let x = %var A in omap clam (quote (lcons (qv (var-level x)) bs) (B x) (v x))
+    wsigma A B → obind (quote bs A (fst v)) (λ a → omap (cpair a) (quote bs (B (fst v)) (snd v)))
+    wpath L a b → let i = %dim in omap cplam (quote (lcons (qd i) bs) (L @ i) (v @ i))
+    wu l → qty bs v
+    WT → 
+      let wv = %view v
+      in case wv of
+           wsys b → q-sys bs (λ d → some (%restrict d T)) b
+           wcon d c fs ds → 
+             case WT of
+               wdata d2 ps → 
+                 omap (λ fc → ccon d c fc (lmap (q-iv bs) ds)) (q-fields bs (centry d c ps) fs)
+               wlevel → q-lvl bs v
+               _ → qv-un bs v
+           whcomp u a → 
+             case WT of
+               wdata d2 ps → obind (q-line bs T u) (λ cu → omap (chcomp cu) (quote bs T a))
+               _ → qv-un bs v
+           wgluev S a → 
+             case WT of
+               wglue A SG → 
+                 case %view S of
+                   wsys b → 
+                     obind (q-sys bs (λ d → some (fst (%restrict d SG))) b)
+                       (λ cs → omap (cglue cs) (quote bs A a))
+                   _ → qv-un bs v
+               whcompu A SG → 
+                 case %view S of
+                   wsys b → 
+                     obind (q-sys bs (λ d → some ((%restrict d SG) @ 1)) b)
+                       (λ cs → omap (cglue cs) (quote bs A a))
+                   _ → qv-un bs v
+               _ → qv-un bs v
+           _ → if is-neu wv then omap q-fst (qneu bs (some T) v wv) else qv-un bs v

@@ -1,0 +1,154 @@
+-- ---------------------------------------------------------------- the model
+linux-model : World Linux KState
+linux-model c st = case c return (λ x → Sum (lx-resp x × KState) KState) of
+  lx-clock-gettime →
+    k-ok {Timespec} (Timespec { ts-sec = %wdiv (k-clock st) #1000000000 ; ts-nsec = %wmod (k-clock st) #1000000000 })
+         (KState { st | k-clock = %wadd (k-clock st) (k-tick st) })
+  lx-nanosleep t →
+    (if %wlt (ts-nsec t) #1000000000
+       then k-ok {Unit} unit (KState { st | k-clock = %wadd (k-clock st) (%wadd (%wmul (ts-sec t) #1000000000) (ts-nsec t)) })
+       else k-err {Unit} #22 st)
+  lx-read fd buf len →
+    (case k-find fd (k-fds st) of
+       inr u → k-err {Upto len} #9 st
+       inl o → (case o of
+          k-pipe-in q →
+            (if k-valid (k-regions st) buf len
+               then k-count len (k-min len (k-len q))
+                      (KState { st | k-mem = k-store-bytes (k-mem st) buf (k-take len q) ; k-fds = k-put fd (k-pipe-in (k-drop len q)) (k-fds st) })
+               else k-err {Upto len} #14 st)
+          k-pipe-out w → k-err {Upto len} #9 st
+          k-udp b →
+            (case b of
+               inr u → k-refuse {Upto len} st
+               inl a → (if k-valid (k-regions st) buf len
+                          then (case k-recv len a buf true st of
+                                  inr s2 → inr s2
+                                  inl r → inl ((case fst r of inl e → inl e; inr v → inr (fst v)) , snd r))
+                          else k-err {Upto len} #14 st))
+          k-epoll l → k-err {Upto len} #22 st))
+  lx-write fd buf len →
+    (case k-find fd (k-fds st) of
+       inr u → k-err {Upto len} #9 st
+       inl o → (case o of
+          k-pipe-in q → k-err {Upto len} #9 st
+          k-pipe-out w →
+            (if k-valid (k-regions st) buf len
+               then k-count len len (KState { st | k-fds = k-put fd (k-pipe-out (k-app w (k-bytes-at (k-mem st) buf len))) (k-fds st) })
+               else k-err {Upto len} #14 st)
+          k-udp b → k-err {Upto len} #89 st
+          k-epoll l → k-err {Upto len} #22 st))
+  lx-open path flags mode → k-refuse {Word} st
+  lx-close fd →
+    (if k-has fd (k-fds st) then k-ok {Unit} unit (KState { st | k-fds = k-del fd (k-fds st) }) else k-err {Unit} #9 st)
+  lx-mmap addr len prot flags fd off →
+    (if %weq len #0 then k-err {Word} #22 st
+     else if andB (%weq addr #0) (%weq (%wand flags #63) #34)
+       then k-ok {Word} (k-round (k-brk st) (k-page st))
+              (KState { st | k-regions = cons (k-round (k-brk st) (k-page st) , k-round len (k-page st)) (k-regions st)
+                           ; k-brk = %wadd (k-round (k-brk st) (k-page st)) (k-round len (k-page st)) })
+       else k-refuse {Word} st)
+  lx-munmap addr len →
+    (case k-unmap addr (k-round len (k-page st)) (k-regions st) of
+       inl rs → k-ok {Unit} unit (KState { st | k-regions = rs })
+       inr u → k-refuse {Unit} st)
+  lx-mprotect addr len prot →
+    (if andB (%weq prot #3) (k-valid (k-regions st) addr len) then k-ok {Unit} unit st else k-refuse {Unit} st)
+  lx-socket domain type proto →
+    (if andB (%weq domain #2) (andB (%weq type #2) (if %weq proto #0 then true else %weq proto #17))
+       then k-new-fd (k-udp (inr unit)) st
+       else k-refuse {Word} st)
+  lx-bind fd a →
+    (case k-find fd (k-fds st) of
+       inr u → k-err {Unit} #9 st
+       inl o → (case o of
+          k-pipe-in q → k-err {Unit} #88 st
+          k-pipe-out w → k-err {Unit} #88 st
+          k-udp b →
+            (case b of
+               inl old → k-err {Unit} #22 st
+               inr u → (if k-bound a (k-fds st) then k-err {Unit} #98 st
+                        else k-ok {Unit} unit (KState { st | k-fds = k-put fd (k-udp (inl a)) (k-fds st) })))
+          k-epoll l → k-err {Unit} #88 st))
+  lx-listen fd backlog →
+    (case k-find fd (k-fds st) of
+       inr u → k-err {Unit} #9 st
+       inl o → (case o of k-pipe-in q → k-err {Unit} #88 st; k-pipe-out w → k-err {Unit} #88 st; k-udp b → k-err {Unit} #95 st; k-epoll l → k-err {Unit} #88 st))
+  lx-accept4 fd flags →
+    (case k-find fd (k-fds st) of
+       inr u → k-err {Word × SockAddr} #9 st
+       inl o → (case o of k-pipe-in q → k-err {Word × SockAddr} #88 st; k-pipe-out w → k-err {Word × SockAddr} #88 st; k-udp b → k-err {Word × SockAddr} #95 st; k-epoll l → k-err {Word × SockAddr} #88 st))
+  lx-connect fd a → k-refuse {Unit} st
+  lx-recvfrom fd buf len flags →
+    (case k-find fd (k-fds st) of
+       inr u → k-err {Upto len × SockAddr} #9 st
+       inl o → (case o of
+          k-pipe-in q → k-err {Upto len × SockAddr} #88 st
+          k-pipe-out w → k-err {Upto len × SockAddr} #88 st
+          k-udp b →
+            (case b of
+               inr u → k-refuse {Upto len × SockAddr} st
+               inl a →
+                 (if k-valid (k-regions st) buf len
+                    then (if %weq flags #0 then k-recv len a buf true st
+                          else if %weq flags #64 then k-recv len a buf false st
+                          else k-refuse {Upto len × SockAddr} st)
+                    else k-err {Upto len × SockAddr} #14 st))
+          k-epoll l → k-err {Upto len × SockAddr} #88 st))
+  lx-sendto fd buf len flags a →
+    (case k-find fd (k-fds st) of
+       inr u → k-err {Upto len} #9 st
+       inl o → (case o of
+          k-pipe-in q → k-err {Upto len} #88 st
+          k-pipe-out w → k-err {Upto len} #88 st
+          k-udp b →
+            (if %wlt #65507 len then k-err {Upto len} #90 st
+             else if k-valid (k-regions st) buf len
+               then k-count len len (k-deliver (Dgram { dg-from = k-from b st ; dg-to = a ; dg-data = k-bytes-at (k-mem st) buf len }) (k-autobind fd b (k-from b st) st))
+               else k-err {Upto len} #14 st)
+          k-epoll l → k-err {Upto len} #88 st))
+  lx-setsockopt fd level name val →
+    (case k-find fd (k-fds st) of
+       inr u → k-err {Unit} #9 st
+       inl o → (case o of k-pipe-in q → k-err {Unit} #88 st; k-pipe-out w → k-err {Unit} #88 st; k-udp b → k-ok {Unit} unit st; k-epoll l → k-err {Unit} #88 st))
+  lx-epoll-create1 flags → k-new-fd (k-epoll nil) st
+  lx-epoll-ctl ep op fd ev →
+    (case k-find ep (k-fds st) of
+       inr u → k-err {Unit} #9 st
+       inl o → (case o of
+          k-pipe-in q → k-err {Unit} #22 st
+          k-pipe-out w → k-err {Unit} #22 st
+          k-udp b → k-err {Unit} #22 st
+          k-epoll l →
+            (if k-has fd (k-fds st)
+               then (if %weq op #1 then (if k-has-interest fd l then k-err {Unit} #17 st
+                                         else k-ok {Unit} unit (KState { st | k-fds = k-put ep (k-epoll (k-app l (cons (fd , ev) nil))) (k-fds st) }))
+                     else if %weq op #2 then (if k-has-interest fd l then k-ok {Unit} unit (KState { st | k-fds = k-put ep (k-epoll (k-forget fd l)) (k-fds st) })
+                                              else k-err {Unit} #2 st)
+                     else if %weq op #3 then (if k-has-interest fd l then k-ok {Unit} unit (KState { st | k-fds = k-put ep (k-epoll (k-app (k-forget fd l) (cons (fd , ev) nil))) (k-fds st) })
+                                              else k-err {Unit} #2 st)
+                     else k-err {Unit} #22 st)
+               else k-err {Unit} #9 st)))
+  lx-epoll-wait ep max timeout →
+    (case k-find ep (k-fds st) of
+       inr u → k-err {Upto max × List EpollEvent} #9 st
+       inl o → (case o of
+          k-pipe-in q → k-err {Upto max × List EpollEvent} #22 st
+          k-pipe-out w → k-err {Upto max × List EpollEvent} #22 st
+          k-udp b → k-err {Upto max × List EpollEvent} #22 st
+          k-epoll l →
+            (if %weq max #0 then k-err {Upto max × List EpollEvent} #22 st
+             else k-wait max (k-take {EpollEvent} (k-min max lx-max-events) (k-events (k-net st) (k-fds st) l)) timeout st)))
+  lx-futex-wait addr val →
+    (if k-valid (k-regions st) addr #4
+       then (if %weq (k-of-le (k-bytes-at (k-mem st) addr #4)) val then k-refuse {Unit} st else k-err {Unit} #11 st)
+       else k-err {Unit} #14 st)
+  lx-futex-wake addr n → k-count n #0 st
+  lx-getpid → inl (k-pid st , st)
+  lx-exit-group ec → inr (KState { st | k-exit = inl (%wmod ec #256) })
+  lx-alloc n →
+    inl (k-brk st , KState { st | k-regions = cons (k-brk st , k-round n #8) (k-regions st) ; k-brk = %wadd (k-brk st) (k-round n #8) })
+  lx-peek8 a → (if k-valid (k-regions st) a #1 then inl (k-mem st a , st) else inr (k-segv st))
+  lx-poke8 a v → (if k-valid (k-regions st) a #1 then inl (unit , KState { st | k-mem = mem-write a (%wmod v #256) (k-mem st) }) else inr (k-segv st))
+  lx-peek64 a → (if k-valid (k-regions st) a #8 then inl (k-of-le (k-bytes-at (k-mem st) a #8) , st) else inr (k-segv st))
+  lx-poke64 a v → (if k-valid (k-regions st) a #8 then inl (unit , KState { st | k-mem = k-store-bytes (k-mem st) a (k-le 8 v) }) else inr (k-segv st))

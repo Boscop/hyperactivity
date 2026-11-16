@@ -1,0 +1,31 @@
+-- x86_run_halt recurses in Sail; here on the bound (z-nat maxSteps) (maxSteps decreases by one and the call stops at 0)
+-- (part of language-support)
+x86_run_halt-body : ((haltAddr : Bits #48) → (maxSteps : ZI) → (printEachStep : Bool) → (printCount : Bool) → (count' : ZI) → MS ZI) → (haltAddr : Bits #48) → (maxSteps : ZI) → (printEachStep : Bool) → (printCount : Bool) → (count' : ZI) → MS ZI
+x86_run_halt-body self' haltAddr maxSteps printEachStep printCount count' =
+  λ σ →
+    if (z-eq maxSteps (zpos #0)) then
+      the (MS ZI)
+        (retS {ZI} count') σ
+    else
+      the (MS ZI)
+        (let try'7 : MS ZI
+             try'7 =
+               bindS {Bool} {ZI} (x86_step_print_halt haltAddr printEachStep printCount (z-add count' (zpos #1))) (λ halt? →
+                 λ σ →
+                   if halt? then
+                     the (MS ZI)
+                       (retS {ZI} count') σ
+                   else
+                     the (MS ZI)
+                       (self' haltAddr (z-sub maxSteps (zpos #1)) printEachStep printCount (z-add count' (zpos #1))) σ)
+             handle'8 : exception → MS ZI
+             handle'8 =
+               λ ex'1 →
+                 case ex'1 of
+                   Emsg v'2 →
+                     (let msg' : Text
+                          msg' = v'2
+                      in retS {ZI} count')
+                   _ →
+                     (liftS {ZI} (out-throw ex'1))
+         in tryS {ZI} try'7 handle'8) σ

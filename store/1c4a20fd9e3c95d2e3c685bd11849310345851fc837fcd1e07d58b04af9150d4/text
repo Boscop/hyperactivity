@@ -1,0 +1,17 @@
+dskfold : (I : Type 2) (Ln : I → I) (S : Lst Entry → I → Type 1) (T : I → Type 1) (Dat : Lst Entry → Type)
+  (dfst : (sq : Lst Entry) → Dat (lcons e-dim sq) → Dat sq) (dsnd : (sq : Lst Entry) → Dat (lcons e-dim sq) → DNF)
+  (dty : (s : TyShape) (sq : Lst Entry) → Dat (lcons (e-ty s) sq) → Dat sq)
+  (cty : (s : TyShape) (sq : Lst Entry) (iq : I) → S (lcons (e-ty s) sq) iq → S sq iq) (cdm : (sq : Lst Entry) (iq : I) → S (lcons e-dim sq) iq → S sq (Ln iq))
+  (base : (iq : I) → S lnil iq → T iq) (step : DNF → (iq : I) → T (Ln iq) → T iq)
+  (J : I → Type 2) (LnJ : (iq : I) → J iq → J (Ln iq)) (DS : (sq : Lst Entry) (iq : I) → J iq → S sq iq → Type 1) (DT : (iq : I) → J iq → T iq → Type 1)
+  (dcty : (s : TyShape) (sq : Lst Entry) (iq : I) (jq : J iq) (xq : S (lcons (e-ty s) sq) iq) → DS (lcons (e-ty s) sq) iq jq xq → DS sq iq jq (cty s sq iq xq))
+  (dcdm : (sq : Lst Entry) (iq : I) (jq : J iq) (xq : S (lcons e-dim sq) iq) → DS (lcons e-dim sq) iq jq xq → DS sq (Ln iq) (LnJ iq jq) (cdm sq iq xq))
+  (dbase : (iq : I) (jq : J iq) (xq : S lnil iq) → DS lnil iq jq xq → DT iq jq (base iq xq))
+  (dstep : (f : DNF) (iq : I) (jq : J iq) (tq : T (Ln iq)) → DT (Ln iq) (LnJ iq jq) tq → DT iq jq (step f iq tq)) →
+  (sk : Lst Entry) (σ : Dat sk) (i : I) (j : J i) (x : S sk i) → DS sk i j x → DT i j (skfold I Ln S T Dat dfst dsnd dty cty cdm base step sk σ i x)
+dskfold I Ln S T Dat dfst dsnd dty cty cdm base step J LnJ DS DT dcty dcdm dbase dstep lnil σ i j x y = dbase i j x y
+dskfold I Ln S T Dat dfst dsnd dty cty cdm base step J LnJ DS DT dcty dcdm dbase dstep (lcons (e-ty s) sk) σ i j x y =
+  dskfold I Ln S T Dat dfst dsnd dty cty cdm base step J LnJ DS DT dcty dcdm dbase dstep sk (dty s sk σ) i j (cty s sk i x) (dcty s sk i j x y)
+dskfold I Ln S T Dat dfst dsnd dty cty cdm base step J LnJ DS DT dcty dcdm dbase dstep (lcons e-dim sk) σ i j x y =
+  dstep (dsnd sk σ) i j (skfold I Ln S T Dat dfst dsnd dty cty cdm base step sk (dfst sk σ) (Ln i) (cdm sk i x))
+    (dskfold I Ln S T Dat dfst dsnd dty cty cdm base step J LnJ DS DT dcty dcdm dbase dstep sk (dfst sk σ) (Ln i) (LnJ i j) (cdm sk i x) (dcdm sk i j x y))

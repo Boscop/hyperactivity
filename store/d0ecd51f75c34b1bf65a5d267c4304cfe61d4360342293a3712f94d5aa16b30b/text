@@ -1,0 +1,51 @@
+sorted-unique : {o : Ord} {xs ys : List (El o)} →
+                          Sorted xs →
+                          Sorted ys →
+                          ((a : El o) → isTrue (eqb (count a xs) (count a ys))) → xs ≡ ys
+sorted-unique =
+  (case xs return (λ w →
+                     (ys : List (El o)) →
+                     Sorted w →
+                     Sorted ys → ((a : El o) → isTrue (eqb (count a w) (count a ys))) → w ≡ ys) of
+     nil → 
+       λ ys →
+         case ys return (λ v →
+                           Sorted {o} nil →
+                           Sorted v →
+                           ((a : El o) → isTrue (eqb (count a nil) (count a v))) → nil ≡ v) of
+           nil → λ sx sy c i → nil
+           cons y q → 
+             λ sx sy c →
+               Empty-rec {_} {Path (List (El o)) nil (cons y q)}
+                 (snotz
+                    (transN (symN (count-head y q))
+                       (symN (eqb-sound {zero} {count y (cons y q)} (c y)))))
+     cons x r → 
+       λ ys →
+         case ys return (λ v →
+                           Sorted {o} (cons x r) →
+                           Sorted v →
+                           ((a : El o) → isTrue (eqb (count a (cons x r)) (count a v))) →
+                           cons x r ≡ v) of
+           nil → 
+             λ sx sy c →
+               Empty-rec {_} {Path (List (El o)) (cons x r) nil}
+                 (snotz
+                    (transN (symN (count-head x r)) (eqb-sound {count x (cons x r)} {zero} (c x))))
+           cons y q → 
+             λ sx sy c →
+               let hx = transN (symN (eqb-sound {count x (cons x r)} {count x (cons y q)} (c x)))
+                          (count-head x r)
+                   hy = transN (eqb-sound {count y (cons x r)} {count y (cons y q)} (c y))
+                          (count-head y q)
+                   yx = allle-count {o} {y} {cons y q} (ord-refl y , fst sy) {x} hx
+                   xy = allle-count {o} {x} {cons x r} (ord-refl x , fst sx) {y} hy
+                   pxy = ord-antisym {o} {x} {y} xy yx
+                   crq = the ((a : El o) → isTrue (eqb (count a r) (count a q)))
+                           (λ a →
+                              eqb-complete
+                                (plus-cancel {one-if (eqo a x)} {count a r} {count a q}
+                                   (transN {_} {_} {plus (one-if (eqo a x)) (count a q)}
+                                      (eqb-sound {count a (cons x r)} {count a (cons y q)} (c a))
+                                      (λ i → plus (one-if (eqo a (pxy (~ i)))) (count a q)))))
+               in λ i → cons (pxy i) (rec r q (snd sx) (snd sy) crq i)) ys

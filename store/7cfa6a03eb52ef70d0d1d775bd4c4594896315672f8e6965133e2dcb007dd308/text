@@ -1,0 +1,11 @@
+-- by the tag read: the variant whose tag it is (its fields, then the tag written), else the fallback
+rm-copy-variants : List RVariantLayout → (List RFieldLayout → MPtr → MPtr → REv Unit) → (UInt64 → MPtr → REv Unit) → (MPtr → MPtr → REv Unit) → UInt64 → MPtr → MPtr → REv Unit
+rm-copy-variants nil cf wt fb = λ tg dst src → fb dst src
+rm-copy-variants (cons v vs) cf wt fb = case vl-tag-of v of
+  rtv-none → rm-copy-variants vs cf wt fb
+  rtv-some x →
+    (let me = cf (vl-fields-of v)
+         rest = rm-copy-variants vs cf wt fb
+     in λ tg dst src → case u64eq tg (uq-of-word x) of
+          true → rm-then (me dst src) (wt tg dst)
+          false → rest tg dst src)

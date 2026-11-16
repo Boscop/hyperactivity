@@ -1,0 +1,26 @@
+x-ok-n : Nat → Defs → Code → Verdict
+x-ok-n zero defs c = not-fo reflect c
+x-ok-n (suc k) defs (cvar n) = fo (cvar n)
+x-ok-n (suc k) defs (cglob g) = x-ok-call (λ c2 → x-ok-n k defs c2) defs g lnil (cglob g)
+x-ok-n (suc k) defs (capp f a) =
+  (let sp = x-spine (capp f a) in
+   case fst sp return (λ _ → Verdict) of
+     cglob g → x-ok-call (λ c2 → x-ok-n k defs c2) defs g (snd sp) (capp f a)
+     clam b → not-fo reflect (capp f a)
+     h → x-ok-l (λ c2 → x-ok-n k defs c2) (lcons h (snd sp)) (capp f a))
+x-ok-n (suc k) defs (clet t b) = v-then (x-ok-n k defs t) (x-ok-n k defs b)
+x-ok-n (suc k) defs (cpair a b) = v-then (x-ok-n k defs a) (x-ok-n k defs b)
+x-ok-n (suc k) defs (cfst p) = x-ok-n k defs p
+x-ok-n (suc k) defs (csnd p) = x-ok-n k defs p
+x-ok-n (suc k) defs (cproj dd j p) = x-ok-n k defs p
+x-ok-n (suc k) defs (crec dd fs) = x-ok-l (λ c2 → x-ok-n k defs c2) fs (crec dd fs)
+x-ok-n (suc k) defs (ccon dd j fs ds) = x-ok-l (λ c2 → x-ok-n k defs c2) fs (ccon dd j fs ds)
+x-ok-n (suc k) defs (ccase dd B x) = v-then (x-ok-l (λ c2 → x-ok-n k defs c2) (x-br-bodies dd #0 B) (ccase dd B x)) (x-ok-n k defs x)
+x-ok-n (suc k) defs (cwlit n) = fo (cwlit n)
+x-ok-n (suc k) defs (cplit j b) = fo (cplit j b)
+x-ok-n (suc k) defs (cwsucc a) = x-ok-n k defs a
+-- a left shift of a word has no template yet (its overflow is the bits shifted out)
+x-ok-n (suc k) defs (cwop j a b) = if %weq j #11 then not-fo reflect (cwop j a b) else v-then (x-ok-n k defs a) (x-ok-n k defs b)
+x-ok-n (suc k) defs (cprim j as) = if %wlt j #1792 then x-ok-l (λ c2 → x-ok-n k defs c2) as (cprim j as) else not-fo reflect (cprim j as)
+x-ok-n (suc k) defs (cwelim w z s mo) = v-then (v-then (x-ok-n k defs w) (x-ok-n k defs z)) (x-ok-n k defs (x-loop-body s))
+x-ok-n (suc k) defs c = not-fo reflect c
