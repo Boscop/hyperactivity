@@ -218,12 +218,43 @@ v-open : List Word → Proc W Unit
 v-open st = bind (if h-null (h-concat v-in-progress) then ret {lzero} {W} unit else bind (h-out (h-line (h-line "In progress:"))) (λ u → v-show-all st v-in-progress)) (λ u →
   h-out (list-append (h-line "Can start now and unblocks the most:") (h-concat (list-map (λ x → list-append (v-line x) (v-gain-line x)) (v-top v-ready)))))
 
+-- check: the graph's rules (“The Hyperactive Workflow”): every node's name is a sentence; a node is a
+-- part of something or a root, not both; every node has a statement; a leaf in progress or resolved
+-- has no children, and is not both; a node is expanded exactly when something under it is in
+-- progress or resolved
+v-rule : Bool → List Word → List Word → List (List Word)
+v-rule bad i why = if bad then cons (list-append i (list-append ": " why)) nil else nil
+v-node-problems : List Word → List (List Word)
+v-node-problems i =
+  list-append (v-rule (orB (h-not (h-infix " " (v-sentence i))) (h-eq (v-sentence i) i)) i "its name must be an English sentence saying what it is, not an identifier")
+  (list-append (v-rule (andB (h-null (h-concat (v-parts i))) (h-not (h-has i v-roots))) i "part of nothing and not declared a root")
+  (list-append (v-rule (andB (h-not (h-null (h-concat (v-parts i)))) (h-has i v-roots)) i (list-append "declared a root but part of " (v-joined ", " (v-parts i))))
+  (list-append (v-rule (andB (orB (h-has i v-in-progress) (h-has i v-resolved)) (h-not (v-leaf i))) i "in progress or resolved but has children (a leaf is; a node with children is resolved when they are)")
+  (list-append (v-rule (andB (h-has i v-in-progress) (h-has i v-resolved)) i "both in progress and resolved")
+  (v-rule (andB (andB (h-not (v-leaf i)) (h-not (h-has i v-roots))) (h-null (h-concat (v-filter (λ x → orB (h-has x v-in-progress) (h-has x v-resolved)) (v-under i))))) i
+    "expanded, but nothing under it is in progress or resolved (a node is expanded exactly when a child begins)")))))
+v-statement-problems : List Word → List (List Word) → Proc W (List (List Word))
+v-statement-problems st nil = ret nil
+v-statement-problems st (cons i r) = bind (v-statement st i) (λ s → bind (v-statement-problems st r) (λ rest →
+  ret (list-append (v-rule (h-null (h-concat s)) i "no statement") rest)))
+v-lines : List (List Word) → List Word
+v-lines ps = h-concat (list-map h-line ps)
+v-summary : List (List Word) → List Word
+v-summary ps = h-line (list-append (h-decimal (fromNat v-rounds)) (if h-null (h-concat ps) then " nodes; consistent" else list-append " nodes; " (list-append (h-decimal (fromNat (list-length ps))) " problem(s)")))
+v-code : List (List Word) → Word
+v-code ps = if h-null (h-concat ps) then #0 else #1
+v-check-report : List (List Word) → Proc W Unit
+v-check-report ps = bind (h-out (v-lines ps)) (λ u → bind (h-out (v-summary ps)) (λ u2 → exit (v-code ps)))
+v-check : List Word → Proc W Unit
+v-check st = bind (v-statement-problems st (list-map (λ e → fst e) v-all)) (λ sp →
+  v-check-report (list-append (v-step-all v-node-problems (list-map (λ e → fst e) v-all)) sp))
 v-command : List Word → List Word → List (List Word) → Proc W Unit
 v-command st c rest =
   if h-eq c "show" then v-show-all st rest else
   if h-eq c "tree" then h-out v-tree else
   if h-eq c "order" then h-out v-order else
   if h-eq c "open" then v-open st else
+  if h-eq c "check" then v-check st else
   h-fail (list-append "views: no view " c)
 v-dispatch : List Word → List (List Word) → Proc W Unit
 v-dispatch st nil = h-out v-tree

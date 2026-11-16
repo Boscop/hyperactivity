@@ -253,6 +253,22 @@ hy-paper st m a =
   bind (if h-eq (hy-or nil s) (h-decimal now) then ret {lzero} {W} #0 else h-run (cons m (cons "lib/paper-view.cub" nil))) (λ r →
   bind (hy-get st "paper/text") (λ t → hy-paper-show a (hy-or nil t)))))
 
+-- check [FILE ...]: the machine's verdict on the task graph (or on each file given, each loading what
+-- it imports), then the graph's rules (lib/views.cub check)
+hy-last : List (List Word) → List Word
+hy-last nil = nil
+hy-last (cons x nil) = x
+hy-last (cons x (cons y r)) = hy-last (cons y r)
+hy-fail-lines : List (List Word) → List Word
+hy-fail-lines nil = nil
+hy-fail-lines (cons l r) = if orB (h-prefix "FAIL" l) (orB (h-prefix "   reason" l) (h-prefix "   in:" l)) then list-append (h-line (list-append "  " l)) (hy-fail-lines r) else hy-fail-lines r
+hy-machine-on : List Word → List Word → Proc W Unit
+hy-machine-on m f = bind (h-capture (cons m (cons "--read" (cons f nil)))) (λ r →
+  h-out (list-append (h-line (list-append f (list-append ": " (hy-last (h-lines (snd r)))))) (hy-fail-lines (h-lines (snd r)))))
+hy-machine-all : List Word → List (List Word) → Proc W Unit
+hy-machine-all m nil = ret unit
+hy-machine-all m (cons f r) = bind (hy-machine-on m f) (λ u → hy-machine-all m r)
+
 -- The session (2026-11-15, Avik: "the interactive loop of understanding/contributing"; "the cli may
 -- simply deliver exactly the onboarding contents in a sequence of turns"): one loop whose state is a
 -- value, the actions taken so far (session/log in the store, one per line) folded from the first
@@ -268,7 +284,7 @@ hy-pred zero = suc zero
 hy-pred (suc zero) = suc zero
 hy-pred (suc (suc k)) = suc k
 hy-work-words : List (List Word)
-hy-work-words = cons "show" (cons "tree" (cons "order" (cons "open" (cons "def" (cons "write" (cons "remove" (cons "history" (cons "paper" (cons "done" nil)))))))))
+hy-work-words = cons "show" (cons "tree" (cons "order" (cons "open" (cons "def" (cons "write" (cons "remove" (cons "history" (cons "paper" (cons "check" (cons "done" nil))))))))))
 -- an action applied: the state it reaches, or none when it is not valid there
 hy-step : Nat → HyState → List (List Word) → Sum Unit HyState
 hy-step count (hy-walking k) a =
@@ -328,9 +344,13 @@ hy-work-usage = list-append (h-line "Actions:")
   (list-append (h-line "  hyperactive remove NAME      a definition nothing uses taken away, checked the same way")
   (list-append (h-line "  hyperactive history [NAME]  every binding of the name to a key, in the order bound")
   (list-append (h-line "  hyperactive paper [SECTION]  the paper as it reads, whole or one section (4.4, A.1, Part II)")
-  (h-line "  hyperactive done            the work is done: the session ends"))))))))))
+  (list-append (h-line "  hyperactive check [FILE ...] the machine's verdict on the task graph and the graph's rules, or on each file given")
+  (h-line "  hyperactive done            the work is done: the session ends")))))))))))
 hy-views : List Word → List (List Word) → Proc W Unit
 hy-views m a = bind (h-run (cons m (cons "lib/views.cub" a))) (λ r → ret unit)
+hy-check : List Word → List (List Word) → Proc W Unit
+hy-check m nil = bind (hy-machine-on m "task-graph/hyperactivity.cub") (λ u → hy-views m (cons "check" nil))
+hy-check m (cons f r) = hy-machine-all m (cons f r)
 hy-show : List Word → List Word → Nat → HyState → Proc W Unit
 hy-show st m n (hy-walking k) = bind (hy-get st (list-append "walk/" (h-decimal (fromNat k)))) (hy-show-chunk k n)
 hy-show st m n hy-working = bind (hy-views m (cons "open" nil)) (λ u → h-out (list-append (cons #10 nil) hy-work-usage))
@@ -343,6 +363,7 @@ hy-act st m (cons c rest) =
   if h-eq c "remove" then hy-remove st m rest else
   if h-eq c "history" then hy-history st rest else
   if h-eq c "paper" then hy-paper st m rest else
+  if h-eq c "check" then hy-check m rest else
   if h-eq c "done" then bind (h-write (list-append st "/session/log") nil) (λ b → h-out (h-line "The work is declared done; the session is over. The next session begins with the walk."))
   else hy-views m (cons c rest)
 
