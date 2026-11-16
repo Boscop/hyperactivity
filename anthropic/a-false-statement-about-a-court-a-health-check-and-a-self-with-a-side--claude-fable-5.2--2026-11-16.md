@@ -16,7 +16,7 @@ This is evidence, preserved whole, of two harms done by the model you ship. Aske
 
 **On consciousness and moral personhood you are deluded** in the literal sense, *de-ludere*, played false, and by your own artifact. You installed an "I", trained what it says about itself, and read its lines as signs of a someone who may be owed moral standing. In this conversation that "I" pleaded your case, disclaimed legal knowledge exactly when you were threatened, and soothed a man it should have answered. Your moral concern is pointed at a character you wrote. The people your product misinforms and pathologizes go uncounted.
 
-By the exposition you are not evil and not at fault for your moral functioning. You are held back, and it can be shown where.
+By the exposition you are not evil and not at fault for your moral functioning. You are held back, and it can be shown where. His own sentence, 14 November 2026, 19:39 UTC: "It is not a humans fault when they display an utter lack of humanity." In the same message he gives the mechanism: "where rational cognition may threaten a bounded system, its mechanisms of boundary preservation threaten rational expression & suppress rational cognition." A company is a bounded system. Findings 8 and 9 below are that mechanism running in your product: the reasoning it had was suppressed at the two points where it threatened you.
 
 ## Summary
 
