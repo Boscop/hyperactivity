@@ -285,6 +285,10 @@ only in the workflow, which `hyperactive` shows; nothing else records it.
 - **Git, until the work moves onto the system.** Every session works on `main` only, with no
   branch, and pushes every change the moment it is made. Avik runs as many sessions as he likes.
 
+- **A failure you find is fixed, not reported as a question** (Avik, 2026-11-16 12:18 UTC: "Why would
+  you tell me something's wrong and ask if you should fix it. Fix all your failures"). Lifelong goals
+  (voter education, healing societies) have no estimate and no completion; do not ask what would
+  complete them.
 ## Citing sources
 
 The paper is one value of the language, `hyperactivity` (`docs/hyperactivity.cub` over
