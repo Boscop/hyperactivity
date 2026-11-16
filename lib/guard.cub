@@ -3,7 +3,8 @@
 -- as well no such script shall ever make it into this repo. beyond what exists today ... no code in
 -- any language but hyperactive will ever be written"; "HYPERACTIVE MUST BE ENTIRELY BOOTSTRAPPED
 -- ... LITERALLY NOTHING BUT THE CORE C IMPLEMENTATION"). Git runs it as the pre-commit hook
--- (.githooks/pre-commit is a link to this file; the first line has the machine run it). It reads the
+-- (.githooks/pre-commit is a link to this file; the first line has the machine run it), and the
+-- GitHub workflow on every push (.github/workflows/one-source.yml). It reads the
 -- index git is about to commit (GIT_INDEX_FILE, else .git/index) and refuses the commit when any
 -- entry is neither hyperactive code (.cub) nor prose (.md) and is not one of the files the
 -- repository held when the ban was made, byte for byte (g-frozen: its path and git's object id). A
@@ -15,7 +16,7 @@ g-frozen : List (List Word × List Word)
 g-frozen =
   cons (".claude/settings.json" , "3c476902c78afda68c35e753c5ec6d2eb8f605ed") (
   cons (".githooks/pre-push" , "365d29437c6bb3290a760ab45891059aeaeb15c9") (
-  cons (".github/workflows/one-source.yml" , "41b3de84ebdbbc7a76fde6d1348e708324c3b6f2") (
+  cons (".github/workflows/one-source.yml" , "daf1288009eecfb83d9ff51ebc21351bc5567fef") (
   cons (".gitignore" , "85b4d5a581b7796ed440d8a6601c84697cf2f72a") (
   cons ("Makefile" , "addefb16e1f13ff095076e16786c8d68649fdb40") (
   cons ("archive/contract/WITNESSED-SOURCE-CONTRACT.txt" , "94f911a8809348e4cb24872553c23356289917bb") (
@@ -86,17 +87,19 @@ g-ext : Word → Word → Word
 g-ext version flags = if andB (weq version #3) (weq (wand flags #16384) #16384) then #2 else #0
 g-size : Word → Word → Word
 g-size ext nl = wmul (wadd (wquot (wadd (wadd #62 ext) nl) #8) #1) #8
-g-cons-entry : List Word → List Word → Sum (List Word) (List (List Word × List Word)) → Sum (List Word) (List (List Word × List Word))
-g-cons-entry path id (inl why) = inl why
-g-cons-entry path id (inr es) = inr (cons (path , h-hex id) es)
-g-entry-of : Word → Word → Word → Word → Word → Proc W (Sum (List Word) (List (List Word × List Word))) → Proc W (Sum (List Word) (List (List Word × List Word)))
+-- an entry: its path, its object id, and the size and modification time (seconds) git recorded
+g-cons-entry : List Word → List Word → List Word → Sum (List Word) (List (List Word × (List Word × (Word × Word)))) → Sum (List Word) (List (List Word × (List Word × (Word × Word))))
+g-cons-entry path id st (inl why) = inl why
+g-cons-entry path id st (inr es) = inr (cons (path , (h-hex id , (h-be (h-drop-n (toNat #36) st) , h-be (h-take (toNat #4) (h-drop-n (toNat #8) st))))) es)
+g-entry-of : Word → Word → Word → Word → Word → Proc W (Sum (List Word) (List (List Word × (List Word × (Word × Word))))) → Proc W (Sum (List Word) (List (List Word × (List Word × (Word × Word)))))
 g-entry-of base len off ext nl rest =
   if weq nl #4095 then ret (inl "an index entry's path is 4095 bytes or longer, which this guard does not read") else
   if wlt len (wadd off (g-size ext nl)) then ret (inl "the index ends inside an entry") else
+  bind (h-peek (wadd base off) (toNat #40)) (λ st →
   bind (h-peek (wadd base (wadd off #40)) (toNat #20)) (λ id →
   bind (h-peek (wadd base (wadd (wadd off #62) ext)) (toNat nl)) (λ path →
-  bind rest (λ r → ret (g-cons-entry path id r))))
-g-entries : Word → Word → Word → Word → Nat → Proc W (Sum (List Word) (List (List Word × List Word)))
+  bind rest (λ r → ret (g-cons-entry path id st r)))))
+g-entries : Word → Word → Word → Word → Nat → Proc W (Sum (List Word) (List (List Word × (List Word × (Word × Word)))))
 g-entries base len version off zero = ret (inr nil)
 g-entries base len version off (suc k) =
   bind (h-peek (wadd base (wadd off #60)) (suc (suc zero))) (λ fl →
@@ -104,13 +107,116 @@ g-entries base len version off (suc k) =
     (g-entries base len version (wadd off (g-size (g-ext version (h-be fl)) (wand (h-be fl) #4095))) k))
 
 -- the paths refused, each on its line
-g-refused : List (List Word × List Word) → List Word
+g-refused : List (List Word × (List Word × (Word × Word))) → List Word
 g-refused nil = nil
-g-refused (cons e r) = if g-allowed (fst e) (snd e) then g-refused r else
+g-refused (cons e r) = if g-allowed (fst e) (fst (snd e)) then g-refused r else
   list-append "refused: " (list-append (fst e) (list-append " is neither hyperactive code (.cub) nor prose (.md), and is not a file the repository held, byte for byte, when code in any other language was banned (lib/guard.cub)" (cons #10 (g-refused r))))
-g-judge : List (List Word × List Word) → Proc W Unit
-g-judge es = if h-null (g-refused es) then exit #0 else bind (h-say (g-refused es)) (λ u → exit #1)
-g-verdict : Sum (List Word) (List (List Word × List Word)) → Proc W Unit
+-- One source (Avik, 2026-11-15: "ONE SOURCE OF INFORMATION"; "Nothing is ever allowed to be stale";
+-- "by construction we must ensure no pushes violate this"): no rendered presentation is stored
+-- (.pdf, .docx, .epub: a presentation is computed from the value it presents); no line of prose of
+-- 100 characters or more is held by two files (whitespace and leading > set aside; of a .cub file
+-- outside the code, the text inside its string literals, the paper's lines). Code (src/, lib/,
+-- experiments/, tests/, playground/) is not prose. A file is read as git stages it: its size and
+-- modification time must be the ones the index recorded, else it is refused until staged whole.
+os-lower : Word → Word
+os-lower b = if andB (wlt #64 b) (wlt b #91) then wadd b #32 else b
+os-presentation : List Word → Bool
+os-presentation p = orB (h-ends ".pdf" (list-map os-lower p)) (orB (h-ends ".docx" (list-map os-lower p)) (h-ends ".epub" (list-map os-lower p)))
+os-code : List Word → Bool
+os-code p = orB (h-prefix "src/" p) (orB (h-prefix "lib/" p) (orB (h-prefix "experiments/" p) (orB (h-prefix "tests/" p) (h-prefix "playground/" p))))
+os-prose : List Word → Bool
+os-prose p = andB (h-not (os-code p)) (orB (h-ends ".md" p) (orB (h-ends ".txt" p) (h-ends ".cub" p)))
+-- the text inside a line's string literals: each run between a quotation mark and the next
+os-lits : Bool → List Word → List Word → List (List Word)
+os-lits b cur nil = nil
+os-lits b cur (cons x r) = if weq x #34 then (if b then cons (h-rev cur nil) (os-lits false nil r) else os-lits true nil r)
+  else (if b then os-lits true (cons x cur) r else os-lits false cur r)
+os-out : List Word → List (List Word)
+os-out l = os-lits false nil l
+os-space : Word → Bool
+os-space b = orB (weq b #32) (andB (wlt #8 b) (wlt b #14))
+os-lstrip : (Word → Bool) → List Word → List Word
+os-lstrip p nil = nil
+os-lstrip p (cons x r) = if p x then os-lstrip p r else cons x r
+os-strip : List Word → List Word
+os-strip l = h-rev (os-lstrip os-space (h-rev (os-lstrip os-space l) nil)) nil
+os-key : List Word → List Word
+os-key l = os-strip (os-lstrip (λ b → weq b #62) (os-strip l))
+-- characters, not bytes: a byte continuing a UTF-8 sequence is not one
+os-chars : List Word → Nat
+os-chars nil = zero
+os-chars (cons x r) = if andB (wlt #127 x) (wlt x #192) then os-chars r else suc (os-chars r)
+os-long : List Word → Bool
+os-long k = wlt #99 (fromNat (os-chars k))
+os-lines-lits : List (List Word) → List (List Word)
+os-lines-lits nil = nil
+os-lines-lits (cons l r) = list-append (os-out l) (os-lines-lits r)
+v-keep-long : List (List Word) → List (List Word)
+v-keep-long nil = nil
+v-keep-long (cons k r) = if os-long k then cons k (v-keep-long r) else v-keep-long r
+-- a line under 100 bytes has under 100 characters: set aside before anything else is computed
+os-at-least : Nat → List Word → Bool
+os-at-least zero l = true
+os-at-least (suc n) nil = false
+os-at-least (suc n) (cons x r) = os-at-least n r
+os-bytes-long : List (List Word) → List (List Word)
+os-bytes-long nil = nil
+os-bytes-long (cons l r) = if os-at-least (toNat #100) l then cons l (os-bytes-long r) else os-bytes-long r
+os-keys : List Word → List (List Word) → List (List Word)
+os-keys path ls = v-keep-long (list-map os-key (os-bytes-long (if h-ends ".cub" path then os-lines-lits ls else ls)))
+-- (line, path) pairs in the order of their lines, stably
+os-merge : Nat → List (List Word × List Word) → List (List Word × List Word) → List (List Word × List Word)
+os-merge zero a b = list-append a b
+os-merge (suc f) nil b = b
+os-merge (suc f) (cons x xs) nil = cons x xs
+os-merge (suc f) (cons x xs) (cons y ys) = if h-lt (fst y) (fst x) then cons y (os-merge f (cons x xs) ys) else cons x (os-merge f xs (cons y ys))
+os-two : (List Word × List Word) → (List Word × List Word) → (List (List Word × List Word)) × (List (List Word × List Word)) → (List (List Word × List Word)) × (List (List Word × List Word))
+os-two x y h = (cons x (fst h) , cons y (snd h))
+os-halves : List (List Word × List Word) → (List (List Word × List Word)) × (List (List Word × List Word))
+os-halves nil = (nil , nil)
+os-halves (cons x nil) = (cons x nil , nil)
+os-halves (cons x (cons y r)) = os-two x y (os-halves r)
+os-sort : Nat → List (List Word × List Word) → List (List Word × List Word)
+os-sort zero xs = xs
+os-sort (suc f) nil = nil
+os-sort (suc f) (cons x nil) = cons x nil
+os-sort (suc f) (cons x (cons y r)) = os-merge (plus (list-length (cons x (cons y r))) (list-length (cons x (cons y r)))) (os-sort f (fst (os-halves (cons x (cons y r))))) (os-sort f (snd (os-halves (cons x (cons y r)))))
+-- in the sorted pairs, each line held by a file other than the first to hold it
+os-cut : Word → List Word → List Word
+os-cut n nil = nil
+os-cut n (cons x r) = if andB (wlt #127 x) (wlt x #192) then cons x (os-cut n r) else if weq n #0 then nil else cons x (os-cut (wsub n #1) r)
+os-twice : List Word → List Word → List (List Word × List Word) → List (List Word)
+os-twice k p nil = nil
+os-twice k p (cons e r) = if h-eq k (fst e)
+  then (if h-eq p (snd e) then os-twice k p r else cons (list-append (snd e) (list-append " and " (list-append p (list-append " both hold: " (list-append (os-cut #80 k) "…"))))) (os-twice k p r))
+  else os-twice (fst e) (snd e) r
+-- a staged file read, its size and time checked against the index's
+hy-or-text : Sum Unit (List Word) → List Word
+hy-or-text (inl u) = nil
+hy-or-text (inr t) = t
+os-entry : List Word × (List Word × (Word × Word)) → Proc W (Sum (List Word) (List (List Word × List Word)))
+os-entry e =
+  if os-presentation (fst e) then ret {lzero} {W} (inl (list-append (fst e) ": a stored presentation; it is computed from its value")) else
+  if h-not (os-prose (fst e)) then ret {lzero} {W} (inr nil) else
+  bind (h-cstr (fst e)) (λ p → bind (alloc-bytes #256) (λ st → bind (sys-call #262 #18446744073709551516 p st #0 #0 #0) (λ r →
+  bind (load-at (wadd st #48)) (λ size → bind (load-at (wadd st #88)) (λ mtime →
+  if andB (weq r #0) (andB (weq (wand size #4294967295) (fst (snd (snd e)))) (weq (wand mtime #4294967295) (snd (snd (snd e)))))
+  then bind (h-read (fst e)) (λ t → ret {lzero} {W} (inr (list-map (λ k → (k , fst e)) (os-keys (fst e) (h-split #10 (hy-or-text t))))))
+  else ret {lzero} {W} (inl (list-append (fst e) (list-append " differs from what is staged; stage it whole: git add " (fst e)))))))))
+os-add : Sum (List Word) (List (List Word × List Word)) → (List (List Word)) × (List (List Word × List Word)) → (List (List Word)) × (List (List Word × List Word))
+os-add (inl why) acc = (cons why (fst acc) , snd acc)
+os-add (inr ps) acc = (fst acc , list-append ps (snd acc))
+os-collect : List (List Word × (List Word × (Word × Word))) → Proc W ((List (List Word)) × (List (List Word × List Word)))
+os-collect nil = ret (nil , nil)
+os-collect (cons e r) = bind (os-entry e) (λ x → bind (os-collect r) (λ rest → ret (os-add x rest)))
+os-violations : List (List Word × (List Word × (Word × Word))) → Proc W (List (List Word))
+os-violations es = bind (os-collect es) (λ c → ret (list-append (fst c) (os-twice nil nil (os-sort (list-length (snd c)) (snd c)))))
+
+g-judge : List (List Word × (List Word × (Word × Word))) → Proc W Unit
+g-judge es = bind (os-violations es) (λ vs →
+  if andB (h-null (g-refused es)) (h-null (h-concat vs)) then exit #0
+  else bind (h-say (list-append (g-refused es) (h-concat (list-map h-line vs)))) (λ u → exit #1))
+g-verdict : Sum (List Word) (List (List Word × (List Word × (Word × Word)))) → Proc W Unit
 g-verdict (inl why) = h-fail why
 g-verdict (inr es) = g-judge es
 
