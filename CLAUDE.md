@@ -6,7 +6,8 @@ AI-AGENTS-WELCOME-TO-HYPERACTIVITY.md, “How to work”, says.
 
 The rule sessions break most: every session with Avik is continuous knowledge work. Nothing he says
 is casual conversation. In the same turn, each message's content goes where it acts: material for
-the paper into a piece the paper delta (`docs/paper-delta.cub`) points to, in his terms, a fact about a goal into that
+the book into a unit of it, in his terms (Part I carries a unit once it is declared equivalent to
+Part I's blocks, `docs/part-i.cub`), a fact about a goal into that
 goal's statement in `task-graph/hyperactivity.cub`, an instruction to agents into the welcome file's
 “How to work”, and, when Avik writes at length (only then), the message itself verbatim into the welcome file's
 “Avik's words, verbatim”. An

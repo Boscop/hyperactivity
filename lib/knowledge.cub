@@ -43,3 +43,37 @@ decomposed-by who date = list-append "Decomposed by " (list-append who (list-app
 -- an essay as a document: the essay bare, named by its title
 essay-document : Essay → Document
 essay-document (essay n ps d) = projection n (bare (essay n ps d))
+-- ---------------------------------------------------------------- what Part I carries (2026-11-16)
+-- Avik: a unit is in Part I exactly when it is declared semantically equivalent to a decomposed piece
+-- of Part I; anything not so mapped is not included, and while that invariant is kept no list of what
+-- is outside is maintained: it is computed. A declaration names the unit and the blocks of Part I
+-- (lib/paper.cub) that carry its meaning, and is made by judgement, checked sentence by sentence.
+data Equivalent = equivalent (unit : Part) (blocks : List Block) (declared : List Word)
+declared-equivalent : List Word → List Word → List Word
+declared-equivalent who date = list-append "Declared semantically equivalent by " (list-append who (list-append ", " (list-append date ": judged, and checked sentence by sentence against the blocks of Part I it names.")))
+-- two runs of lines equal, line by line
+lines-eq : List (List Word) → List (List Word) → Bool
+lines-eq nil nil = true
+lines-eq nil (cons m ms) = false
+lines-eq (cons l ls) nil = false
+lines-eq (cons l ls) (cons m ms) = if text-eq l m then lines-eq ls ms else false
+-- one unit: the same lines, and the same re-expression
+part-eq : Part → Part → Bool
+part-eq (part ls) (part ms) = lines-eq ls ms
+part-eq (part ls) (referring ms t) = false
+part-eq (referring ls s) (part ms) = false
+part-eq (referring ls s) (referring ms t) = if lines-eq ls ms then lines-eq s t else false
+equivalent-unit : Equivalent → Part
+equivalent-unit (equivalent p bs d) = p
+-- whether a declaration names the unit
+carried : List Equivalent → Part → Bool
+carried nil p = false
+carried (cons e es) p = if part-eq (equivalent-unit e) p then true else carried es p
+-- the named units no declaration names, in the order given
+uncarried : List Equivalent → List (List Word × Part) → List (List Word × Part)
+uncarried es nil = nil
+uncarried es (cons np nps) = if carried es (snd np) then uncarried es nps else cons np (uncarried es nps)
+-- named units as one text: each under its name as a heading, self-contained
+units-text : List (List Word × Part) → List Word
+units-text nil = nil
+units-text (cons np nps) = list-append "## " (list-append (fst np) (cons #10 (cons #10 (list-append (part-unit (snd np)) (cons #10 (cons #10 (units-text nps)))))))

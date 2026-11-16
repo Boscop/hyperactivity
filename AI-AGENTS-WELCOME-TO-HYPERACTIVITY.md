@@ -5,8 +5,8 @@ Avik Jain's instructions to the AI agents who work on hyperactivity, and his wor
 An agent arrives through `hyperactive`, and it is how the work is done: `hyperactive` begins the
 walk, and `hyperactive next` and `hyperactive prev` move through it one chunk at a time, each small
 enough to arrive whole. What is walked is the value `onboarding` (`docs/onboarding.cub`): this file,
-the paper, the Hyperactive Labs note (`docs/Hyperactive_Labs.md`), every piece the paper delta
-(`docs/paper-delta.cub`) points to, the word list (`docs/word-list.md`) and the etymologies
+Part I (the value `hyperactivity`), the Hyperactive Labs note (`docs/Hyperactive_Labs.md`), every unit of the
+book Part I does not yet carry (`not-in-part-i`, `docs/part-i.cub`), the word list (`docs/word-list.md`) and the etymologies
 (`docs/etymologies.md`), all in full; then the task graph and what can be taken up. Status lives
 only in the task graph, which `hyperactive` shows; nothing else records it.
 
@@ -28,7 +28,7 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   that understanding is absent: keep reasoning instead of presenting it. (A session asserted
   impossibility three times before deriving the construction now under typed-codes-and-normalization
   in the task graph.) Write no code until the whole construction is understood.
-- **Read the paper (the copy described under “Citing sources” below) and every piece the paper delta (`docs/paper-delta.cub`) points to before giving any account of the project.** Reason at length rather than
+- **Read Part I (the copy described under “Citing sources” below) and every unit of the book Part I does not yet carry (`not-in-part-i`, `docs/part-i.cub`) before giving any account of the project.** Reason at length rather than
   presenting conclusions first.
 - **Ask questions only of yourself and answer them in the next sentence.** Never ask Avik what he has
   answered. The only questions for him are constructions only he can answer.
@@ -62,7 +62,7 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   while work that is not blocked on Avik remains. It works through long stretches, hours or a night.
 - **Context lives in the repository, not in chat.** A session can end at any moment, so what it is
   doing, has found and has decided is written as it happens: facts at the goal they concern in the task graph,
-  material for the paper in a piece the paper delta points to.
+  material for the book in a unit of it.
 - **The README holds only setup and installation,** and hands off to `hyperactive`, which teaches
   the rest.
 - **Before any edit, state the whole chain of goals it serves and every file to change, and how**
@@ -122,13 +122,13 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   - `done` declares the work done and ends the session.
   Never open, grep, sed or edit a .cub file. The harness enforces this: `.claude/settings.json` runs
   lib/leash.cub before every tool call.
-- **Use the organization; never sprawl** (Avik, 2026-11-15). The paper delta, `docs/paper-delta.cub`,
-  is a set of pointers (`document "path"`: a path and its content hash) and nothing else, no
-  descriptions. Each piece it points to is work written at a distinct time and not yet in the paper;
-  multiplicity exists only for that reason, so a piece is never fragmented. New material written at a
-  later time is a new piece in `docs/`, and a pointer to it is added to the delta; it is not appended
-  to an existing piece. When the paper absorbs a piece, its pointer leaves. Nothing essential is left
-  as a file nothing points to.
+- **One knowledge graph; Part I carries what is declared equivalent to it** (Avik, 2026-11-16). Every
+  definition is a node of one graph: goals, units of the book, blocks of Part I, code. Every unit is an
+  undeveloped section, at some granularity, of some chapter of the book. A unit is in Part I exactly
+  when it is declared semantically equivalent to blocks of Part I (`part-i-carries`, `docs/part-i.cub`;
+  the edge is `Equivalent`, `lib/knowledge.cub`), by judgement, checked sentence by sentence. Anything
+  not so declared is not included, and what is not included is computed (`not-in-part-i`), never
+  listed. Keep the invariant: when Part I comes to carry a unit, declare the equivalence then.
 - **One source of information** (Avik, 2026-11-15: "ONE SOURCE OF INFORMATION THATS THE WHOLE
   DAMN PROJECT"; "Nothing is ever allowed to be stale"). Every piece of information is stored once.
   A presentation (the paper as it reads, a PDF, a copy of a document, a summary written beside its
@@ -141,7 +141,7 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   conversation: he works all day, the only bound on getting the work out is his words per minute
   with agents amplifying them, and the only friction is an agent's incorrectness. Every message,
   personal context included, is work product. In the same turn, its content goes where it acts:
-  material for the paper into a piece the paper delta (`docs/paper-delta.cub`) points to, in his terms; a fact about a
+  material for the book into a unit of it, in his terms; a fact about a
   goal into that goal's statement in the task graph; an instruction to agents into this section; and,
   when he writes at length (only then; not every message), the message itself, verbatim, into
   “Avik's words, verbatim” below. An insight a session reaches with him
