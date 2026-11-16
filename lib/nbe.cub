@@ -1227,12 +1227,15 @@ var-find : (sk : Lst Entry) (f : VarP sk → Word) (k : Word) → Opt ((v : VarP
 var-find lnil f k = none
 var-find (lcons e-dim sk) f k = var-find sk f k
 var-find (lcons (e-ty a) sk) f k = vf-at sk a f k (w-dec (f none) k) (var-find sk (λ v → f (some v)) k)
+fam-cast : (f f' : FamF) (P : FamF → Type 1) → P f' → Dec1 (P f)
+fam-cast f-pi f-pi P x = c-derived x
+fam-cast f-sig f-sig P x = c-derived x
+fam-cast f f' P x = c-refused
 shape-cast : (s s' : TyShape) (P : TyShape → Type 1) → P s' → Dec1 (P s)
 shape-cast s-bool s-bool P x = c-derived x
-shape-cast (s-fam f-pi a b) (s-fam f-pi a' b') P x =
-  d-bind (P (s-fam f-pi a' b)) (P (s-fam f-pi a b)) (shape-cast b b' (λ b0 → P (s-fam f-pi a' b0)) x) (λ y → shape-cast a a' (λ a0 → P (s-fam f-pi a0 b)) y)
-shape-cast (s-fam f-sig a b) (s-fam f-sig a' b') P x =
-  d-bind (P (s-fam f-sig a' b)) (P (s-fam f-sig a b)) (shape-cast b b' (λ b0 → P (s-fam f-sig a' b0)) x) (λ y → shape-cast a a' (λ a0 → P (s-fam f-sig a0 b)) y)
+shape-cast (s-fam fm a b) (s-fam fm' a' b') P x =
+  d-bind (P (s-fam fm a' b')) (P (s-fam fm a b)) (fam-cast fm fm' (λ f → P (s-fam f a' b')) x)
+    (λ y → d-bind (P (s-fam fm a' b)) (P (s-fam fm a b)) (shape-cast b b' (λ b0 → P (s-fam fm a' b0)) y) (λ z → shape-cast a a' (λ a0 → P (s-fam fm a0 b)) z))
 shape-cast (s-path a) (s-path a') P x = shape-cast a a' (λ a0 → P (s-path a0)) x
 shape-cast s s' P x = c-refused
 Contr1 : Type 1 → Type 1
