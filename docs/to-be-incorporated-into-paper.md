@@ -271,7 +271,7 @@ to be incorporated into the paper.
   text and technology as weaving, compute as count and recount, history as witness, identity,
   univalence and homotopy as oneness. Title by Avik; written by Claude; kept as is at his direction.
 - **Knowledge is a lack of ignorance: the divisions the primitive removes**
-  (`docs/knowledge-is-a-lack-of-ignorance.md`, 2026-11-15). Avik's statement that no historical
+  (`docs/knowledge-is-a-lack-of-ignorance.cub`, 2026-11-15). Avik's statement that no historical
   distinction is primitive and that domains are bubbles of shared ignorance, and the scientific
   field divisions the primitive removes. Kept as is at his direction.
 - **Controversy and consensus** (`docs/controversy-and-consensus.cub`, 2026-11-15). Avik's key term
