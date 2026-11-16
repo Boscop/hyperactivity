@@ -1,0 +1,51 @@
+h-post : List Word → List Word → List Word → List Word → Proc W (Sum Unit (List Word))
+h-post srv tok path body = h-http srv (h-concat (cons "POST " (cons path (cons " HTTP/1.1" (cons h-crlf
+  (cons "X-Token: " (cons tok (cons h-crlf (cons "Content-Length: " (cons (h-decimal (fromNat (list-length body))) (cons h-crlf
+  (cons "Connection: close" (cons h-crlf (cons h-crlf (cons body nil))))))))))))))))
+-- a change the server has had (`SEQ PATH POINTER`, "-" when the module was dropped), taken: the
+-- module's text recorded as the server holds it, unless the session holds that pointer already
+h-take-text : List Word → List Word → Sum Unit (List Word) → Proc W Unit
+h-take-text m path r = if weq (h-status r) #200 then h-record-raw m path (h-body r) else ret unit
+h-take-change : List Word → List Word → List Word → Proc W Unit
+h-take-change srv m line = bind (h-pointer (h-head-or (h-tail-lists (h-split #32 line)))) (λ p →
+  if h-eq p (h-head-or (h-tail-lists (h-tail-lists (h-split #32 line)))) then ret {lzero} {W} unit
+  else if h-eq "-" (h-head-or (h-tail-lists (h-tail-lists (h-split #32 line)))) then h-unrecord-raw (h-head-or (h-tail-lists (h-split #32 line)))
+  else bind (h-get srv (list-append "/source/text?path=" (h-head-or (h-tail-lists (h-split #32 line))))) (h-take-text m (h-head-or (h-tail-lists (h-split #32 line)))))
+h-take-changes : List Word → List Word → List (List Word) → Proc W Unit
+h-take-changes srv m nil = ret unit
+h-take-changes srv m (cons l r) = bind (h-take-change srv m l) (λ u → h-take-changes srv m r)
+h-last-seq : List Word → List (List Word) → List Word
+h-last-seq d nil = d
+h-last-seq d (cons l r) = h-last-seq (h-before " " l) r
+h-pull : List Word → List Word → List Word → Proc W Unit
+h-pull st m srv = bind (h-read (list-append st "/source-seq")) (λ s →
+  bind (h-get srv (list-append "/source/changes?since=" (h-pointer-or s))) (λ r →
+  if weq (h-status r) #200
+  then bind (h-take-changes srv m (h-lines (h-body r))) (λ u →
+    bind (h-write (list-append st "/source-seq") (h-last-seq (h-pointer-or s) (h-lines (h-body r)))) (λ w → ret unit))
+  else h-say (h-line (list-append "the served source cannot be reached: " srv))))
+-- a module published: its text when the source holds it, else its removal, from the pointer kept
+h-publish-answer : List Word → List Word → Sum Unit (List Word) → Proc W Bool
+h-publish-answer st path r = bind (h-unlink (h-before-of st path)) (λ u →
+  if weq (h-status r) #200 then ret {lzero} {W} true
+  else bind (h-say (h-line (list-append path (list-append " was changed on the served source since this session had it; the session now holds the server's, and this change is not published: write it again"
+    (if weq (h-status r) #0 then " (the server cannot be reached)" else ""))))) (λ u2 → ret {lzero} {W} false))
+h-publish-text : List Word → List Word → List Word → List Word → List Word → Sum Unit (List Word) → Proc W Bool
+h-publish-text st srv tok path was (inl u) = bind (h-post srv tok (list-append "/source/unrecord?path=" (list-append path (list-append "&was=" was))) nil) (h-publish-answer st path)
+h-publish-text st srv tok path was (inr t) = bind (h-post srv tok (list-append "/source/record?path=" (list-append path (list-append "&was=" was))) t) (h-publish-answer st path)
+h-publish-one : List Word → List Word → List Word → List Word → Proc W Bool
+h-publish-one st srv tok path = bind (h-read (h-before-of st path)) (λ w → bind (h-pointer path) (λ now →
+  if h-eq (h-pointer-or w) now then bind (h-unlink (h-before-of st path)) (λ u → ret {lzero} {W} true)
+  else bind (h-source-text path) (h-publish-text st srv tok path (h-pointer-or w))))
+h-publish-all : List Word → List Word → List Word → List (List Word) → Proc W Bool
+h-publish-all st srv tok nil = ret true
+h-publish-all st srv tok (cons hx r) = bind (h-publish-one st srv tok (h-unhex hx)) (λ ok →
+  bind (h-publish-all st srv tok r) (λ rest → ret (andB ok rest)))
+-- a command's sync with the served source, when one is named: what is unpublished published, then
+-- the server's changes taken (at the start, `pull` true), or what the command changed published (at the end)
+h-sync-at : List Word → List Word → Bool → Sum Unit (List Word) → Proc W Unit
+h-sync-at st m pull (inl u) = ret unit
+h-sync-at st m pull (inr srv) = bind (h-env "HYPERACTIVE_TOKEN") (λ tk → bind (h-list (list-append st "/before")) (λ hs →
+  bind (h-publish-all st srv (h-pointer-or tk) hs) (λ ok → if orB pull (h-not ok) then h-pull st m srv else ret {lzero} {W} unit)))
+h-sync : List Word → List Word → Bool → Proc W Unit
+h-sync st m pull = bind (h-env "HYPERACTIVE_SERVER") (h-sync-at st m pull)

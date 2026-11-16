@@ -1,0 +1,43 @@
+-- the socket: port, listening on 127.0.0.1, or on every address when HYPERACTIVE_PUBLIC is set
+s-addr-bytes : Bool → Word → List Word
+s-addr-bytes pub port = cons #2 (cons #0 (cons (wshr port #8) (cons (wand port #255) (if pub then cons #0 (cons #0 (cons #0 (cons #0 nil))) else cons #127 (cons #0 (cons #0 (cons #1 nil))))))))
+s-addr : Bool → Word → Proc W Word
+s-addr pub port = bind (alloc-bytes #16) (λ a → bind (h-poke a (s-addr-bytes pub port)) (λ u → ret a))
+s-listen : Bool → Word → Proc W Word
+s-listen pub port = bind (sys-call #41 #2 #1 #0 #0 #0 #0) (λ fd → bind (alloc-bytes #4) (λ one → bind (store8-at one #1) (λ u →
+  bind (sys-call #54 fd #1 #2 one #4 #0) (λ o → bind (s-addr pub port) (λ a → bind (sys-call #49 fd a #16 #0 #0 #0) (λ b →
+  bind (sys-call #50 fd #16 #0 #0 #0 #0) (λ l → ret {lzero} {W} (if orB (wlt #9223372036854775807 b) (wlt #9223372036854775807 l) then #18446744073709551615 else fd))))))))
+-- a request read whole: its head, and as many bytes after it as its Content-Length says
+s-whole : List Word → Bool
+s-whole req = andB (h-infix (list-append h-crlf h-crlf) req)
+  (h-not (wlt (fromNat (list-length (h-after (list-append h-crlf h-crlf) req))) (h-number (h-after "Content-Length: " req))))
+s-read : Nat → Word → List Word → Proc W (List Word)
+s-read zero c acc = ret acc
+s-read (suc k) c acc = if s-whole acc then ret {lzero} {W} acc else bind (alloc-bytes #65536) (λ buf → bind (sys-call #0 c buf #65536 #0 #0 #0) (λ n →
+  if orB (weq n #0) (wlt #9223372036854775807 n) then ret {lzero} {W} acc
+  else bind (h-peek buf (toNat n)) (λ b → s-read k c (list-append acc b))))
+s-serve : Nat → List Word → List Word → Sum Unit (List Word) → Word → Proc W Unit
+s-serve zero st m tok fd = ret unit
+s-serve (suc k) st m tok fd = bind (sys-call #43 fd #0 #0 #0 #0 #0) (λ c →
+  bind (s-read (toNat #100000) c nil) (λ req →
+  bind (s-request st m tok req) (λ resp →
+  bind (fd-write c resp) (λ w → bind (sys-call #3 c #0 #0 #0 #0 #0) (λ cl → s-serve k st m tok fd)))))
+s-head : List Word → List (List Word) → List Word
+s-head d nil = d
+s-head d (cons x r) = x
+s-port : List (List Word) → Word
+s-port nil = #8080
+s-port (cons p r) = if h-null p then #8080 else h-number p
+s-set : Sum Unit (List Word) → Bool
+s-set (inl u) = false
+s-set (inr v) = true
+s-start : List Word → List Word → Word → Proc W Unit
+s-start st m port = bind (h-env "HYPERACTIVE_PUBLIC") (λ pub → bind (h-env "HYPERACTIVE_TOKEN") (λ tok → bind (s-listen (s-set pub) port) (λ fd →
+  if wlt fd #9223372036854775807 then bind (h-out (h-line (list-append "http://localhost:" (list-append (h-decimal port) "/")))) (λ u → s-serve (toNat #1000000) st m tok fd)
+  else h-fail (list-append "server: the port cannot be listened on: " (h-decimal port)))))
+s-main : Proc W Unit
+s-main = bind (h-env "CUBICAL_STORE") (λ e → bind h-args (λ a → s-start (h-store-of e) (s-head "build/cubical" a) (s-port (h-drop-n (suc (suc zero)) a))))
+-- s-run: serves the workflow, its history and the documents over HTTP (part of product-implementation)
+s-run : Step W Unit
+s-run = to-step s-main
+#run s-run

@@ -1,0 +1,241 @@
+-- product-implementation (2026-11-13, Avik): "all the product work of building a live interactive
+-- collaboration system & tooling over the language & its terms". How it is held, changed and shared:
+-- “State, change and collaboration” (docs/to-be-incorporated-into-paper.cub).
+-- The product is not a system built on the language and has no parts: it is the language's own
+-- notions taken seriously, one organism (Avik, 2026-11-13). A definition's identity is its content;
+-- so a change is a new term, related to the old by a path or a square in the language; so nothing is
+-- overwritten and there is no canonical state to merge into; so a view is a term the language
+-- evaluates over the growing set of terms; and the interface is those views rendered for a person.
+-- Each follows from the one before; none is built apart from the others.
+-- What is known about this goal follows (2026-11-13, from the review of every earlier finding): facts,
+-- not a breakdown and not parts; the session working on the goal decides how to break it down when its
+-- work begins (“The Hyperactive Workflow” (docs/to-be-incorporated-into-paper.cub)).
+-- Known (2026-11-13, Avik's correction): identity is semantic, two terms being the same exactly
+-- when their content is; SHA-256 equality is one witness of it, not something interpretation
+-- computes. Inside a run the evaluator's sound representation is interning (terms built from equal
+-- parts share one node, so pointer equality is content identity, proved once about the interning);
+-- a hash is needed only where identity crosses what a pointer cannot (another run, another machine,
+-- the store), under collision resistance as a named assumption. So the findings below that ask for
+-- every reference to be keyed by its content hash name the wrong fix: what is missing is
+-- translating an evaluator result's run-local identity into a portable one when it leaves the run.
+-- This is the paper's pattern throughout (docs/Hyperactive_Final_Paper.pdf, 11 Nov 2026, sha256 e8f358b4cd2c…: native code
+-- §9.3 “An exact decoded machine and a structural compiler theorem”, primitives §8.5 “Machine representations and memory laws”, digests §10.8 “Content-addressed definitions, mathematical identity, and a decentralized codebase”): a mechanism (native code, a primitive, a pointer, a hash) is
+-- admitted only with its relation to the defined meaning.
+-- Known (2026-11-13, from the change-management reasoning): holding an object's content address
+-- cannot be what grants seeing it, because the address of low-entropy content (a short message, a
+-- small edit, a number) is guessable by hashing candidates; so visibility is decided where an
+-- object crosses a boundary, the same place run-local identity becomes portable identity, and an
+-- object whose audience is restricted gets a portable key that only its audience can compute, which
+-- gives up sharing it with identical objects outside that audience and changes nothing about its
+-- semantic identity.
+-- Known (2026-11-13, from the review of every earlier finding): The work leaves git for the change
+-- management Avik designed. The design is “State, change and collaboration” (docs/to-be-incorporated-into-paper.cub); his words are “To the coordinating session, on state, change and collaboration (2026-11-13, forwarded to this one)” (AI-AGENTS-WELCOME-TO-HYPERACTIVITY.md),
+-- whose headings are cited here (they were sections 1 to 8 of docs/state-change-collaboration-design.md,
+-- since folded into it): the work is a collection of immutable objects, not a tree of files ("Our
+-- state is not text"); a session reads and writes through a query interface and materializes
+-- locally only to act, an executable and its input ("A work session: read, write, act"); what a
+-- session does internally stays invisible to Avik's views ("Visibility"); there is no canonical
+-- state and nothing is promoted, every change being new code ("There is no canonical state", "Code
+-- is immutable and content-addressed"); old objects are marked dead by a statement with a reason
+-- ("Old objects, and marking them dead"); a change to an inner construction relates its users' old
+-- and new versions by a square ("Change is a square"); questions are tasks with reasons ("Questions
+-- are tasks"). Git and Pijul are the wrong base ("Code is immutable and content-addressed"). Until it exists, git carries the work: every session on
+-- main only, no branch, every change pushed the moment it is made (“The Hyperactive Workflow” (docs/to-be-incorporated-into-paper.cub)).
+-- Known (2026-11-16): the source is served. `hyperactive server` holds it at /source (lib/server.cub):
+-- the log of every change (a module's path and its new pointer), a module's text, and a change taken only
+-- from the pointer the server holds now. A session naming HYPERACTIVE_SERVER publishes and takes changes
+-- at each command (h-sync, lib/host.cub), so git no longer carries the work once a server is up.
+-- Known (2026-11-13, from the review of every earlier finding): Every definition and every result
+-- is identified by its content and kept, so work is shared across runs and collaborators.
+-- definitions and results identified by content, the foundation of collaboration with no canonical
+-- state (“State, change and collaboration” (docs/to-be-incorporated-into-paper.cub)). A reference is keyed by its index in the run
+-- (src/net.c), so no result is kept or shared beyond a run (src/lang.c); the checker's identity is
+-- a hash of file texts (src/store.c); the store writes in place, so a killed machine leaves a
+-- truncated entry (src/store.c); the standard commands never use the store (Makefile). Elaborations
+-- are already remembered (a warm library check, 4.6 s). It also makes every check fast, which
+-- speeds all other work.
+-- Known (2026-11-12, at src/lang.c): needs-work (goal product-implementation). Every evaluator
+-- result read back here (checks, the elaborator's solving rounds via %chk-def / %infer-ok, usages,
+-- readings) lives only for this run. Each is to be kept beyond it in canonical form: the query
+-- identified by its canonical key (references as content keys; the checker identified by its
+-- own definitions' keys), the result stored with references as keys and rendered through the
+-- current bindings when read, the same mechanism as the store's definitions. The store's
+-- certificates are then such results; the per-file cache goes (gone 2026-11-12). Read 2026-11-12:
+-- the query built here (build_top) is keyed in src/net.c by synkey, but that key's leaves are run-
+-- local: a definition by its global index (key_global), a λ or thunk by the address of its compiled
+-- record (K_LAM over t->rec), and the codes passed name checked definitions by their index (cglob
+-- i). So the evaluator's key of a query means nothing in another run. Two key schemes exist: the
+-- evaluator's (structural, run-local) and the store's (canonical forms, content keys). The end
+-- state is one: every key canonical, compiled records keyed by their content. The first step
+-- can be taken here: the query's key formed as the store forms a definition's (its canonical form,
+-- references as content keys, plus the checker's identity), and the result stored canonically.
+-- 2026-11-12: one kind of result is kept so: a declaration's whole elaboration (src/syntax.c,
+-- x_checked; below, done). The evaluator's own results, %chk-def's and the readings', are not yet.
+-- Read 2026-11-12, for the elaborator's case (src/syntax.c x_checked, the round loop): the right
+-- unit is the whole elaboration of a declaration, its input the declaration's surface forms (sig,
+-- body) with every name resolved to the key it denotes, its output the solved core forms T and t.
+-- The final forms then go through `checked` as now, so the certificate check (key_def,
+-- store_checked) still decides acceptance: a remembered elaboration can only change which term is
+-- checked, never whether a term is accepted. What is missing is a faithful canonical serialization:
+-- canon (src/ store.c) is a key, not a serialization. It drops the type written on a λ's binder
+-- (bnd_ty, kept on the name node), instance flags and binder names, and prints a λ's binders so
+-- their count cannot be read back. The store needs one canonical form that is both the key and
+-- readable back (references as keys, binders nameless but counted, binder types and flags kept),
+-- rendered through the current bindings when read; with it canon is that form's hash and nothing is
+-- duplicated. Done 2026-11-12 (branch product-implementation, merged): canon's binders readable
+-- back and decanon (every library definition round-trips); generated names numbered by first
+-- occurrence in an elaboration's key and in its stored form, binders' kept names included (x-case-
+-- chain had failed warm, "rec of a name that is not a recursive field of its branch", its pattern's
+-- field renumbered while the rebuilt scrutinee's let kept the raw name that `rec` resolves); data
+-- keys nominal; the elaboration remembered. Acceptance is not remembered with it: a
+-- remembered elaboration is a term like any other, accepted by its own key's certificate or by the
+-- checker (the first version marked a hit as already checked, which would have accepted a stale
+-- elaboration unchecked). Measured, the library with the store warm and the per-file cache cold:
+-- 4.2 s of CPU, no evaluator step, the same 1907 passed and 52 failed as cold (29 s before).
+-- Known (2026-11-12, at src/net.c): needs-work (goal product-implementation). A reference to a
+-- definition is keyed by its index in the current run, so no key involving one means the same thing
+-- in another run, and no evaluator result mentioning a definition can be remembered beyond the run.
+-- The key of a reference is to be the definition's content key (src/store.c's key of its canonical
+-- form); equal content is equal meaning, so this is sound for values. Results that name definitions
+-- (readback text, elaboration solutions) are then stored canonically and rendered through current
+-- bindings. 2026-11-12: a λ or thunk is likewise keyed by the address of its compiled record
+-- (synkey, K_LAM over t->rec), so compiled records need content keys too for any key to be
+-- canonical.
+-- Known (2026-11-12, at src/store.c): the checker's identity here is the hash of the texts of the
+-- files loaded up to the checker's definition (comments and unrelated definitions included) plus
+-- the machine binary, not the content keys of the definitions the checker consists of. So a comment
+-- edited in the bootstrap files invalidates every certificate in the store.
+-- Known (2026-11-13, at src/store.c): store_write wrote an entry in place (fopen "w"). A
+-- machine killed while writing (measured 2026-11-13: the kernel killed one for lack of memory while
+-- four read in parallel) left a truncated entry that later runs read as a whole one, and two
+-- machines on one store could read each other's half-written entries; the store is a cache whose
+-- entries decide what is not checked again, so a truncated entry could change a result. Fix: write
+-- to a temporary file in the same directory and rename it over the entry (atomic on POSIX). Done
+-- 2026-11-16: store_write writes a whole entry beside it and renames it over the entry.
+-- Known (2026-11-12, at Makefile): every target sets CUBICAL_NOCACHE=1, so the standard commands
+-- never use the store and recheck everything from nothing (64 s for the library). With the store
+-- warm, elaboration and compilation still run for every definition (29 s), so incremental checking
+-- reaches only the checker's run, not the rest of the work done per definition. Measured again
+-- 2026-11-12, the elaboration and the checker's answers (accepted or refused) kept in the store,
+-- the per-file cache gone: with the store warm the library takes 4.6 s, its output the fresh run's
+-- but for step counts; what remains per run is compilation (compiled records keyed by content,
+--). The targets still check from nothing.
+-- Known (2026-11-13, from the review of every earlier finding): The work is a value of the
+-- language: every declaration's code and reason readable by views, and the interface reads it.
+-- serve mode gives views every declaration of a type as a value, but not each declaration's code
+-- (src/lang.c); most declarations have no recorded reason (lib/task- graph.cub). The interface for
+-- Avik (no editor, no IDE) reads the work through it.
+-- Known (2026-11-12, at src/lang.c): needs-work (goal product-implementation). Serve mode is how
+-- agents and people use the work continuously. Missing: the work given to a term as a value (the
+-- declarations and their bindings, each declaration's code), so that views are terms of the
+-- language applied to it, and a reading that evaluates a view. Replacing a binding is #retract then
+-- a new declaration. 2026-11-12: `declarations T` is every checked definition of type
+-- T in scope, as a list (src/ syntax.c), so views over values of a type are terms (lib/
+-- workflow.cub's over Node) and `#show` of one is the reading that evaluates it (hyperactive
+-- view). Still missing: each declaration's code as a value, so that a view can read the code
+-- itself, every declaration of every type.
+-- Known (2026-11-12, at lib/workflow.cub): The work as one graph of nodes. Done: goals and
+-- tickets are one kind of node (workflow/hyperactivity.cub); every declaration of the code is a
+-- node of the same graph, its reason computed from the machine's reading `#uses` (a declaration
+-- with a reason mentions it), from the machine naming it (src/), or stated in the comment above it
+-- as `(part of NODE)` or `(prerequisite to NODE)` (hyperactive why, unexplained). Measured
+-- 2026-11-12 over every file: 4310 of 8312 declarations have no reason; stating the rest where the
+-- code's text establishes a reason is what remains (“The Hyperactive Workflow” (docs/to-be-incorporated-into-paper.cub)). Library
+-- API nothing uses (lib/std.cub's pow, fact, happly, the univalence lemmas; lib/prelude.cub's
+-- untyped helpers) states none: whether each stays is open.
+-- Known (2026-11-14, Avik): `hyperactive` is the primary work interface and is built first, since it
+-- accelerates all further work; the README holds only setup and hands off to it. Done (2026-11-14):
+-- `hyperactive` with no argument begins the walk (now over the value onboarding, docs/onboarding.cub,
+-- below); `hyperactive def NAME` reads a definition by name with its statement and what uses it, with
+-- no file or position needed. Done (2026-11-15 and 16, Avik: "do you write/read code using files and text
+-- commands? that is unacceptable"; "HYPERACTIVE MUST BE ENTIRELY BOOTSTRAPPED ENTIRELY LEVERAGE
+-- HYPERACTIVE LITERALLY NOTHING BUT THE CORE C IMPLEMENTATION"):
+-- - `hyperactive` is lib/hyperactive.cub, run by the machine: one loop whose state is a value, the
+--   actions taken, kept in the store.
+-- - The store holds the written code: each declaration with its statement under its hash, each name's
+--   pointer to it, and each file as the list of its pieces. It records only the work (2026-11-16): a
+--   file outside the repository or under build/ is checked like any but records no piece, binds no
+--   name and is no file's root; before, a scratch file in /tmp that declared all-nodes had taken that
+--   name and become the workflow's root, so every change to the workflow was refused.
+-- - def, write, remove, the walk, the graph's views and rules, paper, history, decompose, why,
+--   unexplained, view, every, server and brunerie are the loop's actions; a file's path names its
+--   head (the comment and imports before its first definition) for def and write; write NAME NAME
+--   ... changes several definitions as one change, in one file or several, checked once and kept or
+--   put back whole, so a change of shape reaches every definition it touches at once.
+-- - check gives the machine's verdict on the graph, the graph's rules, and every name the paper's
+--   realized constructions give as code that no file the machine has read declares; check FILE ...
+--   gives each file's verdict, a machine that ends without one reported as such; each exits 1 when
+--   any fails.
+-- - lib/leash.cub guards the harness's tool calls.
+-- - lib/guard.cub, at every commit (.githooks/pre-commit) and on GitHub, refuses any file of code in
+--   another language and any piece of prose held twice (the one-source check).
+-- Not yet:
+-- - etym still runs tools/etym.py: its source is fetched over HTTPS and indexed in sqlite, and the
+--   world's commands reach neither;
+-- - onboarding into the core code.
+-- Known (2026-11-15, Avik): the screen shows information, and information acts: it acts on the user
+-- through the senses and guides attention, and the user acts on the device through its senses; two
+-- directions of one flow. The loop is real time, not turns ("Consciousness is one continuous loop
+-- with no turns"). Messaging is out. Upon apparent disagreement the system presents the basis of
+-- agreement: the shared fundamental values, and where inference over them diverges by experience;
+-- what is sought is the most intelligent consensus available, users developing shared knowledge and
+-- thinking individually and together (docs/information-acts-and-common-ground.cub and
+-- docs/eye-contact-co-processing-at-the-speed-of-light.cub, his words).
+-- Known (2026-11-15, Avik): code does not live in files. When the store is proper, no .cub file
+-- exists: the language and all code are objects in the store, referred to by hash. The system does
+-- not rely on the filesystem ontology and rejects it for computing (docs/no-filesystem.cub, his
+-- words). This is the design already stated in “State, change and collaboration”: the work is a
+-- collection of immutable objects, not a tree of files ("Our state is not text"). Today every piece
+-- of code is a file and refers to others by path (import, document, text); that is the git stand-in,
+-- which the store replaces, not something to be edited path by path.
+-- Known (2026-11-15, Avik): the bootstrap from the filesystem is one reader and only one: it computes
+-- the hash of every file; the hash is the reference. "Unison certainly solved this already": its
+-- code refers to definitions only by hash, and names are a separate mapping from names to hashes.
+-- Known (2026-11-15, Avik): the design of onboarding and of the paper delta. Everything in the
+-- repository is code = data: hyperactivity is built with hyperactivity. Existing text files keep
+-- their own extensions (.txt, .md) and are loaded by path as raw content: a string value whose bytes
+-- are exactly the file's (no escaping, no new extension, so Avik's messages paste in as they are);
+-- an essay is one string. The paper delta is a set of
+-- pointers to essay files and nothing else (no descriptions), as a value in the language; it is not
+-- a living notes document. Onboarding forces reading the paper and the essays: the CLI serves one
+-- chunk at a time, small enough never to be truncated by an agent's harness, with only next and prev
+-- (no jumping), as the only way the content is served; reading is the tokens entering the agent's
+-- context, so nothing more (no passphrase) is needed, and re-walking restores what compaction
+-- evicted. Done (2026-11-15; the child onboarding-from-part-i): `text "path"`
+-- (src/syntax.c) loads an existing file as raw content; docs/paper-delta.cub was (until 2026-11-16,
+-- when Part I's declarations replaced it) `paper-delta : List Document`, four `document "path"` pointers (path and content hash) and its first line the check
+-- against v31; docs/onboarding.cub is `onboarding : List Document` (AGENTS.md, welcome file, the paper (the
+-- editable source docs/Hyperactivity_Current_Draft.md when present, else v31 labelled historical), Labs
+-- note, the delta's pieces, word list, etymologies); `hyperactive` begins the walk over its pointers,
+-- `hyperactive next` and `hyperactive prev` move one chunk of at most 8000 characters cut at
+-- paragraphs (the paper's at its sections), the position kept in build/; the workflow and what
+-- can be taken up follow, generated. The numbered `walk N` is gone. Corrected (2026-11-15, Avik:
+-- "Either it is purely correct code ... or it's wrong"): the walk takes its documents from the
+-- machine's evaluation of onboarding (lib/walk.cub), not from the file's text, and
+-- serves a file only when its SHA-256 is the digest the value holds; a Document's path is from the
+-- repository root (src/syntax.c), so the value names its files on its own; the root's essential
+-- context is the value onboarding itself, so the graph's check checks it; the PDF is served as
+-- what the value points to, labelled a snapshot, never silently replaced by another file.
+-- Done (2026-11-14, Avik: "an immediate invaluable tool"; source replaced 2026-11-14, Avik: "Absolute
+-- total coverage up to modernity"): `hyperactive etym TEXT` returns any text with every word augmented
+-- by its etymology, so agents read Avik's words in the meanings the words carry. Source: English
+-- Wiktionary (snapshot 2026-10-01, CC BY-SA 4.0) as rendered in the Wikimedia Enterprise HTML dumps,
+-- packaged per language by xxyzz/wiktionary_stardict (GitHub release 20261029), fetched once into
+-- build/ and indexed into build/etym.sqlite: 450,125 of 817,247 English headwords have an etymology,
+-- coinages to the present included (empathy, genocide, apoptosis, neurotypical); each origin is
+-- followed through 50 other languages' entries (Latin, Ancient Greek, French, Old English, Arabic …),
+-- terms in their own script with transliteration and gloss; 200,829 chains end at a
+-- Proto-Indo-European root, 257,930 at some reconstructed root. GCIDE (Webster's 1913) is the
+-- fallback for the 9,280 words only it has. Not yet: Wiktionary's reconstruction pages (not in the
+-- dumps; a root's sense is the gloss its citing entries give), so chains stop where a reconstruction
+-- page would continue them (Proto-Hellenic *génos); a word's later etymology paragraphs (an
+-- alternative or deeper root given there) are shown but not followed; kaikki.org (wiktextract) and
+-- dumps.wikimedia.org are unreachable from these sessions.
+-- Known (2026-11-14, at lib/hyperactive.cub): needs-work. `hyperactive why` and `hyperactive
+-- unexplained` answer from the store (each name's written piece and its dependencies). Measured
+-- 2026-11-16 over lib/: unexplained took 12.0 minutes for the 8752 declarations read (4592 have no
+-- reason), about 80 ms a declaration, with every set operation linear; the time is the program's own
+-- reading of each statement and its uses, so the check that every top-level object of the code has
+-- a reason is slow to use from the interface until the machine runs such programs faster.
+product-implementation : Node
+product-implementation = node "The live interactive collaboration system and tooling over the language and its code and data." (cons the-product nil)

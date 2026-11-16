@@ -1,0 +1,7 @@
+h-publish-answer : List Word → List Word → List Word → List Word → Sum Unit (List Word) → Proc W Bool
+h-publish-answer st srv m path r =
+  if weq (h-status r) #0 then bind (h-say (h-line (list-append path " is not published yet: the served source cannot be reached; the next command publishes it"))) (λ u → ret {lzero} {W} false)
+  else bind (h-unlink (h-before-of st path)) (λ u →
+  if weq (h-status r) #200 then ret {lzero} {W} true
+  else bind (h-get srv (list-append "/source/text?path=" (h-hex path))) (λ t →
+    bind (h-take-served m path (if weq (h-status r) #409 then " was changed on the served source since this session had it; the session now holds the server's: write the change again" else (list-append " is not published, the served source refused it: " (h-body r))) t) (λ u2 → ret {lzero} {W} false)))
