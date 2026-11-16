@@ -63,3 +63,5 @@ here. `docs/word-list.md` is a separate file, whose lines Avik gives himself.
 - univalence ⟨Latin ūnus “one” + valentia “strength, worth”, from valēre “to be strong, to be worth”: one value; Voevodsky’s axiom that equivalence is identity⟩  (raised 2026-11-16)
 - receptive ⟨Medieval Latin receptīvus, from Latin recipere “to take back, to receive”: re- + capere “to take, to seize” ← Proto-Indo-European *keh₂p- “to grasp”; Ceptr’s receptors⟩  (raised 2026-11-16)
 - Statebox ⟨state, Latin status “a standing, condition”, from stāre “to stand” ← Proto-Indo-European *steh₂- + box, Late Latin buxis from Greek pyxís “boxwood case”: a condition held in a vessel⟩  (raised 2026-11-16)
+- atomic ⟨Greek átomos “uncut, indivisible”: a- “not” + témnein “to cut” ← Proto-Indo-European *temh₁- “to cut”⟩  (raised 2026-11-16)
+- singularity ⟨Latin singulāritās “being alone, uniqueness”, from singulus “one, individual” ← Proto-Indo-European *sem- “one, together”, the root of same, simple, homo- and sym-⟩  (raised 2026-11-16)
