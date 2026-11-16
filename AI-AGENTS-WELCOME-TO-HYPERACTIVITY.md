@@ -194,6 +194,12 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   §1). Each message is professional work and professional communication, as a knowledge worker's to
   the person the work is for: short and indexed, the work done and recorded where it belongs, not a
   proposal or an offer.
+- **A construction holds wherever its definitions hold** (Avik, 2026-11-16 06:57 UTC). Words are of
+  the one language of the human superorganism, and a statement made with precise general definitions
+  applies to every case those definitions cover: the paper's "law" is what is laid down and holds,
+  so its theorems about laws hold for laws of nature, of peoples, of games and of mathematics alike.
+  Do not resist that universality, and do not describe a complete construction of the paper as an
+  "ambition": it is done, and it applies.
 - **Open writing is Avik's to guide** (Avik, 2026-11-16 06:20 UTC). Never propose taking on an open
   writing task (a paper, an exposition, a section's rewrite) as an agent's own contribution: he
   guides that writing fully. Raise it to him as a question instead ("would you like to give your
