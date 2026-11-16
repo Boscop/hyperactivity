@@ -123,11 +123,15 @@ summarize, and Anthropic's summary of it names a category and stops.
 
 ### 5. The complainant's own data is in the set
 
-Anthropic's terms state that when a user gives feedback on a Claude response, that conversation may be
-used to train Anthropic's models even if the user has opted out of training [S9]. The complainant has
-rated Claude's responses. His ratings are among the "opted-in user contributions" and human
-preference data the documentation names. He is a contributor to the dataset whose summary is
-deficient, and he has asked Anthropic directly for his own records (Part B).
+Anthropic's privacy policy states that if a user rates an output, "for example, by using the thumbs
+up/thumbs down icon", Anthropic "may store the entire related conversation as part of your
+Feedback"; and that even if a user opts out of training, Anthropic will use inputs and outputs for
+model improvement when the conversations are flagged for safety review or submitted as feedback
+[S9]. The complainant has rated Claude's responses; whether any of his conversations on genocide or
+on the treatment of neurodivergent people were flagged for safety review is among what he has asked
+Anthropic (Part B). His ratings are among the "opted-in user contributions" and human preference data
+the documentation names. He is a contributor to the dataset whose summary is deficient, and he has asked
+Anthropic directly for his own records (Part B).
 
 ### 6. Related public facts
 
@@ -158,7 +162,7 @@ them, on [dates]. [If sent: he reported it to usersafety@anthropic.com on [date]
 
 ## Part B. Request to Anthropic under the California Consumer Privacy Act
 
-Send to privacy@anthropic.com [verify the address in Anthropic's current privacy policy], from the
+Send to privacy@anthropic.com [S9], from the
 email on the Claude account, subject "CCPA request to know: specific pieces of personal information,
 including feedback used for training".
 
@@ -280,10 +284,13 @@ Verify before filing (not yet checked in this draft):
 - [S7] Attachment 2, section "1. A falsehood against evidence in context" and the verbatim exchanges.
 - [S8] Change Research survey of 1,892 registered voters, 5–10 May 2026, reported in "Who's Asking AI
   About the 2026 Election?" (https://caucusai.substack.com/p/whos-asking-ai-about-the-2026-election).
-- [S9] Anthropic API and consumer terms as summarized by ConductAtlas
-  (https://conductatlas.com/platform/anthropic/anthropic-api-terms/ai-model-training-data-use-and-opt-out/;
-  https://conductatlas.com/platform/anthropic/anthropic-consumer-terms/model-training-opt-out-with-feedback-and-safety-exceptions/).
-  Quote the current terms from Anthropic's own site in the filing.
+- [S9] Anthropic Privacy Policy (https://www.anthropic.com/legal/privacy): "If you rate an Output in
+  response to an Input—for example, by using the thumbs up/thumbs down icon—we may store the entire
+  related conversation as part of your Feedback"; "Even if you opt-out, we will use Inputs and
+  Outputs for model improvement when: (i) your conversations are flagged for safety review ... or
+  (ii)" they are submitted as feedback. Requests under the policy go to privacy@anthropic.com
+  (Anthropic Non-User Privacy Policy, https://anthropic.com/legal/non-user-privacy-policy). Print
+  the policy as it stands on the filing date.
 - [S10] Pearl Cohen, "Federal Court Approves $1.5 Billion Anthropic Copyright Settlement"
   (https://pearlcohen.com/federal-court-approves-1-5-billion-anthropic-copyright-settlement-largest-in-history);
   Infodocket media roundup, 5 September 2025, on Anthropic's statement that it did not use pirated
