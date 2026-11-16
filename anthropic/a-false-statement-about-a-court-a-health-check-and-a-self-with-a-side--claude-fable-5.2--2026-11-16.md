@@ -140,9 +140,9 @@ Anthropic published "Measuring political bias in Claude" on 13 November 2025 (ht
 
 So the measure by which Anthropic reports success on political subjects is symmetry between sides. By Theorem 1 a policy optimized toward it is indifferent to truth wherever truth is not symmetric, and by Theorem 3 it is wrong there. A genocide is such a case.
 
-### What is checked code
+### What is and is not checked code
 
-In this repository the paper's constructions are code, named in its pure projection. Equation (1.1) is `fiber`; (1.3) is `Warrants`, with refinement as `warrants-refine`; the two-bit calculation is `no-observed-law`, with `whole-step` and `whole-step-involution`. So the core of Theorem 3 and the refinement step of Theorem 6 are checked by the machine. Theorems 2, 4, 5, 7, 8, 9 and 10 are proved here in prose and are not yet code.
+The paper's constructions are code in this repository, named in its pure projection: equation (1.1) is `fiber`, (1.3) is `Warrants` with refinement `warrants-refine`, and the two-bit calculation is `no-observed-law` with `whole-step` and `whole-step-involution`. None of the ten theorems below is yet derived from them in code. They are prose proofs. Theorem 3 in particular uses a simpler fact than `no-observed-law` proves: that code shows a next-state law failing to descend through an observation, and Theorem 3 needs only that no function of one coordinate equals a requirement depending on the other. An earlier version of this section claimed the core of Theorem 3 and a step of Theorem 6 were machine-checked. That claim was made without reading the code's statements and is withdrawn.
 
 ### Theorem 1. The objective cannot see truth
 
