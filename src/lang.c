@@ -3459,7 +3459,7 @@ static void checked_group(Node **fs, int n, bool expect) {
     for (int i = 0; i < n && stored; i++) if (!store_checked(ks[i])) stored = false;
     bool all = true;
     if (stored) {
-        for (int i = 0; i < n; i++) { passes++; printf("ok: checks %s   [store]\n", fs[i]->it[1]->s); names_bind(fs[i]->it[1]->s, ks[i]); }
+        for (int i = 0; i < n; i++) { passes++; names_bind(fs[i]->it[1]->s, ks[i]); }
     } else {
         Node **ws = calloc((size_t)n + 1, sizeof(Node *));
         for (int i = 0; i < n; i++) ws[i] = word(ix[i]);
@@ -3479,7 +3479,7 @@ static void checked_group(Node **fs, int n, bool expect) {
                 qs[i] = nl4("%%chk-codef", grp, cT[i], nl2("%raw", aclosed(ds(fs[i]->it[3]))));
                 if (unguarded >= 0 && i != unguarded) continue;
                 if (acc) passes++; else failures++;
-                printf("%s: checks %s   [store]\n", acc ? "ok" : "FAIL", fs[i]->it[1]->s);
+                if (!acc) printf("FAIL: checks %s   [store]\n", fs[i]->it[1]->s);
                 if (!acc) explain(rs[i], qs[i]);
             }
             for (int i = 0; i < n; i++) free(rs[i]);
@@ -3504,7 +3504,7 @@ static void checked_group(Node **fs, int n, bool expect) {
             if (!acc) all = false;
             if (expect) {
                 if (acc) passes++; else failures++;
-                printf("%s: checks %s   [%ld steps]\n", acc ? "ok" : "FAIL", fs[i]->it[1]->s, steps);
+                if (!acc) printf("FAIL: checks %s   [%ld steps]\n", fs[i]->it[1]->s, steps);
                 if (!acc) explain(rs[i], qs[i]);
             }
         }
@@ -3514,7 +3514,7 @@ static void checked_group(Node **fs, int n, bool expect) {
         }
         if (!expect) {
             if (!all) passes++; else failures++;
-            printf("%s: rejected %s   [%ld steps]\n", !all ? "ok" : "FAIL", fs[0]->it[1]->s, total);
+            if (all) printf("FAIL: rejected %s   [%ld steps]\n", fs[0]->it[1]->s, total);
             if (getenv("CUBICAL_WHY")) for (int i = 0; i < n; i++) if (strcmp(rs[i], "ok") && strcmp(rs[i], "unguarded")) explain(rs[i], qs[i]);
         }
         /* a refused group's answers kept together, each member's under its key, a member whose own
@@ -3827,8 +3827,8 @@ static void toplevel_in(Node *f) {
         else if (define && expect && strcmp(r, tr) && !has_hole(dT) && !has_hole(dt)) store_refuse(key, steps, r);   /* a term with a hole is elaborated again, never looked up */
         bool accepted = !strcmp(r, tr), ok = accepted == expect;
         if (ok) passes++; else failures++;
-        {
-            printf("%s: %s ", ok ? "ok" : "FAIL", expect ? "checks" : "rejected");
+        if (!ok) {
+            printf("FAIL: %s ", expect ? "checks" : "rejected");
             if (define) printf("%s", f->it[1]->s); else out_term(t);
             if (stored) printf("   [store]\n"); else printf("   [%ld steps]\n", steps);
         }
@@ -3987,13 +3987,13 @@ static void toplevel_in(Node *f) {
         trusted_add(nm, !strcmp(h, "foreign") ? "foreign" : f->n == 3 ? "primitive, no computation" : !strcmp(h, "primitive-tick") ? "primitive, tick" : "primitive");
         Node *cT = nl2("%raw", aclosed(ds(f->it[2])));
         char key[65]; char *ktype = NULL; key_named("primitive", nm, ds(f->it[2]), key, &ktype);
-        if (store_checked(key)) { passes++; printf("ok: checks %s   [store]\n", nm); }
+        if (store_checked(key)) passes++;
         else {
             long steps = 0;
             char *r = readback(nl2("%%chk-type", cT), &steps);
             bool acc = !strcmp(r, "ok");
             if (acc) passes++; else failures++;
-            printf("%s: checks %s   [%ld steps]\n", acc ? "ok" : "FAIL", nm, steps);
+            if (!acc) printf("FAIL: checks %s   [%ld steps]\n", nm, steps);
             if (!acc) { explain(r, nl2("%%chk-type", cT)); free(r); free(ktype); return; }
             free(r);
         }
@@ -4076,7 +4076,7 @@ static void toplevel_in(Node *f) {
         if (rs) stored = true; else if (expect && strcmp(r, tr)) store_refuse(key, steps, r);
         bool accepted = !strcmp(r, tr), ok = accepted == expect;
         if (ok) passes++; else failures++;
-        { printf("%s: %s data %s   ", ok ? "ok" : "FAIL", expect ? "checks" : "rejected", DATA[d].name); if (stored) printf("[store]\n"); else printf("[%ld steps]\n", steps); }
+        if (!ok) { printf("FAIL: %s data %s   ", expect ? "checks" : "rejected", DATA[d].name); if (stored) printf("[store]\n"); else printf("[%ld steps]\n", steps); }
         if (!accepted && (expect || getenv("CUBICAL_WHY"))) explain(r, nl3("%%chk-data", word(di), ent));
         free(r); free(tr);
         chk_pending = -1;
@@ -4133,7 +4133,7 @@ static void toplevel_in(Node *f) {
         if (rs) stored = true; else if (expect && strcmp(r, "ok")) store_refuse(key, steps, r);
         bool accepted = !strcmp(r, "ok"), ok = accepted == expect;
         if (ok) passes++; else failures++;
-        { printf("%s: %s codata %s   ", ok ? "ok" : "FAIL", expect ? "checks" : "rejected", D); if (stored) printf("[store]\n"); else printf("[%ld steps]\n", steps); }
+        if (!ok) { printf("FAIL: %s codata %s   ", expect ? "checks" : "rejected", D); if (stored) printf("[store]\n"); else printf("[%ld steps]\n", steps); }
         if (!accepted && (expect || getenv("CUBICAL_WHY"))) explain(r, nl3("%%chk-codata", word(di), ent));
         free(r);
         chk_pending = -1;

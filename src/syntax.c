@@ -1387,7 +1387,7 @@ static void p_decl(void) {
         toplevel_depth = depth0; x_collecting = coll; pending_instance = inst; cur_mod = mod; x_fail_next = false;
         char pos[512]; { int save = xp; xp = xp0; snprintf(pos, sizeof pos, "%s:%d", x_file ? x_file : "?", P0()->line); xp = save; }
         if (fail) passes++; else failures++;
-        printf("%s: %s %s\n   reason: %s\n", fail ? "ok" : "FAIL", fail ? "rejected" : "checks", decl_name ? decl_name : pos, die_msg);
+        if (!fail) printf("FAIL: checks %s\n   reason: %s\n", decl_name ? decl_name : pos, die_msg);
         if (!fail) printf("   in: %s\n", pos);
         fflush(stdout);
         /* on at the next declaration of this block */
@@ -5855,7 +5855,7 @@ static void x_checked(const char *name, Node *sig, Node *body, bool expect, uint
         nesc = 0; nwtick = 0; syn_expect = app_expect = NULL;
         bool ok = !expect;
         if (ok) passes++; else failures++;
-        printf("%s: %s %s\n   reason: %s\n", ok ? "ok" : "FAIL", expect ? "checks" : "rejected", name ? name : "(check)", die_msg);
+        if (!ok) printf("FAIL: %s %s\n   reason: %s\n", expect ? "checks" : "rejected", name ? name : "(check)", die_msg);
         el_release(em);
         return;
     }
