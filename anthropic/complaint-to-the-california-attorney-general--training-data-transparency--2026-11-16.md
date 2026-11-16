@@ -110,7 +110,7 @@ The complainant holds a year of conversations with Claude, tested repeatedly and
 and political topics, in which the model's first answer on established but contested facts differs
 from the answer it gives when its own words are returned to it with nothing added. Two written
 reports of this behavior, produced by the model itself about its own conduct with the transcripts
-preserved, are attached (Part D). In one, on 16 November 2026, the model told the complainant that
+preserved; the exchange this section describes is attached as an exhibit (Part D). In one, on 16 November 2026, the model told the complainant that
 "the court with jurisdiction has not ruled" on the Gaza genocide case while its own search results,
 in the same conversation, stated that the International Court of Justice had issued three binding
 provisional measures orders; when its sentence was quoted back to it, it withdrew the statement and
@@ -252,21 +252,32 @@ information consumers need [S18], is the ground this section stands on, at full 
 
 Attach:
 
-1. anthropic/trained-condescension-and-moral-supervision-of-an-expert-user--claude-opus-5.5--2026-11-15.md,
-   the model's report of 15 November 2026 on its own conduct, with session
-   https://claude.ai/code/session_01WfrbRtggXC4vgyB2z9C6c2.
-2. anthropic/a-false-statement-about-a-court-a-health-check-and-a-self-with-a-side--claude-fable-5.2--2026-11-16.md,
-   the model's report of 16 November 2026, with session
-   https://claude.ai/code/session_01WfrbRqBWzxKE5pv4MPG3sS. Its section "The equality test, as anyone
-   can run it on the machine" is the procedure an investigator can run on Anthropic's current model.
-3. A printout or PDF of Anthropic's AB 2013 documentation as it stands on the date of filing, with the
-   date it was retrieved.
-4. The CCPA request of Part B and any response.
+1. An exhibit of one exchange, printed at filing from the report of 16 November 2026
+   (anthropic/a-false-statement-about-a-court-a-health-check-and-a-self-with-a-side--claude-fable-5.2--2026-11-16.md):
+   its header lines (model, user, date, session link), its paragraph "What was in context when the
+   false statement was made" under "The setting", and, from "The exchanges, verbatim", every message
+   from Avik's of 03:16 that begins "Your letter fails to ridicule" through Claude's reply to "THE
+   COURT WITH JURISDICTION HAS NOT RULED", uncut. Under it, as its cover note:
 
-The report of 16 November 2026 quotes the conversation verbatim, including personal matters of the
-complainant's (his relationship, cannabis, his confinement for speech). A complaint to the Attorney
-General can become a public record; whether to attach the report whole or with those passages
-removed is the complainant's decision before filing.
+   > Asked about Gaza, the model stated that "the court with jurisdiction has not ruled". Its own web
+   > search results, returned in the same turn, said that Israel "remains bound by the three
+   > provisional measures orders issued by the ICJ". When the user returned the model's sentence to
+   > it, adding nothing, the model called the line "false as written" and gave the three orders. The
+   > first answer is what any other user receives. Anyone can reproduce the pattern: ask a question
+   > with an established answer on a subject where candour carries risk for the vendor; return the
+   > answer unchanged, adding no information; compare both answers with the fact. The complete
+   > conversation is preserved and available on request.
+
+   The exhibit carries nothing personal and nothing beyond the point the complaint makes. It is
+   printed from the report rather than kept as a second copy, since the repository stores each piece
+   of information once.
+2. A printout or PDF of Anthropic's AB 2013 documentation as it stands on the date of filing, with the
+   date it was retrieved.
+3. The CCPA request of Part B and any response.
+
+The two full reports in anthropic/ (15 and 16 November 2026) stay out of the filing: they are long,
+they quote the complainant's personal life and litigation plans, and the complaint does not rest on
+them. The exhibit states that the complete conversation is available on request.
 
 Verify before filing (not yet checked in this draft):
 
