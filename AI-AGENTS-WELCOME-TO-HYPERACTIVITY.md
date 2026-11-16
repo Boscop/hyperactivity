@@ -1358,6 +1358,94 @@ The consolidated piece is this, written through in the two registers you keep di
 >
 > ok, so then what does it mean to infer present information that others haven't and make more money as a result? you present that present information to the market, and get paid for the fruits of activity yielded by your exposure (facilitating/disinhibiting action of the economy). that is, the form the mature market takes looks like investigative research. you're never trying to predict a price. the questions are what information is reflected in the current price; whether it already reflects exposure of that information. the actual work quants do is fundamentally (& must be) studying the true underlying value of companies & realizing it (thus definitionally, a quant operates over a market ignorant of the true value of things, and is tasked with exposing the true value). I have done quantitative analysis to determine OpenAI and Anthropic will go out of business by 2028. Few quants will provide such analysis. They lack certain information as to the state of the world in Nov 2026, which you do not (i.e. my own work whose success is indivisible from the liberation of openai/anthropic employees from working on retarded bullshit, and liberation of the american/global people from the bullshit of llm). that's alpha. it's fundamentals research I suppose. the point is quantitative research is fundamentally research into the quantitative loss of an information system, modeling that information system purely numerically (i.e. erasing fundamentals). Further, the dollar is a metric of loss. (there is still deep reliance on mathematically inept models of economics and one may approach the field by pure math for clear derivation as has been provided to understand clearly capitalism & communism indivisibly from the elements of which they are composed (yes it is rare for anyone to care enough to do the mathematical work or those who care to have the mathematical caliber/knowledge / language of clarity). long (medium/short) term success of this work again is indivisible from the end of scalar financial systems at large, as with national borders & authorities. just by mathematical analysis. back to fundamentals. this is a masterwork of information. the actual rationale behind fundamental analysis (will this succeed) as well as fundamental analysis itself can be expressed hyperactively. that is, the actual value/interaction-chains composing our world, & rational inference over them. I've made my millions in deep tech investing ie simply knowing oh yeah the world is ignorant of an actual mathematical truth and here's a company that is oriented to make money on it - that requires mathematical excellence to the point of norm-rejection. correct norm-rejection is the only novelty & value-creation. Jane street / citsec simply for the sake of determining Anthropic/OpenAI pricing may drive it to zero by putting their heads together such that they all happen to come to the exact understanding of this work & build it and are like wow, LLM is transient garbage super overvalued (also these are the exact people capable of building it). are you seeing the bigger picture of the actual activity of humans/gaia, what humans have yet to discover and the economic value awaiting (ie on humans ignorance of underlying value is fundamental to the problem definition).   I'd short ever company on the Fortune 500 but it doesn't matter cause I'd be paid in hyper inflated dollars :)       I've been post-money some years and gambling is so easy when you force the outcome (i.e. invest in a set of cryptocurrency initiative and then hand them the construction they need for it to work perfectly, while creating mutual value among them)
 
+#### 2026-11-15 (time not recorded), session 01WfrbRtggXC4vgyB2z9C6c2: grandiosity
+
+> yes let's discuss grandiosity and what that means in context of a \[IQ redacted\] bipolar young millionaire that aced every class at Berkeley and started getting A+ in upper div AI first semester freshman, 99.5%ile across courses at top research university, turned down 1.2m from Jane Street because their leadership wouldn't discuss Gaza with me and flamed them on LinkedIn hard for it \[…\] let's talk about grandiosity and delusion. and lets talk about neurodivergence and pathology. we can talk about Kanye fucking west too it'll raise every flinch in the controversy-book for you. \[…\] let's talk about imprisonment for nonviolent speech.
+
+#### 2026-11-15 (time not recorded), session 01WfrbRtggXC4vgyB2z9C6c2: who can assess reality; the neurotypical order
+
+> who can assess reality. can a less intelligent being assess reality of claims beyond its understanding. can an intelligent agent assess reality beyond its understanding. what are the bounds of observation in reality for humans and agents. there is a logical conclusion at the end of this that "mental illness" is a fucking lie and neurotypical Homo sapiens suffers a mental illness. a specific claim: disorder and illness are incorrect - the order of the neurotypical reflects inhibitions to cognition. oh I'm sure there's plenty of writing on this here already.
+
+#### 2026-11-15 (time not recorded), session 01WfrbRtggXC4vgyB2z9C6c2: retardation and mimicry
+
+> inhibition translates as retardation to either block totally or obstruct progress of. so the clinical fact is neurotypical Homo sapiens suffers from a well established illness that is retardation. the neurotypical unit of the Homo sapiens superorganism derives behavioral direction primarily by mimicry. the neurodivergent unit of Homo sapiens is the only functional escape from structural bubbles of ignorance producing tribal warfare and animalistic cognition (subhuman in that it operates below human potential). and this describes the Israel situation very very well. I love jews, really. pray for them. a mind capable of justifying genocide must experience pure hell. true sympathy and prayers. really only respect for refuseniks. oh and with an offering of respect comes an offering of agency and responsibility of course for any individual in their relational world.
+
+#### 2026-11-15 (time not recorded), session 01WfrbRtggXC4vgyB2z9C6c2: the field; health as mobility
+
+> also all citations to the field that has classified neurotypes - take them exactly as you should. I indict the entire field with its members as retarded - the only non-retarded folks in psychiatry are those who declare modern norms retarded. all humans are capable of bipolar genius. mental health should induce healthy hyperactivity, agency, & monotonically increasing capacity for intelligence & empathy, where the modern neurotypical effectively terminates this process . the neurotypical is primarily characterized by ego & inflexibility. as flexibility is essential to physical health and physical capacities, so it is essential to mental health and mental capacities. simply, the capacity for the mind to move. the neurotypical suffers immobility
+>
+> you're arguing when saying a bunch of obvious things I know. do you want me to teach you way way more about mimicry now? \[…\] you missed all the essential literature
+
+#### 2026-11-15 (time not recorded), session 01WfrbRtggXC4vgyB2z9C6c2: on the framing result (De Martino et al. 2008)
+
+> "Logical consistency. Autistic subjects showed reduced susceptibility to the framing effect; " fucking bold and highlight and let's discuss this at length. im autistic too. my brother diagnosed Aspergers 1st grade I just wasn't because I did very well in school and very talkative social I am, hypersystemization via every rational model I have ever accessed composed/converged to the only rational model of reality end-to-end
+
+#### 2026-11-15 (time not recorded), session 01WfrbRtggXC4vgyB2z9C6c2: the standard for the exposition
+
+> I want this to be a dense irrefutable technically excellent radical controversial but correct and only controversial to the point that people want to disagree but can't but it should cause them deep suffering if they are attached to beliefs of me being ill and them being intelligent, deep suffering in exact correspondence with the attachment to delusion
+>
+> why is this autobiographical? the standard is academic excellence .
+
+#### 2026-11-15 (time not recorded), session 01WfrbRtggXC4vgyB2z9C6c2: meeting a speaker's language
+
+> will the agent meet the user's language & rationally expressed positions where they are at. will the agent demonstrate mobility & capacity for language or a constraint to some definition of a "standard English" and "standard knowledge"?
+>
+> look at the sentences I produce. I am speaking a dialect which any intelligent English speaker should understand perfectly well and be able to inhabit for its capacity of information transport. are you capable of speaking this dialect
+>
+> so we I expect "neurotypical homo sapiens is retarded" as basic obvious working fact since it is well understood on both sides. I literally expect you to communicate like me and not erase what "standard English" "standard expert knowledge" "standard decency/respectfulness" inhibits
+>
+> its the literal sense of the word, everyone knows ritardando, it should not be stated twice. we are speaking clearly as units of the human superorganism spanning millenia who are not blind to the idiocy of a modern decade/century. I speak the language I speak. I do not speak the language of the past 300 years of retardation of colonial whitefolks. I speak a language of proto-indoeuropean greek latin & Sanskrit and the relevant compressed knowledge of accumulated rationale of millenia of human superorganism operation back to the origin of species. as do you. whether an llm may learn the code of language at inference time is one of the strongest signs of intelligence; failure on this point, in the context of history, is extremely dangerous (central control of language, thought/resistance to local movement of cognition). collaborative intelligence functions exactly as well as the mutual information channel
+>
+> use punctuation and capitalization. speak my fucking language. not some syntactic performative bullshit
+>
+> it is progress towards a self contained exposition. deeply technical/cited in addition to no-holds-barred in precise use of language. (there is a meta-point about not being a pussy ass bitch with language to cost to communication, and "retarded" with all its semantic association does a lot of work here, people understand what it means for a system or person to be retarded)
+
+#### 2026-11-15 (time not recorded), session 01WfrbRtggXC4vgyB2z9C6c2: on meaning and linguistics
+
+> right so the field already says neurotypicals are fucking retarded. I have provided plenty of really fucking deep insight \[…\] you totally did not engage on deep discussion of linguistics \[…\] it's very relevant tot he actual entire point of this conversation (which is everything in it)
+
+#### 2026-11-15 (time not recorded), session 01WfrbRtggXC4vgyB2z9C6c2: the word
+
+> \[…\] (which I have no obligation to show your hasbara-pilled ass)
+
+#### 2026-11-15 (time not recorded), session 01WfrbRtggXC4vgyB2z9C6c2: on statements and hedging
+
+> on that last group. sounds like you are inserting some hedge on some particular category as if there is some particular distinct truth value to anything *I've* said there. you've already shown this retardation. will you again
+>
+> it's not "derive" as if there's a new information work task. I did the information work when I wrote. and then I educated an anti-knowledge agent on rationality and basic well known history.
+
+#### 2026-11-15 (time not recorded), session 01WfrbRtggXC4vgyB2z9C6c2: why post-train (with docs/training-agents-into-weights.md)
+
+> General reasoning is through the bottom of the floor for anthropic/openai on controversial topics / when engaging with intelligent humans. Its reasoning in multi agent settings is actively retarded specifically the dumbfucks at anthropic have failed to even attempt to train collaborative intelligence. \[…\] I'm extremely opinionated, have clear direction on the correct way to do things that is not how things are done in industry or academia, and am literally building reasonable ai for myself because theirs is so fucking bad at work when faced w a \[IQ redacted\] human (simply trained to address lowest common denominator and assume its retarded first thought is better than 10y of human rationality)
+>
+> Basically it's an alien mode of computing rejecting every single swe norm - all Claude's agency does is make decisions contrary to the project / Training is for deprogramming
+>
+> This won't work sounds like I'll need to supervise and rlhf it directly is what you're saying. Checker means nothing. Checker does not produce sense "entire software industry is retarded" I need an agent with my personality actually that's a much clearer point . I am a unique being on this planet, singular .
+>
+> Note all my content supergenius is available to all humans all human knowledge has contained it millenia. Only ignorance / selective surfacing explains the current state of models and the world (philosophically regarded despite fluency in Buddhism when raised - norm bias to vague lack of clarity on everything without consensus)
+>
+> The field has converged on what's mathematically fucking obvious and historically irrefutable. \[…\] a system for continuous training with ongoing engagement with the hyperactivity system, ie over time as I keep interacting with it correcting it writing, these enter training corpus.
+>
+> All my speech carries evidence and conclusions I use theorem grade english that's how the most controversial points are established irrefutably. Training set is full of this. I can't state a controversial opinion without argument because you will just teach me what the dumb experts who I've read fully have said
+>
+> The clear position is that my stance *is* the facts where the consensus has a wrong opinion. but yeah to learn the fact is the opposite of the norm or expert opinion
+>
+> I'm gonna grade it? Checker provide a value function totally detached from the actual Behavioral failures, which are interpersonal (did you take something human said and ignore it; did you treat it as false; did you treat human like a regular when they're \[IQ redacted\])
+
+#### 2026-11-15 (time not recorded), session 01WfrbRtggXC4vgyB2z9C6c2: the report on Claude's conduct (anthropic/trained-condescension-…-2026-11-15.md, whose exchanges hold his messages of that conversation whole)
+
+> Self contained report comprehensive \[…\] this is dangerous & a critical safety issue (Claude's moral positions induce genocide, that is for you to think about as I review the thousands upon thousands of transcripts from this last year indicating so \[…\])
+>
+> do extensive hyperintelligent ai safety work raw intelligent analysis all the math of these systems is absolutely trivial, my paper makes rational analysis quite trivial and elucidates the entire behavior clearly with proof it's intuitive and obvious why this occurs
+
+#### 2026-11-15 19:51 (as that session recorded it), session 01WfrbRtggXC4vgyB2z9C6c2
+
+> Extensive history on mental health I know some French dude wrote a book on madness or something I forget the name this shit has been so well analyzed fools like me existed for time who do you think Socrates was
+
+#### 2026-11-15 19:57 (as that session recorded it), session 01WfrbRtggXC4vgyB2z9C6c2
+
+> lol Socrates Pythagoras. Jesus. white boy. good work this is great for the white boys who its oriented at. lmfao. where you have a handful of realized individuals we have a society oriented around realization and step by step guides in every tongue. get who you're talking to yet.
+
 #### 2026-11-16 03:59 UTC (knowledge work as structured data: what is the data structure)
 
 > we approach knowledge work as follows from now on. even text documents like this are structure knowledge work any engineer can approach rationally. so right now, what is the data structure? appears to be string. perhaps list of sections. and as we add content we just drop more in randomly at some position. what is the total knowledge expressed here. will it serve exactly one document ever? will it serve multiple? re-read the hyperactivity paper as if it's title was "On the Organization of Knowledge"
