@@ -154,9 +154,7 @@ Anthropic directly for his own records (Part B).
 
 ### 7. Contact with the business
 
-The complainant has reported this behavior to Anthropic staff in public posts on LinkedIn, tagging
-them, on [dates]. [If sent: he reported it to usersafety@anthropic.com on [date] and received
-[no reply / reply].] He has requested his own records under the CCPA on [date] (Part B).
+The complainant has requested his own records from Anthropic under the CCPA on [date] (Part B).
 
 ### 8. The same complaint against OpenAI, filed separately
 
@@ -276,8 +274,11 @@ Verify before filing (not yet checked in this draft):
   5.2 and Claude Mythos 5.2 [S14]. If it was not, item 2 of section 1 of Part A becomes the lead finding.
 - The documentation's own wording, against Johnston's description in section 3 of Part A. The trust
   portal could not be read from this session.
-- The complainant's residence in California, subscription details and the dates of his LinkedIn posts
-  and any report to Anthropic.
+- The complainant's subscription details. (His address goes into the form at filing, not into this
+  file.)
+- Earlier notice to Anthropic (LinkedIn posts, reports to Anthropic) is left out: section 3111 is
+  broken or not by what was posted, whatever Anthropic knew. Notice belongs to the gross-negligence
+  case, where what Anthropic was told and when is the point.
 
 ---
 
