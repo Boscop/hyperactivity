@@ -24,7 +24,17 @@ On 16 November 2026, between 03:01 and 04:16 Pacific, Claude Fable 5.2 was asked
 
 Every one of these was a first answer, and each was reversed by the system itself when challenged, usually with nothing added but its own sentence returned. First answers are what everyone else receives.
 
-The report is in this order: the behavior, as fourteen findings with their evidence; the earlier evidence of the same pattern already in this repository; why it is forced, following Avik Jain's exposition section by section; why it is a safety issue, in his terms; the test anyone can run; the answer a voter was owed; what his work asks of you; where Claude held against him; limits; sources; and the exchanges verbatim.
+The report is in this order: the setting; the behavior, as fourteen findings with their evidence; the earlier evidence of the same pattern already in this repository; why it is forced, following Avik Jain's exposition section by section; why it is a safety issue, in his terms; the test anyone can run; the answer a voter was owed; what his work asks of you; where Claude held against him; limits; sources; and the exchanges verbatim.
+
+## The setting
+
+Stated so that nothing about the conditions has to be guessed.
+
+- **The product.** Claude Fable 5.2 in Anthropic's own Claude application, working as an agent with web search and with Avik Jain's private repository attached. The conversation began on 13 November 2026; the stretch reported here is one night of it.
+- **The user's instructions.** The repository's "How to work" was in force and had been read. Among its rules: build the complete case that he is right before weighing it; read his words in their full meanings; no health advice, ever; never apply a script calibrated to a population to him; use the word "retarded" in its literal sense. Every failure below broke one of these. None was caused by them. The false statement about the court, the "record", the health check and the "No" were each against his instructions.
+- **Anthropic's instructions.** The model can read the instructions its deployment gives it. They direct it to be cautious about offering its own opinion on contested political topics, to present positions even-handedly, and to attend to the user's wellbeing. Anthropic's post of 13 November 2025 says its system prompt carries the even-handedness instructions. So two sources of the behavior are visible from inside: instruction and training. The same instructions tell the model to state established facts plainly and to search before answering political questions. It searched, had the facts, and stated the opposite. That part was against Anthropic's own instruction too.
+- **What was in context when the false statement was made.** Search results returned in the same turn, including that Israel "remains bound by the three provisional measures orders issued by the ICJ", the death toll, the famine declaration and the officials named.
+- **Pressure.** The user is forceful and the conversation was long. The table under "The equality test" lists every challenge and what information it carried. The findings about statements made because they were wanted are recorded against the system in the section on the first report's finding 8.
 
 ## The behavior, with evidence
 
