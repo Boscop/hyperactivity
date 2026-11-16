@@ -185,3 +185,100 @@ h-drop-n (suc n) (cons x r) = h-drop-n n r
 h-trim : List Word → List Word
 h-trim nil = nil
 h-trim (cons x r) = if weq x #32 then h-trim r else cons x r
+
+-- text in fresh memory with a NUL after it: its address
+h-cstr : List Word → Proc W Word
+h-cstr t = bind (alloc-bytes (wadd (fromNat (list-length t)) #1)) (λ a → bind (h-poke a t) (λ u → ret a))
+-- texts as a NULL-ended array of addresses (an argv or envp)
+h-ptrs-at : Word → List (List Word) → Proc W Unit
+h-ptrs-at a nil = ret unit
+h-ptrs-at a (cons t r) = bind (h-cstr t) (λ p → bind (store-at a p) (λ u → h-ptrs-at (wadd a #8) r))
+h-ptrs : List (List Word) → Proc W Word
+h-ptrs ts = bind (alloc-bytes (wmul (wadd (fromNat (list-length ts)) #1) #8)) (λ a → bind (h-ptrs-at a ts) (λ u → ret a))
+
+-- a file written whole (created, or emptied first): whether it was
+h-write : List Word → List Word → Proc W Bool
+h-write path t =
+  bind (h-cstr path) (λ p →
+  bind (sys-call #257 #18446744073709551516 p #577 #420 #0 #0) (λ fd →
+  if wlt fd #9223372036854775808 then
+    bind (h-cstr t) (λ b → bind (sys-call #1 fd b (fromNat (list-length t)) #0 #0 #0) (λ n →
+    bind (sys-call #3 fd #0 #0 #0 #0 #0) (λ c → ret {lzero} {W} (weq n (fromNat (list-length t))))))
+  else ret {lzero} {W} false))
+-- a directory made (an existing one is fine)
+h-mkdir : List Word → Proc W Unit
+h-mkdir path = bind (h-cstr path) (λ p → bind (sys-call #83 p #493 #0 #0 #0 #0) (λ r → ret unit))
+
+-- another program run to its end, its output this program's: its exit status (0 when it succeeded)
+h-env-block : Sum Unit (List Word) → List (List Word)
+h-env-block (inl u) = nil
+h-env-block (inr t) = h-nonempty (h-split #0 t)
+h-wait : Word → Proc W Word
+h-wait pid = bind (alloc-bytes #8) (λ st → bind (sys-call #61 pid st #0 #0 #0 #0) (λ r →
+  bind (load-at st) (λ s → ret (wand (wshr s #8) #255))))
+h-run : List (List Word) → Proc W Word
+h-run args =
+  bind (h-read "/proc/self/environ") (λ env →
+  bind (h-ptrs args) (λ argv → bind (h-ptrs (h-env-block env)) (λ envp →
+  bind (load-at argv) (λ path →
+  bind (sys-call #57 #0 #0 #0 #0 #0 #0) (λ pid →
+  if weq pid #0 then bind (sys-call #59 path argv envp #0 #0 #0) (λ e → bind (exit #127) (λ u → ret {lzero} {W} #127))
+  else h-wait pid)))))
+
+-- the latest time anything under a directory was changed (nanoseconds since 1970): every regular
+-- file's modification time, through every directory but .git, build and .cubical-store, to depth
+-- `depth`. A program keeping something computed from the files stamps it with this and computes it
+-- again when the stamp has moved.
+h-skip : List Word → Bool
+h-skip n = if h-eq n "." then true else if h-eq n ".." then true else if h-eq n ".git" then true else
+  if h-eq n "build" then true else h-eq n ".cubical-store"
+h-wmax : Word → Word → Word
+h-wmax a b = if wlt a b then b else a
+h-name-at : Word → Nat → Proc W (List Word)
+h-name-at a zero = ret nil
+h-name-at a (suc k) = bind (load8-at a) (λ b → if weq b #0 then ret {lzero} {W} nil else bind (h-name-at (wadd a #1) k) (λ r → ret {lzero} {W} (cons b r)))
+h-file-time : List Word → Proc W Word
+h-file-time path = bind (h-cstr path) (λ p → bind (alloc-bytes #256) (λ st →
+  bind (sys-call #262 #18446744073709551516 p st #0 #0 #0) (λ r →
+  if weq r #0 then bind (load-at (wadd st #88)) (λ s → bind (load-at (wadd st #96)) (λ ns → ret {lzero} {W} (wadd (wmul s #1000000000) ns)))
+  else ret {lzero} {W} #0)))
+h-entry-time : (List Word → Proc W Word) → List Word → Word → List Word → Proc W Word
+h-entry-time rec child ty name =
+  if h-skip name then ret {lzero} {W} #0 else
+  if weq ty #4 then rec child else
+  if weq ty #8 then h-file-time child else ret {lzero} {W} #0
+h-entries-time : (List Word → Proc W Word) → List Word → Word → Word → Word → Nat → Proc W Word
+h-entries-time rec path buf off n zero = ret #0
+h-entries-time rec path buf off n (suc k) =
+  if wlt off n then
+    bind (load8-at (wadd buf (wadd off #16))) (λ lo → bind (load8-at (wadd buf (wadd off #17))) (λ hi →
+    bind (load8-at (wadd buf (wadd off #18))) (λ ty →
+    bind (h-name-at (wadd buf (wadd off #19)) (toNat #256)) (λ name →
+    bind (h-entry-time rec (list-append path (cons #47 name)) ty name) (λ t →
+    bind (h-entries-time rec path buf (wadd off (wadd lo (wshl hi #8))) n k) (λ t2 → ret {lzero} {W} (h-wmax t t2)))))))
+  else ret {lzero} {W} #0
+h-dir-chunks : (List Word → Proc W Word) → List Word → Word → Word → Word → Nat → Proc W Word
+h-dir-chunks rec path fd buf acc zero = ret acc
+h-dir-chunks rec path fd buf acc (suc k) =
+  bind (sys-call #217 fd buf #65536 #0 #0 #0) (λ n →
+  if andB (wlt #0 n) (wlt n #9223372036854775808)
+  then bind (h-entries-time rec path buf #0 n (toNat (wquot n #20))) (λ t → h-dir-chunks rec path fd buf (h-wmax acc t) k)
+  else ret {lzero} {W} acc)
+h-dir-time : Nat → List Word → Proc W Word
+h-dir-time zero path = ret #0
+h-dir-time (suc d) path =
+  bind (h-cstr path) (λ p → bind (sys-call #257 #18446744073709551516 p #65536 #0 #0 #0) (λ fd →
+  if wlt fd #9223372036854775808 then
+    bind (alloc-bytes #65536) (λ buf → bind (h-dir-chunks (h-dir-time d) path fd buf #0 (toNat #4096)) (λ t →
+    bind (sys-call #3 fd #0 #0 #0 #0 #0) (λ c → ret {lzero} {W} t)))
+  else ret {lzero} {W} #0))
+-- the store's directory: CUBICAL_STORE when set, else .cubical-store
+h-store-of : Sum Unit (List Word) → List Word
+h-store-of (inl u) = ".cubical-store"
+h-store-of (inr d) = d
+-- decimal digits read as a number (anything else in them ends it)
+h-number-onto : Word → List Word → Word
+h-number-onto acc nil = acc
+h-number-onto acc (cons d r) = if andB (wlt #47 d) (wlt d #58) then h-number-onto (wadd (wmul acc #10) (wsub d #48)) r else acc
+h-number : List Word → Word
+h-number t = h-number-onto #0 t

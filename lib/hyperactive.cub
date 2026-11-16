@@ -6,10 +6,6 @@
 -- with its statement) and to its checked key; what uses a name is what the checker found mentions it.
 import "host.cub"
 
--- the store: CUBICAL_STORE when set, else .cubical-store; a file of it by its path inside
-hy-store-of : Sum Unit (List Word) → List Word
-hy-store-of (inl u) = ".cubical-store"
-hy-store-of (inr d) = d
 hy-get : List Word → List Word → Proc W (Sum Unit (List Word))
 hy-get st rel = h-read (list-append st (cons #47 rel))
 hy-or : List Word → Sum Unit (List Word) → List Word
@@ -49,21 +45,133 @@ hy-def st nil = ret unit
 hy-def st (cons name r) = bind (hy-get st (list-append "written/" (h-hex name))) (λ w →
   bind (hy-def-written st name w) (λ u → hy-def st r))
 
--- the commands
-hy-usage : List Word
-hy-usage = h-line "hyperactive def NAME ...   a definition: its statement, its text, its key, and what uses it"
-hy-command : List Word → List Word → List (List Word) → Proc W Unit
-hy-command st c rest =
-  if h-eq c "def" then (if h-null (h-concat rest) then h-fail "hyperactive def NAME ..." else hy-def st rest) else
-  if h-eq c "help" then h-out hy-usage else
-  h-fail (list-append "hyperactive: no command " c)
-hy-dispatch : List Word → List (List Word) → Proc W Unit
-hy-dispatch st nil = h-out hy-usage
-hy-dispatch st (cons c rest) = hy-command st c rest
--- the command line: the machine, this program, then the command and its words
+
+-- The session (2026-11-15, Avik: "the interactive loop of understanding/contributing"; "the cli may
+-- simply deliver exactly the onboarding contents in a sequence of turns"): one loop whose state is a
+-- value, the actions taken so far (session/log in the store, one per line) folded from the first
+-- state. Each call of `hyperactive ACTION` takes one action, if it is valid where the session is,
+-- and shows the state it reaches with the actions valid there; `hyperactive` alone shows where the
+-- session is. A session begins with the walk of the onboarding, where next and prev are the only
+-- actions; then the work: the graph's views, reading code by name, and the rest; `done` declares
+-- the work done and ends the session. A session not ended by `done` stays where it was.
+data HyState = hy-walking (k : Nat) | hy-working
+
+hy-pred : Nat → Nat
+hy-pred zero = suc zero
+hy-pred (suc zero) = suc zero
+hy-pred (suc (suc k)) = suc k
+hy-work-words : List (List Word)
+hy-work-words = cons "show" (cons "tree" (cons "order" (cons "open" (cons "def" (cons "done" nil)))))
+hy-head : List (List Word) → List Word
+hy-head nil = nil
+hy-head (cons x r) = x
+hy-same-nat : Nat → Nat → Bool
+hy-same-nat a b = weq (fromNat a) (fromNat b)
+-- an action applied: the state it reaches, or none when it is not valid there
+hy-step : Nat → HyState → List (List Word) → Sum Unit HyState
+hy-step count (hy-walking k) a =
+  if h-eq (hy-head a) "next" then inr (if hy-same-nat k count then hy-working else hy-walking (suc k)) else
+  if h-eq (hy-head a) "prev" then inr (hy-walking (hy-pred k)) else inl unit
+hy-step count hy-working a = if h-has (hy-head a) hy-work-words then inr hy-working else inl unit
+hy-or-state : HyState → Sum Unit HyState → HyState
+hy-or-state s (inl u) = s
+hy-or-state s (inr t) = t
+-- the state the log reaches
+hy-fold : Nat → HyState → List (List Word) → HyState
+hy-fold count s nil = s
+hy-fold count s (cons l r) = hy-fold count (hy-or-state s (hy-step count s (h-split #32 l))) r
+
+-- the walk's chunks, kept in the store by lib/walk.cub; made again when anything has changed since
+hy-machine : List (List Word) → List Word
+hy-machine nil = "build/cubical"
+hy-machine (cons m r) = m
+hy-walk-fresh : List Word → List Word → Proc W Unit
+hy-walk-fresh st m =
+  bind (hy-get st "walk/stamp") (λ s → bind (h-dir-time (toNat #12) ".") (λ now →
+  if h-eq (hy-or nil s) (h-decimal now) then ret {lzero} {W} unit
+  else bind (h-out (h-line "(the onboarding has changed since it was last cut into chunks: cutting it again)")) (λ u →
+    bind (h-run (cons m (cons "lib/walk.cub" nil))) (λ r → ret {lzero} {W} unit))))
+hy-count : List Word → Proc W Nat
+hy-count st = bind (hy-get st "walk/count") (λ c → ret (toNat (h-number (hy-or "0" c))))
+
+-- what a state shows
+hy-arrival : List Word
+hy-arrival = h-line (h-line "You are entering hyperactivity. This walk is how an agent comes to hold Avik's complete insight: every agent reads the same material, whole, in the same order, one chunk at a time. Read every word of a chunk before `hyperactive next`; nothing else can be done until the walk is done.")
+hy-rule : List Word
+hy-rule = "────────"
+hy-first-line : List Word → List Word
+hy-first-line nil = nil
+hy-first-line (cons x r) = if weq x #10 then nil else cons x (hy-first-line r)
+hy-after-first-line : List Word → List Word
+hy-after-first-line nil = nil
+hy-after-first-line (cons x r) = if weq x #10 then r else hy-after-first-line r
+hy-of : Nat → Nat → List Word
+hy-of k n = list-append (h-decimal (fromNat k)) (list-append " of " (h-decimal (fromNat n)))
+hy-show-chunk : Nat → Nat → Sum Unit (List Word) → Proc W Unit
+hy-show-chunk k n (inl u) = h-fail "hyperactive: the walk's chunk is missing from the store"
+hy-show-chunk k n (inr t) =
+  h-out (list-append (if hy-same-nat k (suc zero) then hy-arrival else nil)
+    (list-append (h-line (h-line (list-append "── " (list-append (hy-of k n) (list-append ": " (list-append (hy-first-line t) (list-append " " hy-rule)))))))
+    (list-append (h-line (hy-after-first-line t))
+    (h-line (list-append hy-rule (list-append " end of " (list-append (hy-of k n)
+      (if hy-same-nat k n then ". The walk is done: hyperactive next begins the work." else ". Next: hyperactive next   (back: hyperactive prev)"))))))))
+hy-work-usage : List Word
+hy-work-usage = list-append (h-line "Actions:")
+  (list-append (h-line "  hyperactive show NODE ...   a node of the task graph: its statement, what it serves, what serves it")
+  (list-append (h-line "  hyperactive tree            the task graph from its roots")
+  (list-append (h-line "  hyperactive order           the whole order of work")
+  (list-append (h-line "  hyperactive open            what is in progress and what can start now")
+  (list-append (h-line "  hyperactive def NAME ...    a definition: its statement, its text, its key, and what uses it")
+  (h-line "  hyperactive done            the work is done: the session ends"))))))
+hy-views : List Word → List (List Word) → Proc W Unit
+hy-views m a = bind (h-run (cons m (cons "lib/views.cub" a))) (λ r → ret unit)
+hy-show : List Word → List Word → Nat → HyState → Proc W Unit
+hy-show st m n (hy-walking k) = bind (hy-get st (list-append "walk/" (h-decimal (fromNat k)))) (hy-show-chunk k n)
+hy-show st m n hy-working = bind (hy-views m (cons "open" nil)) (λ u → h-out (list-append (cons #10 nil) hy-work-usage))
+-- a working action performed
+hy-act : List Word → List Word → List (List Word) → Proc W Unit
+hy-act st m nil = ret unit
+hy-act st m (cons c rest) =
+  if h-eq c "def" then hy-def st rest else
+  if h-eq c "done" then bind (h-write (list-append st "/session/log") nil) (λ b → h-out (h-line "The work is declared done; the session is over. The next session begins with the walk."))
+  else hy-views m (cons c rest)
+
+-- one call: the action taken when valid, then what the state reached shows
+hy-log-lines : Sum Unit (List Word) → List (List Word)
+hy-log-lines (inl u) = nil
+hy-log-lines (inr t) = h-lines t
+hy-sep : List Word → List (List Word) → List Word
+hy-sep s nil = nil
+hy-sep s (cons x nil) = x
+hy-sep s (cons x (cons y r)) = list-append x (list-append s (hy-sep s (cons y r)))
+hy-after : List Word → List Word → Nat → List (List Word) → HyState → Proc W Unit
+hy-after st m n a (hy-walking k) = hy-show st m n (hy-walking k)
+hy-after st m n a hy-working = if h-has (hy-head a) (cons "next" (cons "prev" nil)) then hy-show st m n hy-working else hy-act st m a
+hy-took : List Word → List Word → Nat → List (List Word) → List (List Word) → HyState → Sum Unit HyState → Proc W Unit
+hy-took st m n log a s (inl u) = bind (h-out (h-line (h-line (list-append "Not an action here: hyperactive " (hy-sep " " a))))) (λ u2 → hy-show st m n s)
+hy-took st m n log a s (inr t) =
+  bind (h-write (list-append st "/session/log") (h-concat (list-map h-line (list-append log (cons (hy-sep " " a) nil))))) (λ b →
+  hy-after st m n a t)
+hy-take-at : List Word → List Word → Nat → List (List Word) → List (List Word) → HyState → Proc W Unit
+hy-take-at st m n log nil s = hy-show st m n s
+hy-take-at st m n log (cons c rest) s = hy-took st m n log (cons c rest) s (hy-step n s (cons c rest))
+hy-take : List Word → List Word → Nat → List (List Word) → List (List Word) → Proc W Unit
+hy-take st m n log a = hy-take-at st m n log a (hy-fold n (hy-walking (suc zero)) log)
+-- the walk's chunks made fresh whenever the session is on its walk
+hy-walk-ready-at : List Word → List Word → HyState → Proc W Unit
+hy-walk-ready-at st m (hy-walking k) = hy-walk-fresh st m
+hy-walk-ready-at st m hy-working = ret unit
+hy-walk-ready : List Word → List Word → List (List Word) → Proc W Unit
+hy-walk-ready st m log = bind (hy-count st) (λ n → hy-walk-ready-at st m (hy-fold n (hy-walking (suc zero)) log))
+hy-begin : List Word → List Word → List (List Word) → Proc W Unit
+hy-begin st m a =
+  bind (h-mkdir st) (λ u → bind (h-mkdir (list-append st "/session")) (λ u2 →
+  bind (hy-get st "session/log") (λ l →
+  bind (hy-walk-ready st m (hy-log-lines l)) (λ u3 →
+  bind (hy-count st) (λ n →
+  bind (hy-take st m n (hy-log-lines l) a) (λ u4 → exit #0))))))
 hy-main : Proc W Unit
-hy-main = bind (h-env "CUBICAL_STORE") (λ e → bind h-args (λ a →
-  bind (hy-dispatch (hy-store-of e) (h-drop-n (suc (suc zero)) a)) (λ u → exit #0)))
+hy-main = bind (h-env "CUBICAL_STORE") (λ e → bind h-args (λ args → hy-begin (h-store-of e) (hy-machine args) (h-drop-n (suc (suc zero)) args)))
 hy-run : Step W Unit
 hy-run = to-step hy-main
 #run hy-run

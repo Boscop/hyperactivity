@@ -23,19 +23,24 @@ v-sentence-in i nil = nil
 v-sentence-in i (cons e r) = if h-eq i (fst e) then name (snd e) else v-sentence-in i r
 v-sentence : List Word → List Word
 v-sentence i = v-sentence-in i v-all
-v-parts-in : List Word → List (List Word × Node) → List (List Word)
-v-parts-in i nil = nil
-v-parts-in i (cons e r) = if h-eq i (fst e) then v-ids (parts (snd e)) else v-parts-in i r
+-- each node with the names of its parts, and with the names of the nodes it is a part of: computed once
+v-table : List (List Word × List (List Word))
+v-table = list-map (λ e → (fst e , v-ids (parts (snd e)))) v-all
+v-look : List Word → List (List Word × List (List Word)) → List (List Word)
+v-look i nil = nil
+v-look i (cons e r) = if h-eq i (fst e) then snd e else v-look i r
 v-parts : List Word → List (List Word)
-v-parts i = v-parts-in i v-all
+v-parts i = v-look i v-table
 v-known : List Word → Bool
 v-known i = h-has i (list-map (λ e → fst e) v-all)
 -- the nodes a node serves directly as a part, in the order defined
-v-kids-in : List Word → List (List Word × Node) → List (List Word)
-v-kids-in i nil = nil
-v-kids-in i (cons e r) = if h-has i (v-ids (parts (snd e))) then cons (fst e) (v-kids-in i r) else v-kids-in i r
+v-kids-of : List Word → List (List Word × List (List Word)) → List (List Word)
+v-kids-of i nil = nil
+v-kids-of i (cons e r) = if h-has i (snd e) then cons (fst e) (v-kids-of i r) else v-kids-of i r
+v-kid-table : List (List Word × List (List Word))
+v-kid-table = list-map (λ e → (fst e , v-kids-of (fst e) v-table)) v-table
 v-kids : List Word → List (List Word)
-v-kids i = v-kids-in i v-all
+v-kids i = v-look i v-kid-table
 
 v-roots : List (List Word)
 v-roots = v-ids roots
@@ -52,9 +57,11 @@ v-union a b = h-dedupe (list-append a b)
 v-step-all : (List Word → List (List Word)) → List (List Word) → List (List Word)
 v-step-all f nil = nil
 v-step-all f (cons x r) = list-append (f x) (v-step-all f r)
+v-close-if : List (List Word) → List (List Word) → (List (List Word) → List (List Word)) → List (List Word)
+v-close-if s t next = if weq (fromNat (list-length s)) (fromNat (list-length t)) then s else next t
 v-close : Nat → (List Word → List (List Word)) → List (List Word) → List (List Word)
 v-close zero f s = s
-v-close (suc k) f s = v-close k f (v-union s (v-step-all f s))
+v-close (suc k) f s = v-close-if s (v-union s (v-step-all f s)) (v-close k f)
 v-rounds : Nat
 v-rounds = list-length v-all
 -- every node under a node (not itself); the node and every node above it
@@ -74,8 +81,8 @@ v-after-of i nil = nil
 v-after-of i (cons e r) = if h-eq i (v-id (fst e)) then list-append (v-ids (snd e)) (v-after-of i r) else v-after-of i r
 v-leaves-at : List Word → List (List Word)
 v-leaves-at d = v-filter v-open-leaf (cons d (v-under d))
-v-waits : List Word → List (List Word)
-v-waits x = h-dedupe (v-step-all v-leaves-at (v-step-all (λ m → v-after-of m after) (v-ancestors x)))
+v-waits-of : List Word → List (List Word)
+v-waits-of x = h-dedupe (v-step-all v-leaves-at (v-step-all (λ m → v-after-of m after) (v-ancestors x)))
 v-before-of : List Word → List (List Word)
 v-before-of i = v-filter (λ m → h-has i (v-after-of m after)) (list-map (λ e → fst e) v-all)
 
@@ -171,10 +178,18 @@ v-tree = h-concat (list-map (λ r → v-tree-from v-rounds zero nil r) v-roots)
 -- order: the leaves that can start now in layers (a leaf supersedes those below it), then the waiting
 v-leaves : List (List Word)
 v-leaves = v-filter v-open-leaf (list-map (λ e → fst e) v-all)
+v-waits-table : List (List Word × List (List Word))
+v-waits-table = list-map (λ x → (x , v-waits-of x)) v-leaves
+v-waits : List Word → List (List Word)
+v-waits x = v-look x v-waits-table
 v-ready : List (List Word)
 v-ready = v-filter (λ x → h-null (h-concat (v-waits x))) v-leaves
+v-gain-of : List Word → List (List Word)
+v-gain-of x = v-filter (λ y → h-has x (v-waits y)) v-leaves
+v-gain-table : List (List Word × List (List Word))
+v-gain-table = list-map (λ x → (x , v-gain-of x)) v-ready
 v-gain : List Word → List (List Word)
-v-gain x = v-filter (λ y → h-has x (v-waits y)) v-leaves
+v-gain x = v-look x v-gain-table
 v-subset : List (List Word) → List (List Word) → Bool
 v-subset nil b = true
 v-subset (cons x r) b = andB (h-has x b) (v-subset r b)
