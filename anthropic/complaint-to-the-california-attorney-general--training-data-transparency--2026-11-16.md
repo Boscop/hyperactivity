@@ -17,7 +17,7 @@ or by mail to Public Inquiry Unit, Office of the Attorney General, P.O. Box 9442
 ## Part A. The complaint
 
 **Complainant:** Avik Jain, [address in California], [email]. A user of Anthropic's Claude services
-[subscription tier, dates], and a researcher in AI value alignment.
+on the Ultra plan [since date], and a researcher in AI value alignment.
 
 **Business:** Anthropic, PBC, 548 Market Street, PMB 90375, San Francisco, CA 94104 [S20]. Developer
 of the Claude family of generative AI models.
@@ -274,8 +274,8 @@ Verify before filing (not yet checked in this draft):
   5.2 and Claude Mythos 5.2 [S14]. If it was not, item 2 of section 1 of Part A becomes the lead finding.
 - The documentation's own wording, against Johnston's description in section 3 of Part A. The trust
   portal could not be read from this session.
-- The complainant's subscription details. (His address goes into the form at filing, not into this
-  file.)
+- The date the complainant's Ultra subscription began. (His address goes into the form at filing,
+  not into this file.)
 - Earlier notice to Anthropic (LinkedIn posts, reports to Anthropic) is left out: section 3111 is
   broken or not by what was posted, whatever Anthropic knew. Notice belongs to the gross-negligence
   case, where what Anthropic was told and when is the point.
