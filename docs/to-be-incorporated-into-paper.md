@@ -241,7 +241,17 @@ the units that decompose from it.
   document is such a composition, and a document whose units change is recomposed.
 - **Judgement.** Decomposition, the assertion of equivalence and recomposition all require
   judgement. A language model is today better at it than any deterministic algorithm an agent would
-  write. The equivalence is therefore an assertion with its author recorded, not a proof.
+  write. No machine today verifies semantic equivalence, so the equivalence is an assertion with its
+  author recorded, not a proof.
+- **Discipline** (Avik, 2026-11-16 06:08 UTC). What can be given is very clear discipline to the
+  agents that do it, humans and language models, set up so that it is naturally done right: the
+  equivalence is declared true only when it is true, and a language model checks it close to
+  deterministically, sentence by sentence.
+- **The algorithm: partition, then self-containment.** Decomposition is a partition of the input.
+  The parts carry the input's internal references to one another, so a part on its own is not
+  self-contained; the second stage re-expresses each part with its references resolved. The first
+  stage is checked by machine (the parts in order are the input exactly), the second by the sentence
+  by sentence check of each re-expressed part against its part and the parts it referred to.
 - **Correct natural language computing.** Avik's modern common English model, a deterministic
   exact implementation of language learning, makes the same process free of a hallucination engine:
   decomposition, equivalence and recomposition become computations whose correctness is established,

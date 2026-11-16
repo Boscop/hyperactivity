@@ -37,7 +37,10 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   algorithm you write"). An essay is one unit; its decomposition into assertion and evidence units is
   done by a model's judgement and is a second unit, asserted semantically equivalent to the first.
   Write no deterministic decomposer or recomposer; that is the work of correct natural language
-  computing (the task graph's correct-natural-language-computing).
+  computing (the task graph's correct-natural-language-computing). Decompose in two stages (Avik,
+  06:08 UTC): first partition the input, so the parts joined in order are the input exactly; then make
+  each part self-contained, re-expressing it with every internal reference resolved. Declare the
+  equivalence only when it is true, after checking each part against its source sentence by sentence.
 - **Keep Avik's words verbatim** (“Avik's words, verbatim” below).
   - Never paraphrase inside quotation marks.
   - A long message is appended to “Avik's words, verbatim” below, not put in a new file.
@@ -1496,3 +1499,7 @@ The consolidated piece is this, written through in the two registers you keep di
 #### 2026-11-16 06:03 UTC (an essay is a unit; its decomposition is a second unit asserted equivalent to it; correct natural language computing)
 
 > if anything, the source is a source for the units that decompose from it if that makes sense. i.e. you can write an 10k essay off a good prompt from me very quickly and it will be extremely rich in knowledge content citations etc. that is a unit.   that can be passed to a decomposition process (which may be an llm) which then provides a new unit, which is a collection of units which in total we assert carry semantic equivalence to the original paper unit. so now we have two units: paper bare, & paper decomposed (with decomposed paper carrying internal structure of many smaller assertion/evidence level units). then paper-decomposed contents can feed anything - including other essays (i.e. I can decompose 5 essays take arbitrary contents of them and have an agent recompose a new essay. all of this requires judgement. for now an llm is better than any deterministic algorithm you write. once I complete the modern common English model / deterministic exact language learning impl even this will be free of a hallucination-engine. that too should be a clear goal we're tracking/decomposing - correct natural language computing.
+
+#### 2026-11-16 06:08 UTC (decomposition is a partition, then self-containment; equivalence declared by judgement, checked sentence by sentence)
+
+> there can be with todays tech no machine verification of the semantic equivalence. the best we can do is give extremely clear discipline to irrational agents like humans and llms. the whole point is we set this up so it is naturally done right, and well - the semantic equivalence is declared true when it is true, that can only be made by good judgement but can be verified quite deterministically by todays llms (sentence by sentence check). in fact the decomposition could just be a partition of the input, but input may have internal references and for self-containment requires re-expressing after partition with references resolved. thats really all it is. you're good at following such instructions when spoon fed. or we can literally force it in stages: 1st, partition; 2nd, ensure self-containment. that is a clear algorithm.
