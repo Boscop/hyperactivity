@@ -3993,7 +3993,49 @@ void net_mem(long *slabs, long *keys) {
 
 /* ---------------- building a net from syntax ---------------- */
 typedef struct { Port *sup; int cur, n; Key *key; Port inl[4]; } Supply;   /* inl: the providers of a slot used at most 3 times */
-typedef struct { Supply *s; int nslots; const int *uses; Key *scrut; } Frame;   /* scrut: a case branch's scrutinee's key (the value it rebuilds is named by it) */
+/* synkey's results in one frame being built (run_frame), by node. synkey(t, f) is a function of t, the
+ * keys of the slots free in t and f's scrut, and these are fixed from the moment t is built: a slot is
+ * bound (bind, bind_dim) before the subterms under its binder are built and never rebound in the frame,
+ * and every call of synkey on t from build_m (at t, or at an ancestor, after its parts are built) comes
+ * after t is built. The one exception is synkey's own S_LET, which sets the let's slot to the key of the
+ * let's value while it reads the body (the built body has the slot bound to its built value's key):
+ * below it (ovr > 0) nothing is read from or written to the table. So a result found here is the result
+ * the walk would compute, and each node of a frame is walked once instead of once per keyed ancestor
+ * (2026-11-16: synkey made 132M calls and recursed 837M more for 79M nodes built in lib/views.cub, the
+ * walks and the keys they interned and freed again a ninth of the run). Held keys are released when the
+ * frame is done; holding them longer changes no key (keys are interned: one term, one key while alive) */
+typedef struct { const Syn *t; Key *k; uint64_t stamp; } KcEnt;
+typedef struct { KcEnt *e; size_t cap, n; uint64_t stamp; Key **held; size_t nheld, capheld; } KCache;
+typedef struct { Supply *s; int nslots; const int *uses; Key *scrut; KCache *kc; int ovr; } Frame;   /* scrut: a case branch's scrutinee's key (the value it rebuilds is named by it); kc: synkey's table (NULL: none), ovr: synkey is under a let it rebinds */
+/* one table per depth of frames being built on this thread (a frame's building may build another) */
+static __thread KCache **kc_pool; static __thread int kc_depth, kc_npool;   /* each table allocated alone: a frame holds its own while a deeper one is added */
+static KCache *kc_enter(void) {
+    if (kc_depth == kc_npool) { kc_pool = realloc(kc_pool, (size_t)(kc_npool + 1) * sizeof(KCache *)); kc_pool[kc_npool++] = calloc(1, sizeof(KCache)); }
+    KCache *c = kc_pool[kc_depth++];
+    c->stamp++; c->n = 0;   /* entries of an earlier stamp are empty */
+    return c;
+}
+static void kc_leave(KCache *c) {
+    for (size_t i = 0; i < c->nheld; i++) key_release(c->held[i]);
+    c->nheld = 0;
+    kc_depth--;
+}
+static inline size_t kc_slot(const Syn *t, size_t cap) { return (size_t)(((uintptr_t)t >> 4) * 0x9e3779b97f4a7c15ull >> 20) & (cap - 1); }
+static KcEnt *kc_find(KCache *c, const Syn *t) {
+    if (!c->cap) return NULL;
+    for (size_t i = kc_slot(t, c->cap); c->e[i].stamp == c->stamp; i = (i + 1) & (c->cap - 1)) if (c->e[i].t == t) return &c->e[i];
+    return NULL;
+}
+static void kc_put(KCache *c, const Syn *t, Key *k) {   /* k: a reference the table takes (NULL: no key) */
+    if ((c->n + 1) * 2 > c->cap) {
+        size_t nc = c->cap ? c->cap * 2 : 256; KcEnt *ne = calloc(nc, sizeof(KcEnt));
+        for (size_t i = 0; i < c->cap; i++) if (c->e[i].stamp == c->stamp) { size_t j = kc_slot(c->e[i].t, nc); while (ne[j].stamp == c->stamp) j = (j + 1) & (nc - 1); ne[j] = c->e[i]; }
+        free(c->e); c->e = ne; c->cap = nc;
+    }
+    size_t j = kc_slot(t, c->cap); while (c->e[j].stamp == c->stamp) j = (j + 1) & (c->cap - 1);
+    c->e[j] = (KcEnt){ t, k, c->stamp }; c->n++;
+    if (k) { if (c->nheld == c->capheld) { c->capheld = c->capheld ? c->capheld * 2 : 256; c->held = realloc(c->held, c->capheld * sizeof(Key *)); } c->held[c->nheld++] = k; }
+}
 
 static void bind(Frame *f, int slot, Port prov) {
     int u = f->uses[slot];
@@ -4011,7 +4053,8 @@ static void bind_dim(Frame *f, int slot, Dim i) {
 }
 /* the key of a compiled term in a frame, without building it: the term with its slots' keys.
  * NULL where a part has no key or the form is not keyed. The caller owns the result */
-static Key *synkey(Syn *t, Frame *f) {
+static Key *synkey(Syn *t, Frame *f);
+static Key *synkey_walk(Syn *t, Frame *f) {
     Key *r = NULL, *x = NULL, *y = NULL, *z = NULL;
     switch (t->tag) {
     case S_VAR: { Key *k = f->s[t->slot].key; return k ? key_retain(k) : NULL; }
@@ -4023,7 +4066,7 @@ static Key *synkey(Syn *t, Frame *f) {
             if (t->tag == S_LAM) r = key(K_LAM, 0, t->rec, t->n, env);
             else {
                 Record *rc = t->rec;
-                Frame g = { calloc((size_t)rc->nslots + 1, sizeof(Supply)), rc->nslots, rc->uses, NULL };
+                Frame g = { calloc((size_t)rc->nslots + 1, sizeof(Supply)), rc->nslots, rc->uses, NULL, NULL, 0 };   /* no table: a walk of another frame, once */
                 for (int k = 0; k < rc->nenv; k++) g.s[rc->env_slot[k]].key = env[k];
                 r = synkey(rc->body, &g);
                 free(g.s);
@@ -4076,7 +4119,9 @@ static Key *synkey(Syn *t, Frame *f) {
     case S_LET: {
         Key *saved = f->s[t->slot].key;
         f->s[t->slot].key = synkey(t->k[0], f);
+        f->ovr++;   /* the body read with the slot as it is not when built: not from the table */
         r = synkey(t->k[1], f);
+        f->ovr--;
         if (f->s[t->slot].key) key_release(f->s[t->slot].key);
         f->s[t->slot].key = saved;
         return r;
@@ -4086,6 +4131,20 @@ static Key *synkey(Syn *t, Frame *f) {
     if (x) key_release(x);
     if (y) key_release(y);
     if (z) key_release(z);
+    return r;
+}
+/* synkey_walk, its result kept for the frame (KCache above); a leaf costs no more than a lookup */
+static Key *synkey(Syn *t, Frame *f) {
+    switch (t->tag) {
+    case S_LAM: case S_THUNK: case S_APP: case S_CALL: case S_PAIR: case S_PI: case S_SIGMA: case S_PATHP: case S_DATA: case S_CON:
+    case S_FST: case S_SND: case S_FORCE: case S_PAPP: case S_U: case S_CASE: case S_LET: break;
+    default: return synkey_walk(t, f);
+    }
+    if (!f->kc || f->ovr) return synkey_walk(t, f);
+    KcEnt *e = kc_find(f->kc, t);
+    if (e) return e->k ? key_retain(e->k) : NULL;
+    Key *r = synkey_walk(t, f);
+    kc_put(f->kc, t, r ? key_retain(r) : NULL);
     return r;
 }
 /* Call by need (CBN; PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.16 “A8 — Proposal: formal transported compositions”). Every operand is compiled unbuilt: an operation in an operand position is
@@ -4278,7 +4337,7 @@ static Port build_m(Syn *t, Frame *f, bool lazy) {
 static Port run_frame(Syn *body, int nslots, const int *uses, int nparam, const Port *params, int nenv, const int *env_slot, const Port *env, int where) {
     Supply local_s[16];
     Supply *ss = nslots + 1 <= 16 ? (memset(local_s, 0, (size_t)(nslots + 1) * sizeof(Supply)), local_s) : calloc((size_t)nslots + 1, sizeof(Supply));
-    Frame f = { ss, nslots, uses, scrut_key };
+    Frame f = { ss, nslots, uses, scrut_key, kc_enter(), 0 };
     scrut_key = NULL;
     long saved = dup_origin;
     if (prof_on) dup_origin = where + 1;
@@ -4291,6 +4350,7 @@ static Port run_frame(Syn *body, int nslots, const int *uses, int nparam, const 
         if (f.s[k].key) key_release(f.s[k].key);
     }
     if (f.scrut) key_release(f.scrut);
+    kc_leave(f.kc);
     if (f.s != local_s) free(f.s);
     dup_origin = saved;
     return r;
