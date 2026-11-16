@@ -11,6 +11,9 @@ hy-get st rel = h-read (list-append st (cons #47 rel))
 hy-or : List Word → Sum Unit (List Word) → List Word
 hy-or d (inl u) = d
 hy-or d (inr t) = t
+hy-head : List (List Word) → List Word
+hy-head nil = nil
+hy-head (cons x r) = x
 hy-sep : List Word → List (List Word) → List Word
 hy-sep s nil = nil
 hy-sep s (cons x nil) = x
@@ -172,6 +175,42 @@ hy-remove st m nil = h-fail "hyperactive remove NAME"
 hy-remove st m (cons name r) = bind (hy-live-users st name) (λ us →
   if h-null (h-concat us) then bind (hy-get st (list-append "written/" (h-hex name))) (λ w → hy-remove-at st m name w)
   else h-fail (list-append name (list-append " is used by " (hy-sep " " us))))
+-- history [NAME]: every binding of the name to a key, in the order bound, from the store's names log
+-- (`name key time`, a key `-` an unbinding), each with its time in UTC
+hy-two : Word → List Word
+hy-two w = if wlt w #10 then cons #48 (h-decimal w) else h-decimal w
+hy-civil-ymd : Word → Word → Word → List Word
+hy-civil-ymd y d m = list-append (h-decimal (if wlt m #3 then wadd y #1 else y)) (list-append "-" (list-append (hy-two m) (list-append "-" (hy-two d))))
+hy-civil-mp : Word → Word → Word → List Word
+hy-civil-mp y doy mp = hy-civil-ymd y (wadd (wsub doy (wquot (wadd (wmul #153 mp) #2) #5)) #1) (if wlt mp #10 then wadd mp #3 else wsub mp #9)
+hy-civil-doy : Word → Word → List Word
+hy-civil-doy y doy = hy-civil-mp y doy (wquot (wadd (wmul #5 doy) #2) #153)
+hy-civil-yoe : Word → Word → Word → List Word
+hy-civil-yoe era doe yoe = hy-civil-doy (wadd yoe (wmul era #400)) (wsub doe (wsub (wadd (wmul #365 yoe) (wquot yoe #4)) (wquot yoe #100)))
+hy-civil-era : Word → Word → List Word
+hy-civil-era era doe = hy-civil-yoe era doe (wquot (wsub (wadd (wsub doe (wquot doe #1460)) (wquot doe #36524)) (wquot doe #146096)) #365)
+hy-civil-at : Word → List Word
+hy-civil-at z = hy-civil-era (wquot z #146097) (wsub z (wmul (wquot z #146097) #146097))
+wrem-of : Word → Word → Word
+wrem-of a b = wsub a (wmul (wquot a b) b)
+hy-civil : Word → List Word
+hy-civil days =
+  hy-civil-at (wadd days #719468)
+hy-utc : Word → List Word
+hy-utc t = list-append (hy-civil (wquot t #86400)) (list-append " " (list-append (hy-two (wquot (wrem-of t #86400) #3600))
+  (list-append ":" (list-append (hy-two (wquot (wrem-of t #3600) #60)) (list-append ":" (list-append (hy-two (wrem-of t #60)) " UTC"))))))
+hy-binding : List (List Word) → List Word
+hy-binding (cons n (cons k (cons t r))) = h-line (list-append (hy-utc (h-number t)) (list-append " " (list-append n (list-append " " (if h-eq k "-" then "unbound" else k)))))
+hy-binding ws = nil
+hy-history-of : List Word → List (List Word) → List Word
+hy-history-of name nil = nil
+hy-history-of name (cons l r) = if orB (h-null name) (h-eq name (hy-head (h-split #32 l))) then list-append (hy-binding (h-split #32 l)) (hy-history-of name r) else hy-history-of name r
+hy-history : List Word → List (List Word) → Proc W Unit
+hy-history st a = bind (hy-get st "names") (λ log →
+  if h-null (hy-history-of (hy-sep " " a) (h-lines (hy-or nil log)))
+  then h-out (h-line (if h-null (hy-sep " " a) then "the history is empty" else list-append "no history for " (hy-sep " " a)))
+  else h-out (hy-history-of (hy-sep " " a) (h-lines (hy-or nil log))))
+
 -- The session (2026-11-15, Avik: "the interactive loop of understanding/contributing"; "the cli may
 -- simply deliver exactly the onboarding contents in a sequence of turns"): one loop whose state is a
 -- value, the actions taken so far (session/log in the store, one per line) folded from the first
@@ -187,10 +226,7 @@ hy-pred zero = suc zero
 hy-pred (suc zero) = suc zero
 hy-pred (suc (suc k)) = suc k
 hy-work-words : List (List Word)
-hy-work-words = cons "show" (cons "tree" (cons "order" (cons "open" (cons "def" (cons "write" (cons "remove" (cons "done" nil)))))))
-hy-head : List (List Word) → List Word
-hy-head nil = nil
-hy-head (cons x r) = x
+hy-work-words = cons "show" (cons "tree" (cons "order" (cons "open" (cons "def" (cons "write" (cons "remove" (cons "history" (cons "done" nil))))))))
 hy-same-nat : Nat → Nat → Bool
 hy-same-nat a b = weq (fromNat a) (fromNat b)
 -- an action applied: the state it reaches, or none when it is not valid there
@@ -250,7 +286,8 @@ hy-work-usage = list-append (h-line "Actions:")
   (list-append (h-line "  hyperactive def NAME ...    a definition: its statement, its text, its key, and what uses it")
   (list-append (h-line "  hyperactive write NAME [after OTHER] < DECLARATION   the declaration takes the place of NAME's (or, new, follows OTHER's); kept only if all it touches checks")
   (list-append (h-line "  hyperactive remove NAME      a definition nothing uses taken away, checked the same way")
-  (h-line "  hyperactive done            the work is done: the session ends"))))))))
+  (list-append (h-line "  hyperactive history [NAME]  every binding of the name to a key, in the order bound")
+  (h-line "  hyperactive done            the work is done: the session ends")))))))))
 hy-views : List Word → List (List Word) → Proc W Unit
 hy-views m a = bind (h-run (cons m (cons "lib/views.cub" a))) (λ r → ret unit)
 hy-show : List Word → List Word → Nat → HyState → Proc W Unit
@@ -263,6 +300,7 @@ hy-act st m (cons c rest) =
   if h-eq c "def" then hy-def st rest else
   if h-eq c "write" then bind h-stdin (hy-write st m rest) else
   if h-eq c "remove" then hy-remove st m rest else
+  if h-eq c "history" then hy-history st rest else
   if h-eq c "done" then bind (h-write (list-append st "/session/log") nil) (λ b → h-out (h-line "The work is declared done; the session is over. The next session begins with the walk."))
   else hy-views m (cons c rest)
 
