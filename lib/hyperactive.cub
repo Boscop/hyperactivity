@@ -1,0 +1,69 @@
+#!build/cubical
+-- lib/hyperactive.cub — the command `hyperactive` (./hyperactive is a link to this file; its first
+-- line has the machine run it). Avik, 2026-11-15: "HYPERACTIVE MUST BE ENTIRELY BOOTSTRAPPED
+-- ENTIRELY LEVERAGE HYPERACTIVE LITERALLY NOTHING BUT THE CORE C IMPLEMENTATION". Code is reached
+-- by name through the store, never by file: a name points to its written piece (the declaration
+-- with its statement) and to its checked key; what uses a name is what the checker found mentions it.
+import "host.cub"
+
+-- the store: CUBICAL_STORE when set, else .cubical-store; a file of it by its path inside
+hy-store-of : Sum Unit (List Word) → List Word
+hy-store-of (inl u) = ".cubical-store"
+hy-store-of (inr d) = d
+hy-get : List Word → List Word → Proc W (Sum Unit (List Word))
+hy-get st rel = h-read (list-append st (cons #47 rel))
+hy-or : List Word → Sum Unit (List Word) → List Word
+hy-or d (inl u) = d
+hy-or d (inr t) = t
+
+-- def NAME …: each definition's written piece, its key, and the definitions that use it
+hy-key-label : Sum Unit (List Word) → List Word
+hy-key-label (inl u) = "not yet checked"
+hy-key-label (inr k) = list-append "key " (h-take (toNat #12) k)
+hy-cons-if : Bool → List Word → List (List Word) → List (List Word)
+hy-cons-if b x r = if b then cons x r else r
+hy-still-uses : List Word → List Word → List (List Word) → Proc W (List (List Word))
+hy-still-uses st name nil = ret nil
+hy-still-uses st name (cons u r) =
+  bind (hy-get st (list-append "deps/" (h-hex u))) (λ d → bind (hy-still-uses st name r) (λ rest →
+  ret (hy-cons-if (h-has name (h-lines (hy-or nil d))) u rest)))
+hy-used-by : List (List Word) → List Word
+hy-used-by nil = h-line "used by no definition"
+hy-used-by (cons u r) = list-append (h-line "used by:") (h-indented "  " (cons u r))
+hy-def-users : List Word → List Word → Proc W Unit
+hy-def-users st name =
+  bind (hy-get st (list-append "users/" (h-hex name))) (λ us →
+  bind (hy-still-uses st name (h-dedupe (h-lines (hy-or nil us)))) (λ live →
+  h-out (list-append (hy-used-by (h-sort live)) (cons #10 nil))))
+hy-def-piece : List Word → List Word → Sum Unit (List Word) → Proc W Unit
+hy-def-piece st name (inl u) = h-fail (list-append "hyperactive: the store has lost the written piece of " name)
+hy-def-piece st name (inr text) =
+  bind (hy-get st (list-append "bound/" (h-hex name))) (λ k →
+  bind (h-out (list-append name (list-append "   (" (list-append (hy-key-label k) (list-append (h-line (h-line ")")) (h-line text)))))) (λ u →
+  hy-def-users st name))
+hy-def-written : List Word → List Word → Sum Unit (List Word) → Proc W Unit
+hy-def-written st name (inl u) = h-fail (list-append "hyperactive: no definition named " name)
+hy-def-written st name (inr h) = bind (hy-get st (list-append h "/text")) (hy-def-piece st name)
+hy-def : List Word → List (List Word) → Proc W Unit
+hy-def st nil = ret unit
+hy-def st (cons name r) = bind (hy-get st (list-append "written/" (h-hex name))) (λ w →
+  bind (hy-def-written st name w) (λ u → hy-def st r))
+
+-- the commands
+hy-usage : List Word
+hy-usage = h-line "hyperactive def NAME ...   a definition: its statement, its text, its key, and what uses it"
+hy-command : List Word → List Word → List (List Word) → Proc W Unit
+hy-command st c rest =
+  if h-eq c "def" then (if h-null (h-concat rest) then h-fail "hyperactive def NAME ..." else hy-def st rest) else
+  if h-eq c "help" then h-out hy-usage else
+  h-fail (list-append "hyperactive: no command " c)
+hy-dispatch : List Word → List (List Word) → Proc W Unit
+hy-dispatch st nil = h-out hy-usage
+hy-dispatch st (cons c rest) = hy-command st c rest
+-- the command line: the machine, this program, then the command and its words
+hy-main : Proc W Unit
+hy-main = bind (h-env "CUBICAL_STORE") (λ e → bind h-args (λ a →
+  bind (hy-dispatch (hy-store-of e) (h-drop-n (suc (suc zero)) a)) (λ u → exit #0)))
+hy-run : Step W Unit
+hy-run = to-step hy-main
+#run hy-run

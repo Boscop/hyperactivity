@@ -8,10 +8,7 @@
 -- entry is neither hyperactive code (.cub) nor prose (.md) and is not one of the files the
 -- repository held when the ban was made, byte for byte (g-frozen: its path and git's object id). A
 -- file of g-frozen may be removed; none may be added to it except by a written decision here.
-import "core.cub"
-import "prim.cub"
-import "proc.cub"
-import "world.cub"
+import "host.cub"
 
 -- every file that is neither .cub nor .md, as the repository held it (path, git object id)
 g-frozen : List (List Word × List Word)
@@ -58,7 +55,7 @@ g-frozen =
   cons ("src/libcubical.h" , "71199edfe240c587aa35acc52e8b8e3a11a8658e") (
   cons ("src/net.c" , "788c89e1bb457aa847e8fd1b47b1cb4a0dea64cb") (
   cons ("src/sha256.c" , "c9ed460fff23335687ad9bb1692f66a21d7140c8") (
-  cons ("src/store.c" , "2a035e4ba96e4d5f53fd0f21b186e77969a338fe") (
+  cons ("src/store.c" , "bef9dd9898b461c5cd682abe1600a0732b3d1fd5") (
   cons ("src/syntax.c" , "fb1ff2e745620402c51538a49ade5d50e7c95177") (
   cons ("tools/agda2cub.py" , "5044df7234f0ceeddd9b2233a33e9cf2f8857ff9") (
   cons ("tools/asm/apply.s" , "904ffa7b2e0763adad15d37e0154a8e21e513157") (
@@ -77,87 +74,12 @@ g-frozen =
   cons (".githooks/pre-commit" , "82f776fdfa09564b5588c9b67f3a0bb325f1b5d4") (
   nil)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
 
--- text: equality, prefix, suffix, by one step that compares a head and hands the tail on
-g-step : Word → (List Word → Bool) → List Word → Bool
-g-step x k nil = false
-g-step x k (cons y s) = andB (weq x y) (k s)
-g-null : List Word → Bool
-g-null nil = true
-g-null (cons y s) = false
-g-eq : List Word → List Word → Bool
-g-eq nil = g-null
-g-eq (cons x r) = g-step x (g-eq r)
-g-yes : List Word → Bool
-g-yes s = true
-g-prefix : List Word → List Word → Bool
-g-prefix nil = g-yes
-g-prefix (cons x r) = g-step x (g-prefix r)
-g-rev : List Word → List Word → List Word
-g-rev nil acc = acc
-g-rev (cons x r) acc = g-rev r (cons x acc)
-g-ends : List Word → List Word → Bool
-g-ends suf s = g-prefix (g-rev suf nil) (g-rev s nil)
-
 -- an entry may be committed: hyperactive code, prose, or a file of g-frozen as it was
 g-member : List Word → List Word → List (List Word × List Word) → Bool
 g-member p h nil = false
-g-member p h (cons e r) = if andB (g-eq p (fst e)) (g-eq h (snd e)) then true else g-member p h r
+g-member p h (cons e r) = if andB (h-eq p (fst e)) (h-eq h (snd e)) then true else g-member p h r
 g-allowed : List Word → List Word → Bool
-g-allowed p h = if g-ends ".cub" p then true else if g-ends ".md" p then true else g-member p h g-frozen
-
--- a byte as two hex digits
-g-hexd : Word → Word
-g-hexd d = if wlt d #10 then wadd d #48 else wadd d #87
-g-hex : List Word → List Word
-g-hex nil = nil
-g-hex (cons b r) = cons (g-hexd (wshr b #4)) (cons (g-hexd (wand b #15)) (g-hex r))
-
--- memory: bytes read from an address, bytes written to one, a big-endian number
-g-peek : Word → Nat → Proc W (List Word)
-g-peek a zero = ret nil
-g-peek a (suc n) = bind (load8-at a) (λ b → bind (g-peek (wadd a #1) n) (λ r → ret (cons b r)))
-g-poke : Word → List Word → Proc W Unit
-g-poke a nil = ret unit
-g-poke a (cons b r) = bind (store8-at a b) (λ u → g-poke (wadd a #1) r)
-g-be-onto : Word → List Word → Word
-g-be-onto acc nil = acc
-g-be-onto acc (cons b r) = g-be-onto (wadd (wshl acc #8) b) r
-g-be : List Word → Word
-g-be bs = g-be-onto #0 bs
-
--- text to standard error
-g-say : List Word → Proc W Unit
-g-say t = bind (alloc-bytes (wadd (fromNat (list-length t)) #1)) (λ a → bind (g-poke a t) (λ u →
-  bind (sys-call #1 #2 a (fromNat (list-length t)) #0 #0 #0) (λ w → ret unit)))
-
--- a file whole: its address and length, or nothing when it cannot be opened or read whole
-g-max : Word
-g-max = #67108864
-g-none : Sum Unit (Word × Word)
-g-none = inl unit
-g-some : Word → Word → Sum Unit (Word × Word)
-g-some b n = inr (b , n)
-g-file : List Word → Proc W (Sum Unit (Word × Word))
-g-file path =
-  bind (alloc-bytes (wadd (fromNat (list-length path)) #1)) (λ p → bind (g-poke p path) (λ u →
-  bind (sys-call #257 #18446744073709551516 p #0 #0 #0 #0) (λ fd →
-  if wlt fd #9223372036854775808 then
-    bind (alloc-bytes g-max) (λ buf → bind (sys-call #0 fd buf g-max #0 #0 #0) (λ n →
-    bind (alloc-bytes #1) (λ one → bind (sys-call #0 fd one #1 #0 #0 #0) (λ more →
-    bind (sys-call #3 fd #0 #0 #0 #0 #0) (λ c →
-    if andB (wlt n g-max) (weq more #0) then ret {lzero} {W} (g-some buf n) else ret {lzero} {W} g-none)))))
-  else ret {lzero} {W} g-none)))
-
--- the value of a variable in an environment block (NUL-separated NAME=VALUE), or nothing
-g-drop : List Word → List Word → List Word
-g-drop nil e = e
-g-drop (cons k r) nil = nil
-g-drop (cons k r) (cons x s) = g-drop r s
-g-env-entry : List Word → List Word → Sum Unit (List Word) → Sum Unit (List Word)
-g-env-entry key e rest = if g-prefix key e then inr (g-drop key e) else rest
-g-env : List Word → List Word → List Word → Sum Unit (List Word)
-g-env key cur nil = g-env-entry key (g-rev cur nil) (inl unit)
-g-env key cur (cons b r) = if weq b #0 then g-env-entry key (g-rev cur nil) (g-env key nil r) else g-env key (cons b cur) r
+g-allowed p h = if h-ends ".cub" p then true else if h-ends ".md" p then true else g-member p h g-frozen
 
 -- the index's entries from offset off: (path, object id in hex) for each, or why it is not read
 g-ext : Word → Word → Word
@@ -166,64 +88,50 @@ g-size : Word → Word → Word
 g-size ext nl = wmul (wadd (wquot (wadd (wadd #62 ext) nl) #8) #1) #8
 g-cons-entry : List Word → List Word → Sum (List Word) (List (List Word × List Word)) → Sum (List Word) (List (List Word × List Word))
 g-cons-entry path id (inl why) = inl why
-g-cons-entry path id (inr es) = inr (cons (path , g-hex id) es)
+g-cons-entry path id (inr es) = inr (cons (path , h-hex id) es)
 g-entry-of : Word → Word → Word → Word → Word → Proc W (Sum (List Word) (List (List Word × List Word))) → Proc W (Sum (List Word) (List (List Word × List Word)))
 g-entry-of base len off ext nl rest =
   if weq nl #4095 then ret (inl "an index entry's path is 4095 bytes or longer, which this guard does not read") else
   if wlt len (wadd off (g-size ext nl)) then ret (inl "the index ends inside an entry") else
-  bind (g-peek (wadd base (wadd off #40)) (toNat #20)) (λ id →
-  bind (g-peek (wadd base (wadd (wadd off #62) ext)) (toNat nl)) (λ path →
+  bind (h-peek (wadd base (wadd off #40)) (toNat #20)) (λ id →
+  bind (h-peek (wadd base (wadd (wadd off #62) ext)) (toNat nl)) (λ path →
   bind rest (λ r → ret (g-cons-entry path id r))))
 g-entries : Word → Word → Word → Word → Nat → Proc W (Sum (List Word) (List (List Word × List Word)))
 g-entries base len version off zero = ret (inr nil)
 g-entries base len version off (suc k) =
-  bind (g-peek (wadd base (wadd off #60)) (suc (suc zero))) (λ fl →
-  g-entry-of base len off (g-ext version (g-be fl)) (wand (g-be fl) #4095)
-    (g-entries base len version (wadd off (g-size (g-ext version (g-be fl)) (wand (g-be fl) #4095))) k))
+  bind (h-peek (wadd base (wadd off #60)) (suc (suc zero))) (λ fl →
+  g-entry-of base len off (g-ext version (h-be fl)) (wand (h-be fl) #4095)
+    (g-entries base len version (wadd off (g-size (g-ext version (h-be fl)) (wand (h-be fl) #4095))) k))
 
 -- the paths refused, each on its line
 g-refused : List (List Word × List Word) → List Word
 g-refused nil = nil
 g-refused (cons e r) = if g-allowed (fst e) (snd e) then g-refused r else
   list-append "refused: " (list-append (fst e) (list-append " is neither hyperactive code (.cub) nor prose (.md), and is not a file the repository held, byte for byte, when code in any other language was banned (lib/guard.cub)" (cons #10 (g-refused r))))
-
-g-fail : List Word → Proc W Unit
-g-fail why = bind (g-say (list-append why (cons #10 nil))) (λ u → exit #1)
-
 g-judge : List (List Word × List Word) → Proc W Unit
-g-judge es = if g-null (g-refused es) then exit #0 else bind (g-say (g-refused es)) (λ u → exit #1)
+g-judge es = if h-null (g-refused es) then exit #0 else bind (h-say (g-refused es)) (λ u → exit #1)
 g-verdict : Sum (List Word) (List (List Word × List Word)) → Proc W Unit
-g-verdict (inl why) = g-fail why
+g-verdict (inl why) = h-fail why
 g-verdict (inr es) = g-judge es
 
--- the index read: its header, then its entries
-g-take4 : List Word → List Word
-g-take4 nil = nil
-g-take4 (cons a nil) = cons a nil
-g-take4 (cons a (cons b nil)) = cons a (cons b nil)
-g-take4 (cons a (cons b (cons c nil))) = cons a (cons b (cons c nil))
-g-take4 (cons a (cons b (cons c (cons d r)))) = cons a (cons b (cons c (cons d nil)))
+-- the index read: its header (DIRC, the version, the count), then its entries
 g-read-index : Word → Word → List Word → Proc W Unit
 g-read-index base len hd =
-  if g-prefix "DIRC" hd then
-    (if andB (wlt #1 (g-be (g-take4 (g-drop "DIRC" hd)))) (wlt (g-be (g-take4 (g-drop "DIRC" hd))) #4)
-     then bind (g-entries base len (g-be (g-take4 (g-drop "DIRC" hd))) #12 (toNat (g-be (g-drop "DIRCxxxx" hd)))) g-verdict
-     else g-fail "the index is not version 2 or 3, which this guard reads")
-  else g-fail "the index does not begin with DIRC"
+  if h-prefix "DIRC" hd then
+    (if andB (wlt #1 (h-be (h-take (toNat #4) (h-drop "DIRC" hd)))) (wlt (h-be (h-take (toNat #4) (h-drop "DIRC" hd))) #4)
+     then bind (g-entries base len (h-be (h-take (toNat #4) (h-drop "DIRC" hd))) #12 (toNat (h-be (h-drop "DIRCvers" hd)))) g-verdict
+     else h-fail "the index is not version 2 or 3, which this guard reads")
+  else h-fail "the index does not begin with DIRC"
 g-index : List Word → Sum Unit (Word × Word) → Proc W Unit
-g-index ipath (inl u) = g-fail (list-append "the guard cannot read the index " ipath)
-g-index ipath (inr bl) = bind (g-peek (fst bl) (toNat #12)) (λ hd → g-read-index (fst bl) (snd bl) hd)
+g-index ipath (inl u) = h-fail (list-append "the guard cannot read the index " ipath)
+g-index ipath (inr bl) = bind (h-peek (fst bl) (toNat #12)) (λ hd → g-read-index (fst bl) (snd bl) hd)
 
 -- the index git commits: GIT_INDEX_FILE when git sets it, else .git/index
 g-or-default : Sum Unit (List Word) → List Word
 g-or-default (inl u) = ".git/index"
 g-or-default (inr p) = p
-g-index-of-env : Sum Unit (Word × Word) → Proc W (List Word)
-g-index-of-env (inl u) = ret ".git/index"
-g-index-of-env (inr bl) = bind (g-peek (fst bl) (toNat (snd bl))) (λ env → ret (g-or-default (g-env "GIT_INDEX_FILE=" nil env)))
-
 g-main : Proc W Unit
-g-main = bind (g-file "/proc/self/environ") (λ env → bind (g-index-of-env env) (λ ipath → bind (g-file ipath) (g-index ipath)))
+g-main = bind (h-env "GIT_INDEX_FILE") (λ e → bind (h-file (g-or-default e)) (g-index (g-or-default e)))
 
 g-run : Step W Unit
 g-run = to-step g-main

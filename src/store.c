@@ -45,7 +45,8 @@ static void key_hash(const char *s, size_t n, char out[65]) { Sha256 h; unsigned
 typedef struct { int *d; int n; } Deps;
 static Deps cur_deps; static Deps *CDEPS; static size_t capcdeps; static Deps *DDEPS; static size_t capddeps;
 static void dep_add(int k) { for (int i = 0; i < cur_deps.n; i++) if (cur_deps.d[i] == k) return; cur_deps.d = realloc(cur_deps.d, (size_t)(cur_deps.n + 1) * sizeof(int)); cur_deps.d[cur_deps.n++] = k; }
-static void deps_take(Deps **tab, size_t *cap, int i) { if ((size_t)i >= *cap) { size_t o = *cap; GROW(*tab, *cap, (size_t)i + 1); memset(*tab + o, 0, (*cap - o) * sizeof(Deps)); } free((*tab)[i].d); (*tab)[i] = cur_deps; cur_deps.d = NULL; cur_deps.n = 0; }
+static void deps_note(const char *name, const Deps *d);
+static void deps_take(Deps **tab, size_t *cap, int i) { if ((size_t)i >= *cap) { size_t o = *cap; GROW(*tab, *cap, (size_t)i + 1); memset(*tab + o, 0, (*cap - o) * sizeof(Deps)); } free((*tab)[i].d); (*tab)[i] = cur_deps; deps_note(tab == &CDEPS ? CHECKED[i] : tab == &DDEPS && i < nchkdata ? DATA[CHKDATA[i]].name : NULL, &(*tab)[i]); cur_deps.d = NULL; cur_deps.n = 0; }
 static const char **kscope; static size_t capkscope; static int nkscope;
 static const char *kself;        /* a data declaration's own name */
 static int kgroup_base = -1;     /* a group: its members are the checked indices from here */
@@ -351,6 +352,32 @@ static void names_bind(const char *name, const char *key) {
     mkdir(store_dir(), 0777);
     char *p = store_path("names", ""); FILE *f = fopen(p, "a"); free(p);
     if (f) { fputs(line, f); fclose(f); }
+}
+/* deps/<name in hex>: the names a definition mentions, one per line, as the checker found them;
+ * users/<name in hex>: a line for each name whose definition has mentioned it (a reader keeps a
+ * line only while that name's deps/ still holds the name, so a change of mind is no stale use) */
+static void deps_note(const char *name, const Deps *d) {
+    if (!name || name[0] == '%' || !store_dir()) return;
+    SBuf hx = {0}; for (const unsigned char *c = (const unsigned char *)name; *c; c++) sb_fmt(&hx, "%02x", *c);
+    if (!hx.b || hx.n > 250) { free(hx.b); return; }
+    SBuf o = {0}; sb_put(&o, "");
+    for (int j = 0; j < d->n; j++) {
+        int k = d->d[j]; const char *dn = k >= 0 ? CHECKED[k] : -k - 1 < nchkdata ? DATA[CHKDATA[-k - 1]].name : NULL;
+        if (dn && dn[0] != '%' && strcmp(dn, name)) { sb_put(&o, dn); sb_put(&o, "\n"); }
+    }
+    char *cur = store_read("deps", hx.b);
+    if (!cur || strcmp(cur, o.b)) {
+        store_write("deps", hx.b, o.b, false);
+        SBuf line = {0}; sb_put(&line, name); sb_put(&line, "\n");
+        for (char *l = o.b; *l; ) {
+            char *e = strchr(l, '\n'); *e = 0;
+            SBuf dh = {0}; for (const unsigned char *c = (const unsigned char *)l; *c; c++) sb_fmt(&dh, "%02x", *c);
+            if (dh.b && dh.n <= 250) store_write("users", dh.b, line.b, true);
+            free(dh.b); *e = '\n'; l = e + 1;
+        }
+        free(line.b);
+    }
+    free(cur); free(o.b); free(hx.b);
 }
 /* a refusal by the current checker, as a `no` line: the checker's answer (refused at code why ...),
  * as it was read back (2026-11-12: refusals were not recorded, so what fails, and why, was known
