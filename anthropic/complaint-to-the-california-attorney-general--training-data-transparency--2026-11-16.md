@@ -19,8 +19,8 @@ or by mail to Public Inquiry Unit, Office of the Attorney General, P.O. Box 9442
 **Complainant:** Avik Jain, [address in California], [email]. A user of Anthropic's Claude services
 [subscription tier, dates], and a researcher in AI value alignment.
 
-**Business:** Anthropic PBC, San Francisco, California [street address from Anthropic's current
-privacy policy or terms]. Developer of the Claude family of generative AI models.
+**Business:** Anthropic, PBC, 548 Market Street, PMB 90375, San Francisco, CA 94104 [S20]. Developer
+of the Claude family of generative AI models.
 
 **Law concerned:** Civil Code sections 3110 and 3111 (Assembly Bill 2013, Generative Artificial
 Intelligence Training Data Transparency Act), in force 1 January 2026; and Business and Professions
@@ -161,8 +161,9 @@ them, on [dates]. [If sent: he reported it to usersafety@anthropic.com on [date]
 ### 8. The same complaint against OpenAI, filed separately
 
 The workflow goal names Anthropic and OpenAI together, and the Attorney General's form takes one
-business at a time, so the same complaint goes in a second time against OpenAI, OpenAI OpCo, LLC
-[verify the entity named in OpenAI's terms], with sections 3 and 5 replaced by the following.
+business at a time, so the same complaint goes in a second time against OpenAI OpCo, LLC, 1455 3rd
+Street, San Francisco, CA 94158, the party to OpenAI's consumer terms [S21], with sections 3 and 5
+replaced by the following.
 
 OpenAI's "Training Data Summary Pursuant to California Civil Code Section 3111" is a short narrative
 [S19]. It says OpenAI develops its systems using publicly available data, data accessed through third
@@ -275,8 +276,6 @@ Verify before filing (not yet checked in this draft):
   5.2 and Claude Mythos 5.2 [S14]. If it was not, item 2 of section 1 of Part A becomes the lead finding.
 - The documentation's own wording, against Johnston's description in section 3 of Part A. The trust
   portal could not be read from this session.
-- Anthropic's current corporate street address (the privacy contact, privacy@anthropic.com, is
-  confirmed [S9]).
 - The complainant's residence in California, subscription details and the dates of his LinkedIn posts
   and any report to Anthropic.
 
@@ -343,3 +342,9 @@ Verify before filing (not yet checked in this draft):
   (https://www.mlex.com/mlex/articles/2501683). Quote from the brief itself in the filing.
 - [S19] OpenAI, "Training Data Summary Pursuant to California Civil Code Section 3111"
   (https://help.openai.com/en/articles/20001044-training-data-summary-pursuant-to-california-civil-code-section-3111).
+- [S20] Anthropic, PBC's mailing address as given in its own filings, e.g. its privacy notice
+  (https://www-cdn.anthropic.com/74ee25a84fd2f6c97450872b9fe0b4f760d7e478.pdf: "Anthropic, PBC, 548
+  Market Street, PMB 90375, San Francisco, CA 94104").
+- [S21] OpenAI Terms of Use (https://openai.com/terms/): "These Terms form an agreement between you
+  and OpenAI OpCo, LLC, a Delaware company"; address from OpenAI's terms for UK residents
+  (https://openai.com/policies/eu-terms-of-use/).
