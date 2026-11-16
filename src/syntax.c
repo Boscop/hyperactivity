@@ -528,6 +528,33 @@ static Node *p_atom(void) {
         }
         return lst(3, nsym("document-at"), text_term(rel), text_term(hex));
     }
+    if (x_is(t, "history") && P1()->k == X_STR) {
+        /* history "prefix" (2026-11-15, Avik: "hyperactivity history should enter history explorer in
+         * the product"): the store's names log (src/store.c) as a value. A definition's key is its
+         * content, so the log is the history: every binding of a name to a key, in the order bound,
+         * for each name beginning with the prefix (the empty prefix is every name), as cons (binding
+         * "name" "key" "time") … nil : List Binding (lib/history.cub; the term is `the (List Binding)`
+         * of that list); a key "-" is an unbinding. Read
+         * when the declaration is read, as document's file is. */
+        NX(); Tok *pt = NX(); size_t pl = strlen(pt->s);
+        char *log = store_read("names", "");
+        Node **bs = NULL; size_t nb = 0, cb = 0;
+        for (char *l = log ? log : ""; *l; ) {
+            char *e = strchr(l, '\n'); if (e) *e = 0;
+            char *s1 = strchr(l, ' '), *s2 = s1 ? strchr(s1 + 1, ' ') : NULL;
+            if (s2 && !strncmp(l, pt->s, pl)) {
+                *s1 = 0; *s2 = 0; char *s3 = strchr(s2 + 1, ' '); if (s3) *s3 = 0;
+                GROW(bs, cb, nb + 1);
+                bs[nb++] = lst(4, nsym("binding"), text_term(l), text_term(s1 + 1), text_term(s2 + 1));
+            }
+            l = e ? e + 1 : l + strlen(l);
+        }
+        Node *r = nsym("nil");
+        while (nb) r = lst(3, nsym("cons"), bs[--nb], r);
+        free(bs); free(log);
+        /* at its type, so elaboration checks the list against it instead of inferring each cons */
+        return lst(3, nsym("the"), lst(2, nsym("List"), nsym("Binding")), r);
+    }
     if (x_is(t, "text") && P1()->k == X_STR) {
         /* text "path" (2026-11-15, Avik: "a raw bytes file ... so the string can just be loaded by
          * path"; "Essay is a string"): an existing file of the repository, of any type (.md, .txt,

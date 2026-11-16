@@ -11,7 +11,8 @@ its parents; a node's statement is the comment above its definition). Run throug
     python3 tools/task-graph.py priority           the order of work: what can start now, those that
                                              supersede others first; then what waits, on what
     python3 tools/task-graph.py check              the graph checks (names are sentences, statements exist, roots declared)
-    python3 tools/task-graph.py view TERM          a view: a term over the work (lib/task-graph.cub's views over
+    python3 tools/task-graph.py view [--in FILE] [--type T] TERM   a view: a term over the work (or over
+                                             FILE's definitions), shown by its type (T when given) (lib/task-graph.cub's views over
                                              `declarations Node`) evaluated by the machine, shown by
                                              its type (a List Word as text)
     python3 tools/task-graph.py every              every file checked: each file no file imports, alone with its
@@ -655,27 +656,30 @@ def cmd_unexplained(args):
 
 
 def cmd_view(args):
+    file, ty = 'task-graph/hyperactivity.cub', None
+    while args[:1] in (['--in'], ['--type']):     # the file the term is over; its type, when known
+        if args[0] == '--in': file = args[1]
+        else: ty = args[1]
+        args = args[2:]
     term = ' '.join(args)
     env = dict(os.environ); env.setdefault('CUBICAL_STORE', os.path.join(ROOT, '.cubical-store'))
-    r = subprocess.run([os.path.join(ROOT, 'build', 'cubical'), 'task-graph/hyperactivity.cub', '--serve'], cwd=ROOT,
-                       input=f'#type ({term})\n.\n#show {term}\n.\n', capture_output=True, text=True, env=env)
-    ty = next((l.rsplit(' : ', 1)[1] for l in r.stdout.split('\n') if l.startswith('type: ') and ' : ' in l), None)
+    r = subprocess.run([os.path.join(ROOT, 'build', 'cubical'), file, '--serve'], cwd=ROOT,
+                       input=('' if ty else f'#type ({term})\n.\n') + f'#show {term}\n.\n', capture_output=True, text=True, env=env)
+    if ty is None:
+        ty = next((l.rsplit(' : ', 1)[1] for l in r.stdout.split('\n') if l.startswith('type: ') and ' : ' in l), None)
     val = next((l.split('  = ', 1)[1].rsplit('   [', 1)[0] for l in r.stdout.split('\n') if l.startswith('  = ')), None)
     if ty is None or val is None:
         sys.exit('\n'.join(l for l in r.stdout.split('\n') if l.startswith(('FAIL', '   ', 'error'))) or r.stdout[-2000:])
     toks = re.findall(r'\(|\)|[^\s()]+', val)
-    def parse(i):
-        if toks[i] == '(':
-            items, i = [], i + 1
-            while toks[i] != ')':
-                x, i = parse(i); items.append(x)
-            return items, i + 1
-        return toks[i], i + 1
-    def app(i):   # an application: the head and its arguments, to the end of the enclosing group
-        items = []
-        while i < len(toks) and toks[i] != ')':
-            x, i = parse(i); items.append(x)
-        return items
+    def app(i):   # an application: the head and its arguments, to the end of the enclosing group (read
+        # with an explicit stack, so a long list's nesting is no limit)
+        stack = [[]]
+        while i < len(toks) and not (toks[i] == ')' and len(stack) == 1):
+            if toks[i] == '(': stack.append([])
+            elif toks[i] == ')': g = stack.pop(); stack[-1].append(g)
+            else: stack[-1].append(toks[i])
+            i += 1
+        return stack[0]
     def norm(x):
         return x[0] if isinstance(x, list) and len(x) == 1 else x
     def as_list(x):
