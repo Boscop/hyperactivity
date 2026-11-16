@@ -116,19 +116,19 @@ hy-fails (cons l r) = if h-prefix "FAIL: " l then cons (hy-fail-name l) (hy-fail
 hy-complete : List (List Word) → Bool
 hy-complete nil = false
 hy-complete (cons l r) = if h-infix " passed, " l then true else hy-complete r
--- the verdict on a file, kept in the store (verdicts/<file>: the stamp of the latest change under
--- the repository when it was given, whether the machine read to the end, the names that failed), so
--- a file nothing has changed since is not given to the machine again
+-- the verdict on a file, kept in the store (verdicts/<file>: the latest change, when it was given, among
+-- the machine and the files the file depends on (h-code-time), whether the machine read to the end,
+-- the names that failed), so a file nothing it depends on has changed since is not read again
 hy-verdict-run : List Word → List Word → List Word → Word → Proc W (Bool × List (List Word))
 hy-verdict-run st m root stamp = bind (h-capture (cons m (cons "--read" (cons root nil)))) (λ r →
   bind (h-mkdir (list-append st "/verdicts")) (λ u →
   bind (h-write (list-append st (list-append "/verdicts/" (h-hex root))) (h-concat (list-map h-line (cons (h-decimal stamp) (cons (if hy-complete (h-lines (snd r)) then "1" else "0") (hy-fails (h-lines (snd r)))))))) (λ b →
   ret (hy-complete (h-lines (snd r)) , hy-fails (h-lines (snd r))))))
 hy-verdict-kept : List Word → List Word → List Word → Word → List (List Word) → Proc W (Bool × List (List Word))
-hy-verdict-kept st m root stamp (cons s (cons c fs)) = if h-eq s (h-decimal stamp) then ret {lzero} {W} (h-eq c "1" , fs) else hy-verdict-run st m root stamp
+hy-verdict-kept st m root stamp (cons s (cons c fs)) = if h-eq s (h-decimal stamp) then ret {lzero} {W} (h-eq c "1" , h-nonempty fs) else hy-verdict-run st m root stamp
 hy-verdict-kept st m root stamp ls = hy-verdict-run st m root stamp
 hy-verdict : List Word → List Word → List Word → Proc W (Bool × List (List Word))
-hy-verdict st m root = bind (h-dir-time (toNat #12) ".") (λ stamp →
+hy-verdict st m root = bind (h-code-time m root) (λ stamp →
   bind (hy-get st (list-append "verdicts/" (h-hex root))) (λ k → hy-verdict-kept st m root stamp (h-split #10 (hy-or nil k))))
 hy-verdicts : List Word → List Word → List (List Word) → Proc W (List (Bool × List (List Word)))
 hy-verdicts st m nil = ret nil
@@ -314,7 +314,10 @@ hy-write st m (cons name rest) t = if h-ends ".cub" name then bind (hy-head-of s
   else if andB (h-not (h-null (h-concat rest))) (h-not (h-eq (hy-head rest) "after"))
   then hy-write-many st m (cons name rest) (hy-cut rest nil nil (h-split #10 (hy-nl t)))
   else bind (hy-get st (list-append "written/" (h-hex name))) (λ w → hy-write-to st m name rest (hy-nl t) w)
--- remove: refused while anything uses the name
+-- remove: the name's piece taken away and checked like a write: its file's root and the roots of
+-- everything recorded as using it read again, so the machine judges whether anything still needs it.
+-- A use recorded under another name of the same code refuses nothing: identical code is one object,
+-- its key, and the store names a use by whichever name holds that key
 hy-remove-in : List Word → List Word → List Word → List Word → Sum Unit (List Word × List (List Word)) → Proc W Unit
 hy-remove-in st m name h (inl u) = h-fail (list-append "hyperactive: no file holds the piece of " name)
 hy-remove-in st m name h (inr mo) =
@@ -322,7 +325,8 @@ hy-remove-in st m name h (inr mo) =
   bind (hy-render st (snd mo) nil nil false) (λ was →
   if h-eq (hy-or nil cur) was then
     bind (hy-render st (snd mo) h nil false) (λ new → bind (hy-root-of st (fst mo)) (λ root →
-    hy-change st m name nil (h-unhex (fst mo)) was new (cons root nil) true))
+    bind (hy-live-users st name) (λ us → bind (hy-user-roots st us) (λ urs →
+    hy-change st m name nil (h-unhex (fst mo)) was new (h-dedupe (cons root urs)) true))))
   else h-fail (list-append (h-unhex (fst mo)) " has changed since the machine last read it; give it to the machine (hyperactive check) first")))
 hy-remove-at : List Word → List Word → List Word → Sum Unit (List Word) → Proc W Unit
 hy-remove-at st m name (inl u) = h-fail (list-append "hyperactive: no definition named " name)
@@ -330,9 +334,7 @@ hy-remove-at st m name (inr h) = bind (hy-module-of st h) (hy-remove-in st m nam
 
 hy-remove : List Word → List Word → List (List Word) → Proc W Unit
 hy-remove st m nil = h-fail "hyperactive remove NAME"
-hy-remove st m (cons name r) = bind (hy-live-users st name) (λ us →
-  if h-null (h-concat us) then bind (hy-get st (list-append "written/" (h-hex name))) (λ w → hy-remove-at st m name w)
-  else h-fail (list-append name (list-append " is used by " (hy-sep " " us))))
+hy-remove st m (cons name r) = bind (hy-get st (list-append "written/" (h-hex name))) (λ w → hy-remove-at st m name w)
 -- history [NAME]: every binding of the name to a key, in the order bound, from the store's names log
 -- (`name key time`, a key `-` an unbinding), each with its time in UTC
 hy-two : Word → List Word
@@ -403,11 +405,14 @@ hy-paper-show : List (List Word) → List Word → Proc W Unit
 hy-paper-show nil t = h-out t
 hy-paper-show (cons s r) t = if h-null (h-concat (hy-section s (h-split #10 t))) then h-fail (list-append "the paper has no section " s)
   else h-out (h-concat (list-map h-line (hy-section s (h-split #10 t))))
--- the paper kept fresh: lib/paper-view.cub runs when the latest change under the repository has moved past paper/stamp
+-- the paper kept fresh: lib/paper-view.cub runs when a file it reads as code has changed since it last
+-- ran (paper/stamp); its exit status, 0 when the paper is fresh
 hy-paper-ready : List Word → List Word → Proc W Word
 hy-paper-ready st m =
-  bind (hy-get st "paper/stamp") (λ s → bind (h-dir-time (toNat #12) ".") (λ now →
-  if h-eq (hy-or nil s) (h-decimal now) then ret {lzero} {W} #0 else h-run (cons m (cons "lib/paper-view.cub" nil))))
+  bind (hy-get st "paper/stamp") (λ s → bind (h-code-time m "lib/paper-view.cub") (λ now →
+  if h-eq (hy-or nil s) (h-decimal now) then ret {lzero} {W} #0
+  else bind (h-run (cons m (cons "lib/paper-view.cub" nil))) (λ r →
+    if weq r #0 then bind (h-write (list-append st "/paper/stamp") (h-decimal now)) (λ b → ret {lzero} {W} r) else ret {lzero} {W} r)))
 hy-paper : List Word → List Word → List (List Word) → Proc W Unit
 hy-paper st m a = bind (hy-paper-ready st m) (λ r → bind (hy-get st "paper/text") (λ t → hy-paper-show a (hy-or nil t)))
 
@@ -495,11 +500,13 @@ hy-view-typed m f t term = if h-null t then bind (hy-probe m (list-append (hy-pr
 hy-view-term : List Word → List (List Word) → Proc W Unit
 hy-view-term m a = hy-view-typed m (fst (fst (hy-view-args "workflow/hyperactivity.cub" nil a))) (snd (fst (hy-view-args "workflow/hyperactivity.cub" nil a))) (snd (hy-view-args "workflow/hyperactivity.cub" nil a))
 
--- the graph's views, kept in the store by lib/views.cub (views/), made again when anything under the
--- repository has changed since
+-- the workflow's views, kept in the store by lib/views.cub (views/), made again when a file it reads
+-- as code has changed since they were made (views/stamp: the latest change among those files then)
 hy-views-ready : List Word → List Word → Proc W Unit
-hy-views-ready st m = bind (hy-get st "views/stamp") (λ s → bind (h-dir-time (toNat #12) ".") (λ now →
-  if h-eq (hy-or nil s) (h-decimal now) then ret {lzero} {W} unit else bind (h-run (cons m (cons "lib/views.cub" nil))) (λ r → ret {lzero} {W} unit)))
+hy-views-ready st m = bind (hy-get st "views/stamp") (λ s → bind (h-code-time m "lib/views.cub") (λ now →
+  if h-eq (hy-or nil s) (h-decimal now) then ret {lzero} {W} unit
+  else bind (h-run (cons m (cons "lib/views.cub" nil))) (λ r →
+    if weq r #0 then bind (h-write (list-append st "/views/stamp") (h-decimal now)) (λ b → ret {lzero} {W} unit) else ret {lzero} {W} unit)))
 hy-view : List Word → List Word → List Word → Proc W Unit
 hy-view st m v = bind (hy-views-ready st m) (λ u → bind (hy-get st (list-append "views/" v)) (λ t → h-out (hy-or nil t)))
 hy-show-nodes : List Word → List (List Word) → Proc W Unit
@@ -515,15 +522,24 @@ hy-verdict-text f v = list-append (h-line (list-append f (if fst v then (if h-nu
   (h-indented "  " (snd v))
 hy-verdict-ok : Bool × List (List Word) → Bool
 hy-verdict-ok v = andB (fst v) (h-null (h-concat (snd v)))
+-- the names the paper gives as code (paper/names) that no file the machine has read declares
+hy-unbound : Sum Unit (List Word) → List Word → List (List Word) → List (List Word)
+hy-unbound (inl u) n rest = cons (list-append "the paper names " (list-append n " as code; no file the machine has read declares it (hyperactive check FILE reads one)")) rest
+hy-unbound (inr k) n rest = rest
+hy-unresolved : List Word → List (List Word) → Proc W (List (List Word))
+hy-unresolved st nil = ret nil
+hy-unresolved st (cons n r) = bind (hy-get st (list-append "written/" (h-hex n))) (λ k →
+  bind (hy-unresolved st r) (λ rest → ret (hy-unbound k n rest)))
 -- check: the machine's verdict on the workflow, the graph's rules (views/problems), and the names
--- the paper gives as code (paper/unresolved); the exit is 1 when any fails
+-- the paper gives as code that no file the machine has read declares; the exit is 1 when any fails
 hy-check : List Word → List Word → List (List Word) → Proc W Unit
 hy-check st m nil =
   bind (hy-verdict st m "workflow/hyperactivity.cub") (λ v → bind (h-out (hy-verdict-text "workflow/hyperactivity.cub" v)) (λ u →
   bind (hy-view st m "check") (λ u2 → bind (hy-paper-ready st m) (λ r →
-  bind (hy-get st "paper/unresolved") (λ pu → bind (h-out (hy-or nil pu)) (λ u3 →
+  bind (hy-get st "paper/names") (λ pn → bind (hy-unresolved st (h-lines (hy-or nil pn))) (λ un →
+  bind (h-out (h-concat (list-map h-line un))) (λ u3 →
   bind (hy-get st "views/problems") (λ vp →
-  exit (if andB (hy-verdict-ok v) (andB (h-null (hy-or nil pu)) (h-null (hy-or nil vp))) then #0 else #1))))))))
+  exit (if andB (andB (hy-verdict-ok v) (weq r #0)) (andB (h-null (h-concat un)) (h-null (hy-or nil vp))) then #0 else #1)))))))))
 hy-check st m (cons f r) = hy-machine-files m true (cons f r)
 -- why NAME, unexplained [FILE ...] (“The Hyperactive Workflow”: every declaration is there for a
 -- reason, a chain to a root of the workflow): a node of the graph is a part of a node with a reason,
@@ -592,8 +608,30 @@ hy-or-stated (inl u) b = b
 hy-stated-last : List (List Word) → Sum Unit (List Word × List Word)
 hy-stated-last nil = inl unit
 hy-stated-last (cons l r) = hy-or-stated (hy-stated-last r) (hy-stated-in l)
+-- a piece's stated reason, read from its text alone; kept beside the piece (<piece>/stated-<key>, the
+-- key this definition has, which covers all it calls), so each piece's text is read for it once, and a
+-- change to how it is read is a new key and never meets an answer kept by the old one
+hy-stated-of : List Word → Sum Unit (List Word × List Word)
+hy-stated-of p = hy-stated-last (hy-comment-lines (h-split #10 p))
+hy-stated-text : Sum Unit (List Word × List Word) → List Word
+hy-stated-text (inl u) = h-line "none"
+hy-stated-text (inr s) = list-append (h-line (fst s)) (h-line (snd s))
+hy-stated-read : List (List Word) → Sum Unit (List Word × List Word)
+hy-stated-read nil = inl unit
+hy-stated-read (cons k nil) = inl unit
+hy-stated-read (cons k (cons n r)) = inr (k , n)
+hy-stated-keep : List Word → List Word → Sum Unit (List Word × List Word) → Proc W (Sum Unit (List Word × List Word))
+hy-stated-keep st path s = bind (h-write (list-append st (cons #47 path)) (hy-stated-text s)) (λ b → ret s)
+hy-stated-kept : List Word → List Word → List Word → Sum Unit (List Word) → Proc W (Sum Unit (List Word × List Word))
+hy-stated-kept st h path (inr c) = ret (hy-stated-read (h-lines c))
+hy-stated-kept st h path (inl u) = bind (hy-get st (list-append h "/text")) (λ t → hy-stated-keep st path (hy-stated-of (hy-or nil t)))
+hy-stated-keyed : List Word → List Word → Sum Unit (List Word) → Proc W (Sum Unit (List Word × List Word))
+hy-stated-keyed st h (inl u) = bind (hy-get st (list-append h "/text")) (λ t → ret (hy-stated-of (hy-or nil t)))
+hy-stated-keyed st h (inr k) = bind (hy-get st (list-append h (list-append "/stated-" (h-take (toNat #12) k)))) (hy-stated-kept st h (list-append h (list-append "/stated-" (h-take (toNat #12) k))))
 hy-stated : List Word → List Word → Proc W (Sum Unit (List Word × List Word))
-hy-stated st name = bind (hy-piece-of st name) (λ p → ret (hy-stated-last (hy-comment-lines (h-split #10 p))))
+hy-stated st name = bind (hy-get st (list-append "written/" (h-hex name))) (λ w →
+  if h-null (hy-or nil w) then ret {lzero} {W} (inl unit)
+  else bind (hy-get st (list-append "bound/" (h-hex "hy-stated-of"))) (hy-stated-keyed st (hy-or nil w)))
 -- what the reasons are read from: the nodes and roots (the views kept), and the machine's names
 hy-reason-data : List Word → List Word → Proc W ((List (List Word × List (List Word)) × List (List Word)) × List (List Word))
 hy-reason-data st m = bind (hy-views-ready st m) (λ u →
@@ -703,9 +741,6 @@ hy-unexplained st m args = bind (hy-reason-data st m) (λ d → bind (hy-files-r
 hy-every-files : Proc W (List (List Word))
 hy-every-files = bind (h-files (toNat #16) ".cub" "lib") (λ a → bind (h-files (toNat #16) ".cub" "experiments") (λ b →
   bind (h-files (toNat #16) ".cub" "workflow") (λ c → ret (h-msort (list-append a (list-append b c))))))
-hy-imported : List (List Word) → List (List Word)
-hy-imported nil = nil
-hy-imported (cons l r) = if h-prefix "imports: " l then list-append (h-tail-lists (h-split #32 (h-drop "imports: " l))) (hy-imported r) else hy-imported r
 hy-own-fails : List Word → List (List Word) → List (List Word)
 hy-own-fails cwd nil = nil
 hy-own-fails cwd (cons l r) = if h-prefix "   in: " l then cons (h-drop (list-append cwd "/") (h-drop "   in: " l)) (hy-own-fails cwd r) else hy-own-fails cwd r
@@ -736,9 +771,9 @@ hy-count-by : List (List Word) → List (List Word) → List Word
 hy-count-by files pos = h-concat (list-map (λ g → hy-count-line g (h-dedupe (v-filter-pos g pos))) files)
 hy-every : List Word → Proc W Unit
 hy-every m = bind hy-every-files (λ fs → bind (h-capture (cons m (cons "--imports" fs))) (λ im → bind h-cwd (λ cwd →
-  bind (hy-every-run m cwd (h-minus fs (h-msort (hy-imported (h-lines (snd im)))))) (λ pos →
+  bind (hy-every-run m cwd (h-minus fs (h-msort (h-imported (h-lines (snd im)))))) (λ pos →
   h-out (list-append (cons #10 nil) (list-append (hy-count-by fs pos)
-    (h-line (list-append (h-decimal (fromNat (list-length (h-minus fs (h-msort (hy-imported (h-lines (snd im)))))))) (list-append " files no file imports, checked; "
+    (h-line (list-append (h-decimal (fromNat (list-length (h-minus fs (h-msort (h-imported (h-lines (snd im)))))))) (list-append " files no file imports, checked; "
       (list-append (h-decimal (fromNat (list-length (h-nonempty (list-map (λ g → hy-count-line g (h-dedupe (v-filter-pos g pos))) fs))))) " files with failures of their own"))))))))))
 
 -- the further actions of the work: why, unexplained, view, every, server and brunerie (above), the
@@ -828,12 +863,15 @@ hy-fold count s (cons l r) = hy-fold count (hy-or-state s (hy-step count s (h-sp
 hy-machine : List (List Word) → List Word
 hy-machine nil = "build/cubical"
 hy-machine (cons m r) = m
+-- the walk's chunks, kept in the store by lib/walk.cub (walk/), cut again when a file the onboarding
+-- depends on has changed since they were cut (walk/stamp, as views/stamp)
 hy-walk-fresh : List Word → List Word → Proc W Unit
 hy-walk-fresh st m =
-  bind (hy-get st "walk/stamp") (λ s → bind (h-dir-time (toNat #12) ".") (λ now →
+  bind (hy-get st "walk/stamp") (λ s → bind (h-code-time m "lib/walk.cub") (λ now →
   if h-eq (hy-or nil s) (h-decimal now) then ret {lzero} {W} unit
   else bind (h-out (h-line "(the onboarding has changed since it was last cut into chunks: cutting it again)")) (λ u →
-    bind (h-run (cons m (cons "lib/walk.cub" nil))) (λ r → ret {lzero} {W} unit))))
+    bind (h-run (cons m (cons "lib/walk.cub" nil))) (λ r →
+    if weq r #0 then bind (h-write (list-append st "/walk/stamp") (h-decimal now)) (λ b → ret {lzero} {W} unit) else ret {lzero} {W} unit))))
 hy-count : List Word → Proc W Nat
 hy-count st = bind (hy-get st "walk/count") (λ c → ret (toNat (h-number (hy-or "0" c))))
 

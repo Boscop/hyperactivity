@@ -432,3 +432,27 @@ h-cwd = bind (alloc-bytes #4097) (λ buf → bind (sys-call #79 buf #4096 #0 #0 
 h-concat-lists : List (List (List Word)) → List (List Word)
 h-concat-lists nil = nil
 h-concat-lists (cons x r) = list-append x (h-concat-lists r)
+-- the files the machine reports a file imports, and reads as bytes (`--imports`: `imports:` and `reads:`
+-- lines, paths from the repository root)
+h-imported : List (List Word) → List (List Word)
+h-imported nil = nil
+h-imported (cons l r) = if h-prefix "imports: " l then list-append (h-tail-lists (h-split #32 (h-drop "imports: " l))) (h-imported r) else h-imported r
+h-reads : List (List Word) → List (List Word)
+h-reads nil = nil
+h-reads (cons l r) = if h-prefix "reads: " l then list-append (h-tail-lists (h-split #32 (h-drop "reads: " l))) (h-reads r) else h-reads r
+-- the files a program depends on: the code files it imports, followed until no new one appears
+-- (code), and with them every file any of them reads as bytes, text or documents (all)
+h-imports-closure : Nat → List Word → List (List Word) → List (List Word) → List (List Word) → Proc W (List (List Word))
+h-imports-closure zero m code all front = ret all
+h-imports-closure (suc f) m code all front = if h-null (h-concat front) then ret {lzero} {W} all
+  else bind (h-capture (cons m (cons "--imports" front))) (λ im →
+    h-imports-closure f m (h-union code (h-minus (h-msort (h-imported (h-lines (snd im)))) code))
+      (h-union all (h-union (h-msort (h-imported (h-lines (snd im)))) (h-msort (h-reads (h-lines (snd im))))))
+      (h-minus (h-msort (h-imported (h-lines (snd im)))) code))
+h-latest : List (List Word) → Proc W Word
+h-latest nil = ret #0
+h-latest (cons f r) = bind (h-file-time f) (λ t → bind (h-latest r) (λ u → ret (if wlt t u then u else t)))
+-- the latest change among the files a result of the machine m on the program at path depends on: the
+-- machine itself and every file the program depends on
+h-code-time : List Word → List Word → Proc W Word
+h-code-time m path = bind (h-imports-closure (toNat #64) m (cons path nil) (cons path nil) (cons path nil)) (λ fs → h-latest (cons m fs))

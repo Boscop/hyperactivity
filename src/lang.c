@@ -780,7 +780,35 @@ static bool *CHKHIDE; static size_t capchkhide;
 static char **CHKPOS; static size_t capchkpos;   /* where each checked definition was declared (file:line), for #where */
 extern char decl_pos[512];
 static char **DATAPOS; static size_t capdatapos;
-static int checked_index(const char *s) { for (int i = nchecked - 1; i >= 0; i--) if (!CHKHIDE[i] && (CHECKED[i] == s || !strcmp(CHECKED[i], s))) return i; return -1; }
+/* by name: an open-addressed table of the latest entry of each name (CHKH), each entry linked to the
+ * one before it of the same name (CHKPREV); entries are only appended, and hiding one changes neither.
+ * checked_index walks that name's entries latest first and takes the first not hidden: the entry the
+ * scan of every entry from the latest down took (2026-11-16: that scan, a comparison with each of
+ * thousands of entries, was a quarter of lib/views.cub's run, called by the store's canonical form
+ * for every symbol) */
+static int *CHKH; static size_t capCHKH; static int *CHKPREV; static size_t capchkprev;
+static size_t kw_hash(const char *s);
+static int *chkh_slot(const char *s) {
+    size_t j = kw_hash(s) & (capCHKH - 1);
+    while (CHKH[j] >= 0 && CHECKED[CHKH[j]] != s && strcmp(CHECKED[CHKH[j]], s)) j = (j + 1) & (capCHKH - 1);
+    return &CHKH[j];
+}
+static void chkh_add(int i) {   /* entry i, its name set */
+    if ((size_t)(i + 1) * 2 > capCHKH) {
+        size_t cap = capCHKH ? capCHKH * 2 : 1024; while ((size_t)(i + 1) * 2 > cap) cap *= 2;
+        free(CHKH); CHKH = malloc(cap * sizeof(int)); capCHKH = cap;
+        for (size_t j = 0; j < cap; j++) CHKH[j] = -1;
+        for (int k = 0; k < i; k++) *chkh_slot(CHECKED[k]) = k;   /* in order: each name ends at its latest */
+    }
+    GROW(CHKPREV, capchkprev, (size_t)i + 1);
+    int *sl = chkh_slot(CHECKED[i]);
+    CHKPREV[i] = *sl; *sl = i;
+}
+static int checked_index(const char *s) {
+    if (!capCHKH) return -1;
+    for (int i = *chkh_slot(s); i >= 0; i = CHKPREV[i]) if (!CHKHIDE[i]) return i;
+    return -1;
+}
 /* a name a checked term cannot use. A definition of a file loaded before the checker (lib/prelude.cub's
  * map, length, append, add, mul, and, iszero; the checker's own helpers) has no type and cannot be
  * given one there (a signature needs the checker): the message says so and names the checked ones */
@@ -1735,7 +1763,8 @@ static Bind *lookup_i(const char *name) {
     if (sym_bind_epoch(name) == bind_epoch) {
         /* remembered in this epoch: binders were only pushed since, a push of this name updating it */
         unsigned c = sym_bind(name);
-        if (getenv("CUB_CHKBIND")) { Bind *b = lookup(name); if (b != (c ? &binds[c - 1] : NULL)) { fprintf(stderr, "bind cache wrong for %s: cached %u (nbinds %d), scan %ld\n", name, c, nbinds, b ? b - binds : -1L); abort(); } }
+        static int chk = -1; if (chk < 0) chk = getenv("CUB_CHKBIND") != NULL;   /* read once: getenv scans the environment */
+        if (chk) { Bind *b = lookup(name); if (b != (c ? &binds[c - 1] : NULL)) { fprintf(stderr, "bind cache wrong for %s: cached %u (nbinds %d), scan %ld\n", name, c, nbinds, b ? b - binds : -1L); abort(); } }
         return c ? &binds[c - 1] : NULL;
     }
     size_t h = sym_hash(name);
@@ -2229,7 +2258,7 @@ static bool lazy_trivial(Node *t) {
     if (!strcmp(h, "app")) {
         Node *hd = t; int na = 0;
         while (hd->list && hd->n == 3 && is(hd->it[0], "app")) { hd = hd->it[1]; na++; }
-        int c = !hd->list && !lookup(hd->s) ? con_lookup(hd->s) : -1;
+        int c = !hd->list && !lookup_i(hd->s) ? con_lookup(hd->s) : -1;
         return c >= 0 && na == CON[c].nfields + CON[c].ndims;
     }
     return false;
@@ -2268,7 +2297,7 @@ static Syn *compile_n(int tag, Node *t, int from, int n) {
 /* the variables of the enclosing scopes a term refers to, in order of first occurrence */
 static void local_free(Node *t, Names *bound, Names *out) {
     if (!t->list) {
-        if (!names_has(bound, t->s) && lookup(t->s)) names_add(out, t->s);
+        if (!names_has(bound, t->s) && lookup_i(t->s)) names_add(out, t->s);
         return;
     }
     if (t->n == 0) return;
@@ -2418,7 +2447,7 @@ static Syn *compile(Node *t) {
         /* a constructor applied to all its fields and dimensions is the constructor */
         Node *hd = t; int na = 0;
         while (hd->list && hd->n == 3 && is(hd->it[0], "app")) { hd = hd->it[1]; na++; }
-        int c = !hd->list && !lookup(hd->s) ? con_lookup(hd->s) : -1;
+        int c = !hd->list && !lookup_i(hd->s) ? con_lookup(hd->s) : -1;
         if (c >= 0 && na == CON[c].nfields + CON[c].ndims) {
             Syn *r = syn(S_CON, na); r->id = c;
             Node *a = t;
@@ -2426,7 +2455,7 @@ static Syn *compile(Node *t) {
             return r;
         }
         /* a field applied to a value: its projection (then any further arguments) */
-        int fl = !hd->list && !lookup(hd->s) && c < 0 ? fld_lookup(hd->s) : -1;
+        int fl = !hd->list && !lookup_i(hd->s) && c < 0 ? fld_lookup(hd->s) : -1;
         if (fl >= 0) {
             Node **args = calloc((size_t)na + 1, sizeof(Node *)), *a = t;
             for (int q = na - 1; q >= 0; q--) { args[q] = a->it[2]; a = a->it[1]; }
@@ -2437,7 +2466,7 @@ static Syn *compile(Node *t) {
         }
         /* a definition applied to arguments: one call cell (its body built at once when the
          * arguments cover its parameters) */
-        long g = !hd->list && !lookup(hd->s) && c < 0 && !constant_sym(hd->s) ? global_lookup(hd->s) : -1;
+        long g = !hd->list && !lookup_i(hd->s) && c < 0 && !constant_sym(hd->s) ? global_lookup(hd->s) : -1;
         if (g >= 0 && G[g].kind != G_AXIOM && na >= 1) {
             Syn *r = syn(S_CALL, na); r->id = g;
             Node *a = t;
@@ -3365,7 +3394,7 @@ static int sig_add(const char *name, long g, long tyg, bool hidden) {
     table_set(TB_TY, nchecked, tyg);
     GROW(CHECKED, capchecked, (size_t)nchecked + 1);
     GROW(CHKHIDE, capchkhide, (size_t)nchecked + 1);
-    CHECKED[nchecked] = intern(name); CHKHIDE[nchecked] = hidden;
+    CHECKED[nchecked] = intern(name); CHKHIDE[nchecked] = hidden; chkh_add(nchecked);
     GROW(CHKPOS, capchkpos, (size_t)nchecked + 1); CHKPOS[nchecked] = decl_pos[0] ? strdup(decl_pos) : NULL;
     if (g >= 0) G[g].chk = nchecked;
     return nchecked++;
@@ -4814,7 +4843,9 @@ static void load_file(const char *path, bool must) {
 }
 static void prof_print(void);
 /* --imports FILE ...: each file's imports, as the reader reads them, without loading anything: a line
- * `imports: FILE IMPORT ...`, paths from the repository root (lib/hyperactive.cub's every reads it) */
+ * `imports: FILE IMPORT ...`, and a line `reads: FILE PATH ...` of the files it reads as bytes (`text`
+ * and `document`), paths from the repository root (lib/hyperactive.cub's every reads the first; lib/host.cub's
+ * h-imports-closure both, for the files a program depends on) */
 static void imports_of(const char *path) {
     char *rp = realpath(path, NULL);
     if (!rp) { printf("imports: %s ?\n", path); return; }
@@ -4822,6 +4853,7 @@ static void imports_of(const char *path) {
     xt = NULL; nxt = capxt = 0; lt = NULL; nlt = caplt = 0; x_file = rp;
     x_lex(text); x_layout(); xp = 0;
     char *dir = strdup(rp); char *sl = strrchr(dir, '/'); if (sl) *sl = 0;
+    SBuf reads = {0};
     char *self = w_rel(rp); printf("imports: %s", self); free(self);
     while (P0()->k != X_EOF) {
         while (P0()->k == X_VS || P0()->k == X_VC) NX();
@@ -4833,9 +4865,17 @@ static void imports_of(const char *path) {
             char *rel = w_rel(r); printf(" %s", rel); free(rel);
         }
         int d = 0;
-        while (P0()->k != X_EOF && !(d == 0 && P0()->k == X_VS)) { if (P0()->k == X_VO) d++; else if (P0()->k == X_VC) d--; NX(); }
+        while (P0()->k != X_EOF && !(d == 0 && P0()->k == X_VS)) {
+            if (P0()->k == X_VO) d++; else if (P0()->k == X_VC) d--;
+            else if ((x_is(P0(), "document") || x_is(P0(), "text")) && P1()->k == X_STR) {
+                const char *s = P1()->s; char *full = malloc(strlen(dir) + strlen(s) + 2); sprintf(full, "%s/%s", dir, s);
+                char *rel = w_rel(s[0] == '/' ? s : full); sb_put(&reads, " "); sb_put(&reads, rel); free(rel); free(full);
+            }
+            NX();
+        }
     }
-    printf("\n"); free(dir); free(text);
+    printf("\nreads: "); { char *self = w_rel(rp); printf("%s%s\n", self, reads.b ? reads.b : ""); free(self); } free(reads.b);
+    free(dir); free(text);
 }
 static void prof_signal(int sig) { (void)sig; fflush(stdout); prof_print(); _Exit(3); }
 /* ---------------- the machine as a library (build/libcubical.a, src/libcubical.h) ----------------
