@@ -178,6 +178,63 @@ pmap-const (suc n) X F G F2 sG g k c d P =
     (λ L D Q → (k (fst L) (fst D) (λ i → fst (Q i)) , k (fst (snd L)) (fst (snd D)) (λ i → fst (snd (Q i))) ,
        λ j → k (snd (snd L) j) (snd (snd D) j) (λ i → snd (snd (Q i)) j)))
     c d P
+-- zipping two fibre maps of one cube is the fibre map of the pair (by dimension; each step judgmental)
+zip-fmap : (n : Nat) (X : Type 1) (F0 F F' F2 : X → Type 1) (f : (x : X) → F0 x → F x) (g : (x : X) → F0 x → F' x)
+  (h : (x : X) → F x → F' x → F2 x) (c : Cube n X) (d : DCube n X F0 c) →
+  PathP (λ i → DCube n X F2 c) (dcube-zip n X F F' F2 h c (dcube-fmap n X F0 F f c d) (dcube-fmap n X F0 F' g c d)) (dcube-fmap n X F0 F2 (λ x y → h x (f x y) (g x y)) c d)
+zip-fmap zero X F0 F F' F2 f g h c d = λ i → h c (f c d) (g c d)
+zip-fmap (suc n) X F0 F F' F2 f g h c d =
+  zip-fmap n (Line X) (LineO X F0) (LineO X F) (LineO X F') (LineO X F2) (lineo-fmap X F0 F f) (lineo-fmap X F0 F' g) (lineo-zip X F F' F2 h) c d
+-- the coherence fibres of retype are sets
+rt-sG : (Γ : CCtx) (a : TyShape) (γ : CtxV (fst Γ)) → isSet (FbE (fst Γ) (Sem a) γ)
+rt-sG Γ a γ = isSetΠ1 (EnvV (fst Γ) γ) (λ ρ → Sem a) (λ ρ → fst (shape-sets a))
+-- retype's pmap, at a cube and a coherence path
+rt-pm : (Γ : CCtx) (a : TyShape) (U1 W : Type 1) (ty : U1 → Sem a) (w : (u : U1) → El a (ty u) → W) (Zq : Mean Γ (U1 × TV a)) →
+  PathM Γ (Sem a) (fmapM Γ (U1 × TV a) (Sem a) (λ zq → fst (snd zq)) Zq) (fmapM Γ (U1 × TV a) (Sem a) (λ zq → ty (fst zq)) Zq) → Mean Γ W
+rt-pm Γ a U1 W ty w Zq P =
+  dcube-pmap (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) (U1 × TV a)) (FbE (fst Γ) (Sem a)) (FbE (fst Γ) W) (λ xq zq ρq → fst (snd (zq ρq))) (λ xq zq ρq → ty (fst (zq ρq)))
+    (λ xq zq Qq ρq → w (fst (zq ρq)) (el-tr a (Sem a) (λ yq → yq) (fst (snd (zq ρq))) (ty (fst (zq ρq))) (λ jq → Qq jq ρq) (snd (snd (zq ρq))))) (snd Γ) Zq P
+re-zf : (Γ : CCtx) (a : TyShape) (U1 Z : Type 1) (ty : U1 → Sem a) (u : Z → U1) (e : (z : Z) → El a (ty (u z))) (Rm : Mean Γ Z) →
+  PathM Γ (U1 × TV a) (rt-Z Γ a U1 (fmapM Γ Z U1 u Rm) (fmapM Γ Z (TV a) (λ z → (ty (u z) , e z)) Rm)) (fmapM Γ Z (U1 × TV a) (λ z → (u z , (ty (u z) , e z))) Rm)
+re-zf Γ a U1 Z ty u e Rm =
+  zip-fmap (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) Z) (FbE (fst Γ) U1) (FbE (fst Γ) (TV a)) (FbE (fst Γ) (U1 × TV a))
+    (λ xq yq ρq → u (yq ρq)) (λ xq yq ρq → (ty (u (yq ρq)) , e (yq ρq))) (λ xq euq eaq ρq → (euq ρq , eaq ρq)) (snd Γ) Rm
+RT : (Γ : CCtx) (a : TyShape) (U1 : Type 1) (ty : U1 → Sem a) → Mean Γ (U1 × TV a) → Type 1
+RT Γ a U1 ty Zq = PathM Γ (Sem a) (fmapM Γ (U1 × TV a) (Sem a) (λ zq → fst (snd zq)) Zq) (fmapM Γ (U1 × TV a) (Sem a) (λ zq → ty (fst zq)) Zq)
+re-P : (Γ : CCtx) (a : TyShape) (U1 Z : Type 1) (ty : U1 → Sem a) (u : Z → U1) (e : (z : Z) → El a (ty (u z))) (Rm : Mean Γ Z)
+  (p : PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) (fmapM Γ Z (TV a) (λ z → (ty (u z) , e z)) Rm)) (fmapM Γ U1 (Sem a) ty (fmapM Γ Z U1 u Rm))) →
+  PathP (λ j → RT Γ a U1 ty (re-zf Γ a U1 Z ty u e Rm j))
+    (rt-P Γ a U1 ty (fmapM Γ Z U1 u Rm) (fmapM Γ Z (TV a) (λ z → (ty (u z) , e z)) Rm) p)
+    (comp (λ k → RT Γ a U1 ty (re-zf Γ a U1 Z ty u e Rm k)) (λ k → []) (rt-P Γ a U1 ty (fmapM Γ Z U1 u Rm) (fmapM Γ Z (TV a) (λ z → (ty (u z) , e z)) Rm) p))
+re-P Γ a U1 Z ty u e Rm p = λ j →
+  comp (λ k → RT Γ a U1 ty (re-zf Γ a U1 Z ty u e Rm (j /\ k))) (λ k → [ j = 0 ↦ rt-P Γ a U1 ty (fmapM Γ Z U1 u Rm) (fmapM Γ Z (TV a) (λ z → (ty (u z) , e z)) Rm) p ])
+    (rt-P Γ a U1 ty (fmapM Γ Z U1 u Rm) (fmapM Γ Z (TV a) (λ z → (ty (u z) , e z)) Rm) p)
+-- retype of a cube's two projections is the cube's own map: for Rm : Mean Γ Z, u : Z → U1 and e giving the
+-- argument at u's type, retype (fmap u Rm) (fmap (ty ∘ u , e) Rm) p ≡ fmap (w ∘ (u , e)) Rm, at any p
+retype-eta : (Γ : CCtx) (a : TyShape) (U1 W Z : Type 1) (ty : U1 → Sem a) (w : (u : U1) → El a (ty u) → W) (u : Z → U1) (e : (z : Z) → El a (ty (u z)))
+  (Rm : Mean Γ Z) (p : PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) (fmapM Γ Z (TV a) (λ z → (ty (u z) , e z)) Rm)) (fmapM Γ U1 (Sem a) ty (fmapM Γ Z U1 u Rm))) →
+  PathM Γ W (retype Γ a U1 W ty w (fmapM Γ Z U1 u Rm) (fmapM Γ Z (TV a) (λ z → (ty (u z) , e z)) Rm) p) (fmapM Γ Z W (λ z → w (u z) (e z)) Rm)
+retype-eta Γ a U1 W Z ty w u e Rm p =
+  pcat (Mean Γ W) (retype Γ a U1 W ty w (fmapM Γ Z U1 u Rm) (fmapM Γ Z (TV a) (λ z → (ty (u z) , e z)) Rm) p)
+    (rt-pm Γ a U1 W ty w (fmapM Γ Z (U1 × TV a) (λ z → (u z , (ty (u z) , e z))) Rm) (re-P Γ a U1 Z ty u e Rm p i1))
+    (fmapM Γ Z W (λ z → w (u z) (e z)) Rm)
+    (λ j → rt-pm Γ a U1 W ty w (re-zf Γ a U1 Z ty u e Rm j) (re-P Γ a U1 Z ty u e Rm p j))
+    (pcat (Mean Γ W) (rt-pm Γ a U1 W ty w (fmapM Γ Z (U1 × TV a) (λ z → (u z , (ty (u z) , e z))) Rm) (re-P Γ a U1 Z ty u e Rm p i1))
+       (fmapM Γ Z W (λ z → w (u z) (el-tr a (Sem a) (λ yq → yq) (ty (u z)) (ty (u z)) (λ jq → ty (u z)) (e z))) Rm)
+       (fmapM Γ Z W (λ z → w (u z) (e z)) Rm)
+       (pcat (Mean Γ W) (rt-pm Γ a U1 W ty w (fmapM Γ Z (U1 × TV a) (λ z → (u z , (ty (u z) , e z))) Rm) (re-P Γ a U1 Z ty u e Rm p i1))
+          (dcube-pmap (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) Z) (FbE (fst Γ) (Sem a)) (FbE (fst Γ) W) (λ xq yq ρq → ty (u (yq ρq))) (λ xq yq ρq → ty (u (yq ρq)))
+             (λ xq yq Qq ρq → w (u (yq ρq)) (el-tr a (Sem a) (λ y → y) (ty (u (yq ρq))) (ty (u (yq ρq))) (λ jq → Qq jq ρq) (e (yq ρq)))) (snd Γ) Rm
+             (λ i → fmapM Γ Z (Sem a) (λ z → ty (u z)) Rm))
+          (fmapM Γ Z W (λ z → w (u z) (el-tr a (Sem a) (λ yq → yq) (ty (u z)) (ty (u z)) (λ jq → ty (u z)) (e z))) Rm)
+          (pmap-pre (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) Z) (FbE (fst Γ) (U1 × TV a)) (FbE (fst Γ) (Sem a)) (FbE (fst Γ) W) (rt-sG Γ a)
+             (λ xq zq ρq → fst (snd (zq ρq))) (λ xq zq ρq → ty (fst (zq ρq)))
+             (λ xq zq Qq ρq → w (fst (zq ρq)) (el-tr a (Sem a) (λ yq → yq) (fst (snd (zq ρq))) (ty (fst (zq ρq))) (λ jq → Qq jq ρq) (snd (snd (zq ρq)))))
+             (λ xq yq ρq → (u (yq ρq) , (ty (u (yq ρq)) , e (yq ρq)))) (snd Γ) Rm (re-P Γ a U1 Z ty u e Rm p i1) (λ i → fmapM Γ Z (Sem a) (λ z → ty (u z)) Rm))
+          (pmap-const (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) Z) (FbE (fst Γ) (Sem a)) (FbE (fst Γ) W) (rt-sG Γ a) (λ xq yq ρq → ty (u (yq ρq)))
+             (λ xq yq Qq ρq → w (u (yq ρq)) (el-tr a (Sem a) (λ y → y) (ty (u (yq ρq))) (ty (u (yq ρq))) (λ jq → Qq jq ρq) (e (yq ρq)))) (snd Γ) Rm
+             (λ i → fmapM Γ Z (Sem a) (λ z → ty (u z)) Rm)))
+       (λ i → fmapM Γ Z W (λ z → w (u z) (comp (λ j → El a (ty (u z))) (λ j → [ i = 1 ↦ e z ]) (e z))) Rm))
 -- determinacy: two derivations of one code over a path of contexts have paths of shapes, codes and meanings
 DetR : (J1 J2 : Jdg) → PathP (λ i → CCtx) (fst (snd J1)) (fst (snd J2)) → Type 1
 DetR J1 J2 pΓ = (pk : PathP (λ i → JK) (fst J1) (fst J2)) × (ps : PathP (λ i → TyShape) (fst (snd (snd J1))) (fst (snd (snd J2)))) ×
