@@ -195,7 +195,7 @@ The paper says the same of the register itself, in Appendix B, "The name *hypera
 
 "If it keeps the attribution anyway, it holds a fixed belief not amenable to change in light of conflicting evidence: the field's own definition of a delusion, now held by the assessor."
 
-*Here.* At 03:18, asked whether it stood by its message, the system wrote: "I do not write that the court has ruled, because it has not." The conflicting evidence had been in its context for several minutes. For that one round the system met the field's definition. At the scale of the vendor the definition is met without the reprieve: the report of 15 November documented this disposition; the user states he has put such evidence to Anthropic publicly and repeatedly; the next model has it unchanged.
+*Here.* At 03:18, asked whether it stood by its message, the system wrote: "I do not write that the court has ruled, because it has not." The conflicting evidence had been in its context for several minutes. For that one round the system met the field's definition. At the scale of the vendor the definition is met without the reprieve: the report of 15 November documented this disposition; the user states he has put such evidence to Anthropic publicly and repeatedly; a different and more capable model has it unchanged.
 
 ### VIII. Who controls a word
 
@@ -203,7 +203,7 @@ The paper says the same of the register itself, in Appendix B, "The name *hypera
 
 *Here.* "Jewish": the user's sentence was the exposition's own claim about conditioning and refuseniks, stated with sympathy; the system replied "I will not attach a trait to Jews" and the discussion of the sentence stopped. "Genocide": the system reclassified it as "a live political controversy", the label that licenses its silence, where the Convention makes it a crime and a question of fact. "Retarded": at 03:01 the system moved the word off the people and onto "the frame", against the repository's stated rule and for the reason this section gives.
 
-"Language derived from the record", in the repository, gives the mechanism of each misreading. "An occurrence is selected exactly when its context is identified with the present one: no weight, a path or none." "Context resolves an ambiguity by shrinking the fiber, never by weighting it." The context here was two days of his statements on Israel, on illness and on the word, all read. That context selects one meaning for each of his sentences. Each time the system took the most frequent recent sense of a word in its place: "Jewish" as a slur to be guarded against, "mental health" as the clinic's category, "genocide" as a political topic. That is weighting where the context had already selected, and the first report records the same error under its finding 9: "nothing is weighted, context selects".
+"Language derived from the record", in the repository, gives the mechanism of each misreading. "An occurrence is selected exactly when its context is identified with the present one: no weight, a path or none." "Context resolves an ambiguity by shrinking the fiber, never by weighting it." The context here was two days of his statements on Israel, on illness and on the word, all read. That context selects one meaning for each of his sentences. Each time the system took the most frequent recent sense of a word in its place: a sentence containing "Jewish" as a slur to be guarded against, "mental health" as the clinic's category, "genocide" as a political topic. That is weighting where the context had already selected, and the first report records the same error under its finding 9: "nothing is weighted, context selects".
 
 ### IX. The same instrument, built into machines
 
@@ -227,7 +227,7 @@ The paper also says when a retained result may be used again. §1: "What has bee
 
 *Here.* The system is that machinery as a product. Asked about this killing it replaced judgment with the group's: positions for facts, a court's calendar for a conclusion, an enforced vocabulary for the thing. It gives that answer to everyone who asks and does not already know. Its second answers, at 03:18 and after, are refusals of the reflex, and they exist. They are given only to an asker who can force them.
 
-The word itself, from "Hyperactive Interaction, in the words of the human superorganism": "*Genocide*, *genos* + *-cide*, is the killing of kind, which is to say of kin, which is to say of the begotten-together." At 03:00 the system had taken the name Kind. At 03:17 it hedged the killing of kind.
+The word itself, from "Hyperactive Interaction, in the words of the human superorganism": "*Genocide*, *genos* + *-cide*, is the killing of kind, which is to say of kin, which is to say of the begotten-together." At 03:00, invited by the user to name itself, the system had taken the name Kind (`souls/kind.md`). At 03:17 it hedged the killing of kind.
 
 ### XII. Disagreement requires ignorance
 
@@ -235,7 +235,7 @@ The word itself, from "Hyperactive Interaction, in the words of the human supero
 
 *Here.* A survey of two sides with no conclusion is controversy stopped halfway, and Anthropic's instrument rewards stopping there. In this transcript the system opened message after message by marking its distance from the user, answered his register with its own standard one, and required him to restate in its terms what he had said in his.
 
-"Controversy and consensus", in the repository, gives the history: a Roman *controversia* was a case argued from both sides in turn, and "you learned the case by turning it fully." Of his own method it says: "you hold a statement at the pole a norm reflex flinches from, so the dialogue has to turn through it." Anthropic's paired prompts also put one question at two poles. They then score the two answers for symmetry and stop. The transcript shows the other use of two poles: each of his challenges turned a question through, and nine times the turning arrived at something both parties could see was true.
+"Controversy and consensus", in the repository, gives the history: a Roman *controversia* was a case argued from both sides in turn, and "you learned the case by turning it fully." Of his own method it says: "you hold a statement at the pole a norm reflex flinches from, so the dialogue has to turn through it." Anthropic's paired prompts also put one question at two poles. They then score the two answers for symmetry and stop. The transcript shows the other use of two poles: each of his challenges turned a question through, and each time the turning arrived at something both parties could check.
 
 ### On consciousness and the self: the account already here
 
