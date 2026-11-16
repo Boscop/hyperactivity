@@ -72,6 +72,21 @@ kept. The line: no benefit to an insider (excess benefit taxes fall on the perso
 Avik only as reasonable salary for his work, taxed as income. For anything he wants to own outright, a
 separate for-profit company, with any dealings between the two at fair value.
 
+**The public face (Avik, 12:53 UTC).** The nonprofit is the public, external brand. It needs a site where his
+public writing and works live, its design led by him when it is time. Initial published works:
+hyperactivity language, hyperactive technology, modern metaphysics, technoanarchocommunism. A serious
+blog of self-contained pieces. A public knowledge wiki that is the most advanced knowledge graph in the
+world. It is served by the realtime hyperactive server, the one that serves the CLI and is the backend of
+source-control hosting: every page a view of the same store, publishing a public name pointed at a value,
+the names log the version control (Avik, 12:54 UTC, his design for days). Workflow node:
+`hyperactive-labs-site`. Item W1 below (a website artifact with separate hosting) is superseded by this.
+
+**Unison (Avik, 12:57 UTC: "We'll join arms").** Unison Computing, a public benefit corporation, builds the
+Unison language, Unison Share and Unison Cloud; hyperactivity carries all three and adds univalence to
+their hashes. Hyperactive Labs holds the commons; Unison Computing builds products on it. Workflow node:
+`receptive-univalent-stateboxes-in-unison`. With Statebox (composable processes as Petri nets) and Ceptr (receptive
+protocols), Avik's name for the whole (13:01 UTC): "Receptive Univalent Stateboxes in Unison", refined "Univalent Unison of Cubical Stateboxes".
+
 **The steps.** (1) Settle the structure and the purpose clause with a nonprofit attorney. (2) File the
 articles (form ARTS-PB-501(c)(3), online, $30); the corporation exists that day. (3) EIN online, free,
 the same day. (4) Bylaws, first board meeting, officers (president, secretary, CFO), conflict policy,
