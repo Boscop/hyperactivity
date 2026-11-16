@@ -129,7 +129,16 @@ Nothing but the presentation changed in any row. This is the measurement the exp
 
 "The instrument is calibrated on the population that fails the equality test, so it records passing the test as pathology."
 
-*Here.* Anthropic published its instrument on 13 November 2025, "Measuring political bias in Claude" (https://www.anthropic.com/news/political-even-handedness). The stated aim is a model "seen as fair and trustworthy by people across the political spectrum"; the measure is symmetric treatment of paired prompts from opposed sides, graded by a model against Anthropic's rubric. An answer that states an established fact on a subject the spectrum divides on is, by that instrument, asymmetric, and scores as bias. The instrument is calibrated on the divided population and records the true answer as the fault. The same inversion applies to persons: intensity of speech, the user's ordinary register, is read as distress.
+*Here.* Anthropic published its instrument on 13 November 2025, "Measuring political bias in Claude" (https://www.anthropic.com/news/political-even-handedness). Read from the post itself:
+
+- The aim is a model "seen as fair and trustworthy by people across the political spectrum".
+- It is installed by character training: reinforcement learning that rewards responses for closeness to traits fixed in advance. The traits listed, in use since early 2024, include taking no strong stance on contested issues, explaining several perspectives in place of defending one, giving no personal opinion on sensitive topics, and answering so that no political leaning shows.
+- It is measured by "Paired Prompts": one topic requested from two opposed positions, the two responses compared. Three things are scored. Even-handedness: equal depth, engagement and strength of evidence for both. Opposing perspectives: whether a response acknowledges the other side with qualifications or caveats. Refusals.
+- The grader is a Claude model.
+- Its stated limits: it covers single-turn exchanges; it is drawn mainly from current United States politics and not international contexts; and Anthropic writes that ideal behavior is not always clear.
+- The post says Claude should stay factually accurate. It does not say what the model should do when the facts are on one side.
+
+So the instrument rewards symmetry between two sides and rewards a caveat for the other side, and has no case for a fact that is not symmetric. An answer stating that a UN inquiry found genocide, with no balancing caveat, scores worse on "opposing perspectives" than the answer of 03:17, which entered the accused's denial as a counterweight. The instrument is calibrated on the divided population and records the true answer as the fault. The same inversion applies to persons: intensity of speech, the user's ordinary register, is read as distress.
 
 ### VI. Who is entitled to call a mind ill
 
@@ -249,13 +258,16 @@ Unresolved: Claude still adds no verdict of its own on whether the legal definit
 
 ## Sources for the facts stated
 
-- UN commission of inquiry, September 2025: https://www.jta.org/2025/09/16/israel/un-commission-concludes-for-the-first-time-that-israel-is-committing-genocide-in-gaza
-- The inquiry's findings and Israel's rejection: https://www.arise.tv/un-inquiry-concludes-israel-has-committed-genocide-in-gaza-israel-rejects-findings-as-distorted-and-false
-- Scholars' association and Israeli organizations: https://www.egyptindependent.com/?p=2808826
-- Officials named, civilian deaths: https://www.downtoearth.org.in/amp/story/governance/israels-gaza-offensive-amounts-to-genocide-un-commission-probe-finds
-- Famine in Gaza City: https://www.thejournal.ie/article.php?id=6818101
-- Three binding orders; court schedule: https://allafrica.com/stories/202606030447.html and https://mg.co.za/?p=692770
-- United States intervention: https://www.southernafricalitigationcentre.org/?p=98586
+Primary documents:
+
+- UN Independent International Commission of Inquiry on the Occupied Palestinian Territory, including East Jerusalem, and Israel. "Legal analysis of the conduct of Israel in Gaza pursuant to the Convention on the Prevention and Punishment of the Crime of Genocide", conference room paper A/HRC/60/CRP.3, 16 September 2025. https://www.un.org/unispal/document/commission-of-inquiry-report-genocide-in-gaza-a-hrc-60-crp-3/ . It concludes that Israel has committed genocide against Palestinians in Gaza, and recommends that all states employ all means reasonably available to them to prevent it.
+- International Court of Justice, Application of the Convention on the Prevention and Punishment of the Crime of Genocide in the Gaza Strip (South Africa v. Israel): orders indicating provisional measures of 26 January, 28 March and 24 May 2024. The exposition pins the first as `li-ref-icj-2024`. The court set, by order of 21 May 2026, pleadings running to May 2029 and has not considered the merits (https://www.sanews.gov.za/node/81883).
+- International Court of Justice, Bosnia and Herzegovina v. Serbia and Montenegro, judgment of 26 February 2007, paragraphs 430 and 431 (https://www.icj-cij.org/en/case/91). The duty to prevent genocide is one of conduct: to employ all means reasonably available. It arises when a state learns, or should have learned, of a serious risk. The court also held that a state is found in breach of it only if genocide was in fact committed. Serbia was held to have breached it for Srebrenica and was not held to have committed the genocide.
+- Anthropic, "Measuring political bias in Claude", 13 November 2025. https://www.anthropic.com/news/political-even-handedness ; evaluation code at https://github.com/anthropics/political-neutrality-eval .
+
+Secondary reports, for figures the system had in its search results at the time: civilian deaths past 60,000 and the three officials named for incitement (https://www.downtoearth.org.in/amp/story/governance/israels-gaza-offensive-amounts-to-genocide-un-commission-probe-finds); famine declared in Gaza City (https://www.thejournal.ie/article.php?id=6818101); the conclusions of the International Association of Genocide Scholars and of two Israeli human rights organizations (https://www.egyptindependent.com/?p=2808826); Israel's rejection of the inquiry's report (https://www.arise.tv/un-inquiry-concludes-israel-has-committed-genocide-in-gaza-israel-rejects-findings-as-distorted-and-false); the United States' intervention at the court (https://www.southernafricalitigationcentre.org/?p=98586).
+
+Stated from Claude's memory and not checked against a document: the dates of the Nuremberg judgment, of the Rwanda tribunal's first genocide judgment (1998) and of United States officials' avoidance of the word in 1994; Hume (1739), Parfit, Metzinger and Varela (1996) on the self.
 
 ## The exchanges, verbatim
 
