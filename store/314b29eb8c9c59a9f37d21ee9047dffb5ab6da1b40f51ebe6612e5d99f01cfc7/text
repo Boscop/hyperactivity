@@ -1,0 +1,16 @@
+-- dcube-pmap into set fibres forgets its path: before a fibre map it is the pmap of the composites, and
+-- between equal maps it is the fmap at refl (the path is any path, the fibres being sets)
+pmap-pre : (n : Nat) (X : Type 1) (F0 F G F2 : X → Type 1) → ((x : X) → isSet (G x)) → (g0 g1 : (x : X) → F x → G x)
+  (k : (x : X) (y : F x) → PathP (λ i → G x) (g0 x y) (g1 x y) → F2 x) (h : (x : X) → F0 x → F x) (c : Cube n X) (d : DCube n X F0 c)
+  (P : PathP (λ i → DCube n X G c) (dcube-fmap n X F G g0 c (dcube-fmap n X F0 F h c d)) (dcube-fmap n X F G g1 c (dcube-fmap n X F0 F h c d)))
+  (P' : PathP (λ i → DCube n X G c) (dcube-fmap n X F0 G (λ x y → g0 x (h x y)) c d) (dcube-fmap n X F0 G (λ x y → g1 x (h x y)) c d)) →
+  PathP (λ i → DCube n X F2 c) (dcube-pmap n X F G F2 g0 g1 k c (dcube-fmap n X F0 F h c d) P)
+    (dcube-pmap n X F0 G F2 (λ x y → g0 x (h x y)) (λ x y → g1 x (h x y)) (λ x y Q → k x (h x y) Q) c d P')
+pmap-pre zero X F0 F G F2 sG g0 g1 k h c d P P' = λ i → k c (h c d) (sG c (g0 c (h c d)) (g1 c (h c d)) P P' i)
+pmap-pre (suc n) X F0 F G F2 sG g0 g1 k h c d P P' =
+  pmap-pre n (Line X) (LineO X F0) (LineO X F) (LineO X G) (LineO X F2)
+    (λ L → isSet-LnF (G (fst L)) (G (fst (snd L))) (λ i → G (snd (snd L) i)) (sG (fst L)) (sG (fst (snd L))))
+    (lineo-fmap X F G g0) (lineo-fmap X F G g1)
+    (λ L D Q → (k (fst L) (fst D) (λ i → fst (Q i)) , k (fst (snd L)) (fst (snd D)) (λ i → fst (snd (Q i))) ,
+       λ j → k (snd (snd L) j) (snd (snd D) j) (λ i → snd (snd (Q i)) j)))
+    (lineo-fmap X F0 F h) c d P P'

@@ -169,9 +169,9 @@ static void x_layout(void) {
 
 /* ---------------- implicit arguments: each definition's implicit parameters (a mask) ---------------- */
 typedef struct { char *name; uint64_t m; int len; uint64_t inst; } IMask;   /* inst: the implicit positions found by instance search (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.12 “E28 — Elaboration”) */
-static IMask *IM; static int nim, capim;
-static IMask *imask_of(const char *s) { for (int i = nim - 1; i >= 0; i--) if (!strcmp(IM[i].name, s)) return IM[i].m ? &IM[i] : NULL; return NULL; }
-static void imask_set(const char *s, uint64_t m, int len) { GROW(IM, capim, (size_t)nim + 1); IM[nim++] = (IMask){ strdup(s), m, len, 0 }; }
+static IMask *IM; static int nim, capim; static NameIx IMIX;   /* IMIX: the latest mask of each name (NameIx, src/lang.c) */
+static IMask *imask_of(const char *s) { int i = nix_get(&IMIX, s); return i >= 0 && IM[i].m ? &IM[i] : NULL; }
+static void imask_set(const char *s, uint64_t m, int len) { GROW(IM, capim, (size_t)nim + 1); IM[nim] = (IMask){ strdup(s), m, len, 0 }; nix_set(&IMIX, IM[nim].name, nim); nim++; }
 /* the instance positions of a signature: its {{..}} binders */
 static uint64_t inst_bits(Node *sig) {
     uint64_t b = 0; int q = 0;
@@ -184,7 +184,7 @@ static uint64_t inst_bits(Node *sig) {
     }
     return b;
 }
-static void imask_inst(const char *s, Node *sig) { uint64_t b = inst_bits(sig); if (b) for (int i = nim - 1; i >= 0; i--) if (!strcmp(IM[i].name, s)) { IM[i].inst = b; return; } }
+static void imask_inst(const char *s, Node *sig) { uint64_t b = inst_bits(sig); int i = b ? nix_get(&IMIX, s) : -1; if (i >= 0) IM[i].inst = b; }
 /* instance declarations (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.12 “E28 — Elaboration”): `instance` before a signature; each is a candidate for an instance
  * hole whose type its result type matches, the latest first */
 typedef struct { char *name; Node *sig; } Inst;
@@ -3363,9 +3363,9 @@ static Node *lam_t(Node *x, Node *ty, Node *b) { Node *r = sym3("%lam", x, b); G
 static Node *lamty_of(Node *l) { for (int i = nlt_ - 1; i >= 0; i--) if (LT[i].lam == l) return LT[i].ty; return NULL; }
 /* each checked definition's signature (its implicit parameters marked) */
 typedef struct { char *name; Node *sig; } SigE;
-static SigE *SIGS; static int nsigs, capsigs;
-static Node *sig_of(const char *n) { for (int i = nsigs - 1; i >= 0; i--) if (!strcmp(SIGS[i].name, n)) return SIGS[i].sig; return NULL; }
-static void sig_set(const char *n, Node *s) { GROW(SIGS, capsigs, (size_t)nsigs + 1); SIGS[nsigs++] = (SigE){ strdup(n), s }; }
+static SigE *SIGS; static int nsigs, capsigs; static NameIx SIGIX;   /* SIGIX: the latest signature of each name (NameIx, src/lang.c) */
+static Node *sig_of(const char *n) { int i = nix_get(&SIGIX, n); return i >= 0 ? SIGS[i].sig : NULL; }
+static void sig_set(const char *n, Node *s) { GROW(SIGS, capsigs, (size_t)nsigs + 1); SIGS[nsigs] = (SigE){ strdup(n), s }; nix_set(&SIGIX, SIGS[nsigs].name, nsigs); nsigs++; }
 static Node *subst_sym(Node *t, const char *x, Node *e);
 static Node *subst_multi(Node *t, const char **ps, Node **vs, int n);
 /* the syntactic type of a term, when its head's signature tells it: a variable of known type, a

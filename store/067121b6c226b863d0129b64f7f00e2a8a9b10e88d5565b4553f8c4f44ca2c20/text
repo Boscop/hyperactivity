@@ -1,0 +1,49 @@
+det-rule : (r : DRule) (t : Tag) (x2 : RData r) → AllP Dg (tagged t (premJ r x2)) → DetRule r t x2
+det-rule r-ty-bool t (x-unit Γ2 B2) ps2 (x-unit Γ1 B1) p1 pΓ =
+  c-derived ((λ i → j-ty) , (λ i → s-bool) , (λ i → c-bool) , mean1-pathP Γ1 Γ2 pΓ B1 B2)
+det-rule (r-con b) t (x-unit Γ2 B2) ps2 (x-unit Γ1 B1) p1 pΓ =
+  c-derived ((λ i → j-tm) , (λ i → s-bool) , (λ i → c-con b) , λ i → fmapM (pΓ i) One1 (TV s-bool) (bool-v b) (mean1-pathP Γ1 Γ2 pΓ B1 B2 i))
+det-rule r-ne t (x-ne Γ2 R2 c2) ps2 (x-ne Γ1 R1 c1) p1 pΓ = fst p1 (j-tm , Γ2 , s-bool , c2 , R2) (fst ps2) pΓ
+det-rule r-fst t (x-proj Γ2 a2 b2 R2 c2) ps2 (x-proj Γ1 a1 b1 R1 c1) p1 pΓ =
+  d-bind (DetR (j-tm , Γ1 , s-fam f-sig a1 b1 , c1 , R1) (j-tm , Γ2 , s-fam f-sig a2 b2 , c2 , R2) pΓ) (DetR (concl r-fst (x-proj Γ1 a1 b1 R1 c1)) (concl r-fst (x-proj Γ2 a2 b2 R2 c2)) pΓ)
+    (fst p1 (j-tm , Γ2 , s-fam f-sig a2 b2 , c2 , R2) (fst ps2) pΓ) (λ r → c-derived (sig-det (λ a b → a) cfst sig-1 Γ1 Γ2 pΓ a1 b1 a2 b2 R1 R2 c1 c2 r))
+det-rule r-snd t (x-proj Γ2 a2 b2 R2 c2) ps2 (x-proj Γ1 a1 b1 R1 c1) p1 pΓ =
+  d-bind (DetR (j-tm , Γ1 , s-fam f-sig a1 b1 , c1 , R1) (j-tm , Γ2 , s-fam f-sig a2 b2 , c2 , R2) pΓ) (DetR (concl r-snd (x-proj Γ1 a1 b1 R1 c1)) (concl r-snd (x-proj Γ2 a2 b2 R2 c2)) pΓ)
+    (fst p1 (j-tm , Γ2 , s-fam f-sig a2 b2 , c2 , R2) (fst ps2) pΓ) (λ r → c-derived (sig-det (λ a b → b) csnd sig-2 Γ1 Γ2 pΓ a1 b1 a2 b2 R1 R2 c1 c2 r))
+det-rule r-app t (x-app Γ2 a2 b2 R2 f2 c2) ps2 (x-app Γ1 a1 b1 R1 f1 c1) p1 pΓ =
+  d-bind (DetR (j-tm , Γ1 , s-fam f-pi a1 b1 , f1 , fmapM Γ1 (AppV a1 b1) (TV (s-fam f-pi a1 b1)) (app-f a1 b1) R1)
+               (j-tm , Γ2 , s-fam f-pi a2 b2 , f2 , fmapM Γ2 (AppV a2 b2) (TV (s-fam f-pi a2 b2)) (app-f a2 b2) R2) pΓ)
+    (DetR (concl r-app (x-app Γ1 a1 b1 R1 f1 c1)) (concl r-app (x-app Γ2 a2 b2 R2 f2 c2)) pΓ)
+    (fst p1 (j-tm , Γ2 , s-fam f-pi a2 b2 , f2 , fmapM Γ2 (AppV a2 b2) (TV (s-fam f-pi a2 b2)) (app-f a2 b2) R2) (fst ps2) pΓ)
+    (λ rf → d-bind (DetR (j-tm , Γ1 , a1 , c1 , fmapM Γ1 (AppV a1 b1) (TV a1) (app-a a1 b1) R1) (j-tm , Γ2 , a2 , c2 , fmapM Γ2 (AppV a2 b2) (TV a2) (app-a a2 b2) R2) pΓ)
+       (DetR (concl r-app (x-app Γ1 a1 b1 R1 f1 c1)) (concl r-app (x-app Γ2 a2 b2 R2 f2 c2)) pΓ)
+       (fst (snd p1) (j-tm , Γ2 , a2 , c2 , fmapM Γ2 (AppV a2 b2) (TV a2) (app-a a2 b2) R2) (fst (snd ps2)) pΓ)
+       (λ ra → c-derived ((λ i → j-tm) , (λ i → sh-b (fst (snd rf) i)) , (λ i → capp (fst (snd (snd rf)) i) (fst (snd (snd ra)) i)) ,
+          app-join Γ1 Γ2 pΓ a1 b1 a2 b2 (λ i → sh-a (fst (snd rf) i)) (λ i → sh-b (fst (snd rf) i)) R1 R2
+            (rebase Γ1 Γ2 pΓ j-tm j-tm (s-fam f-pi a1 b1) (s-fam f-pi a2 b2) (fmapM Γ1 (AppV a1 b1) (TV (s-fam f-pi a1 b1)) (app-f a1 b1) R1)
+               (fmapM Γ2 (AppV a2 b2) (TV (s-fam f-pi a2 b2)) (app-f a2 b2) R2) (fst rf) (λ i → j-tm) (fst (snd rf))
+               (λ i → s-fam f-pi (sh-a (fst (snd rf) i)) (sh-b (fst (snd rf) i))) (snd (snd (snd rf))))
+            (rebase Γ1 Γ2 pΓ j-tm j-tm a1 a2 (fmapM Γ1 (AppV a1 b1) (TV a1) (app-a a1 b1) R1) (fmapM Γ2 (AppV a2 b2) (TV a2) (app-a a2 b2) R2)
+               (fst ra) (λ i → j-tm) (fst (snd ra)) (λ i → sh-a (fst (snd rf) i)) (snd (snd (snd ra)))))))
+det-rule r-papp t (x-papp Γ2 a2 P2 q2 f2 cf2 nc2 Y2 y2) ps2 (x-papp Γ1 a1 P1 q1 f1 cf1 nc1 Y1 y1) p1 pΓ =
+  d-bind (DetR (j-tm , Γ1 , s-path a1 , q1 , P1) (j-tm , Γ2 , s-path a2 , q2 , P2) pΓ)
+    (DetR (concl r-papp (x-papp Γ1 a1 P1 q1 f1 cf1 nc1 Y1 y1)) (concl r-papp (x-papp Γ2 a2 P2 q2 f2 cf2 nc2 Y2 y2)) pΓ)
+    (fst p1 (j-tm , Γ2 , s-path a2 , q2 , P2) (fst ps2) pΓ)
+    (λ r → o-bind (f1 ≡ f2) (DetR (concl r-papp (x-papp Γ1 a1 P1 q1 f1 cf1 nc1 Y1 y1)) (concl r-papp (x-papp Γ2 a2 P2 q2 f2 cf2 nc2 Y2 y2)) pΓ) (dnf-opt f1 f2)
+       (λ pf → c-derived ((λ i → j-tm) , (λ i → sh-a (fst (snd r) i)) , (λ i → cpapp (fst (snd (snd r)) i) (dnf-code (pf i))) ,
+          λ i → comp (λ j → Mean (pΓ i) (TV (sh-a (fst (snd r) i)))) (λ j → [ i = 0 ↦ y1 j , i = 1 ↦ y2 j ])
+                  (papp-mean (pΓ i) (sh-a (fst (snd r) i)) (pf i)
+                     (rebase Γ1 Γ2 pΓ j-tm j-tm (s-path a1) (s-path a2) P1 P2 (fst r) (λ i → j-tm) (fst (snd r)) (λ i → s-path (sh-a (fst (snd r) i))) (snd (snd (snd r))) i)))))
+det-rule r-var t (x-var Γ2 v2) ps2 (x-var Γ1 v1) p1 pΓ =
+  o-bind (PathP (λ i → VarP (fst (pΓ i))) v1 v2) (DetR (concl r-var (x-var Γ1 v1)) (concl r-var (x-var Γ2 v2)) pΓ) (var-over Γ1 Γ2 pΓ v1 v2)
+    (λ pv → c-derived ((λ i → j-tm) , (λ i → var-shape (fst (pΓ i)) (pv i)) , (λ i → cvar (var-word (fst (pΓ i)) (pv i))) , λ i → varCube (pΓ i) (pv i)))
+det-rule r-plam t (x-pc Γ2 a2 X2 c2) ps2 (x-pc Γ1 a1 X1 c1) p1 pΓ =
+  d-bind (DetR (j-tm , dext Γ1 , a1 , c1 , plam-body Γ1 a1 X1) (j-tm , dext Γ2 , a2 , c2 , plam-body Γ2 a2 X2) (λ i → dext (pΓ i)))
+    (DetR (concl r-plam (x-pc Γ1 a1 X1 c1)) (concl r-plam (x-pc Γ2 a2 X2 c2)) pΓ)
+    (fst p1 (j-tm , dext Γ2 , a2 , c2 , plam-body Γ2 a2 X2) (fst ps2) (λ i → dext (pΓ i)))
+    (λ r → c-derived ((λ i → j-tm) , (λ i → s-path (fst (snd r) i)) , (λ i → cplam (fst (snd (snd r)) i)) ,
+       λ i → comp (λ j → Mean (pΓ i) (TV (s-path (fst (snd r) i)))) (λ j → [ i = 0 ↦ plam-eta Γ1 a1 X1 j , i = 1 ↦ plam-eta Γ2 a2 X2 j ])
+               (fmapM (pΓ i) (Line (TV (fst (snd r) i))) (TV (s-path (fst (snd r) i))) (pt-inv (fst (snd r) i))
+                  (ul (pΓ i) (TV (fst (snd r) i))
+                     (rebase (dext Γ1) (dext Γ2) (λ i → dext (pΓ i)) j-tm j-tm a1 a2 (plam-body Γ1 a1 X1) (plam-body Γ2 a2 X2) (fst r) (λ i → j-tm) (fst (snd r)) (fst (snd r)) (snd (snd (snd r))) i)))))
+det-rule r t x2 ps2 x1 p1 pΓ = c-refused

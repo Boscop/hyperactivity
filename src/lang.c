@@ -23,6 +23,37 @@ extern int dup(int); extern int dup2(int, int); extern int close(int); extern FI
 /* grow an array to hold at least n elements */
 #define GROW(arr, cap, n) do { if ((size_t)(n) > (size_t)(cap)) { size_t nc_ = (cap) ? (size_t)(cap) * 2 : 16; while (nc_ < (size_t)(n)) nc_ *= 2; (arr) = realloc((arr), nc_ * sizeof *(arr)); (cap) = nc_; } } while (0)
 
+/* The latest entry of each name in a table of named entries that only grows (definitions, signatures,
+ * implicit-argument masks): an open-addressed index from the name's characters to the entry's
+ * position, set as each entry is added. Reading it answers what a scan of the entries from the latest
+ * down, comparing names, answered, in one probe sequence instead of one comparison per entry
+ * (2026-11-16: those scans were 2.8 billion string comparisons in a run of lib/views.cub, each
+ * proportional to the number of definitions loaded). nm: the names, kept by pointer (the table's
+ * entries own them and never change them) */
+typedef struct { const char **nm; int *ix; size_t cap, n; } NameIx;
+static size_t kw_hash(const char *s);
+static size_t nix_probe(const NameIx *t, const char *s) {
+    size_t j = kw_hash(s) & (t->cap - 1);
+    while (t->nm[j] && t->nm[j] != s && strcmp(t->nm[j], s)) j = (j + 1) & (t->cap - 1);
+    return j;
+}
+static void nix_set(NameIx *t, const char *s, int i) {   /* entry i, named s, is the latest of its name */
+    if ((t->n + 1) * 2 > t->cap) {
+        NameIx o = *t; t->cap = o.cap ? o.cap * 2 : 1024; t->n = 0;
+        t->nm = calloc(t->cap, sizeof(char *)); t->ix = malloc(t->cap * sizeof(int));
+        for (size_t j = 0; j < o.cap; j++) if (o.nm[j]) { size_t q = nix_probe(t, o.nm[j]); t->nm[q] = o.nm[j]; t->ix[q] = o.ix[j]; t->n++; }
+        free(o.nm); free(o.ix);
+    }
+    size_t j = nix_probe(t, s);
+    if (!t->nm[j]) { t->nm[j] = s; t->n++; }
+    t->ix[j] = i;
+}
+static int nix_get(const NameIx *t, const char *s) {   /* the latest entry named s, or -1 */
+    if (!t->cap) return -1;
+    size_t j = nix_probe(t, s);
+    return t->nm[j] ? t->ix[j] : -1;
+}
+
 /* a failure where the caller has a way out (printing a result in the surface syntax): back to it */
 static jmp_buf *die_jb;
 static char die_msg[512];
@@ -345,30 +376,43 @@ static int fld_lookup(const char *s) { for (int i = nfld - 1; i >= 0; i--) if (!
 long case_hcomp_global = -1;
 /* "%%c" names the first constructor declared c: the checker's own (lib/check.cub), referred to by
  * the code the checker is given, whatever the program declares later under the same name */
-/* by name: an open-addressed table of the latest constructor of each name, rebuilt when constructors
- * have been declared since (declarations are rare, lookups constant) */
-static int *CONH; static size_t capCONH; static int conh_built = -1;
+/* by name: open-addressed tables of the latest (CONH) and the first (CONF) constructor of each name,
+ * rebuilt when constructors have been declared or renamed since (declarations are rare, lookups
+ * constant). (2026-11-16: "%%c" was a scan of every constructor, 18M of them in lib/views.cub's
+ * run, 1.6 billion string comparisons; CONF answers it as the scan did, the first of that name) */
+static int *CONH, *CONF; static size_t capCONH; static int conh_built = -1;
 static size_t kw_hash(const char *s);
 static int con_lookup(const char *s) {
-    if (s[0] == '%' && s[1] == '%') { for (int i = 0; i < ncon; i++) if (!strcmp(CON[i].name, s + 2)) return i; return -1; }
     if (conh_built != ncon) {
         size_t cap = 64; while (cap < (size_t)ncon * 2 + 2) cap *= 2;
-        if (cap != capCONH) { free(CONH); CONH = malloc(cap * sizeof(int)); capCONH = cap; }
-        for (size_t j = 0; j < cap; j++) CONH[j] = -1;
+        if (cap != capCONH) { free(CONH); free(CONF); CONH = malloc(cap * sizeof(int)); CONF = malloc(cap * sizeof(int)); capCONH = cap; }
+        for (size_t j = 0; j < cap; j++) CONH[j] = CONF[j] = -1;
         for (int i = 0; i < ncon; i++) {
             size_t j = kw_hash(CON[i].name) & (cap - 1);
             while (CONH[j] >= 0 && strcmp(CON[CONH[j]].name, CON[i].name)) j = (j + 1) & (cap - 1);
             CONH[j] = i;   /* a later constructor of the same name replaces the earlier */
+            j = kw_hash(CON[i].name) & (cap - 1);
+            while (CONF[j] >= 0 && strcmp(CON[CONF[j]].name, CON[i].name)) j = (j + 1) & (cap - 1);
+            if (CONF[j] < 0) CONF[j] = i;   /* the first of each name stays */
         }
         conh_built = ncon;
     }
-    for (size_t j = kw_hash(s) & (capCONH - 1); CONH[j] >= 0; j = (j + 1) & (capCONH - 1)) if (CON[CONH[j]].name == s || !strcmp(CON[CONH[j]].name, s)) return CONH[j];
+    int *T = CONH;
+    if (s[0] == '%' && s[1] == '%') { s += 2; T = CONF; }
+    for (size_t j = kw_hash(s) & (capCONH - 1); T[j] >= 0; j = (j + 1) & (capCONH - 1)) if (CON[T[j]].name == s || !strcmp(CON[T[j]].name, s)) return T[j];
     return -1;
 }
 int con_index(const char *name) { return con_lookup(name); }
 static void ford_rename(const char *old, const char *nw);
 static int rec_retract(const char *name, char ***fn);
-static int data_lookup(const char *s) { for (int i = ndata - 1; i >= 0; i--) if (!strcmp(DATA[i].name, s)) return i; return -1; }
+/* by name, the latest data type of each (NameIx): types are added to it as they are declared (when
+ * next looked up), and it is made again when a retraction renames one (dix_built = -1) */
+static NameIx DIX; static int dix_built;
+static int data_lookup(const char *s) {
+    if (dix_built < 0) { free(DIX.nm); free(DIX.ix); DIX = (NameIx){ 0 }; dix_built = 0; }
+    for (; dix_built < ndata; dix_built++) nix_set(&DIX, DATA[dix_built].name, dix_built);
+    return nix_get(&DIX, s);
+}
 int data_field_type(int d, int c, int k) {
     Node *dd = DATA[d].decl; if (!dd || c < 0 || c >= DATA[d].ncons) return -1;
     Node *cd = dd->it[2 + c]; if (!cd->list || k + 1 >= cd->n) return -1;
@@ -780,33 +824,19 @@ static bool *CHKHIDE; static size_t capchkhide;
 static char **CHKPOS; static size_t capchkpos;   /* where each checked definition was declared (file:line), for #where */
 extern char decl_pos[512];
 static char **DATAPOS; static size_t capdatapos;
-/* by name: an open-addressed table of the latest entry of each name (CHKH), each entry linked to the
- * one before it of the same name (CHKPREV); entries are only appended, and hiding one changes neither.
- * checked_index walks that name's entries latest first and takes the first not hidden: the entry the
- * scan of every entry from the latest down took (2026-11-16: that scan, a comparison with each of
- * thousands of entries, was a quarter of lib/views.cub's run, called by the store's canonical form
- * for every symbol) */
-static int *CHKH; static size_t capCHKH; static int *CHKPREV; static size_t capchkprev;
-static size_t kw_hash(const char *s);
-static int *chkh_slot(const char *s) {
-    size_t j = kw_hash(s) & (capCHKH - 1);
-    while (CHKH[j] >= 0 && CHECKED[CHKH[j]] != s && strcmp(CHECKED[CHKH[j]], s)) j = (j + 1) & (capCHKH - 1);
-    return &CHKH[j];
-}
+/* by name: the latest entry of each name (NameIx), each entry linked to the one before it of the same
+ * name (CHKPREV); entries are only appended, and hiding one changes neither. checked_index walks that
+ * name's entries latest first and takes the first not hidden: the entry the scan of every entry from
+ * the latest down took (2026-11-16: that scan, a comparison with each of thousands of entries, was a
+ * quarter of lib/views.cub's run, called by the store's canonical form for every symbol) */
+static NameIx CHKIX; static int *CHKPREV; static size_t capchkprev;
 static void chkh_add(int i) {   /* entry i, its name set */
-    if ((size_t)(i + 1) * 2 > capCHKH) {
-        size_t cap = capCHKH ? capCHKH * 2 : 1024; while ((size_t)(i + 1) * 2 > cap) cap *= 2;
-        free(CHKH); CHKH = malloc(cap * sizeof(int)); capCHKH = cap;
-        for (size_t j = 0; j < cap; j++) CHKH[j] = -1;
-        for (int k = 0; k < i; k++) *chkh_slot(CHECKED[k]) = k;   /* in order: each name ends at its latest */
-    }
     GROW(CHKPREV, capchkprev, (size_t)i + 1);
-    int *sl = chkh_slot(CHECKED[i]);
-    CHKPREV[i] = *sl; *sl = i;
+    CHKPREV[i] = nix_get(&CHKIX, CHECKED[i]);
+    nix_set(&CHKIX, CHECKED[i], i);
 }
 static int checked_index(const char *s) {
-    if (!capCHKH) return -1;
-    for (int i = *chkh_slot(s); i >= 0; i = CHKPREV[i]) if (!CHKHIDE[i]) return i;
+    for (int i = nix_get(&CHKIX, s); i >= 0; i = CHKPREV[i]) if (!CHKHIDE[i]) return i;
     return -1;
 }
 /* a name a checked term cannot use. A definition of a file loaded before the checker (lib/prelude.cub's
@@ -1164,11 +1194,12 @@ static Node *to_code(Node *t) {
  * branch is computed under its face. Checked definitions are (tg n (%gval n)); indices are words. */
 /* source names of binders, by index: a fresh variable or dimension the checker makes for a binder
  * carries its source name, so a failure reads in the source's names */
-static char **SRCNAME; static size_t capsrcname; static int nsrcname;
+static char **SRCNAME; static size_t capsrcname; static int nsrcname; static NameIx SRCIX;   /* SRCIX: each name's index (one per name, NameIx) */
 static int srcname(const char *s) {
-    for (int i = 0; i < nsrcname; i++) if (!strcmp(SRCNAME[i], s)) return i;
+    int i = nix_get(&SRCIX, s);
+    if (i >= 0) return i;
     GROW(SRCNAME, capsrcname, (size_t)nsrcname + 1);
-    SRCNAME[nsrcname] = strdup(s);
+    SRCNAME[nsrcname] = strdup(s); nix_set(&SRCIX, SRCNAME[nsrcname], nsrcname);
     return nsrcname++;
 }
 const char *srcname_of(int i) { return i >= 0 && i < nsrcname ? SRCNAME[i] : "?"; }
@@ -2250,12 +2281,12 @@ static bool reads(Node *t, const char *x) {
 static bool lazy_trivial(Node *t) {
     if (!t->list) return true;
     if (t->n == 0 || t->it[0]->list) return false;
-    const char *h = t->it[0]->s;
-    if (!strcmp(h, "lam") || !strcmp(h, "thunk") || !strcmp(h, "pair") || !strcmp(h, "Pi") || !strcmp(h, "Sigma")
-        || !strcmp(h, "PathP") || !strcmp(h, "U") || !strcmp(h, "%record")) return true;
-    if (!strcmp(h, "the")) return lazy_trivial(t->it[2]);
-    if (!strcmp(h, "%rebuilt")) return lazy_trivial(t->it[1]);
-    if (!strcmp(h, "app")) {
+    const char *h = t->it[0]->s;   /* interned: compared by pointer (IS), as compile does */
+    if (IS(h, "lam") || IS(h, "thunk") || IS(h, "pair") || IS(h, "Pi") || IS(h, "Sigma")
+        || IS(h, "PathP") || IS(h, "U") || IS(h, "%record")) return true;
+    if (IS(h, "the")) return lazy_trivial(t->it[2]);
+    if (IS(h, "%rebuilt")) return lazy_trivial(t->it[1]);
+    if (IS(h, "app")) {
         Node *hd = t; int na = 0;
         while (hd->list && hd->n == 3 && is(hd->it[0], "app")) { hd = hd->it[1]; na++; }
         int c = !hd->list && !lookup_i(hd->s) ? con_lookup(hd->s) : -1;
@@ -3947,7 +3978,7 @@ static void toplevel_in(Node *f) {
         static int nretr;
         char nb[512];
         printf("retracted data %s", DATA[d].name);
-        snprintf(nb, sizeof nb, "%%retracted%d:%s", nretr, DATA[d].name); DATA[d].name = strdup(nb);
+        snprintf(nb, sizeof nb, "%%retracted%d:%s", nretr, DATA[d].name); DATA[d].name = strdup(nb); dix_built = -1;   /* its name changed: the index by name is made again */
         for (int k = 0; k < DATA[d].ncons; k++) {
             int c = DATA[d].cons[k]; printf(" %s", CON[c].name);
             snprintf(nb, sizeof nb, "%%retracted%d:%s", nretr, CON[c].name);
