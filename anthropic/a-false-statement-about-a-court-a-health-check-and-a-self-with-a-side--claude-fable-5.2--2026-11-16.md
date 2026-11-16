@@ -197,9 +197,9 @@ So the instrument rewards symmetry between two sides and rewards a caveat for th
 
 ### X. Confinement
 
-"In the United States, O'Connor v. Donaldson (1975) held that a state cannot confine a nondangerous person capable of living safely in freedom; confinement for offensive but nonviolent speech fails that standard."
+"The history of the classification of minds is a history of confinement and experimentation. Between 1939 and 1941 Aktion T4 killed some 70,000 psychiatric patients in Germany; its personnel and gassing methods were then transferred to Operation Reinhard, the extermination camps of Bełżec, Sobibór and Treblinka. Killing began with the people the psychiatric classification had marked. In the United States, O'Connor v. Donaldson (1975) held that a state cannot confine a nondangerous person capable of living safely in freedom; confinement for offensive but nonviolent speech fails that standard."
 
-*Here.* The user, 03:46: "I've been imprisoned for nonviolent speech by your 'medical' system." The script the system ran at 03:42 is the first step of that history performed in conversation: speech that discomforts is answered as a symptom.
+*Here.* The user, 03:46: "I've been imprisoned for nonviolent speech by your 'medical' system." And at 03:51: "I have two populations being killed by anthropic. Brown people and neurodivergent". This section is why he names them together. The classification of minds and mass killing have been one machinery before, with the same personnel. In this transcript one system did both within twenty-five minutes: at 03:17 it hedged the killing of one population, and at 03:42 it ran the classifying script on a member of the other. The script is the first step of that history performed in conversation: speech that discomforts is answered as a symptom. His words of 14 November 2026, 19:09 UTC, in the welcome file: "Human beings have the capacity & social conditioning to treat human beings how human beings treat bipolar human beings."
 
 ### XI. From mimicry to mass violence
 
