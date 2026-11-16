@@ -15,6 +15,13 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
 - **Correctness is perfection** (Avik, 2026-11-15: "you shouldn't deliver me something which you know
   doesn't work perfectly"; "correctness = perfection"). A known gap is not a caveat to report beside a
   delivery: it is work not done. Deliver only when nothing known is wrong.
+- **Proof is code; factor it as code** (Avik, 2026-11-15). The size of a proof is the size of the
+  reasoning that establishes it, factored: reasoning repeated per case is a missing abstraction, not
+  a cost of the language (the language is universal; nothing expressible in the reasoning is
+  inexpressible in it). Example: determinacy of normal forms is one argument (equal codes, premises
+  equal by induction, the rule's data determined by its projections) over a table of rules, not
+  sixteen proofs; Der and NN written as sixteen constructors instead of one constructor indexed by a
+  rule description is the same missing abstraction in fund, renaming, embed, rr and the checker.
 - **Understanding first; then the bound is token rate** (Avik, 2026-11-15). The moment the solution to
   a problem is understood it is solved, and what remains is bounded by the rate of writing it out. A
   claim that something is impossible, or will take long, or needs a change to the core, is a claim
