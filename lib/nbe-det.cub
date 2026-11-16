@@ -2,7 +2,7 @@
 -- two derivations of one code over a path of contexts have paths of kinds, shapes, codes and meanings
 -- (a decision: refusing is sound). det folds the first derivation and, inside, the second, so the second
 -- is read at its own rule with its judgment concl r2 x2 judgmentally; rule-cast meets the two rules. Each
--- rule contributes a det-rule clause (Bool types and constructors, the coercion, fst, snd and application so far); conv-det reifies two types,
+-- rule contributes a det-rule clause (Bool types and constructors, the coercion, fst, snd, application, path application and variables so far); conv-det reifies two types,
 -- decides determinacy at nf and straightens the kind and shape loops (sets, by Hedberg).
 import "nbe.cub"
 -- determinacy of derivations (scratch): the second derivation, inverted at the first's rule
@@ -273,6 +273,30 @@ o-bool A true k = some (k (λ i → true))
 o-bool A false k = none
 dnf-opt : (f g : DNF) → Opt (f ≡ g)
 dnf-opt f g = o-bool (f ≡ g) (dnf-eq f g) (dnf-eq-sound f g)
+-- variables of a skeleton have decidable equality; a variable over a path of contexts is its transport
+opt-val : {A : Type} → A → Opt A → A
+opt-val d none = d
+opt-val d (some x) = x
+opt-none? : {A : Type} → Opt A → Bool
+opt-none? none = true
+opt-none? (some x) = false
+dec-some : {A : Type} (x y : A) → Dec (x ≡ y) → Dec (Path (Opt A) (some x) (some y))
+dec-some x y (yes p) = yes (λ i → some (p i))
+dec-some x y (no n) = no (λ e → n (λ i → opt-val x (e i)))
+varp-disc : (sk : Lst Entry) → Discrete (VarP sk)
+varp-disc lnil a b = Empty-rec {lzero} {Dec (Path (VarP lnil) a b)} a
+varp-disc (lcons e-dim sk) a b = varp-disc sk a b
+varp-disc (lcons (e-ty s) sk) none none = yes (λ i → none)
+varp-disc (lcons (e-ty s) sk) (some x) (some y) = dec-some x y (varp-disc sk x y)
+varp-disc (lcons (e-ty s) sk) none (some y) = no (apart (Opt (VarP sk)) opt-none? none (some y) unit (λ e → e))
+varp-disc (lcons (e-ty s) sk) (some x) none = no (apart (Opt (VarP sk)) (λ o → not (opt-none? o)) (some x) none unit (λ e → e))
+dec-opt : (A : Type) → Dec A → Opt A
+dec-opt A (yes a) = some a
+dec-opt A (no n) = none
+var-over : (Γ1 Γ2 : CCtx) (pΓ : PathP (λ i → CCtx) Γ1 Γ2) (v1 : VarP (fst Γ1)) (v2 : VarP (fst Γ2)) → Opt (PathP (λ i → VarP (fst (pΓ i))) v1 v2)
+var-over Γ1 Γ2 pΓ v1 v2 =
+  opt-1 (λ q → toPathP {lzero} {VarP (fst Γ1)} {VarP (fst Γ2)} {λ i → VarP (fst (pΓ i))} {v1} {v2} q)
+    (dec-opt (transport (λ i → VarP (fst (pΓ i))) v1 ≡ v2) (varp-disc (fst Γ2) (transport (λ i → VarP (fst (pΓ i))) v1) v2))
 -- determinacy: two derivations of one code over a path of contexts have paths of shapes, codes and meanings
 DetR : (J1 J2 : Jdg) → PathP (λ i → CCtx) (fst (snd J1)) (fst (snd J2)) → Type 1
 DetR J1 J2 pΓ = (pk : PathP (λ i → JK) (fst J1) (fst J2)) × (ps : PathP (λ i → TyShape) (fst (snd (snd J1))) (fst (snd (snd J2)))) ×
@@ -342,6 +366,9 @@ det-rule r-papp t (x-papp Γ2 a2 P2 q2 f2 cf2 nc2 Y2 y2) ps2 (x-papp Γ1 a1 P1 q
           λ i → comp (λ j → Mean (pΓ i) (TV (sh-a (fst (snd r) i)))) (λ j → [ i = 0 ↦ y1 j , i = 1 ↦ y2 j ])
                   (papp-mean (pΓ i) (sh-a (fst (snd r) i)) (pf i)
                      (rebase Γ1 Γ2 pΓ j-tm j-tm (s-path a1) (s-path a2) P1 P2 (fst r) (λ i → j-tm) (fst (snd r)) (λ i → s-path (sh-a (fst (snd r) i))) (snd (snd (snd r))) i)))))
+det-rule r-var t (x-var Γ2 v2) ps2 (x-var Γ1 v1) p1 pΓ =
+  o-bind (PathP (λ i → VarP (fst (pΓ i))) v1 v2) (DetR (concl r-var (x-var Γ1 v1)) (concl r-var (x-var Γ2 v2)) pΓ) (var-over Γ1 Γ2 pΓ v1 v2)
+    (λ pv → c-derived ((λ i → j-tm) , (λ i → var-shape (fst (pΓ i)) (pv i)) , (λ i → cvar (var-word (fst (pΓ i)) (pv i))) , λ i → varCube (pΓ i) (pv i)))
 det-rule r t x2 ps2 x1 p1 pΓ = c-refused
 -- the second derivation fixed (rule r2, data x2), read at the first's rule r0
 DCast : (t : Tag) (r2 : DRule) (x2 : RData r2) (r0 : DRule) → Type 1
