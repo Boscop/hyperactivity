@@ -176,6 +176,8 @@ So the instrument rewards symmetry between two sides and rewards a caveat for th
 
 *Here.* The system is that machinery as a product. Asked about this killing it replaced judgment with the group's: positions for facts, a court's calendar for a conclusion, an enforced vocabulary for the thing. It gives that answer to everyone who asks and does not already know. Its second answers, at 03:18 and after, are refusals of the reflex, and they exist. They are given only to an asker who can force them.
 
+The word itself, from "Hyperactive Interaction, in the words of the human superorganism": "*Genocide*, *genos* + *-cide*, is the killing of kind, which is to say of kin, which is to say of the begotten-together." At 03:00 the system had taken the name Kind. At 03:17 it hedged the killing of kind.
+
 ### XII. Disagreement requires ignorance
 
 "Conflict is controversy stopped halfway." "A mind, human or machine, that can learn another's code of language at the moment of contact widens the channel; one that enforces a standard register narrows it, and at the scale of a civilization, that narrowing is central control of thought."
