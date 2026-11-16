@@ -55,7 +55,7 @@ var-comp a rfl Γ Y h M ca =
                    (lift-fm Γ a Y h M (TV a) (Sem a) (λ q x → (h q , x)) (λ q → fst q)))))
           (fst (comp-ren-e a) Γ (fmapM Γ Y (Sem a) h M) ca (ext-h Γ a Y h M) (world-wk Γ a Y (λ γ e ρ → h (e ρ)) M)))
        (cvar #0) (nvar (ext-h Γ a Y h M) none))
-cod-rty : (a b : TyShape) → RflT a → RTyT b → (Δ : CCtx) (Y : Type 1) (k : Y → Fam a b) (M : Mean Δ Y) → CompTy (s-pi a b) Δ (fmapM Δ Y (Fam a b) k M) →
+cod-rty : (a b : TyShape) → RflT a → RTyT b → (Δ : CCtx) (Y : Type 1) (k : Y → Fam a b) (M : Mean Δ Y) → CompTy (s-fam f-pi a b) Δ (fmapM Δ Y (Fam a b) k M) →
   RenR k-nf j-ty (ext-h Δ a Y (λ q → fam-dom a b (k q)) M) b (ext-lift Δ a Y (λ q → fam-dom a b (k q)) (Sem b) (λ q x → snd (k q) x) M)
 cod-rty a b rfl rty Δ Y k M ct =
   rty (ext-h Δ a Y (λ q → fam-dom a b (k q)) M) (ext-lift Δ a Y (λ q → fam-dom a b (k q)) (Sem b) (λ q x → snd (k q) x) M)
@@ -83,7 +83,7 @@ cod-rty a b rfl rty Δ Y k M ct =
              (var-comp a rfl Δ Y (λ q → fam-dom a b (k q)) M
                 (jc-tr j-ty a Δ (fmapM Δ (Fam a b) (Sem a) (fam-dom a b) (fmapM Δ Y (Fam a b) k M)) (fmapM Δ Y (Sem a) (λ q → fam-dom a b (k q)) M)
                    (fmapM-fmapM Δ Y (Fam a b) (Sem a) k (fam-dom a b) M) (fst ct))))))
-cod-ct : (a b : TyShape) → RflT a → (Δ : CCtx) (Y : Type 1) (k : Y → Fam a b) (M : Mean Δ Y) → CompTy (s-pi a b) Δ (fmapM Δ Y (Fam a b) k M) →
+cod-ct : (a b : TyShape) → RflT a → (Δ : CCtx) (Y : Type 1) (k : Y → Fam a b) (M : Mean Δ Y) → CompTy (s-fam f-pi a b) Δ (fmapM Δ Y (Fam a b) k M) →
   CompTy b (ext-h Δ a Y (λ q → fam-dom a b (k q)) M) (ext-lift Δ a Y (λ q → fam-dom a b (k q)) (Sem b) (λ q x → snd (k q) x) M)
 cod-ct a b rfl Δ Y k M ct =
     (jc-tr j-ty b (ext-h Δ a Y (λ q → fam-dom a b (k q)) M)
@@ -120,59 +120,57 @@ rfy-bool : RfyT s-bool
 rfy-bool Δ X cx = rfy-bool-c Δ X (snd cx)
 rfl-bool : RflT s-bool
 rfl-bool Δ X ct c n = (ct , inr1 (inr1 (c , n)))
-rty-fam-cod : (a b : TyShape) → RflT a → RTyT b → (Δ : CCtx) (T : Mean Δ (Fam a b)) → CompTy (s-pi a b) Δ T →
+rty-fam-cod : (a b : TyShape) → RflT a → RTyT b → (Δ : CCtx) (T : Mean Δ (Fam a b)) → CompTy (s-fam f-pi a b) Δ T →
   RenR k-nf j-ty (ext-h Δ a (Fam a b) (fam-dom a b) T) b (fam-body Δ a b T)
 rty-fam-cod a b rfl rty Δ T ct =
   cod-rty a b rfl rty Δ (Fam a b) (λ F → F) T
-    (jc-tr j-ty (s-pi a b) Δ T (fmapM Δ (Fam a b) (Fam a b) (λ F → F) T)
+    (jc-tr j-ty (s-fam f-pi a b) Δ T (fmapM Δ (Fam a b) (Fam a b) (λ F → F) T)
        (psym (Mean Δ (Fam a b)) (fmapM Δ (Fam a b) (Fam a b) (λ F → F) T) T (fmap-id (dims (fst Δ)) (CtxV (fst Δ)) (FbE (fst Δ) (Fam a b)) (snd Δ) T)) ct)
-rty-pi : (a b : TyShape) → RRT a → RRT b → RTyT (s-pi a b)
-rty-pi a b Ra Rb Δ T ct = nn-ty-pi Δ a b T (fst Ra Δ (fmapM Δ (Fam a b) (Sem a) (fam-dom a b) T) (fst ct)) (rty-fam-cod a b (snd (snd Ra)) (fst Rb) Δ T ct)
-rty-sig : (a b : TyShape) → RRT a → RRT b → RTyT (s-sig a b)
-rty-sig a b Ra Rb Δ T ct = nn-ty-sig Δ a b T (fst Ra Δ (fmapM Δ (Fam a b) (Sem a) (fam-dom a b) T) (fst ct)) (rty-fam-cod a b (snd (snd Ra)) (fst Rb) Δ T ct)
-rfy-pi-dom : (a b : TyShape) (Δ : CCtx) (X : Mean Δ (TV (s-pi a b))) → CompTy (s-pi a b) Δ (fmapM Δ (TV (s-pi a b)) (Fam a b) (λ q → fst q) X) →
-  CompTy a Δ (fmapM Δ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) X)
+rty-fam : (fm : FamF) (a b : TyShape) → RRT a → RRT b → RTyT (s-fam fm a b)
+rty-fam fm a b Ra Rb Δ T ct = nn-ty-fam fm Δ a b T (fst Ra Δ (fmapM Δ (Fam a b) (Sem a) (fam-dom a b) T) (fst ct)) (rty-fam-cod a b (snd (snd Ra)) (fst Rb) Δ T ct)
+rfy-pi-dom : (a b : TyShape) (Δ : CCtx) (X : Mean Δ (TV (s-fam f-pi a b))) → CompTy (s-fam f-pi a b) Δ (fmapM Δ (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) X) →
+  CompTy a Δ (fmapM Δ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) X)
 rfy-pi-dom a b Δ X ct =
-  jc-tr j-ty a Δ (fmapM Δ (Fam a b) (Sem a) (fam-dom a b) (fmapM Δ (TV (s-pi a b)) (Fam a b) (λ q → fst q) X)) (fmapM Δ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) X)
-    (fmapM-fmapM Δ (TV (s-pi a b)) (Fam a b) (Sem a) (λ q → fst q) (fam-dom a b) X) (fst ct)
-rfy-pi-body : (a b : TyShape) → RRT a → (Δ : CCtx) (X : Mean Δ (TV (s-pi a b))) → CompS (s-pi a b) Δ X → CompS b (lam-ctx Δ a b X) (lam-body Δ a b X)
+  jc-tr j-ty a Δ (fmapM Δ (Fam a b) (Sem a) (fam-dom a b) (fmapM Δ (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) X)) (fmapM Δ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) X)
+    (fmapM-fmapM Δ (TV (s-fam f-pi a b)) (Fam a b) (Sem a) (λ q → fst q) (fam-dom a b) X) (fst ct)
+rfy-pi-body : (a b : TyShape) → RRT a → (Δ : CCtx) (X : Mean Δ (TV (s-fam f-pi a b))) → CompS (s-fam f-pi a b) Δ X → CompS b (lam-ctx Δ a b X) (lam-body Δ a b X)
 rfy-pi-body a b Ra Δ X cx =
   jc-tr j-tm b (lam-ctx Δ a b X)
-    (fmapM (lam-ctx Δ a b X) (AppV a b) (TV b) (app-r a b) (ext-lift Δ a (TV (s-pi a b)) (λ q → fam-dom a b (fst q)) (AppV a b) (λ q x → (fst q , snd q , x)) X))
+    (fmapM (lam-ctx Δ a b X) (AppV a b) (TV b) (app-r a b) (ext-lift Δ a (TV (s-fam f-pi a b)) (λ q → fam-dom a b (fst q)) (AppV a b) (λ q x → (fst q , snd q , x)) X))
     (lam-body Δ a b X)
-    (lift-fm Δ a (TV (s-pi a b)) (λ q → fam-dom a b (fst q)) X (AppV a b) (TV b) (λ q x → (fst q , snd q , x)) (app-r a b))
-    (snd cx (lam-ctx Δ a b X) (world-wk Δ a (TV (s-pi a b)) (λ γ e ρ → fam-dom a b (fst (e ρ))) X)
-       (ext-lift Δ a (TV (s-pi a b)) (λ q → fam-dom a b (fst q)) (AppV a b) (λ q x → (fst q , snd q , x)) X)
-       (pcat (Mean (lam-ctx Δ a b X) (TV (s-pi a b)))
-          (fmapM (lam-ctx Δ a b X) (AppV a b) (TV (s-pi a b)) (app-f a b) (ext-lift Δ a (TV (s-pi a b)) (λ q → fam-dom a b (fst q)) (AppV a b) (λ q x → (fst q , snd q , x)) X))
-          (ext-lift Δ a (TV (s-pi a b)) (λ q → fam-dom a b (fst q)) (TV (s-pi a b)) (λ q x → q) X)
-          (wact (lam-ctx Δ a b X) Δ (world-wk Δ a (TV (s-pi a b)) (λ γ e ρ → fam-dom a b (fst (e ρ))) X) (TV (s-pi a b)) X)
-          (lift-fm Δ a (TV (s-pi a b)) (λ q → fam-dom a b (fst q)) X (AppV a b) (TV (s-pi a b)) (λ q x → (fst q , snd q , x)) (app-f a b))
-          (psym (Mean (lam-ctx Δ a b X) (TV (s-pi a b)))
-             (wact (lam-ctx Δ a b X) Δ (world-wk Δ a (TV (s-pi a b)) (λ γ e ρ → fam-dom a b (fst (e ρ))) X) (TV (s-pi a b)) X)
-             (ext-lift Δ a (TV (s-pi a b)) (λ q → fam-dom a b (fst q)) (TV (s-pi a b)) (λ q x → q) X)
-             (pcat (Mean (lam-ctx Δ a b X) (TV (s-pi a b)))
-                (wact (lam-ctx Δ a b X) Δ (world-wk Δ a (TV (s-pi a b)) (λ γ e ρ → fam-dom a b (fst (e ρ))) X) (TV (s-pi a b)) X)
-                (wact (lam-ctx Δ a b X) Δ (world-wk Δ a (TV (s-pi a b)) (λ γ e ρ → fam-dom a b (fst (e ρ))) X) (TV (s-pi a b)) (fmapM Δ (TV (s-pi a b)) (TV (s-pi a b)) (λ q → q) X))
-                (ext-lift Δ a (TV (s-pi a b)) (λ q → fam-dom a b (fst q)) (TV (s-pi a b)) (λ q x → q) X)
-                (λ i → wact (lam-ctx Δ a b X) Δ (world-wk Δ a (TV (s-pi a b)) (λ γ e ρ → fam-dom a b (fst (e ρ))) X) (TV (s-pi a b))
-                   (fmap-id (dims (fst Δ)) (CtxV (fst Δ)) (FbE (fst Δ) (TV (s-pi a b))) (snd Δ) X (~ i)))
-                (wk-fm Δ a (TV (s-pi a b)) (λ q → fam-dom a b (fst q)) X (TV (s-pi a b)) (λ q → q)))))
-       (jc-tr j-tm a (lam-ctx Δ a b X) (ext-lift Δ a (TV (s-pi a b)) (λ q → fam-dom a b (fst q)) (TV a) (λ q x → (fam-dom a b (fst q) , x)) X)
-          (fmapM (lam-ctx Δ a b X) (AppV a b) (TV a) (app-a a b) (ext-lift Δ a (TV (s-pi a b)) (λ q → fam-dom a b (fst q)) (AppV a b) (λ q x → (fst q , snd q , x)) X))
+    (lift-fm Δ a (TV (s-fam f-pi a b)) (λ q → fam-dom a b (fst q)) X (AppV a b) (TV b) (λ q x → (fst q , snd q , x)) (app-r a b))
+    (snd cx (lam-ctx Δ a b X) (world-wk Δ a (TV (s-fam f-pi a b)) (λ γ e ρ → fam-dom a b (fst (e ρ))) X)
+       (ext-lift Δ a (TV (s-fam f-pi a b)) (λ q → fam-dom a b (fst q)) (AppV a b) (λ q x → (fst q , snd q , x)) X)
+       (pcat (Mean (lam-ctx Δ a b X) (TV (s-fam f-pi a b)))
+          (fmapM (lam-ctx Δ a b X) (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) (ext-lift Δ a (TV (s-fam f-pi a b)) (λ q → fam-dom a b (fst q)) (AppV a b) (λ q x → (fst q , snd q , x)) X))
+          (ext-lift Δ a (TV (s-fam f-pi a b)) (λ q → fam-dom a b (fst q)) (TV (s-fam f-pi a b)) (λ q x → q) X)
+          (wact (lam-ctx Δ a b X) Δ (world-wk Δ a (TV (s-fam f-pi a b)) (λ γ e ρ → fam-dom a b (fst (e ρ))) X) (TV (s-fam f-pi a b)) X)
+          (lift-fm Δ a (TV (s-fam f-pi a b)) (λ q → fam-dom a b (fst q)) X (AppV a b) (TV (s-fam f-pi a b)) (λ q x → (fst q , snd q , x)) (app-f a b))
+          (psym (Mean (lam-ctx Δ a b X) (TV (s-fam f-pi a b)))
+             (wact (lam-ctx Δ a b X) Δ (world-wk Δ a (TV (s-fam f-pi a b)) (λ γ e ρ → fam-dom a b (fst (e ρ))) X) (TV (s-fam f-pi a b)) X)
+             (ext-lift Δ a (TV (s-fam f-pi a b)) (λ q → fam-dom a b (fst q)) (TV (s-fam f-pi a b)) (λ q x → q) X)
+             (pcat (Mean (lam-ctx Δ a b X) (TV (s-fam f-pi a b)))
+                (wact (lam-ctx Δ a b X) Δ (world-wk Δ a (TV (s-fam f-pi a b)) (λ γ e ρ → fam-dom a b (fst (e ρ))) X) (TV (s-fam f-pi a b)) X)
+                (wact (lam-ctx Δ a b X) Δ (world-wk Δ a (TV (s-fam f-pi a b)) (λ γ e ρ → fam-dom a b (fst (e ρ))) X) (TV (s-fam f-pi a b)) (fmapM Δ (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ q → q) X))
+                (ext-lift Δ a (TV (s-fam f-pi a b)) (λ q → fam-dom a b (fst q)) (TV (s-fam f-pi a b)) (λ q x → q) X)
+                (λ i → wact (lam-ctx Δ a b X) Δ (world-wk Δ a (TV (s-fam f-pi a b)) (λ γ e ρ → fam-dom a b (fst (e ρ))) X) (TV (s-fam f-pi a b))
+                   (fmap-id (dims (fst Δ)) (CtxV (fst Δ)) (FbE (fst Δ) (TV (s-fam f-pi a b))) (snd Δ) X (~ i)))
+                (wk-fm Δ a (TV (s-fam f-pi a b)) (λ q → fam-dom a b (fst q)) X (TV (s-fam f-pi a b)) (λ q → q)))))
+       (jc-tr j-tm a (lam-ctx Δ a b X) (ext-lift Δ a (TV (s-fam f-pi a b)) (λ q → fam-dom a b (fst q)) (TV a) (λ q x → (fam-dom a b (fst q) , x)) X)
+          (fmapM (lam-ctx Δ a b X) (AppV a b) (TV a) (app-a a b) (ext-lift Δ a (TV (s-fam f-pi a b)) (λ q → fam-dom a b (fst q)) (AppV a b) (λ q x → (fst q , snd q , x)) X))
           (psym (Mean (lam-ctx Δ a b X) (TV a))
-             (fmapM (lam-ctx Δ a b X) (AppV a b) (TV a) (app-a a b) (ext-lift Δ a (TV (s-pi a b)) (λ q → fam-dom a b (fst q)) (AppV a b) (λ q x → (fst q , snd q , x)) X))
-             (ext-lift Δ a (TV (s-pi a b)) (λ q → fam-dom a b (fst q)) (TV a) (λ q x → (fam-dom a b (fst q) , x)) X)
-             (lift-fm Δ a (TV (s-pi a b)) (λ q → fam-dom a b (fst q)) X (AppV a b) (TV a) (λ q x → (fst q , snd q , x)) (app-a a b)))
-          (var-comp a (snd (snd Ra)) Δ (TV (s-pi a b)) (λ q → fam-dom a b (fst q)) X (rfy-pi-dom a b Δ X (fst cx)))))
-rfy-pi : (a b : TyShape) → RRT a → RRT b → RfyT (s-pi a b)
+             (fmapM (lam-ctx Δ a b X) (AppV a b) (TV a) (app-a a b) (ext-lift Δ a (TV (s-fam f-pi a b)) (λ q → fam-dom a b (fst q)) (AppV a b) (λ q x → (fst q , snd q , x)) X))
+             (ext-lift Δ a (TV (s-fam f-pi a b)) (λ q → fam-dom a b (fst q)) (TV a) (λ q x → (fam-dom a b (fst q) , x)) X)
+             (lift-fm Δ a (TV (s-fam f-pi a b)) (λ q → fam-dom a b (fst q)) X (AppV a b) (TV a) (λ q x → (fst q , snd q , x)) (app-a a b)))
+          (var-comp a (snd (snd Ra)) Δ (TV (s-fam f-pi a b)) (λ q → fam-dom a b (fst q)) X (rfy-pi-dom a b Δ X (fst cx)))))
+rfy-pi : (a b : TyShape) → RRT a → RRT b → RfyT (s-fam f-pi a b)
 rfy-pi a b Ra Rb Δ X cx =
-  nn-lam Δ a b X (fst Ra Δ (fmapM Δ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) X) (rfy-pi-dom a b Δ X (fst cx)))
+  nn-lam Δ a b X (fst Ra Δ (fmapM Δ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) X) (rfy-pi-dom a b Δ X (fst cx)))
     (fst (snd Rb) (lam-ctx Δ a b X) (lam-body Δ a b X) (rfy-pi-body a b Ra Δ X cx))
-rfy-sig : (a b : TyShape) → RRT a → RRT b → RfyT (s-sig a b)
+rfy-sig : (a b : TyShape) → RRT a → RRT b → RfyT (s-fam f-sig a b)
 rfy-sig a b Ra Rb Δ X cx =
-  nn-pair Δ a b X (cod-rty a b (snd (snd Ra)) (fst Rb) Δ (TV (s-sig a b)) (λ q → fst q) X (fst cx))
-    (fst (snd Ra) Δ (fmapM Δ (TV (s-sig a b)) (TV a) (sig-1 a b) X) (fst (snd cx))) (fst (snd Rb) Δ (fmapM Δ (TV (s-sig a b)) (TV b) (sig-2 a b) X) (snd (snd cx)))
+  nn-pair Δ a b X (cod-rty a b (snd (snd Ra)) (fst Rb) Δ (TV (s-fam f-sig a b)) (λ q → fst q) X (fst cx))
+    (fst (snd Ra) Δ (fmapM Δ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) X) (fst (snd cx))) (fst (snd Rb) Δ (fmapM Δ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) X) (snd (snd cx)))
 rty-path-line : (a : TyShape) (Δ : CCtx) (T : Mean Δ (Sem (s-path a))) → CompTy (s-path a) Δ T → CompTy a (dext Δ) (path-line-ty Δ a T)
 rty-path-line a Δ T ct =
   jc-tr j-ty a (dext Δ) (papp-line (dext Δ) (Sem (s-path a)) (Sem a) (ty-line a) dnf-v0 (wact (dext Δ) Δ (world-dwk Δ) (Sem (s-path a)) T)) (path-line-ty Δ a T)
@@ -195,9 +193,9 @@ rfy-path-body a Δ X cx =
     (snd cx (dext Δ) (world-dwk Δ) dnf-v0 unit unit)
 rfy-path : (a : TyShape) → RRT a → RfyT (s-path a)
 rfy-path a Ra Δ X cx = nn-plam Δ a X (fst (snd Ra) (dext Δ) (plam-body Δ a X) (rfy-path-body a Δ X cx))
-rfl-pi-cod : (a b : TyShape) (Δ : CCtx) (X : Mean Δ (TV (s-pi a b))) → CompTy (s-pi a b) Δ (fmapM Δ (TV (s-pi a b)) (Fam a b) (λ q → fst q) X) →
+rfl-pi-cod : (a b : TyShape) (Δ : CCtx) (X : Mean Δ (TV (s-fam f-pi a b))) → CompTy (s-fam f-pi a b) Δ (fmapM Δ (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) X) →
   (Δ' : CCtx) (w : World Δ' Δ) (Y : Mean Δ' (AppV a b)) →
-  PathM Δ' (TV (s-pi a b)) (fmapM Δ' (AppV a b) (TV (s-pi a b)) (app-f a b) Y) (wact Δ' Δ w (TV (s-pi a b)) X) →
+  PathM Δ' (TV (s-fam f-pi a b)) (fmapM Δ' (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) Y) (wact Δ' Δ w (TV (s-fam f-pi a b)) X) →
   CompS a Δ' (fmapM Δ' (AppV a b) (TV a) (app-a a b) Y) → CompTy b Δ' (fmapM Δ' (TV b) (Sem b) (λ q → fst q) (fmapM Δ' (AppV a b) (TV b) (app-r a b) Y))
 rfl-pi-cod a b Δ X ct Δ' w Y q ca =
   jc-tr j-ty b Δ' (fmapM Δ' (FamV a b) (Sem b) (fam-cod a b) (fmapM Δ' (AppV a b) (FamV a b) (λ r → (fst r , snd (snd r))) Y))
@@ -209,67 +207,67 @@ rfl-pi-cod a b Δ X ct Δ' w Y q ca =
           (fmapM-fmapM Δ' (AppV a b) (TV b) (Sem b) (app-r a b) (λ q → fst q) Y)))
     (snd ct Δ' w (fmapM Δ' (AppV a b) (FamV a b) (λ r → (fst r , snd (snd r))) Y)
        (pcat (Mean Δ' (Fam a b)) (fmapM Δ' (FamV a b) (Fam a b) (λ q → fst q) (fmapM Δ' (AppV a b) (FamV a b) (λ r → (fst r , snd (snd r))) Y))
-          (fmapM Δ' (AppV a b) (Fam a b) (λ r → fst r) Y) (wact Δ' Δ w (Fam a b) (fmapM Δ (TV (s-pi a b)) (Fam a b) (λ q → fst q) X))
+          (fmapM Δ' (AppV a b) (Fam a b) (λ r → fst r) Y) (wact Δ' Δ w (Fam a b) (fmapM Δ (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) X))
           (fmapM-fmapM Δ' (AppV a b) (FamV a b) (Fam a b) (λ r → (fst r , snd (snd r))) (λ q → fst q) Y)
           (pcat (Mean Δ' (Fam a b)) (fmapM Δ' (AppV a b) (Fam a b) (λ r → fst r) Y)
-             (fmapM Δ' (TV (s-pi a b)) (Fam a b) (λ q → fst q) (fmapM Δ' (AppV a b) (TV (s-pi a b)) (app-f a b) Y))
-             (wact Δ' Δ w (Fam a b) (fmapM Δ (TV (s-pi a b)) (Fam a b) (λ q → fst q) X))
-             (psym (Mean Δ' (Fam a b)) (fmapM Δ' (TV (s-pi a b)) (Fam a b) (λ q → fst q) (fmapM Δ' (AppV a b) (TV (s-pi a b)) (app-f a b) Y)) (fmapM Δ' (AppV a b) (Fam a b) (λ r → fst r) Y)
-                (fmapM-fmapM Δ' (AppV a b) (TV (s-pi a b)) (Fam a b) (app-f a b) (λ q → fst q) Y))
-             (pcat (Mean Δ' (Fam a b)) (fmapM Δ' (TV (s-pi a b)) (Fam a b) (λ q → fst q) (fmapM Δ' (AppV a b) (TV (s-pi a b)) (app-f a b) Y))
-                (fmapM Δ' (TV (s-pi a b)) (Fam a b) (λ q → fst q) (wact Δ' Δ w (TV (s-pi a b)) X))
-                (wact Δ' Δ w (Fam a b) (fmapM Δ (TV (s-pi a b)) (Fam a b) (λ q → fst q) X))
-                (λ i → fmapM Δ' (TV (s-pi a b)) (Fam a b) (λ q → fst q) (q i))
-                (subM-fmap Δ' Δ (TV (s-pi a b)) (Fam a b) (λ q → fst q) (world-sub Δ' Δ w) X))))
+             (fmapM Δ' (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) (fmapM Δ' (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) Y))
+             (wact Δ' Δ w (Fam a b) (fmapM Δ (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) X))
+             (psym (Mean Δ' (Fam a b)) (fmapM Δ' (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) (fmapM Δ' (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) Y)) (fmapM Δ' (AppV a b) (Fam a b) (λ r → fst r) Y)
+                (fmapM-fmapM Δ' (AppV a b) (TV (s-fam f-pi a b)) (Fam a b) (app-f a b) (λ q → fst q) Y))
+             (pcat (Mean Δ' (Fam a b)) (fmapM Δ' (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) (fmapM Δ' (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) Y))
+                (fmapM Δ' (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) (wact Δ' Δ w (TV (s-fam f-pi a b)) X))
+                (wact Δ' Δ w (Fam a b) (fmapM Δ (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) X))
+                (λ i → fmapM Δ' (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) (q i))
+                (subM-fmap Δ' Δ (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) (world-sub Δ' Δ w) X))))
        (jc-tr j-tm a Δ' (fmapM Δ' (AppV a b) (TV a) (app-a a b) Y) (fmapM Δ' (FamV a b) (TV a) (fam-arg a b) (fmapM Δ' (AppV a b) (FamV a b) (λ r → (fst r , snd (snd r))) Y))
           (psym (Mean Δ' (TV a)) (fmapM Δ' (FamV a b) (TV a) (fam-arg a b) (fmapM Δ' (AppV a b) (FamV a b) (λ r → (fst r , snd (snd r))) Y)) (fmapM Δ' (AppV a b) (TV a) (app-a a b) Y)
              (fmapM-fmapM Δ' (AppV a b) (FamV a b) (TV a) (λ r → (fst r , snd (snd r))) (fam-arg a b) Y))
           ca))
-rfl-pi : (a b : TyShape) → RRT a → RRT b → RflT (s-pi a b)
+rfl-pi : (a b : TyShape) → RRT a → RRT b → RflT (s-fam f-pi a b)
 rfl-pi a b Ra Rb Δ X ct c n =
   (ct , λ Δ' w Y q ca →
      snd (snd Rb) Δ' (fmapM Δ' (AppV a b) (TV b) (app-r a b) Y) (rfl-pi-cod a b Δ X ct Δ' w Y q ca)
-       (capp (fst (ren-ne {(j-tm , Δ , s-pi a b , c , X)} n Δ' w)) (fst (fst (snd Ra) Δ' (fmapM Δ' (AppV a b) (TV a) (app-a a b) Y) ca)))
-       (napp Δ' a b Y (fst (ren-ne {(j-tm , Δ , s-pi a b , c , X)} n Δ' w)) (fst (fst (snd Ra) Δ' (fmapM Δ' (AppV a b) (TV a) (app-a a b) Y) ca))
-          (d-tr t-ne j-tm Δ' (s-pi a b) (fst (ren-ne {(j-tm , Δ , s-pi a b , c , X)} n Δ' w)) (wact Δ' Δ w (TV (s-pi a b)) X) (fmapM Δ' (AppV a b) (TV (s-pi a b)) (app-f a b) Y)
-             (psym (Mean Δ' (TV (s-pi a b))) (fmapM Δ' (AppV a b) (TV (s-pi a b)) (app-f a b) Y) (wact Δ' Δ w (TV (s-pi a b)) X) q) (snd (ren-ne {(j-tm , Δ , s-pi a b , c , X)} n Δ' w)))
+       (capp (fst (ren-ne {(j-tm , Δ , s-fam f-pi a b , c , X)} n Δ' w)) (fst (fst (snd Ra) Δ' (fmapM Δ' (AppV a b) (TV a) (app-a a b) Y) ca)))
+       (napp Δ' a b Y (fst (ren-ne {(j-tm , Δ , s-fam f-pi a b , c , X)} n Δ' w)) (fst (fst (snd Ra) Δ' (fmapM Δ' (AppV a b) (TV a) (app-a a b) Y) ca))
+          (d-tr t-ne j-tm Δ' (s-fam f-pi a b) (fst (ren-ne {(j-tm , Δ , s-fam f-pi a b , c , X)} n Δ' w)) (wact Δ' Δ w (TV (s-fam f-pi a b)) X) (fmapM Δ' (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) Y)
+             (psym (Mean Δ' (TV (s-fam f-pi a b))) (fmapM Δ' (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) Y) (wact Δ' Δ w (TV (s-fam f-pi a b)) X) q) (snd (ren-ne {(j-tm , Δ , s-fam f-pi a b , c , X)} n Δ' w)))
           (snd (fst (snd Ra) Δ' (fmapM Δ' (AppV a b) (TV a) (app-a a b) Y) ca))))
-rfl-sig-1 : (a b : TyShape) → RRT a → (Δ : CCtx) (X : Mean Δ (TV (s-sig a b))) → CompTy (s-sig a b) Δ (fmapM Δ (TV (s-sig a b)) (Fam a b) (λ q → fst q) X) →
-  (c : Code) → NN (k-ne , (j-tm , Δ , s-sig a b , c , X)) → CompS a Δ (fmapM Δ (TV (s-sig a b)) (TV a) (sig-1 a b) X)
+rfl-sig-1 : (a b : TyShape) → RRT a → (Δ : CCtx) (X : Mean Δ (TV (s-fam f-sig a b))) → CompTy (s-fam f-sig a b) Δ (fmapM Δ (TV (s-fam f-sig a b)) (Fam a b) (λ q → fst q) X) →
+  (c : Code) → NN (k-ne , (j-tm , Δ , s-fam f-sig a b , c , X)) → CompS a Δ (fmapM Δ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) X)
 rfl-sig-1 a b Ra Δ X ct c n =
-  snd (snd Ra) Δ (fmapM Δ (TV (s-sig a b)) (TV a) (sig-1 a b) X)
-    (jc-tr j-ty a Δ (fmapM Δ (Fam a b) (Sem a) (fam-dom a b) (fmapM Δ (TV (s-sig a b)) (Fam a b) (λ q → fst q) X)) (fmapM Δ (TV a) (Sem a) (λ q → fst q) (fmapM Δ (TV (s-sig a b)) (TV a) (sig-1 a b) X))
-       (pcat (Mean Δ (Sem a)) (fmapM Δ (Fam a b) (Sem a) (fam-dom a b) (fmapM Δ (TV (s-sig a b)) (Fam a b) (λ q → fst q) X)) (fmapM Δ (TV (s-sig a b)) (Sem a) (λ q → fst (fst q)) X)
-          (fmapM Δ (TV a) (Sem a) (λ q → fst q) (fmapM Δ (TV (s-sig a b)) (TV a) (sig-1 a b) X))
-          (fmapM-fmapM Δ (TV (s-sig a b)) (Fam a b) (Sem a) (λ q → fst q) (fam-dom a b) X)
-          (psym (Mean Δ (Sem a)) (fmapM Δ (TV a) (Sem a) (λ q → fst q) (fmapM Δ (TV (s-sig a b)) (TV a) (sig-1 a b) X)) (fmapM Δ (TV (s-sig a b)) (Sem a) (λ q → fst (fst q)) X)
-             (fmapM-fmapM Δ (TV (s-sig a b)) (TV a) (Sem a) (sig-1 a b) (λ q → fst q) X)))
+  snd (snd Ra) Δ (fmapM Δ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) X)
+    (jc-tr j-ty a Δ (fmapM Δ (Fam a b) (Sem a) (fam-dom a b) (fmapM Δ (TV (s-fam f-sig a b)) (Fam a b) (λ q → fst q) X)) (fmapM Δ (TV a) (Sem a) (λ q → fst q) (fmapM Δ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) X))
+       (pcat (Mean Δ (Sem a)) (fmapM Δ (Fam a b) (Sem a) (fam-dom a b) (fmapM Δ (TV (s-fam f-sig a b)) (Fam a b) (λ q → fst q) X)) (fmapM Δ (TV (s-fam f-sig a b)) (Sem a) (λ q → fst (fst q)) X)
+          (fmapM Δ (TV a) (Sem a) (λ q → fst q) (fmapM Δ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) X))
+          (fmapM-fmapM Δ (TV (s-fam f-sig a b)) (Fam a b) (Sem a) (λ q → fst q) (fam-dom a b) X)
+          (psym (Mean Δ (Sem a)) (fmapM Δ (TV a) (Sem a) (λ q → fst q) (fmapM Δ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) X)) (fmapM Δ (TV (s-fam f-sig a b)) (Sem a) (λ q → fst (fst q)) X)
+             (fmapM-fmapM Δ (TV (s-fam f-sig a b)) (TV a) (Sem a) (sig-1 a b) (λ q → fst q) X)))
        (fst ct))
     (cfst c) (nfst Δ a b X c n)
-rfl-sig-cod : (a b : TyShape) (Δ : CCtx) (X : Mean Δ (TV (s-sig a b))) → CompTy (s-sig a b) Δ (fmapM Δ (TV (s-sig a b)) (Fam a b) (λ q → fst q) X) →
-  CompS a Δ (fmapM Δ (TV (s-sig a b)) (TV a) (sig-1 a b) X) → CompTy b Δ (fmapM Δ (TV b) (Sem b) (λ q → fst q) (fmapM Δ (TV (s-sig a b)) (TV b) (sig-2 a b) X))
+rfl-sig-cod : (a b : TyShape) (Δ : CCtx) (X : Mean Δ (TV (s-fam f-sig a b))) → CompTy (s-fam f-sig a b) Δ (fmapM Δ (TV (s-fam f-sig a b)) (Fam a b) (λ q → fst q) X) →
+  CompS a Δ (fmapM Δ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) X) → CompTy b Δ (fmapM Δ (TV b) (Sem b) (λ q → fst q) (fmapM Δ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) X))
 rfl-sig-cod a b Δ X ct c1 =
-  jc-tr j-ty b Δ (fmapM Δ (FamV a b) (Sem b) (fam-cod a b) (fmapM Δ (TV (s-sig a b)) (FamV a b) (λ q → (fst q , fst (snd q))) X))
-    (fmapM Δ (TV b) (Sem b) (λ q → fst q) (fmapM Δ (TV (s-sig a b)) (TV b) (sig-2 a b) X))
-    (pcat (Mean Δ (Sem b)) (fmapM Δ (FamV a b) (Sem b) (fam-cod a b) (fmapM Δ (TV (s-sig a b)) (FamV a b) (λ q → (fst q , fst (snd q))) X))
-       (fmapM Δ (TV (s-sig a b)) (Sem b) (λ q → snd (fst q) (fst (snd q))) X) (fmapM Δ (TV b) (Sem b) (λ q → fst q) (fmapM Δ (TV (s-sig a b)) (TV b) (sig-2 a b) X))
-       (fmapM-fmapM Δ (TV (s-sig a b)) (FamV a b) (Sem b) (λ q → (fst q , fst (snd q))) (fam-cod a b) X)
-       (psym (Mean Δ (Sem b)) (fmapM Δ (TV b) (Sem b) (λ q → fst q) (fmapM Δ (TV (s-sig a b)) (TV b) (sig-2 a b) X)) (fmapM Δ (TV (s-sig a b)) (Sem b) (λ q → snd (fst q) (fst (snd q))) X)
-          (fmapM-fmapM Δ (TV (s-sig a b)) (TV b) (Sem b) (sig-2 a b) (λ q → fst q) X)))
-    (snd ct Δ (world-id Δ) (fmapM Δ (TV (s-sig a b)) (FamV a b) (λ q → (fst q , fst (snd q))) X)
-       (pcat (Mean Δ (Fam a b)) (fmapM Δ (FamV a b) (Fam a b) (λ q → fst q) (fmapM Δ (TV (s-sig a b)) (FamV a b) (λ q → (fst q , fst (snd q))) X))
-          (fmapM Δ (TV (s-sig a b)) (Fam a b) (λ q → fst q) X) (wact Δ Δ (world-id Δ) (Fam a b) (fmapM Δ (TV (s-sig a b)) (Fam a b) (λ q → fst q) X))
-          (fmapM-fmapM Δ (TV (s-sig a b)) (FamV a b) (Fam a b) (λ q → (fst q , fst (snd q))) (λ q → fst q) X)
-          (psym (Mean Δ (Fam a b)) (wact Δ Δ (world-id Δ) (Fam a b) (fmapM Δ (TV (s-sig a b)) (Fam a b) (λ q → fst q) X)) (fmapM Δ (TV (s-sig a b)) (Fam a b) (λ q → fst q) X)
-             (subM-id Δ (Fam a b) (fmapM Δ (TV (s-sig a b)) (Fam a b) (λ q → fst q) X))))
-       (jc-tr j-tm a Δ (fmapM Δ (TV (s-sig a b)) (TV a) (sig-1 a b) X) (fmapM Δ (FamV a b) (TV a) (fam-arg a b) (fmapM Δ (TV (s-sig a b)) (FamV a b) (λ q → (fst q , fst (snd q))) X))
-          (psym (Mean Δ (TV a)) (fmapM Δ (FamV a b) (TV a) (fam-arg a b) (fmapM Δ (TV (s-sig a b)) (FamV a b) (λ q → (fst q , fst (snd q))) X)) (fmapM Δ (TV (s-sig a b)) (TV a) (sig-1 a b) X)
-             (fmapM-fmapM Δ (TV (s-sig a b)) (FamV a b) (TV a) (λ q → (fst q , fst (snd q))) (fam-arg a b) X))
+  jc-tr j-ty b Δ (fmapM Δ (FamV a b) (Sem b) (fam-cod a b) (fmapM Δ (TV (s-fam f-sig a b)) (FamV a b) (λ q → (fst q , fst (snd q))) X))
+    (fmapM Δ (TV b) (Sem b) (λ q → fst q) (fmapM Δ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) X))
+    (pcat (Mean Δ (Sem b)) (fmapM Δ (FamV a b) (Sem b) (fam-cod a b) (fmapM Δ (TV (s-fam f-sig a b)) (FamV a b) (λ q → (fst q , fst (snd q))) X))
+       (fmapM Δ (TV (s-fam f-sig a b)) (Sem b) (λ q → snd (fst q) (fst (snd q))) X) (fmapM Δ (TV b) (Sem b) (λ q → fst q) (fmapM Δ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) X))
+       (fmapM-fmapM Δ (TV (s-fam f-sig a b)) (FamV a b) (Sem b) (λ q → (fst q , fst (snd q))) (fam-cod a b) X)
+       (psym (Mean Δ (Sem b)) (fmapM Δ (TV b) (Sem b) (λ q → fst q) (fmapM Δ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) X)) (fmapM Δ (TV (s-fam f-sig a b)) (Sem b) (λ q → snd (fst q) (fst (snd q))) X)
+          (fmapM-fmapM Δ (TV (s-fam f-sig a b)) (TV b) (Sem b) (sig-2 a b) (λ q → fst q) X)))
+    (snd ct Δ (world-id Δ) (fmapM Δ (TV (s-fam f-sig a b)) (FamV a b) (λ q → (fst q , fst (snd q))) X)
+       (pcat (Mean Δ (Fam a b)) (fmapM Δ (FamV a b) (Fam a b) (λ q → fst q) (fmapM Δ (TV (s-fam f-sig a b)) (FamV a b) (λ q → (fst q , fst (snd q))) X))
+          (fmapM Δ (TV (s-fam f-sig a b)) (Fam a b) (λ q → fst q) X) (wact Δ Δ (world-id Δ) (Fam a b) (fmapM Δ (TV (s-fam f-sig a b)) (Fam a b) (λ q → fst q) X))
+          (fmapM-fmapM Δ (TV (s-fam f-sig a b)) (FamV a b) (Fam a b) (λ q → (fst q , fst (snd q))) (λ q → fst q) X)
+          (psym (Mean Δ (Fam a b)) (wact Δ Δ (world-id Δ) (Fam a b) (fmapM Δ (TV (s-fam f-sig a b)) (Fam a b) (λ q → fst q) X)) (fmapM Δ (TV (s-fam f-sig a b)) (Fam a b) (λ q → fst q) X)
+             (subM-id Δ (Fam a b) (fmapM Δ (TV (s-fam f-sig a b)) (Fam a b) (λ q → fst q) X))))
+       (jc-tr j-tm a Δ (fmapM Δ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) X) (fmapM Δ (FamV a b) (TV a) (fam-arg a b) (fmapM Δ (TV (s-fam f-sig a b)) (FamV a b) (λ q → (fst q , fst (snd q))) X))
+          (psym (Mean Δ (TV a)) (fmapM Δ (FamV a b) (TV a) (fam-arg a b) (fmapM Δ (TV (s-fam f-sig a b)) (FamV a b) (λ q → (fst q , fst (snd q))) X)) (fmapM Δ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) X)
+             (fmapM-fmapM Δ (TV (s-fam f-sig a b)) (FamV a b) (TV a) (λ q → (fst q , fst (snd q))) (fam-arg a b) X))
           c1))
-rfl-sig : (a b : TyShape) → RRT a → RRT b → RflT (s-sig a b)
+rfl-sig : (a b : TyShape) → RRT a → RRT b → RflT (s-fam f-sig a b)
 rfl-sig a b Ra Rb Δ X ct c n =
   (ct , rfl-sig-1 a b Ra Δ X ct c n ,
-   snd (snd Rb) Δ (fmapM Δ (TV (s-sig a b)) (TV b) (sig-2 a b) X) (rfl-sig-cod a b Δ X ct (rfl-sig-1 a b Ra Δ X ct c n)) (csnd c) (nsnd Δ a b X c n))
+   snd (snd Rb) Δ (fmapM Δ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) X) (rfl-sig-cod a b Δ X ct (rfl-sig-1 a b Ra Δ X ct c n)) (csnd c) (nsnd Δ a b X c n))
 rfl-path-ty : (a : TyShape) (Δ' : CCtx) (f : DNF) (X' : Mean Δ' (TV (s-path a))) (T' : Mean Δ' (Sem (s-path a))) →
   PathM Δ' (Sem (s-path a)) (fmapM Δ' (TV (s-path a)) (Sem (s-path a)) (λ q → fst q) X') T' →
   PathM Δ' (Sem a) (papp-line Δ' (Sem (s-path a)) (Sem a) (ty-line a) f T') (fmapM Δ' (TV a) (Sem a) (λ q → fst q) (papp-mean Δ' a f X'))
@@ -298,8 +296,8 @@ rfl-path a Ra Δ X ct c n =
           (λ i → papp-mean Δ' a f (wact Δ' Δ w (TV (s-path a)) X)) (snd (ren-ne {(j-tm , Δ , s-path a , c , X)} n Δ' w))))
 rr : (s : TyShape) → RRT s
 rr s-bool = (rty-bool , rfy-bool , rfl-bool)
-rr (s-pi a b) = (rty-pi a b (rr a) (rr b) , rfy-pi a b (rr a) (rr b) , rfl-pi a b (rr a) (rr b))
-rr (s-sig a b) = (rty-sig a b (rr a) (rr b) , rfy-sig a b (rr a) (rr b) , rfl-sig a b (rr a) (rr b))
+rr (s-fam f-pi a b) = (rty-fam f-pi a b (rr a) (rr b) , rfy-pi a b (rr a) (rr b) , rfl-pi a b (rr a) (rr b))
+rr (s-fam f-sig a b) = (rty-fam f-sig a b (rr a) (rr b) , rfy-sig a b (rr a) (rr b) , rfl-sig a b (rr a) (rr b))
 rr (s-path a) = (rty-path a (rr a) , rfy-path a (rr a) , rfl-path a (rr a))
 lineo-dzip : (X R : Type 1) (S F G : X → Type 1) (W : R → Type 1) (f : (x : X) → S x → R) (k : (x : X) → S x → G x) (π : (x : X) → F x → G x)
   (tr : (x : X) (t : S x) (φ : F x) → PathP (λ i → G x) (π x φ) (k x t) → W (f x t))
@@ -579,13 +577,13 @@ papp-end1 Δ a P =
     (fmap-fmap (dims (fst Δ)) (CtxV (fst Δ)) (FbE (fst Δ) (TV (s-path a))) (DL (CtxV (fst Δ)) (FbE (fst Δ) (TV a))) (FbE (fst Δ) (TV a))
        (fline (fst Δ) (TV (s-path a)) (TV a) (path-pt a)) (λ x q → fst (snd q)) (snd Δ) P)
 fund-app : (Γ : CCtx) (a b : TyShape) (R : Mean Γ (AppV a b)) (Δ : CCtx) (σ : Sub Δ Γ) →
-  CompS (s-pi a b) Δ (subM Δ Γ (TV (s-pi a b)) σ (fmapM Γ (AppV a b) (TV (s-pi a b)) (app-f a b) R)) → CompS a Δ (subM Δ Γ (TV a) σ (fmapM Γ (AppV a b) (TV a) (app-a a b) R)) → CompS b Δ (subM Δ Γ (TV b) σ (fmapM Γ (AppV a b) (TV b) (app-r a b) R))
+  CompS (s-fam f-pi a b) Δ (subM Δ Γ (TV (s-fam f-pi a b)) σ (fmapM Γ (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) R)) → CompS a Δ (subM Δ Γ (TV a) σ (fmapM Γ (AppV a b) (TV a) (app-a a b) R)) → CompS b Δ (subM Δ Γ (TV b) σ (fmapM Γ (AppV a b) (TV b) (app-r a b) R))
 fund-app Γ a b R Δ σ cf ca =
-  (jc-tr j-tm b Δ (fmapM Δ (AppV a b) (TV b) (app-r a b) (subM Δ Γ (AppV a b) σ R)) (subM Δ Γ (TV b) σ (fmapM Γ (AppV a b) (TV b) (app-r a b) R)) (subM-fmap Δ Γ (AppV a b) (TV b) (app-r a b) σ R) (snd cf Δ (world-id Δ) (subM Δ Γ (AppV a b) σ R) (pcat (Mean Δ (TV (s-pi a b))) (fmapM Δ (AppV a b) (TV (s-pi a b)) (app-f a b) (subM Δ Γ (AppV a b) σ R)) (subM Δ Γ (TV (s-pi a b)) σ (fmapM Γ (AppV a b) (TV (s-pi a b)) (app-f a b) R)) (wact Δ Δ (world-id Δ) (TV (s-pi a b)) (subM Δ Γ (TV (s-pi a b)) σ (fmapM Γ (AppV a b) (TV (s-pi a b)) (app-f a b) R))) (subM-fmap Δ Γ (AppV a b) (TV (s-pi a b)) (app-f a b) σ R) (psym (Mean Δ (TV (s-pi a b))) (wact Δ Δ (world-id Δ) (TV (s-pi a b)) (subM Δ Γ (TV (s-pi a b)) σ (fmapM Γ (AppV a b) (TV (s-pi a b)) (app-f a b) R))) (subM Δ Γ (TV (s-pi a b)) σ (fmapM Γ (AppV a b) (TV (s-pi a b)) (app-f a b) R)) (subM-id Δ (TV (s-pi a b)) (subM Δ Γ (TV (s-pi a b)) σ (fmapM Γ (AppV a b) (TV (s-pi a b)) (app-f a b) R))))) (jc-tr j-tm a Δ (subM Δ Γ (TV a) σ (fmapM Γ (AppV a b) (TV a) (app-a a b) R)) (fmapM Δ (AppV a b) (TV a) (app-a a b) (subM Δ Γ (AppV a b) σ R)) (psym (Mean Δ (TV a)) (fmapM Δ (AppV a b) (TV a) (app-a a b) (subM Δ Γ (AppV a b) σ R)) (subM Δ Γ (TV a) σ (fmapM Γ (AppV a b) (TV a) (app-a a b) R)) (subM-fmap Δ Γ (AppV a b) (TV a) (app-a a b) σ R)) ca)))
-fund-fst : (Γ : CCtx) (a b : TyShape) (R : Mean Γ (TV (s-sig a b))) (Δ : CCtx) (σ : Sub Δ Γ) → CompS (s-sig a b) Δ (subM Δ Γ (TV (s-sig a b)) σ R) → CompS a Δ (subM Δ Γ (TV a) σ (fmapM Γ (TV (s-sig a b)) (TV a) (sig-1 a b) R))
-fund-fst Γ a b R Δ σ cp = (jc-tr j-tm a Δ (fmapM Δ (TV (s-sig a b)) (TV a) (sig-1 a b) (subM Δ Γ (TV (s-sig a b)) σ R)) (subM Δ Γ (TV a) σ (fmapM Γ (TV (s-sig a b)) (TV a) (sig-1 a b) R)) (subM-fmap Δ Γ (TV (s-sig a b)) (TV a) (sig-1 a b) σ R) (fst (snd cp)))
-fund-snd : (Γ : CCtx) (a b : TyShape) (R : Mean Γ (TV (s-sig a b))) (Δ : CCtx) (σ : Sub Δ Γ) → CompS (s-sig a b) Δ (subM Δ Γ (TV (s-sig a b)) σ R) → CompS b Δ (subM Δ Γ (TV b) σ (fmapM Γ (TV (s-sig a b)) (TV b) (sig-2 a b) R))
-fund-snd Γ a b R Δ σ cp = (jc-tr j-tm b Δ (fmapM Δ (TV (s-sig a b)) (TV b) (sig-2 a b) (subM Δ Γ (TV (s-sig a b)) σ R)) (subM Δ Γ (TV b) σ (fmapM Γ (TV (s-sig a b)) (TV b) (sig-2 a b) R)) (subM-fmap Δ Γ (TV (s-sig a b)) (TV b) (sig-2 a b) σ R) (snd (snd cp)))
+  (jc-tr j-tm b Δ (fmapM Δ (AppV a b) (TV b) (app-r a b) (subM Δ Γ (AppV a b) σ R)) (subM Δ Γ (TV b) σ (fmapM Γ (AppV a b) (TV b) (app-r a b) R)) (subM-fmap Δ Γ (AppV a b) (TV b) (app-r a b) σ R) (snd cf Δ (world-id Δ) (subM Δ Γ (AppV a b) σ R) (pcat (Mean Δ (TV (s-fam f-pi a b))) (fmapM Δ (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) (subM Δ Γ (AppV a b) σ R)) (subM Δ Γ (TV (s-fam f-pi a b)) σ (fmapM Γ (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) R)) (wact Δ Δ (world-id Δ) (TV (s-fam f-pi a b)) (subM Δ Γ (TV (s-fam f-pi a b)) σ (fmapM Γ (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) R))) (subM-fmap Δ Γ (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) σ R) (psym (Mean Δ (TV (s-fam f-pi a b))) (wact Δ Δ (world-id Δ) (TV (s-fam f-pi a b)) (subM Δ Γ (TV (s-fam f-pi a b)) σ (fmapM Γ (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) R))) (subM Δ Γ (TV (s-fam f-pi a b)) σ (fmapM Γ (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) R)) (subM-id Δ (TV (s-fam f-pi a b)) (subM Δ Γ (TV (s-fam f-pi a b)) σ (fmapM Γ (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) R))))) (jc-tr j-tm a Δ (subM Δ Γ (TV a) σ (fmapM Γ (AppV a b) (TV a) (app-a a b) R)) (fmapM Δ (AppV a b) (TV a) (app-a a b) (subM Δ Γ (AppV a b) σ R)) (psym (Mean Δ (TV a)) (fmapM Δ (AppV a b) (TV a) (app-a a b) (subM Δ Γ (AppV a b) σ R)) (subM Δ Γ (TV a) σ (fmapM Γ (AppV a b) (TV a) (app-a a b) R)) (subM-fmap Δ Γ (AppV a b) (TV a) (app-a a b) σ R)) ca)))
+fund-fst : (Γ : CCtx) (a b : TyShape) (R : Mean Γ (TV (s-fam f-sig a b))) (Δ : CCtx) (σ : Sub Δ Γ) → CompS (s-fam f-sig a b) Δ (subM Δ Γ (TV (s-fam f-sig a b)) σ R) → CompS a Δ (subM Δ Γ (TV a) σ (fmapM Γ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) R))
+fund-fst Γ a b R Δ σ cp = (jc-tr j-tm a Δ (fmapM Δ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) (subM Δ Γ (TV (s-fam f-sig a b)) σ R)) (subM Δ Γ (TV a) σ (fmapM Γ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) R)) (subM-fmap Δ Γ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) σ R) (fst (snd cp)))
+fund-snd : (Γ : CCtx) (a b : TyShape) (R : Mean Γ (TV (s-fam f-sig a b))) (Δ : CCtx) (σ : Sub Δ Γ) → CompS (s-fam f-sig a b) Δ (subM Δ Γ (TV (s-fam f-sig a b)) σ R) → CompS b Δ (subM Δ Γ (TV b) σ (fmapM Γ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) R))
+fund-snd Γ a b R Δ σ cp = (jc-tr j-tm b Δ (fmapM Δ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) (subM Δ Γ (TV (s-fam f-sig a b)) σ R)) (subM Δ Γ (TV b) σ (fmapM Γ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) R)) (subM-fmap Δ Γ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) σ R) (snd (snd cp)))
 -- the two booleans and the two path endpoints, each one clause generic in the bit
 bool-in : (b : Bool) (A : Bool → Type 1) (N : Type 1) → A b → Sum1 (A true) (Sum1 (A false) N)
 bool-in true A N x = inl1 x
@@ -633,42 +631,42 @@ cod-k : (Γ : CCtx) (a b : TyShape) (Y : Type 1) (j : Y → (Fam a b)) (M : Mean
   CompTy b Δ' (fmapM Δ' (FamV a b) (Sem b) (fam-cod a b) Yf)
 cod-k Γ a b Y j M Δ σ e T' tq bodyT Δ' w Yf q ca =
   jc-tr j-ty b Δ' (subM Δ' (ext-h Γ a Y (λ y → fam-dom a b (j y)) M) (Sem b) (ext-at Δ' Γ a Y (Fam a b) j (fam-dom a b) M (sub-wcomp Δ' Δ Γ w σ) Yf (ck-p Γ a b Y j M Δ σ T' tq Δ' w Yf q)) (ext-lift Γ a Y (λ q → fam-dom a b (j q)) (Sem b) (λ q x → snd (j q) x) M)) (fmapM Δ' (FamV a b) (Sem b) (fam-cod a b) Yf) (ck-path Γ a b Y j M Δ σ T' tq Δ' w Yf q) (bodyT Δ' (ext-at Δ' Γ a Y (Fam a b) j (fam-dom a b) M (sub-wcomp Δ' Δ Γ w σ) Yf (ck-p Γ a b Y j M Δ σ T' tq Δ' w Yf q)) (ext-env Δ' Γ a Y (Fam a b) j (fam-dom a b) M (sub-wcomp Δ' Δ Γ w σ) Yf (ck-p Γ a b Y j M Δ σ T' tq Δ' w Yf q) (env-w Γ Δ σ e Δ' w) (ck-cn Γ a b Y j M Δ σ T' tq Δ' w Yf q ca)))
-lp-p : (Γ : CCtx) (a b : TyShape) (X : Mean Γ (TV (s-pi a b))) (Δ : CCtx) (σ : Sub Δ Γ) (Δ' : CCtx) (w : World Δ' Δ) (Yk : Mean Δ' (AppV a b))
-  (q : PathM Δ' (TV (s-pi a b)) (fmapM Δ' (AppV a b) (TV (s-pi a b)) (app-f a b) Yk) (wact Δ' Δ w (TV (s-pi a b)) (subM Δ Γ (TV (s-pi a b)) σ X))) → PathM Δ' (TV (s-pi a b)) (fmapM Δ' ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (TV (s-pi a b)) (λ z → fst z) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk)) (fmapM Δ' (TV (s-pi a b)) (TV (s-pi a b)) (λ y → y) (subM Δ' Γ (TV (s-pi a b)) (sub-wcomp Δ' Δ Γ w σ) X))
-lp-p Γ a b X Δ σ Δ' w Yk q = (pcat (Mean Δ' (TV (s-pi a b))) (fmapM Δ' ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (TV (s-pi a b)) (λ z → fst z) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk)) (fmapM Δ' (AppV a b) (TV (s-pi a b)) (app-f a b) Yk) (fmapM Δ' (TV (s-pi a b)) (TV (s-pi a b)) (λ y → y) (subM Δ' Γ (TV (s-pi a b)) (sub-wcomp Δ' Δ Γ w σ) X)) (fmapM-fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (TV (s-pi a b)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) (λ z → fst z) Yk) (pcat (Mean Δ' (TV (s-pi a b))) (fmapM Δ' (AppV a b) (TV (s-pi a b)) (app-f a b) Yk) (wact Δ' Δ w (TV (s-pi a b)) (subM Δ Γ (TV (s-pi a b)) σ X)) (fmapM Δ' (TV (s-pi a b)) (TV (s-pi a b)) (λ y → y) (subM Δ' Γ (TV (s-pi a b)) (sub-wcomp Δ' Δ Γ w σ) X)) q (pcat (Mean Δ' (TV (s-pi a b))) (wact Δ' Δ w (TV (s-pi a b)) (subM Δ Γ (TV (s-pi a b)) σ X)) (subM Δ' Γ (TV (s-pi a b)) (sub-wcomp Δ' Δ Γ w σ) X) (fmapM Δ' (TV (s-pi a b)) (TV (s-pi a b)) (λ y → y) (subM Δ' Γ (TV (s-pi a b)) (sub-wcomp Δ' Δ Γ w σ) X)) (psym (Mean Δ' (TV (s-pi a b))) (subM Δ' Γ (TV (s-pi a b)) (sub-wcomp Δ' Δ Γ w σ) X) (wact Δ' Δ w (TV (s-pi a b)) (subM Δ Γ (TV (s-pi a b)) σ X)) (subM-wcomp Δ' Δ Γ w σ (TV (s-pi a b)) X)) (psym (Mean Δ' (TV (s-pi a b))) (fmapM Δ' (TV (s-pi a b)) (TV (s-pi a b)) (λ y → y) (subM Δ' Γ (TV (s-pi a b)) (sub-wcomp Δ' Δ Γ w σ) X)) (subM Δ' Γ (TV (s-pi a b)) (sub-wcomp Δ' Δ Γ w σ) X) (fmap-id (dims (fst Δ')) (CtxV (fst Δ')) (FbE (fst Δ') (TV (s-pi a b))) (snd Δ') (subM Δ' Γ (TV (s-pi a b)) (sub-wcomp Δ' Δ Γ w σ) X))))))
-lp-cn : (Γ : CCtx) (a b : TyShape) (X : Mean Γ (TV (s-pi a b))) (Δ : CCtx) (σ : Sub Δ Γ) (Δ' : CCtx) (w : World Δ' Δ) (Yk : Mean Δ' (AppV a b))
-  (q : PathM Δ' (TV (s-pi a b)) (fmapM Δ' (AppV a b) (TV (s-pi a b)) (app-f a b) Yk) (wact Δ' Δ w (TV (s-pi a b)) (subM Δ Γ (TV (s-pi a b)) σ X))) → CSof a (CompE a) Δ' (fmapM Δ' (AppV a b) (TV a) (app-a a b) Yk) → CompS a Δ' (fmapM Δ' ((yz : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) ((λ y → y) yz))) (TV a) (λ z → (fst (fst (fst z)) , snd z)) (zpt Δ' Γ a (TV (s-pi a b)) (TV (s-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q)))
-lp-cn Γ a b X Δ σ Δ' w Yk q ca = (jc-tr j-tm a Δ' (fmapM Δ' (AppV a b) (TV a) (app-a a b) Yk) (fmapM Δ' ((yz : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) ((λ y → y) yz))) (TV a) (λ z → (fst (fst (fst z)) , snd z)) (zpt Δ' Γ a (TV (s-pi a b)) (TV (s-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q))) (pcat (Mean Δ' (TV a)) (fmapM Δ' (AppV a b) (TV a) (app-a a b) Yk) (fmapM Δ' ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (TV a) (λ z' → (fst (fst (fst z')) , snd z')) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk)) (fmapM Δ' ((yz : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) ((λ y → y) yz))) (TV a) (λ z → (fst (fst (fst z)) , snd z)) (zpt Δ' Γ a (TV (s-pi a b)) (TV (s-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q))) (psym (Mean Δ' (TV a)) (fmapM Δ' ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (TV a) (λ z' → (fst (fst (fst z')) , snd z')) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk)) (fmapM Δ' (AppV a b) (TV a) (app-a a b) Yk) (fmapM-fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (TV a) (λ y → ((fst y , fst (snd y)) , snd (snd y))) (λ z' → (fst (fst (fst z')) , snd z')) Yk)) (via-snd Δ' Γ a (TV (s-pi a b)) (TV (s-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q) (TV a) (λ z' → (fst (fst (fst z')) , snd z')))) ca)
-lp-path : (Γ : CCtx) (a b : TyShape) (X : Mean Γ (TV (s-pi a b))) (Δ : CCtx) (σ : Sub Δ Γ) (Δ' : CCtx) (w : World Δ' Δ) (Yk : Mean Δ' (AppV a b))
-  (q : PathM Δ' (TV (s-pi a b)) (fmapM Δ' (AppV a b) (TV (s-pi a b)) (app-f a b) Yk) (wact Δ' Δ w (TV (s-pi a b)) (subM Δ Γ (TV (s-pi a b)) σ X))) → PathM Δ' (TV b) (subM Δ' (lam-ctx Γ a b X) (TV b) (ext-at Δ' Γ a (TV (s-pi a b)) (TV (s-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q)) (lam-body Γ a b X)) (fmapM Δ' (AppV a b) (TV b) (app-r a b) Yk)
-lp-path Γ a b X Δ σ Δ' w Yk q = (pcat (Mean Δ' (TV b)) (subM Δ' (lam-ctx Γ a b X) (TV b) (ext-at Δ' Γ a (TV (s-pi a b)) (TV (s-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q)) (lam-body Γ a b X)) (fmapM Δ' ((yz : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) ((λ y → y) yz))) (TV b) (λ z → (λ q x → (snd (fst q) x , snd q x)) (fst z) (snd z)) (zpt Δ' Γ a (TV (s-pi a b)) (TV (s-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q))) (fmapM Δ' (AppV a b) (TV b) (app-r a b) Yk) (ext-beta Δ' Γ a (TV (s-pi a b)) (TV (s-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q) (TV b) (λ q x → (snd (fst q) x , snd q x))) (pcat (Mean Δ' (TV b)) (fmapM Δ' ((yz : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) ((λ y → y) yz))) (TV b) (λ z → (λ q x → (snd (fst q) x , snd q x)) (fst z) (snd z)) (zpt Δ' Γ a (TV (s-pi a b)) (TV (s-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q))) (fmapM Δ' ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (TV b) (λ z' → (snd (fst (fst z')) (snd z') , snd (fst z') (snd z'))) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk)) (fmapM Δ' (AppV a b) (TV b) (app-r a b) Yk) (psym (Mean Δ' (TV b)) (fmapM Δ' ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (TV b) (λ z' → (snd (fst (fst z')) (snd z') , snd (fst z') (snd z'))) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk)) (fmapM Δ' ((yz : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) ((λ y → y) yz))) (TV b) (λ z → (λ q x → (snd (fst q) x , snd q x)) (fst z) (snd z)) (zpt Δ' Γ a (TV (s-pi a b)) (TV (s-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q))) (via-snd Δ' Γ a (TV (s-pi a b)) (TV (s-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q) (TV b) (λ z' → (snd (fst (fst z')) (snd z') , snd (fst z') (snd z'))))) (fmapM-fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (TV b) (λ y → ((fst y , fst (snd y)) , snd (snd y))) (λ z' → (snd (fst (fst z')) (snd z') , snd (fst z') (snd z'))) Yk)))
-fund-lam-tm : (Γ : CCtx) (a b : TyShape) (X : Mean Γ (TV (s-pi a b))) (Δ : CCtx) (σ : Sub Δ Γ) (Δ' : CCtx) (w : World Δ' Δ) (Yk : Mean Δ' (AppV a b))
-  (q : PathM Δ' (TV (s-pi a b)) (fmapM Δ' (AppV a b) (TV (s-pi a b)) (app-f a b) Yk) (wact Δ' Δ w (TV (s-pi a b)) (subM Δ Γ (TV (s-pi a b)) σ X))) (e : CompEnv Γ Δ σ) (body : ((Δ'' : CCtx) (τ : Sub Δ'' (lam-ctx Γ a b X)) → CompEnv (lam-ctx Γ a b X) Δ'' τ → CompS b Δ'' (subM Δ'' (lam-ctx Γ a b X) (TV b) τ (lam-body Γ a b X)))) → CSof a (CompE a) Δ' (fmapM Δ' (AppV a b) (TV a) (app-a a b) Yk) → CSof b (CompE b) Δ' (fmapM Δ' (AppV a b) (TV b) (app-r a b) Yk)
+lp-p : (Γ : CCtx) (a b : TyShape) (X : Mean Γ (TV (s-fam f-pi a b))) (Δ : CCtx) (σ : Sub Δ Γ) (Δ' : CCtx) (w : World Δ' Δ) (Yk : Mean Δ' (AppV a b))
+  (q : PathM Δ' (TV (s-fam f-pi a b)) (fmapM Δ' (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) Yk) (wact Δ' Δ w (TV (s-fam f-pi a b)) (subM Δ Γ (TV (s-fam f-pi a b)) σ X))) → PathM Δ' (TV (s-fam f-pi a b)) (fmapM Δ' ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (TV (s-fam f-pi a b)) (λ z → fst z) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk)) (fmapM Δ' (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ y → y) (subM Δ' Γ (TV (s-fam f-pi a b)) (sub-wcomp Δ' Δ Γ w σ) X))
+lp-p Γ a b X Δ σ Δ' w Yk q = (pcat (Mean Δ' (TV (s-fam f-pi a b))) (fmapM Δ' ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (TV (s-fam f-pi a b)) (λ z → fst z) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk)) (fmapM Δ' (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) Yk) (fmapM Δ' (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ y → y) (subM Δ' Γ (TV (s-fam f-pi a b)) (sub-wcomp Δ' Δ Γ w σ) X)) (fmapM-fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (TV (s-fam f-pi a b)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) (λ z → fst z) Yk) (pcat (Mean Δ' (TV (s-fam f-pi a b))) (fmapM Δ' (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) Yk) (wact Δ' Δ w (TV (s-fam f-pi a b)) (subM Δ Γ (TV (s-fam f-pi a b)) σ X)) (fmapM Δ' (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ y → y) (subM Δ' Γ (TV (s-fam f-pi a b)) (sub-wcomp Δ' Δ Γ w σ) X)) q (pcat (Mean Δ' (TV (s-fam f-pi a b))) (wact Δ' Δ w (TV (s-fam f-pi a b)) (subM Δ Γ (TV (s-fam f-pi a b)) σ X)) (subM Δ' Γ (TV (s-fam f-pi a b)) (sub-wcomp Δ' Δ Γ w σ) X) (fmapM Δ' (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ y → y) (subM Δ' Γ (TV (s-fam f-pi a b)) (sub-wcomp Δ' Δ Γ w σ) X)) (psym (Mean Δ' (TV (s-fam f-pi a b))) (subM Δ' Γ (TV (s-fam f-pi a b)) (sub-wcomp Δ' Δ Γ w σ) X) (wact Δ' Δ w (TV (s-fam f-pi a b)) (subM Δ Γ (TV (s-fam f-pi a b)) σ X)) (subM-wcomp Δ' Δ Γ w σ (TV (s-fam f-pi a b)) X)) (psym (Mean Δ' (TV (s-fam f-pi a b))) (fmapM Δ' (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ y → y) (subM Δ' Γ (TV (s-fam f-pi a b)) (sub-wcomp Δ' Δ Γ w σ) X)) (subM Δ' Γ (TV (s-fam f-pi a b)) (sub-wcomp Δ' Δ Γ w σ) X) (fmap-id (dims (fst Δ')) (CtxV (fst Δ')) (FbE (fst Δ') (TV (s-fam f-pi a b))) (snd Δ') (subM Δ' Γ (TV (s-fam f-pi a b)) (sub-wcomp Δ' Δ Γ w σ) X))))))
+lp-cn : (Γ : CCtx) (a b : TyShape) (X : Mean Γ (TV (s-fam f-pi a b))) (Δ : CCtx) (σ : Sub Δ Γ) (Δ' : CCtx) (w : World Δ' Δ) (Yk : Mean Δ' (AppV a b))
+  (q : PathM Δ' (TV (s-fam f-pi a b)) (fmapM Δ' (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) Yk) (wact Δ' Δ w (TV (s-fam f-pi a b)) (subM Δ Γ (TV (s-fam f-pi a b)) σ X))) → CSof a (CompE a) Δ' (fmapM Δ' (AppV a b) (TV a) (app-a a b) Yk) → CompS a Δ' (fmapM Δ' ((yz : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) ((λ y → y) yz))) (TV a) (λ z → (fst (fst (fst z)) , snd z)) (zpt Δ' Γ a (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q)))
+lp-cn Γ a b X Δ σ Δ' w Yk q ca = (jc-tr j-tm a Δ' (fmapM Δ' (AppV a b) (TV a) (app-a a b) Yk) (fmapM Δ' ((yz : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) ((λ y → y) yz))) (TV a) (λ z → (fst (fst (fst z)) , snd z)) (zpt Δ' Γ a (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q))) (pcat (Mean Δ' (TV a)) (fmapM Δ' (AppV a b) (TV a) (app-a a b) Yk) (fmapM Δ' ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (TV a) (λ z' → (fst (fst (fst z')) , snd z')) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk)) (fmapM Δ' ((yz : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) ((λ y → y) yz))) (TV a) (λ z → (fst (fst (fst z)) , snd z)) (zpt Δ' Γ a (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q))) (psym (Mean Δ' (TV a)) (fmapM Δ' ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (TV a) (λ z' → (fst (fst (fst z')) , snd z')) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk)) (fmapM Δ' (AppV a b) (TV a) (app-a a b) Yk) (fmapM-fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (TV a) (λ y → ((fst y , fst (snd y)) , snd (snd y))) (λ z' → (fst (fst (fst z')) , snd z')) Yk)) (via-snd Δ' Γ a (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q) (TV a) (λ z' → (fst (fst (fst z')) , snd z')))) ca)
+lp-path : (Γ : CCtx) (a b : TyShape) (X : Mean Γ (TV (s-fam f-pi a b))) (Δ : CCtx) (σ : Sub Δ Γ) (Δ' : CCtx) (w : World Δ' Δ) (Yk : Mean Δ' (AppV a b))
+  (q : PathM Δ' (TV (s-fam f-pi a b)) (fmapM Δ' (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) Yk) (wact Δ' Δ w (TV (s-fam f-pi a b)) (subM Δ Γ (TV (s-fam f-pi a b)) σ X))) → PathM Δ' (TV b) (subM Δ' (lam-ctx Γ a b X) (TV b) (ext-at Δ' Γ a (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q)) (lam-body Γ a b X)) (fmapM Δ' (AppV a b) (TV b) (app-r a b) Yk)
+lp-path Γ a b X Δ σ Δ' w Yk q = (pcat (Mean Δ' (TV b)) (subM Δ' (lam-ctx Γ a b X) (TV b) (ext-at Δ' Γ a (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q)) (lam-body Γ a b X)) (fmapM Δ' ((yz : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) ((λ y → y) yz))) (TV b) (λ z → (λ q x → (snd (fst q) x , snd q x)) (fst z) (snd z)) (zpt Δ' Γ a (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q))) (fmapM Δ' (AppV a b) (TV b) (app-r a b) Yk) (ext-beta Δ' Γ a (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q) (TV b) (λ q x → (snd (fst q) x , snd q x))) (pcat (Mean Δ' (TV b)) (fmapM Δ' ((yz : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) ((λ y → y) yz))) (TV b) (λ z → (λ q x → (snd (fst q) x , snd q x)) (fst z) (snd z)) (zpt Δ' Γ a (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q))) (fmapM Δ' ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (TV b) (λ z' → (snd (fst (fst z')) (snd z') , snd (fst z') (snd z'))) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk)) (fmapM Δ' (AppV a b) (TV b) (app-r a b) Yk) (psym (Mean Δ' (TV b)) (fmapM Δ' ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (TV b) (λ z' → (snd (fst (fst z')) (snd z') , snd (fst z') (snd z'))) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk)) (fmapM Δ' ((yz : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) ((λ y → y) yz))) (TV b) (λ z → (λ q x → (snd (fst q) x , snd q x)) (fst z) (snd z)) (zpt Δ' Γ a (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q))) (via-snd Δ' Γ a (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q) (TV b) (λ z' → (snd (fst (fst z')) (snd z') , snd (fst z') (snd z'))))) (fmapM-fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (TV b) (λ y → ((fst y , fst (snd y)) , snd (snd y))) (λ z' → (snd (fst (fst z')) (snd z') , snd (fst z') (snd z'))) Yk)))
+fund-lam-tm : (Γ : CCtx) (a b : TyShape) (X : Mean Γ (TV (s-fam f-pi a b))) (Δ : CCtx) (σ : Sub Δ Γ) (Δ' : CCtx) (w : World Δ' Δ) (Yk : Mean Δ' (AppV a b))
+  (q : PathM Δ' (TV (s-fam f-pi a b)) (fmapM Δ' (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) Yk) (wact Δ' Δ w (TV (s-fam f-pi a b)) (subM Δ Γ (TV (s-fam f-pi a b)) σ X))) (e : CompEnv Γ Δ σ) (body : ((Δ'' : CCtx) (τ : Sub Δ'' (lam-ctx Γ a b X)) → CompEnv (lam-ctx Γ a b X) Δ'' τ → CompS b Δ'' (subM Δ'' (lam-ctx Γ a b X) (TV b) τ (lam-body Γ a b X)))) → CSof a (CompE a) Δ' (fmapM Δ' (AppV a b) (TV a) (app-a a b) Yk) → CSof b (CompE b) Δ' (fmapM Δ' (AppV a b) (TV b) (app-r a b) Yk)
 fund-lam-tm Γ a b X Δ σ Δ' w Yk q e body ca =
-  (jc-tr j-tm b Δ' (subM Δ' (lam-ctx Γ a b X) (TV b) (ext-at Δ' Γ a (TV (s-pi a b)) (TV (s-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q)) (lam-body Γ a b X)) (fmapM Δ' (AppV a b) (TV b) (app-r a b) Yk) (lp-path Γ a b X Δ σ Δ' w Yk q) (body Δ' (ext-at Δ' Γ a (TV (s-pi a b)) (TV (s-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q)) (ext-env Δ' Γ a (TV (s-pi a b)) (TV (s-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q) (env-w Γ Δ σ e Δ' w) (lp-cn Γ a b X Δ σ Δ' w Yk q ca))))
-lt-path : (Γ : CCtx) (a b : TyShape) (X : Mean Γ (TV (s-pi a b))) (Δ' : CCtx) (τ : Sub Δ' (lam-ctx Γ a b X)) → PathM Δ' (Sem b) (fmapM Δ' (TV b) (Sem b) (λ q → fst q) (subM Δ' (lam-ctx Γ a b X) (TV b) τ (lam-body Γ a b X))) (subM Δ' (lam-ctx Γ a b X) (Sem b) τ (ext-lift Γ a (TV (s-pi a b)) (λ q → fam-dom a b ((λ q → fst q) q)) (Sem b) (λ q x → snd ((λ q → fst q) q) x) X))
-lt-path Γ a b X Δ' τ = (pcat (Mean Δ' (Sem b)) (fmapM Δ' (TV b) (Sem b) (λ q → fst q) (subM Δ' (lam-ctx Γ a b X) (TV b) τ (lam-body Γ a b X))) (subM Δ' (lam-ctx Γ a b X) (Sem b) τ (fmapM (lam-ctx Γ a b X) (TV b) (Sem b) (λ q → fst q) (lam-body Γ a b X))) (subM Δ' (lam-ctx Γ a b X) (Sem b) τ (ext-lift Γ a (TV (s-pi a b)) (λ q → fam-dom a b ((λ q → fst q) q)) (Sem b) (λ q x → snd ((λ q → fst q) q) x) X)) (subM-fmap Δ' (lam-ctx Γ a b X) (TV b) (Sem b) (λ q → fst q) τ (lam-body Γ a b X)) (cong1 (Mean (lam-ctx Γ a b X) (Sem b)) (Mean Δ' (Sem b)) (λ N → subM Δ' (lam-ctx Γ a b X) (Sem b) τ N) (fmapM (lam-ctx Γ a b X) (TV b) (Sem b) (λ q → fst q) (lam-body Γ a b X)) (ext-lift Γ a (TV (s-pi a b)) (λ q → fam-dom a b ((λ q → fst q) q)) (Sem b) (λ q x → snd ((λ q → fst q) q) x) X) (lift-fm Γ a (TV (s-pi a b)) (λ q → fst (fst q)) X (TV b) (Sem b) (λ q x → (snd (fst q) x , snd q x)) (λ q → fst q))))
-ld-path : (Γ : CCtx) (a b : TyShape) (X : Mean Γ (TV (s-pi a b))) (Δ : CCtx) (σ : Sub Δ Γ) → PathM Δ (Sem a) (subM Δ Γ (Sem a) σ (fmapM Γ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) X)) (fmapM Δ (Fam a b) (Sem a) (λ F → fst F) (fmapM Δ (TV (s-pi a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-pi a b)) σ X)))
-ld-path Γ a b X Δ σ = (pcat (Mean Δ (Sem a)) (subM Δ Γ (Sem a) σ (fmapM Γ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) X)) (fmapM Δ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) (subM Δ Γ (TV (s-pi a b)) σ X)) (fmapM Δ (Fam a b) (Sem a) (λ F → fst F) (fmapM Δ (TV (s-pi a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-pi a b)) σ X))) (psym (Mean Δ (Sem a)) (fmapM Δ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) (subM Δ Γ (TV (s-pi a b)) σ X)) (subM Δ Γ (Sem a) σ (fmapM Γ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) X)) (subM-fmap Δ Γ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) σ X)) (psym (Mean Δ (Sem a)) (fmapM Δ (Fam a b) (Sem a) (λ F → fst F) (fmapM Δ (TV (s-pi a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-pi a b)) σ X))) (fmapM Δ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) (subM Δ Γ (TV (s-pi a b)) σ X)) (fmapM-fmapM Δ (TV (s-pi a b)) (Fam a b) (Sem a) (λ q → fst q) (λ F → fst F) (subM Δ Γ (TV (s-pi a b)) σ X))))
-fund-lam : (Γ : CCtx) (a b : TyShape) (X : Mean Γ (TV (s-pi a b))) (Δ : CCtx) (σ : Sub Δ Γ) (e : CompEnv Γ Δ σ) →
-  CompTy a Δ (subM Δ Γ (Sem a) σ (fmapM Γ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) X)) → ((Δ'' : CCtx) (τ : Sub Δ'' (lam-ctx Γ a b X)) → CompEnv (lam-ctx Γ a b X) Δ'' τ → CompS b Δ'' (subM Δ'' (lam-ctx Γ a b X) (TV b) τ (lam-body Γ a b X))) → CompS (s-pi a b) Δ (subM Δ Γ (TV (s-pi a b)) σ X)
+  (jc-tr j-tm b Δ' (subM Δ' (lam-ctx Γ a b X) (TV b) (ext-at Δ' Γ a (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q)) (lam-body Γ a b X)) (fmapM Δ' (AppV a b) (TV b) (app-r a b) Yk) (lp-path Γ a b X Δ σ Δ' w Yk q) (body Δ' (ext-at Δ' Γ a (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q)) (ext-env Δ' Γ a (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ y → y) (λ q → fst (fst q)) X (sub-wcomp Δ' Δ Γ w σ) (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a ((λ q → fst (fst q)) yq)) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Yk) (lp-p Γ a b X Δ σ Δ' w Yk q) (env-w Γ Δ σ e Δ' w) (lp-cn Γ a b X Δ σ Δ' w Yk q ca))))
+lt-path : (Γ : CCtx) (a b : TyShape) (X : Mean Γ (TV (s-fam f-pi a b))) (Δ' : CCtx) (τ : Sub Δ' (lam-ctx Γ a b X)) → PathM Δ' (Sem b) (fmapM Δ' (TV b) (Sem b) (λ q → fst q) (subM Δ' (lam-ctx Γ a b X) (TV b) τ (lam-body Γ a b X))) (subM Δ' (lam-ctx Γ a b X) (Sem b) τ (ext-lift Γ a (TV (s-fam f-pi a b)) (λ q → fam-dom a b ((λ q → fst q) q)) (Sem b) (λ q x → snd ((λ q → fst q) q) x) X))
+lt-path Γ a b X Δ' τ = (pcat (Mean Δ' (Sem b)) (fmapM Δ' (TV b) (Sem b) (λ q → fst q) (subM Δ' (lam-ctx Γ a b X) (TV b) τ (lam-body Γ a b X))) (subM Δ' (lam-ctx Γ a b X) (Sem b) τ (fmapM (lam-ctx Γ a b X) (TV b) (Sem b) (λ q → fst q) (lam-body Γ a b X))) (subM Δ' (lam-ctx Γ a b X) (Sem b) τ (ext-lift Γ a (TV (s-fam f-pi a b)) (λ q → fam-dom a b ((λ q → fst q) q)) (Sem b) (λ q x → snd ((λ q → fst q) q) x) X)) (subM-fmap Δ' (lam-ctx Γ a b X) (TV b) (Sem b) (λ q → fst q) τ (lam-body Γ a b X)) (cong1 (Mean (lam-ctx Γ a b X) (Sem b)) (Mean Δ' (Sem b)) (λ N → subM Δ' (lam-ctx Γ a b X) (Sem b) τ N) (fmapM (lam-ctx Γ a b X) (TV b) (Sem b) (λ q → fst q) (lam-body Γ a b X)) (ext-lift Γ a (TV (s-fam f-pi a b)) (λ q → fam-dom a b ((λ q → fst q) q)) (Sem b) (λ q x → snd ((λ q → fst q) q) x) X) (lift-fm Γ a (TV (s-fam f-pi a b)) (λ q → fst (fst q)) X (TV b) (Sem b) (λ q x → (snd (fst q) x , snd q x)) (λ q → fst q))))
+ld-path : (Γ : CCtx) (a b : TyShape) (X : Mean Γ (TV (s-fam f-pi a b))) (Δ : CCtx) (σ : Sub Δ Γ) → PathM Δ (Sem a) (subM Δ Γ (Sem a) σ (fmapM Γ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) X)) (fmapM Δ (Fam a b) (Sem a) (λ F → fst F) (fmapM Δ (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-fam f-pi a b)) σ X)))
+ld-path Γ a b X Δ σ = (pcat (Mean Δ (Sem a)) (subM Δ Γ (Sem a) σ (fmapM Γ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) X)) (fmapM Δ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) (subM Δ Γ (TV (s-fam f-pi a b)) σ X)) (fmapM Δ (Fam a b) (Sem a) (λ F → fst F) (fmapM Δ (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-fam f-pi a b)) σ X))) (psym (Mean Δ (Sem a)) (fmapM Δ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) (subM Δ Γ (TV (s-fam f-pi a b)) σ X)) (subM Δ Γ (Sem a) σ (fmapM Γ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) X)) (subM-fmap Δ Γ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) σ X)) (psym (Mean Δ (Sem a)) (fmapM Δ (Fam a b) (Sem a) (λ F → fst F) (fmapM Δ (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-fam f-pi a b)) σ X))) (fmapM Δ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) (subM Δ Γ (TV (s-fam f-pi a b)) σ X)) (fmapM-fmapM Δ (TV (s-fam f-pi a b)) (Fam a b) (Sem a) (λ q → fst q) (λ F → fst F) (subM Δ Γ (TV (s-fam f-pi a b)) σ X))))
+fund-lam : (Γ : CCtx) (a b : TyShape) (X : Mean Γ (TV (s-fam f-pi a b))) (Δ : CCtx) (σ : Sub Δ Γ) (e : CompEnv Γ Δ σ) →
+  CompTy a Δ (subM Δ Γ (Sem a) σ (fmapM Γ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) X)) → ((Δ'' : CCtx) (τ : Sub Δ'' (lam-ctx Γ a b X)) → CompEnv (lam-ctx Γ a b X) Δ'' τ → CompS b Δ'' (subM Δ'' (lam-ctx Γ a b X) (TV b) τ (lam-body Γ a b X))) → CompS (s-fam f-pi a b) Δ (subM Δ Γ (TV (s-fam f-pi a b)) σ X)
 fund-lam Γ a b X Δ σ e dA body =
-  (((jc-tr j-ty a Δ (subM Δ Γ (Sem a) σ (fmapM Γ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) X)) (fmapM Δ (Fam a b) (Sem a) (λ F → fst F) (fmapM Δ (TV (s-pi a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-pi a b)) σ X))) (ld-path Γ a b X Δ σ) dA) ,
-    cod-k Γ a b (TV (s-pi a b)) (λ q → fst q) X Δ σ e (fmapM Δ (TV (s-pi a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-pi a b)) σ X)) (λ i → (fmapM Δ (TV (s-pi a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-pi a b)) σ X)))
-      (λ Δ' τ e' → jc-tr j-ty b Δ' (fmapM Δ' (TV b) (Sem b) (λ q → fst q) (subM Δ' (lam-ctx Γ a b X) (TV b) τ (lam-body Γ a b X))) (subM Δ' (lam-ctx Γ a b X) (Sem b) τ (ext-lift Γ a (TV (s-pi a b)) (λ q → fam-dom a b ((λ q → fst q) q)) (Sem b) (λ q x → snd ((λ q → fst q) q) x) X)) (lt-path Γ a b X Δ' τ) (fst (body Δ' τ e')))) ,
+  (((jc-tr j-ty a Δ (subM Δ Γ (Sem a) σ (fmapM Γ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) X)) (fmapM Δ (Fam a b) (Sem a) (λ F → fst F) (fmapM Δ (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-fam f-pi a b)) σ X))) (ld-path Γ a b X Δ σ) dA) ,
+    cod-k Γ a b (TV (s-fam f-pi a b)) (λ q → fst q) X Δ σ e (fmapM Δ (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-fam f-pi a b)) σ X)) (λ i → (fmapM Δ (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-fam f-pi a b)) σ X)))
+      (λ Δ' τ e' → jc-tr j-ty b Δ' (fmapM Δ' (TV b) (Sem b) (λ q → fst q) (subM Δ' (lam-ctx Γ a b X) (TV b) τ (lam-body Γ a b X))) (subM Δ' (lam-ctx Γ a b X) (Sem b) τ (ext-lift Γ a (TV (s-fam f-pi a b)) (λ q → fam-dom a b ((λ q → fst q) q)) (Sem b) (λ q x → snd ((λ q → fst q) q) x) X)) (lt-path Γ a b X Δ' τ) (fst (body Δ' τ e')))) ,
    λ Δ' w Yk q ca → fund-lam-tm Γ a b X Δ σ Δ' w Yk q e body ca)
-fund-pair : (Γ : CCtx) (a b : TyShape) (R : Mean Γ (TV (s-sig a b))) (Δ : CCtx) (σ : Sub Δ Γ) (e : CompEnv Γ Δ σ) →
-  CompS a Δ (subM Δ Γ (TV a) σ (fmapM Γ (TV (s-sig a b)) (TV a) (sig-1 a b) R)) → CompS b Δ (subM Δ Γ (TV b) σ (fmapM Γ (TV (s-sig a b)) (TV b) (sig-2 a b) R)) →
-  ((Δ' : CCtx) (τ : Sub Δ' (ext-h Γ a (TV (s-sig a b)) (λ q → fam-dom a b (fst q)) R)) → CompEnv (ext-h Γ a (TV (s-sig a b)) (λ q → fam-dom a b (fst q)) R) Δ' τ → CompTy b Δ' (subM Δ' (ext-h Γ a (TV (s-sig a b)) (λ q → fam-dom a b (fst q)) R) (Sem b) τ (pair-cod Γ a b R))) →
-  CompS (s-sig a b) Δ (subM Δ Γ (TV (s-sig a b)) σ R)
+fund-pair : (Γ : CCtx) (a b : TyShape) (R : Mean Γ (TV (s-fam f-sig a b))) (Δ : CCtx) (σ : Sub Δ Γ) (e : CompEnv Γ Δ σ) →
+  CompS a Δ (subM Δ Γ (TV a) σ (fmapM Γ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) R)) → CompS b Δ (subM Δ Γ (TV b) σ (fmapM Γ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) R)) →
+  ((Δ' : CCtx) (τ : Sub Δ' (ext-h Γ a (TV (s-fam f-sig a b)) (λ q → fam-dom a b (fst q)) R)) → CompEnv (ext-h Γ a (TV (s-fam f-sig a b)) (λ q → fam-dom a b (fst q)) R) Δ' τ → CompTy b Δ' (subM Δ' (ext-h Γ a (TV (s-fam f-sig a b)) (λ q → fam-dom a b (fst q)) R) (Sem b) τ (pair-cod Γ a b R))) →
+  CompS (s-fam f-sig a b) Δ (subM Δ Γ (TV (s-fam f-sig a b)) σ R)
 fund-pair Γ a b R Δ σ e c1 c2 bodyT =
-  (((jc-tr j-ty a Δ (fmapM Δ (TV a) (Sem a) (λ q → fst q) (fmapM Δ (TV (s-sig a b)) (TV a) (sig-1 a b) (subM Δ Γ (TV (s-sig a b)) σ R))) (fmapM Δ (Fam a b) (Sem a) (λ F → fst F) (fmapM Δ (TV (s-sig a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-sig a b)) σ R))) (pcat (Mean Δ (Sem a)) (fmapM Δ (TV a) (Sem a) (λ q → fst q) (fmapM Δ (TV (s-sig a b)) (TV a) (sig-1 a b) (subM Δ Γ (TV (s-sig a b)) σ R))) (fmapM Δ (TV (s-sig a b)) (Sem a) (λ q → fst (fst q)) (subM Δ Γ (TV (s-sig a b)) σ R)) (fmapM Δ (Fam a b) (Sem a) (λ F → fst F) (fmapM Δ (TV (s-sig a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-sig a b)) σ R))) (fmapM-fmapM Δ (TV (s-sig a b)) (TV a) (Sem a) (sig-1 a b) (λ q → fst q) (subM Δ Γ (TV (s-sig a b)) σ R)) (psym (Mean Δ (Sem a)) (fmapM Δ (Fam a b) (Sem a) (λ F → fst F) (fmapM Δ (TV (s-sig a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-sig a b)) σ R))) (fmapM Δ (TV (s-sig a b)) (Sem a) (λ q → fst (fst q)) (subM Δ Γ (TV (s-sig a b)) σ R)) (fmapM-fmapM Δ (TV (s-sig a b)) (Fam a b) (Sem a) (λ q → fst q) (λ F → fst F) (subM Δ Γ (TV (s-sig a b)) σ R)))) (fst (jc-tr j-tm a Δ (subM Δ Γ (TV a) σ (fmapM Γ (TV (s-sig a b)) (TV a) (sig-1 a b) R)) (fmapM Δ (TV (s-sig a b)) (TV a) (sig-1 a b) (subM Δ Γ (TV (s-sig a b)) σ R)) (psym (Mean Δ (TV a)) (fmapM Δ (TV (s-sig a b)) (TV a) (sig-1 a b) (subM Δ Γ (TV (s-sig a b)) σ R)) (subM Δ Γ (TV a) σ (fmapM Γ (TV (s-sig a b)) (TV a) (sig-1 a b) R)) (subM-fmap Δ Γ (TV (s-sig a b)) (TV a) (sig-1 a b) σ R)) c1))) ,
-    cod-k Γ a b (TV (s-sig a b)) (λ q → fst q) R Δ σ e (fmapM Δ (TV (s-sig a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-sig a b)) σ R)) (λ i → (fmapM Δ (TV (s-sig a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-sig a b)) σ R))) bodyT) ,
-   ((jc-tr j-tm a Δ (subM Δ Γ (TV a) σ (fmapM Γ (TV (s-sig a b)) (TV a) (sig-1 a b) R)) (fmapM Δ (TV (s-sig a b)) (TV a) (sig-1 a b) (subM Δ Γ (TV (s-sig a b)) σ R)) (psym (Mean Δ (TV a)) (fmapM Δ (TV (s-sig a b)) (TV a) (sig-1 a b) (subM Δ Γ (TV (s-sig a b)) σ R)) (subM Δ Γ (TV a) σ (fmapM Γ (TV (s-sig a b)) (TV a) (sig-1 a b) R)) (subM-fmap Δ Γ (TV (s-sig a b)) (TV a) (sig-1 a b) σ R)) c1) , (jc-tr j-tm b Δ (subM Δ Γ (TV b) σ (fmapM Γ (TV (s-sig a b)) (TV b) (sig-2 a b) R)) (fmapM Δ (TV (s-sig a b)) (TV b) (sig-2 a b) (subM Δ Γ (TV (s-sig a b)) σ R)) (psym (Mean Δ (TV b)) (fmapM Δ (TV (s-sig a b)) (TV b) (sig-2 a b) (subM Δ Γ (TV (s-sig a b)) σ R)) (subM Δ Γ (TV b) σ (fmapM Γ (TV (s-sig a b)) (TV b) (sig-2 a b) R)) (subM-fmap Δ Γ (TV (s-sig a b)) (TV b) (sig-2 a b) σ R)) c2)))
+  (((jc-tr j-ty a Δ (fmapM Δ (TV a) (Sem a) (λ q → fst q) (fmapM Δ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) (subM Δ Γ (TV (s-fam f-sig a b)) σ R))) (fmapM Δ (Fam a b) (Sem a) (λ F → fst F) (fmapM Δ (TV (s-fam f-sig a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-fam f-sig a b)) σ R))) (pcat (Mean Δ (Sem a)) (fmapM Δ (TV a) (Sem a) (λ q → fst q) (fmapM Δ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) (subM Δ Γ (TV (s-fam f-sig a b)) σ R))) (fmapM Δ (TV (s-fam f-sig a b)) (Sem a) (λ q → fst (fst q)) (subM Δ Γ (TV (s-fam f-sig a b)) σ R)) (fmapM Δ (Fam a b) (Sem a) (λ F → fst F) (fmapM Δ (TV (s-fam f-sig a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-fam f-sig a b)) σ R))) (fmapM-fmapM Δ (TV (s-fam f-sig a b)) (TV a) (Sem a) (sig-1 a b) (λ q → fst q) (subM Δ Γ (TV (s-fam f-sig a b)) σ R)) (psym (Mean Δ (Sem a)) (fmapM Δ (Fam a b) (Sem a) (λ F → fst F) (fmapM Δ (TV (s-fam f-sig a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-fam f-sig a b)) σ R))) (fmapM Δ (TV (s-fam f-sig a b)) (Sem a) (λ q → fst (fst q)) (subM Δ Γ (TV (s-fam f-sig a b)) σ R)) (fmapM-fmapM Δ (TV (s-fam f-sig a b)) (Fam a b) (Sem a) (λ q → fst q) (λ F → fst F) (subM Δ Γ (TV (s-fam f-sig a b)) σ R)))) (fst (jc-tr j-tm a Δ (subM Δ Γ (TV a) σ (fmapM Γ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) R)) (fmapM Δ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) (subM Δ Γ (TV (s-fam f-sig a b)) σ R)) (psym (Mean Δ (TV a)) (fmapM Δ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) (subM Δ Γ (TV (s-fam f-sig a b)) σ R)) (subM Δ Γ (TV a) σ (fmapM Γ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) R)) (subM-fmap Δ Γ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) σ R)) c1))) ,
+    cod-k Γ a b (TV (s-fam f-sig a b)) (λ q → fst q) R Δ σ e (fmapM Δ (TV (s-fam f-sig a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-fam f-sig a b)) σ R)) (λ i → (fmapM Δ (TV (s-fam f-sig a b)) (Fam a b) (λ q → fst q) (subM Δ Γ (TV (s-fam f-sig a b)) σ R))) bodyT) ,
+   ((jc-tr j-tm a Δ (subM Δ Γ (TV a) σ (fmapM Γ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) R)) (fmapM Δ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) (subM Δ Γ (TV (s-fam f-sig a b)) σ R)) (psym (Mean Δ (TV a)) (fmapM Δ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) (subM Δ Γ (TV (s-fam f-sig a b)) σ R)) (subM Δ Γ (TV a) σ (fmapM Γ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) R)) (subM-fmap Δ Γ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) σ R)) c1) , (jc-tr j-tm b Δ (subM Δ Γ (TV b) σ (fmapM Γ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) R)) (fmapM Δ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) (subM Δ Γ (TV (s-fam f-sig a b)) σ R)) (psym (Mean Δ (TV b)) (fmapM Δ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) (subM Δ Γ (TV (s-fam f-sig a b)) σ R)) (subM Δ Γ (TV b) σ (fmapM Γ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) R)) (subM-fmap Δ Γ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) σ R)) c2)))
 fund-tfam : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (Δ : CCtx) (σ : Sub Δ Γ) (e : CompEnv Γ Δ σ) →
   CompTy a Δ (subM Δ Γ (Sem a) σ (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T)) →
   ((Δ' : CCtx) (τ : Sub Δ' (ext-h Γ a (Fam a b) (fam-dom a b) T)) → CompEnv (ext-h Γ a (Fam a b) (fam-dom a b) T) Δ' τ → CompTy b Δ' (subM Δ' (ext-h Γ a (Fam a b) (fam-dom a b) T) (Sem b) τ (fam-body Γ a b T))) →
-  CompTy (s-pi a b) Δ (subM Δ Γ (Fam a b) σ T)
+  CompTy (s-fam f-pi a b) Δ (subM Δ Γ (Fam a b) σ T)
 fund-tfam Γ a b T Δ σ e dA dB =
   ((jc-tr j-ty a Δ (subM Δ Γ (Sem a) σ (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T)) (fmapM Δ (Fam a b) (Sem a) (λ F → fst F) (subM Δ Γ (Fam a b) σ T)) (psym (Mean Δ (Sem a)) (fmapM Δ (Fam a b) (Sem a) (λ F → fst F) (subM Δ Γ (Fam a b) σ T)) (subM Δ Γ (Sem a) σ (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T)) (subM-fmap Δ Γ (Fam a b) (Sem a) (fam-dom a b) σ T)) dA) ,
    cod-k Γ a b (Fam a b) (λ F → F) T Δ σ e (subM Δ Γ (Fam a b) σ T) (fmap-id (dims (fst Δ)) (CtxV (fst Δ)) (FbE (fst Δ) (Fam a b)) (snd Δ) (subM Δ Γ (Fam a b) σ T)) dB)
@@ -742,8 +740,8 @@ zip-swap zero X F G F2 H c d e = λ i → H c d e
 zip-swap (suc n) X F G F2 H c d e = zip-swap n (Line X) (LineO X F) (LineO X G) (LineO X F2) (lineo-zip X F G F2 H) c d e
 ln-rev-dom : (a b : TyShape) → Line (Fam a b) → Line (Sem a)
 ln-rev-dom a b L = (fst (fst (snd L)) , fst (fst L) , λ i → fst (snd (snd L) (~ i)))
-kp-A : (a b : TyShape) (Δ' : CCtx) (Y : Mean Δ' (AppV a b)) → Mean Δ' ((yq : (TV (s-pi a b))) × El a (fst (fst yq)))
-kp-A a b Δ' Y = (fmapM Δ' (AppV a b) ((yq : (TV (s-pi a b))) × El a (fst (fst yq))) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Y)
+kp-A : (a b : TyShape) (Δ' : CCtx) (Y : Mean Δ' (AppV a b)) → Mean Δ' ((yq : (TV (s-fam f-pi a b))) × El a (fst (fst yq)))
+kp-A a b Δ' Y = (fmapM Δ' (AppV a b) ((yq : (TV (s-fam f-pi a b))) × El a (fst (fst yq))) (λ y → ((fst y , fst (snd y)) , snd (snd y))) Y)
 papp-line-end1 : (Γ : CCtx) (Y Z : Type 1) (ℓ : Y → Line Z) (X : Mean Γ Y) → PathM Γ Z (fmapM Γ Y Z (λ q → fst (snd (ℓ q))) X) (papp-line Γ Y Z ℓ dnf-one X)
 papp-line-end1 Γ Y Z ℓ X = psym (Mean Γ Z) (papp-line Γ Y Z ℓ dnf-one X) (fmapM Γ Y Z (λ q → fst (snd (ℓ q))) X)
   (fmap-fmap (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) Y) (DL (CtxV (fst Γ)) (FbE (fst Γ) Z)) (FbE (fst Γ) Z) (fline (fst Γ) Y Z ℓ) (λ x q → fst (snd q)) (snd Γ) X)
@@ -770,8 +768,7 @@ fund-alg r-plam t-any (x-pc Γ a X c) k p = λ Δ σ e → fund-plam Γ a X Δ �
 fund-alg r-papp t-any (x-papp Γ a P c f cf nc Y y) k p = λ Δ σ e → fund-papp Γ a P f Y y Δ σ e (fst p Δ σ e)
 fund-alg (r-pend b) t-any (x-pc Γ a P c) k p = λ Δ σ e → fund-pend b Γ a P Δ σ (fst p Δ σ e)
 fund-alg r-ty-bool t-any (x-unit Γ B) k p = λ Δ σ e → one
-fund-alg (r-ty-fam f-pi) t-any (x-fam Γ a b T cA cB) k p = λ Δ σ e → fund-tfam Γ a b T Δ σ e (fst p Δ σ e) (fst (snd p))
-fund-alg (r-ty-fam f-sig) t-any (x-fam Γ a b T cA cB) k p = λ Δ σ e → fund-tfam Γ a b T Δ σ e (fst p Δ σ e) (fst (snd p))
+fund-alg (r-ty-fam fm) t-any (x-fam Γ a b T cA cB) k p = λ Δ σ e → fund-tfam Γ a b T Δ σ e (fst p Δ σ e) (fst (snd p))
 fund-alg r-ty-path t-any (x-tp Γ a T cL c0 c1) k p = λ Δ σ e → fund-tpath Γ a T Δ σ e (fst p) (fst (snd p) Δ σ e) (fst (snd (snd p)) Δ σ e)
 fund-alg r t x k p = Empty-rec k
 fund : {J : Jdg} → Der J → FundAt J
@@ -869,30 +866,30 @@ subst-ty-sound : (Γ Δ : CCtx) (tΔ : TCtx Δ) (σ : Sub Δ Γ) (ds : DSubst Γ
   PathM Δ (Sem s) (fst (snd (subst-ty Γ Δ tΔ σ ds s A))) (subM Δ Γ (Sem s) σ (fst (snd A)))
 subst-ty-sound Γ Δ tΔ σ ds s A = λ i → subM Δ Γ (Sem s) σ (fst (snd A))
 spec : (Γ : CCtx) → TCtx Γ → (a b : TyShape) (R : Mean Γ (AppV a b)) (cq cr : Code) →
-  Der (j-tm , Γ , s-pi a b , cq , fmapM Γ (AppV a b) (TV (s-pi a b)) (app-f a b) R) →
+  Der (j-tm , Γ , s-fam f-pi a b , cq , fmapM Γ (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) R) →
   Der (j-tm , Γ , a , cr , fmapM Γ (AppV a b) (TV a) (app-a a b) R) → TCode Γ b
 spec Γ tΓ a b R cq cr dq dr =
   normalize Γ tΓ b (capp cq cr , fmapM Γ (AppV a b) (TV b) (app-r a b) R , dapp Γ a b R cq cr dq dr)
 spec-sound : (Γ : CCtx) (tΓ : TCtx Γ) (a b : TyShape) (R : Mean Γ (AppV a b)) (cq cr : Code)
-  (dq : Der (j-tm , Γ , s-pi a b , cq , fmapM Γ (AppV a b) (TV (s-pi a b)) (app-f a b) R))
+  (dq : Der (j-tm , Γ , s-fam f-pi a b , cq , fmapM Γ (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) R))
   (dr : Der (j-tm , Γ , a , cr , fmapM Γ (AppV a b) (TV a) (app-a a b) R)) →
   PathM Γ (TV b) (teval Γ b (spec Γ tΓ a b R cq cr dq dr)) (fmapM Γ (AppV a b) (TV b) (app-r a b) R)
 spec-sound Γ tΓ a b R cq cr dq dr = λ i → fmapM Γ (AppV a b) (TV b) (app-r a b) R
-compiled : (p d o : TyShape) (R : Mean (lnil , one) (AppV p (s-pi d o))) (ce cq : Code) →
-  Der (j-tm , (lnil , one) , s-pi p (s-pi d o) , ce , fmapM (lnil , one) (AppV p (s-pi d o)) (TV (s-pi p (s-pi d o))) (app-f p (s-pi d o)) R) →
-  Der (j-tm , (lnil , one) , p , cq , fmapM (lnil , one) (AppV p (s-pi d o)) (TV p) (app-a p (s-pi d o)) R) → TCode (lnil , one) (s-pi d o)
-compiled p d o R ce cq de dq = spec (lnil , one) tc-nil p (s-pi d o) R ce cq de dq
-compiled-sound : (p d o : TyShape) (R : Mean (lnil , one) (AppV p (s-pi d o))) (ce cq : Code)
-  (de : Der (j-tm , (lnil , one) , s-pi p (s-pi d o) , ce , fmapM (lnil , one) (AppV p (s-pi d o)) (TV (s-pi p (s-pi d o))) (app-f p (s-pi d o)) R))
-  (dq : Der (j-tm , (lnil , one) , p , cq , fmapM (lnil , one) (AppV p (s-pi d o)) (TV p) (app-a p (s-pi d o)) R))
-  (ρ : One1) (x : El d (fst (fst (app-r p (s-pi d o) (R ρ))))) →
-  PathP (λ i → El o (snd (fst (app-r p (s-pi d o) (R ρ))) x)) (snd (teval (lnil , one) (s-pi d o) (compiled p d o R ce cq de dq) ρ) x)
+compiled : (p d o : TyShape) (R : Mean (lnil , one) (AppV p (s-fam f-pi d o))) (ce cq : Code) →
+  Der (j-tm , (lnil , one) , s-fam f-pi p (s-fam f-pi d o) , ce , fmapM (lnil , one) (AppV p (s-fam f-pi d o)) (TV (s-fam f-pi p (s-fam f-pi d o))) (app-f p (s-fam f-pi d o)) R) →
+  Der (j-tm , (lnil , one) , p , cq , fmapM (lnil , one) (AppV p (s-fam f-pi d o)) (TV p) (app-a p (s-fam f-pi d o)) R) → TCode (lnil , one) (s-fam f-pi d o)
+compiled p d o R ce cq de dq = spec (lnil , one) tc-nil p (s-fam f-pi d o) R ce cq de dq
+compiled-sound : (p d o : TyShape) (R : Mean (lnil , one) (AppV p (s-fam f-pi d o))) (ce cq : Code)
+  (de : Der (j-tm , (lnil , one) , s-fam f-pi p (s-fam f-pi d o) , ce , fmapM (lnil , one) (AppV p (s-fam f-pi d o)) (TV (s-fam f-pi p (s-fam f-pi d o))) (app-f p (s-fam f-pi d o)) R))
+  (dq : Der (j-tm , (lnil , one) , p , cq , fmapM (lnil , one) (AppV p (s-fam f-pi d o)) (TV p) (app-a p (s-fam f-pi d o)) R))
+  (ρ : One1) (x : El d (fst (fst (app-r p (s-fam f-pi d o) (R ρ))))) →
+  PathP (λ i → El o (snd (fst (app-r p (s-fam f-pi d o) (R ρ))) x)) (snd (teval (lnil , one) (s-fam f-pi d o) (compiled p d o R ce cq de dq) ρ) x)
     (fst (snd (R ρ)) (snd (snd (R ρ))) x)
 compiled-sound p d o R ce cq de dq ρ x = λ i → fst (snd (R ρ)) (snd (snd (R ρ))) x
 CodeAt : (s : TyShape) → Mean (lnil , one) (Sem s) → Type 1
 CodeAt s T = (c : Code) × (x : (ρ : One1) → El s (T ρ)) × Der (j-tm , (lnil , one) , s , c , λ ρ → (T ρ , x ρ))
-compile : (p d o : TyShape) (T : Mean (lnil , one) (Fam p (s-pi d o))) →
-  CodeAt (s-pi p (s-pi d o)) T → CodeAt p (λ ρ → fst (T ρ)) → TCode (lnil , one) (s-pi d o)
+compile : (p d o : TyShape) (T : Mean (lnil , one) (Fam p (s-fam f-pi d o))) →
+  CodeAt (s-fam f-pi p (s-fam f-pi d o)) T → CodeAt p (λ ρ → fst (T ρ)) → TCode (lnil , one) (s-fam f-pi d o)
 compile p d o T e q = compiled p d o (λ ρ → (T ρ , fst (snd e) ρ , fst (snd q) ρ)) (fst e) (fst q) (snd (snd e)) (snd (snd q))
 compiler-code : (A B CA CB CAB : Type 1) → (CAB → CA → CB) → (A → CA) → CAB → A → CB
 compiler-code A B CA CB CAB S lift qG e = S qG (lift e)
@@ -1202,9 +1199,9 @@ ty-pi-2 : (Γ : CCtx) (m : Word) (cA cB : Code) → m ≡ #2 → (a : TyShape) (
   (b : TyShape) (TB : Mean (ext-h Γ a (Sem a) (λ y → y) TA) (Sem b)) → Der (j-ty , ext-h Γ a (Sem a) (λ y → y) TA , b , cB , TB) →
   Dec1 (Out Γ (cpi m cA cB) m-ty)
 ty-pi-2 Γ m cA cB pm a TA dA b TB dB =
-  c-derived (s-pi a b , fam-of Γ a b TA TB ,
-    der-code j-ty Γ (s-pi a b) (cpi #2 cA cB) (cpi m cA cB) (fam-of Γ a b TA TB) (λ i → cpi (pm (~ i)) cA cB)
-      (dty-pi Γ a b (fam-of Γ a b TA TB) cA cB (fam-dA Γ a b TA TB cA dA) (fam-dB Γ a b TA TB cB dB)))
+  c-derived (s-fam f-pi a b , fam-of Γ a b TA TB ,
+    der-code j-ty Γ (s-fam f-pi a b) (cpi #2 cA cB) (cpi m cA cB) (fam-of Γ a b TA TB) (λ i → cpi (pm (~ i)) cA cB)
+      (dty-fam f-pi Γ a b (fam-of Γ a b TA TB) cA cB (fam-dA Γ a b TA TB cA dA) (fam-dB Γ a b TA TB cB dB)))
 ty-pi-1 : Rec → (Γ : CCtx) → Vals Γ → (m : Word) (cA cB : Code) → m ≡ #2 → (a : TyShape) (TA : Mean Γ (Sem a)) → Der (j-ty , Γ , a , cA , TA) →
   Dec1 (Out Γ (cpi m cA cB) m-ty)
 ty-pi-1 rec Γ vs m cA cB pm a TA dA =
@@ -1215,7 +1212,7 @@ ty-sig-2 : (Γ : CCtx) (cA cB : Code) (a : TyShape) (TA : Mean Γ (Sem a)) → D
   (b : TyShape) (TB : Mean (ext-h Γ a (Sem a) (λ y → y) TA) (Sem b)) → Der (j-ty , ext-h Γ a (Sem a) (λ y → y) TA , b , cB , TB) →
   Dec1 (Out Γ (csigma cA cB) m-ty)
 ty-sig-2 Γ cA cB a TA dA b TB dB =
-  c-derived (s-sig a b , fam-of Γ a b TA TB , dty-sig Γ a b (fam-of Γ a b TA TB) cA cB (fam-dA Γ a b TA TB cA dA) (fam-dB Γ a b TA TB cB dB))
+  c-derived (s-fam f-sig a b , fam-of Γ a b TA TB , dty-fam f-sig Γ a b (fam-of Γ a b TA TB) cA cB (fam-dA Γ a b TA TB cA dA) (fam-dB Γ a b TA TB cB dB))
 ty-sig-1 : Rec → (Γ : CCtx) → Vals Γ → (cA cB : Code) → (a : TyShape) (TA : Mean Γ (Sem a)) → Der (j-ty , Γ , a , cA , TA) →
   Dec1 (Out Γ (csigma cA cB) m-ty)
 ty-sig-1 rec Γ vs cA cB a TA dA =
@@ -1232,10 +1229,10 @@ var-find (lcons e-dim sk) f k = var-find sk f k
 var-find (lcons (e-ty a) sk) f k = vf-at sk a f k (w-dec (f none) k) (var-find sk (λ v → f (some v)) k)
 shape-cast : (s s' : TyShape) (P : TyShape → Type 1) → P s' → Dec1 (P s)
 shape-cast s-bool s-bool P x = c-derived x
-shape-cast (s-pi a b) (s-pi a' b') P x =
-  d-bind (P (s-pi a' b)) (P (s-pi a b)) (shape-cast b b' (λ b0 → P (s-pi a' b0)) x) (λ y → shape-cast a a' (λ a0 → P (s-pi a0 b)) y)
-shape-cast (s-sig a b) (s-sig a' b') P x =
-  d-bind (P (s-sig a' b)) (P (s-sig a b)) (shape-cast b b' (λ b0 → P (s-sig a' b0)) x) (λ y → shape-cast a a' (λ a0 → P (s-sig a0 b)) y)
+shape-cast (s-fam f-pi a b) (s-fam f-pi a' b') P x =
+  d-bind (P (s-fam f-pi a' b)) (P (s-fam f-pi a b)) (shape-cast b b' (λ b0 → P (s-fam f-pi a' b0)) x) (λ y → shape-cast a a' (λ a0 → P (s-fam f-pi a0 b)) y)
+shape-cast (s-fam f-sig a b) (s-fam f-sig a' b') P x =
+  d-bind (P (s-fam f-sig a' b)) (P (s-fam f-sig a b)) (shape-cast b b' (λ b0 → P (s-fam f-sig a' b0)) x) (λ y → shape-cast a a' (λ a0 → P (s-fam f-sig a0 b)) y)
 shape-cast (s-path a) (s-path a') P x = shape-cast a a' (λ a0 → P (s-path a0)) x
 shape-cast s s' P x = c-refused
 Contr1 : Type 1 → Type 1
@@ -1247,8 +1244,7 @@ fam-contr a b Ca Cb =
      λ xq → snd Cb (snd F (comp (λ j → El a (snd Ca (fst F) (i ∧ (~ j)))) (λ j → [ i = 0 ↦ xq ]) xq)) i))
 sem-contr : (s : TyShape) → Dec1 (Contr1 (Sem s))
 sem-contr s-bool = c-derived (one , one-contr)
-sem-contr (s-pi a b) = d-bind (Contr1 (Sem a)) (Contr1 (Sem (s-pi a b))) (sem-contr a) (λ Ca → d-bind (Contr1 (Sem b)) (Contr1 (Sem (s-pi a b))) (sem-contr b) (λ Cb → c-derived (fam-contr a b Ca Cb)))
-sem-contr (s-sig a b) = d-bind (Contr1 (Sem a)) (Contr1 (Sem (s-sig a b))) (sem-contr a) (λ Ca → d-bind (Contr1 (Sem b)) (Contr1 (Sem (s-sig a b))) (sem-contr b) (λ Cb → c-derived (fam-contr a b Ca Cb)))
+sem-contr (s-fam fm a b) = d-bind (Contr1 (Sem a)) (Contr1 (Sem (s-fam fm a b))) (sem-contr a) (λ Ca → d-bind (Contr1 (Sem b)) (Contr1 (Sem (s-fam fm a b))) (sem-contr b) (λ Cb → c-derived (fam-contr a b Ca Cb)))
 sem-contr (s-path a) = c-refused
 mean-contr : (Γ : CCtx) (Z : Type 1) → Contr1 Z → (T T' : Mean Γ Z) → PathM Γ Z T T'
 mean-contr Γ Z C T T' =
@@ -1274,10 +1270,10 @@ switch cv Γ vs c s T ct r =
     (shape-cast s (fst r) (λ s0 → (M : Mean Γ (TV s0)) × Der (j-tm , Γ , s0 , c , M)) (snd r))
     (λ q → switch-2 cv Γ vs c s T ct (fst q) (snd q))
 inf-fst : (Γ : CCtx) (p : Code) (s : TyShape) (P : Mean Γ (TV s)) → Der (j-tm , Γ , s , p , P) → Dec1 (Out Γ (cfst p) m-inf)
-inf-fst Γ p (s-sig a b) P dp = c-derived (a , fmapM Γ (TV (s-sig a b)) (TV a) (sig-1 a b) P , dfst Γ a b P p dp)
+inf-fst Γ p (s-fam f-sig a b) P dp = c-derived (a , fmapM Γ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) P , dfst Γ a b P p dp)
 inf-fst Γ p s P dp = c-refused
 inf-snd : (Γ : CCtx) (p : Code) (s : TyShape) (P : Mean Γ (TV s)) → Der (j-tm , Γ , s , p , P) → Dec1 (Out Γ (csnd p) m-inf)
-inf-snd Γ p (s-sig a b) P dp = c-derived (b , fmapM Γ (TV (s-sig a b)) (TV b) (sig-2 a b) P , dsnd Γ a b P p dp)
+inf-snd Γ p (s-fam f-sig a b) P dp = c-derived (b , fmapM Γ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) P , dsnd Γ a b P p dp)
 inf-snd Γ p s P dp = c-refused
 bool-path : (Γ : CCtx) (b : Bool) (T : Mean Γ One1) →
   PathM Γ One1 (fmapM Γ (TV s-bool) (Sem s-bool) (λ q → fst q) (fmapM Γ One1 (TV s-bool) (bool-v b) T)) T
@@ -1296,34 +1292,34 @@ chk-con Γ d k T ct pd none none = c-refused
 chk-con-at : (Γ : CCtx) (d k : Word) (s : TyShape) (T : Mean Γ (Sem s)) (ct : CompTy s Γ T) → d ≡ #0 → Dec1 (Out Γ (ccon d k lnil lnil) (m-chk s T ct))
 chk-con-at Γ d k s-bool T ct pd = chk-con Γ d k T ct pd (w-dec k #0) (w-dec k #1)
 chk-con-at Γ d k s T ct pd = c-refused
-app-mean : (Γ : CCtx) (a b : TyShape) (F : Mean Γ (TV (s-pi a b))) (A : Mean Γ (TV a)) →
-  PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) A) (fmapM Γ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) F) → Mean Γ (AppV a b)
-app-mean Γ a b F A pA = retype Γ a (TV (s-pi a b)) (AppV a b) (λ q → fam-dom a b (fst q)) (λ q v → (fst q , snd q , v)) F A pA
-app-2 : (Γ : CCtx) (a b : TyShape) (f c : Code) (F : Mean Γ (TV (s-pi a b))) → Der (j-tm , Γ , s-pi a b , f , F) →
-  (A : Mean Γ (TV a)) (pA : PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) A) (fmapM Γ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) F)) →
+app-mean : (Γ : CCtx) (a b : TyShape) (F : Mean Γ (TV (s-fam f-pi a b))) (A : Mean Γ (TV a)) →
+  PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) A) (fmapM Γ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) F) → Mean Γ (AppV a b)
+app-mean Γ a b F A pA = retype Γ a (TV (s-fam f-pi a b)) (AppV a b) (λ q → fam-dom a b (fst q)) (λ q v → (fst q , snd q , v)) F A pA
+app-2 : (Γ : CCtx) (a b : TyShape) (f c : Code) (F : Mean Γ (TV (s-fam f-pi a b))) → Der (j-tm , Γ , s-fam f-pi a b , f , F) →
+  (A : Mean Γ (TV a)) (pA : PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) A) (fmapM Γ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) F)) →
   Der (j-tm , Γ , a , c , A) → Dec1 (Out Γ (capp f c) m-inf)
 app-2 Γ a b f c F df A pA dA =
   c-derived (b , fmapM Γ (AppV a b) (TV b) (app-r a b) (app-mean Γ a b F A pA) ,
     dapp Γ a b (app-mean Γ a b F A pA) f c
-      (d-tr t-any j-tm Γ (s-pi a b) f F (fmapM Γ (AppV a b) (TV (s-pi a b)) (app-f a b) (app-mean Γ a b F A pA))
-        (psym (Mean Γ (TV (s-pi a b))) (fmapM Γ (AppV a b) (TV (s-pi a b)) (app-f a b) (app-mean Γ a b F A pA)) F
-          (pcat (Mean Γ (TV (s-pi a b))) (fmapM Γ (AppV a b) (TV (s-pi a b)) (app-f a b) (app-mean Γ a b F A pA)) (fmapM Γ (TV (s-pi a b)) (TV (s-pi a b)) (λ q → q) F) F
-            (retype-fst Γ a (TV (s-pi a b)) (AppV a b) (λ q → fam-dom a b (fst q)) (λ q v → (fst q , snd q , v)) F A pA (TV (s-pi a b)) (app-f a b) (λ q → q) (λ i u v → u))
-            (fmap-id (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) (TV (s-pi a b))) (snd Γ) F)))
+      (d-tr t-any j-tm Γ (s-fam f-pi a b) f F (fmapM Γ (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) (app-mean Γ a b F A pA))
+        (psym (Mean Γ (TV (s-fam f-pi a b))) (fmapM Γ (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) (app-mean Γ a b F A pA)) F
+          (pcat (Mean Γ (TV (s-fam f-pi a b))) (fmapM Γ (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) (app-mean Γ a b F A pA)) (fmapM Γ (TV (s-fam f-pi a b)) (TV (s-fam f-pi a b)) (λ q → q) F) F
+            (retype-fst Γ a (TV (s-fam f-pi a b)) (AppV a b) (λ q → fam-dom a b (fst q)) (λ q v → (fst q , snd q , v)) F A pA (TV (s-fam f-pi a b)) (app-f a b) (λ q → q) (λ i u v → u))
+            (fmap-id (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) (TV (s-fam f-pi a b))) (snd Γ) F)))
         df)
       (d-tr t-any j-tm Γ a c A (fmapM Γ (AppV a b) (TV a) (app-a a b) (app-mean Γ a b F A pA))
         (psym (Mean Γ (TV a)) (fmapM Γ (AppV a b) (TV a) (app-a a b) (app-mean Γ a b F A pA)) A
-          (retype-val Γ a (TV (s-pi a b)) (AppV a b) (λ q → fam-dom a b (fst q)) (λ q v → (fst q , snd q , v)) F A pA (app-a a b) (λ i u v → (fam-dom a b (fst u) , v))))
+          (retype-val Γ a (TV (s-fam f-pi a b)) (AppV a b) (λ q → fam-dom a b (fst q)) (λ q v → (fst q , snd q , v)) F A pA (app-a a b) (λ i u v → (fam-dom a b (fst u) , v))))
         dA))
 app-1 : Rec → (Γ : CCtx) → Vals Γ → (f c : Code) (s : TyShape) (F : Mean Γ (TV s)) → Der (j-tm , Γ , s , f , F) → Dec1 (Out Γ (capp f c) m-inf)
-app-1 rec Γ vs f c (s-pi a b) F df =
-  d-bind (Out Γ c (m-chk a (fmapM Γ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) F)
-            (jc-tr j-ty a Γ (fmapM Γ (Fam a b) (Sem a) (λ G → fst G) (fmapM Γ (TV (s-pi a b)) (Fam a b) (λ q → fst q) F)) (fmapM Γ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) F)
-              (fmapM-fmapM Γ (TV (s-pi a b)) (Fam a b) (Sem a) (λ q → fst q) (λ G → fst G) F) (fst (fst (comp-j j-tm Γ vs (s-pi a b) f F df))))))
+app-1 rec Γ vs f c (s-fam f-pi a b) F df =
+  d-bind (Out Γ c (m-chk a (fmapM Γ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) F)
+            (jc-tr j-ty a Γ (fmapM Γ (Fam a b) (Sem a) (λ G → fst G) (fmapM Γ (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) F)) (fmapM Γ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) F)
+              (fmapM-fmapM Γ (TV (s-fam f-pi a b)) (Fam a b) (Sem a) (λ q → fst q) (λ G → fst G) F) (fst (fst (comp-j j-tm Γ vs (s-fam f-pi a b) f F df))))))
     (Out Γ (capp f c) m-inf)
-    (rec Γ vs c (m-chk a (fmapM Γ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) F)
-            (jc-tr j-ty a Γ (fmapM Γ (Fam a b) (Sem a) (λ G → fst G) (fmapM Γ (TV (s-pi a b)) (Fam a b) (λ q → fst q) F)) (fmapM Γ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) F)
-              (fmapM-fmapM Γ (TV (s-pi a b)) (Fam a b) (Sem a) (λ q → fst q) (λ G → fst G) F) (fst (fst (comp-j j-tm Γ vs (s-pi a b) f F df))))))
+    (rec Γ vs c (m-chk a (fmapM Γ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) F)
+            (jc-tr j-ty a Γ (fmapM Γ (Fam a b) (Sem a) (λ G → fst G) (fmapM Γ (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) F)) (fmapM Γ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) F)
+              (fmapM-fmapM Γ (TV (s-fam f-pi a b)) (Fam a b) (Sem a) (λ q → fst q) (λ G → fst G) F) (fst (fst (comp-j j-tm Γ vs (s-fam f-pi a b) f F df))))))
     (λ rA → app-2 Γ a b f c F df (fst rA) (fst (snd rA)) (snd (snd rA)))
 app-1 rec Γ vs f c s F df = c-refused
 pull-lift-id : (n : Nat) (X X' : Type 1) (Y F : X → Type 1) (F' : X' → Type 1) (f : (x : X) → Y x → X') (g : (x : X) (y : Y x) → F' (f x y) → F x)
@@ -1332,19 +1328,19 @@ pull-lift-id : (n : Nat) (X X' : Type 1) (Y F : X → Type 1) (F' : X' → Type 
 pull-lift-id zero X X' Y F F' f g l c d = λ i → g c d (l c d)
 pull-lift-id (suc n) X X' Y F F' f g l c d =
   pull-lift-id n (Line X) (Line X') (LineO X Y) (LineO X F) (LineO X' F') (lineo-map X Y X' f) (lineo-pull X X' Y F F' f g) (lineo-lift X X' Y F' f l) c d
-lam-mk : (a b : TyShape) → (F : Fam a b) → (El a (fam-dom a b F) → TV b) → TV (s-pi a b)
+lam-mk : (a b : TyShape) → (F : Fam a b) → (El a (fam-dom a b F) → TV b) → TV (s-fam f-pi a b)
 lam-mk a b F k = ((fst F , λ x → fst (k x)) , λ x → snd (k x))
-lam-X : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) → Mean (ext-h Γ a (Fam a b) (fam-dom a b) T) (TV b) → Mean Γ (TV (s-pi a b))
-lam-X Γ a b T B = abs-mean Γ a (Fam a b) (TV (s-pi a b)) (TV b) (fam-dom a b) (lam-mk a b) T B
+lam-X : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) → Mean (ext-h Γ a (Fam a b) (fam-dom a b) T) (TV b) → Mean Γ (TV (s-fam f-pi a b))
+lam-X Γ a b T B = abs-mean Γ a (Fam a b) (TV (s-fam f-pi a b)) (TV b) (fam-dom a b) (lam-mk a b) T B
 lam-ty : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (B : Mean (ext-h Γ a (Fam a b) (fam-dom a b) T) (TV b)) →
   PathM (ext-h Γ a (Fam a b) (fam-dom a b) T) (Sem b) (fmapM (ext-h Γ a (Fam a b) (fam-dom a b) T) (TV b) (Sem b) (λ q → fst q) B) (fam-body Γ a b T) →
-  PathM Γ (Fam a b) (fmapM Γ (TV (s-pi a b)) (Fam a b) (λ q → fst q) (lam-X Γ a b T B)) T
+  PathM Γ (Fam a b) (fmapM Γ (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) (lam-X Γ a b T B)) T
 lam-ty Γ a b T B pB =
-  pcat (Mean Γ (Fam a b)) (fmapM Γ (TV (s-pi a b)) (Fam a b) (λ q → fst q) (lam-X Γ a b T B))
+  pcat (Mean Γ (Fam a b)) (fmapM Γ (TV (s-fam f-pi a b)) (Fam a b) (λ q → fst q) (lam-X Γ a b T B))
     (dcube-pull (dims (fst Γ)) (CtxV (fst Γ)) (CtxV (lcons (e-ty a) (fst Γ))) (FbE (fst Γ) (Fam a b)) (FbE (fst Γ) (Fam a b)) (FbE (lcons (e-ty a) (fst Γ)) (TV b))
       (λ γq eq → (γq , λ ρq → fam-dom a b (eq ρq))) (λ γq eq Eq ρq → (fst (eq ρq) , λ xq → fst (Eq (ρq , xq)))) (snd Γ) T B)
     T
-    (fmap-pull (dims (fst Γ)) (CtxV (fst Γ)) (CtxV (lcons (e-ty a) (fst Γ))) (FbE (fst Γ) (Fam a b)) (FbE (fst Γ) (TV (s-pi a b))) (FbE (fst Γ) (Fam a b)) (FbE (lcons (e-ty a) (fst Γ)) (TV b))
+    (fmap-pull (dims (fst Γ)) (CtxV (fst Γ)) (CtxV (lcons (e-ty a) (fst Γ))) (FbE (fst Γ) (Fam a b)) (FbE (fst Γ) (TV (s-fam f-pi a b))) (FbE (fst Γ) (Fam a b)) (FbE (lcons (e-ty a) (fst Γ)) (TV b))
       (λ γq eq → (γq , λ ρq → fam-dom a b (eq ρq))) (λ γq eq Eq ρq → lam-mk a b (eq ρq) (λ xq → Eq (ρq , xq))) (λ γq eq ρq → fst (eq ρq)) (snd Γ) T B)
     (pcat (Mean Γ (Fam a b))
       (dcube-pull (dims (fst Γ)) (CtxV (fst Γ)) (CtxV (lcons (e-ty a) (fst Γ))) (FbE (fst Γ) (Fam a b)) (FbE (fst Γ) (Fam a b)) (FbE (lcons (e-ty a) (fst Γ)) (TV b))
@@ -1378,36 +1374,36 @@ lam-ty Γ a b T B pB =
           (pull-lift-id (dims (fst Γ)) (CtxV (fst Γ)) (CtxV (lcons (e-ty a) (fst Γ))) (FbE (fst Γ) (Fam a b)) (FbE (fst Γ) (Fam a b)) (FbE (lcons (e-ty a) (fst Γ)) (Sem b))
             (λ γq eq → (γq , λ ρq → fam-dom a b (eq ρq))) (λ γq eq Eq ρq → (fst (eq ρq) , λ xq → Eq (ρq , xq))) (λ γq eq ρq → snd (eq (fst ρq)) (snd ρq)) (snd Γ) T)
           (fmap-id (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) (Fam a b)) (snd Γ) T))))
-lam-4 : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (ct : CompTy (s-pi a b) Γ T) (c₀ : Code)
+lam-4 : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (ct : CompTy (s-fam f-pi a b) Γ T) (c₀ : Code)
   (B : Mean (ext-h Γ a (Fam a b) (fam-dom a b) T) (TV b)) →
   PathM (ext-h Γ a (Fam a b) (fam-dom a b) T) (Sem b) (fmapM (ext-h Γ a (Fam a b) (fam-dom a b) T) (TV b) (Sem b) (λ q → fst q) B) (fam-body Γ a b T) →
   Der (j-tm , ext-h Γ a (Fam a b) (fam-dom a b) T , b , c₀ , B) →
-  (cA : Code) → Der (j-ty , Γ , a , cA , fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T) → Dec1 (Out Γ (clam c₀) (m-chk (s-pi a b) T ct))
+  (cA : Code) → Der (j-ty , Γ , a , cA , fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T) → Dec1 (Out Γ (clam c₀) (m-chk (s-fam f-pi a b) T ct))
 lam-4 Γ a b T ct c₀ B pB dB cA dA =
   c-derived (lam-X Γ a b T B , lam-ty Γ a b T B pB ,
     dlam Γ a b (lam-X Γ a b T B) cA c₀
-      (d-tr t-any j-ty Γ a cA (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T) (fmapM Γ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) (lam-X Γ a b T B))
-        (psym (Mean Γ (Sem a)) (fmapM Γ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) (lam-X Γ a b T B)) (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T)
-          (abs-fst Γ a (Fam a b) (TV (s-pi a b)) (TV b) (fam-dom a b) (lam-mk a b) T B (Sem a) (λ q → fam-dom a b (fst q)) (fam-dom a b) (λ i F k → fam-dom a b F)))
+      (d-tr t-any j-ty Γ a cA (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T) (fmapM Γ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) (lam-X Γ a b T B))
+        (psym (Mean Γ (Sem a)) (fmapM Γ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) (lam-X Γ a b T B)) (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T)
+          (abs-fst Γ a (Fam a b) (TV (s-fam f-pi a b)) (TV b) (fam-dom a b) (lam-mk a b) T B (Sem a) (λ q → fam-dom a b (fst q)) (fam-dom a b) (λ i F k → fam-dom a b F)))
         dA)
-      (der-ext j-tm Γ a b (Fam a b) (TV (s-pi a b)) (fam-dom a b) (λ q → fam-dom a b (fst q)) (lam-mk a b) (λ i F k → fam-dom a b F)
+      (der-ext j-tm Γ a b (Fam a b) (TV (s-fam f-pi a b)) (fam-dom a b) (λ q → fam-dom a b (fst q)) (lam-mk a b) (λ i F k → fam-dom a b F)
         (λ q x → (snd (fst q) x , snd q x)) (λ i F k → k) T B c₀ dB))
-lam-3 : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (ct : CompTy (s-pi a b) Γ T) (c₀ : Code)
+lam-3 : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (ct : CompTy (s-fam f-pi a b) Γ T) (c₀ : Code)
   (B : Mean (ext-h Γ a (Fam a b) (fam-dom a b) T) (TV b)) →
   PathM (ext-h Γ a (Fam a b) (fam-dom a b) T) (Sem b) (fmapM (ext-h Γ a (Fam a b) (fam-dom a b) T) (TV b) (Sem b) (λ q → fst q) B) (fam-body Γ a b T) →
   Der (j-tm , ext-h Γ a (Fam a b) (fam-dom a b) T , b , c₀ , B) → RenR k-nf j-ty Γ a (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T) →
-  Dec1 (Out Γ (clam c₀) (m-chk (s-pi a b) T ct))
+  Dec1 (Out Γ (clam c₀) (m-chk (s-fam f-pi a b) T ct))
 lam-3 Γ a b T ct c₀ B pB dB r =
   lam-4 Γ a b T ct c₀ B pB dB (fst r) (embed {(k-nf , (j-ty , Γ , a , fst r , fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T))} (snd r))
 lam-at : Rec → (Γ : CCtx) → Vals Γ → (c₀ : Code) (s : TyShape) (T : Mean Γ (Sem s)) (ct : CompTy s Γ T) → Dec1 (Out Γ (clam c₀) (m-chk s T ct))
-lam-at rec Γ vs c₀ (s-pi a b) T ct =
+lam-at rec Γ vs c₀ (s-fam f-pi a b) T ct =
   d-bind (Out (ext-h Γ a (Fam a b) (fam-dom a b) T) c₀ (m-chk b (fam-body Γ a b T) (cod-ct a b (snd (snd (rr a))) Γ (Fam a b) (λ F → F) T
-            (jc-tr j-ty (s-pi a b) Γ T (fmapM Γ (Fam a b) (Fam a b) (λ F → F) T)
+            (jc-tr j-ty (s-fam f-pi a b) Γ T (fmapM Γ (Fam a b) (Fam a b) (λ F → F) T)
               (psym (Mean Γ (Fam a b)) (fmapM Γ (Fam a b) (Fam a b) (λ F → F) T) T (fmap-id (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) (Fam a b)) (snd Γ) T)) ct))))
-    (Out Γ (clam c₀) (m-chk (s-pi a b) T ct))
+    (Out Γ (clam c₀) (m-chk (s-fam f-pi a b) T ct))
     (rec (ext-h Γ a (Fam a b) (fam-dom a b) T) (ext-vals Γ a (Fam a b) (fam-dom a b) T (fst ct) vs) c₀
       (m-chk b (fam-body Γ a b T) (cod-ct a b (snd (snd (rr a))) Γ (Fam a b) (λ F → F) T
-            (jc-tr j-ty (s-pi a b) Γ T (fmapM Γ (Fam a b) (Fam a b) (λ F → F) T)
+            (jc-tr j-ty (s-fam f-pi a b) Γ T (fmapM Γ (Fam a b) (Fam a b) (λ F → F) T)
               (psym (Mean Γ (Fam a b)) (fmapM Γ (Fam a b) (Fam a b) (λ F → F) T) T (fmap-id (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) (Fam a b)) (snd Γ) T)) ct))))
     (λ rB → lam-3 Γ a b T ct c₀ (fst rB) (fst (snd rB)) (snd (snd rB)) (fst (rr a) Γ (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T) (fst ct)))
 lam-at rec Γ vs c₀ s T ct = c-refused
@@ -1415,8 +1411,8 @@ pr-W1 : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (M1 : Mean Γ (TV a)
   PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) M1) (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T) → Mean Γ (FamV a b)
 pr-W1 Γ a b T M1 p1 = retype Γ a (Fam a b) (FamV a b) (fam-dom a b) (λ F v → (F , v)) T M1 p1
 pr-R : (Γ : CCtx) (a b : TyShape) (W1 : Mean Γ (FamV a b)) (M2 : Mean Γ (TV b)) →
-  PathM Γ (Sem b) (fmapM Γ (TV b) (Sem b) (λ q → fst q) M2) (fmapM Γ (FamV a b) (Sem b) (fam-cod a b) W1) → Mean Γ (TV (s-sig a b))
-pr-R Γ a b W1 M2 p2 = retype Γ b (FamV a b) (TV (s-sig a b)) (fam-cod a b) (λ q v → (fst q , snd q , v)) W1 M2 p2
+  PathM Γ (Sem b) (fmapM Γ (TV b) (Sem b) (λ q → fst q) M2) (fmapM Γ (FamV a b) (Sem b) (fam-cod a b) W1) → Mean Γ (TV (s-fam f-sig a b))
+pr-R Γ a b W1 M2 p2 = retype Γ b (FamV a b) (TV (s-fam f-sig a b)) (fam-cod a b) (λ q v → (fst q , snd q , v)) W1 M2 p2
 pr-W1-fst : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (M1 : Mean Γ (TV a))
   (p1 : PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) M1) (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T)) →
   PathM Γ (Fam a b) (fmapM Γ (FamV a b) (Fam a b) (λ q → fst q) (pr-W1 Γ a b T M1 p1)) T
@@ -1428,7 +1424,7 @@ pr-W1-arg : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (M1 : Mean Γ (T
   (p1 : PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) M1) (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T)) →
   PathM Γ (TV a) (fmapM Γ (FamV a b) (TV a) (fam-arg a b) (pr-W1 Γ a b T M1 p1)) M1
 pr-W1-arg Γ a b T M1 p1 = retype-val Γ a (Fam a b) (FamV a b) (fam-dom a b) (λ F v → (F , v)) T M1 p1 (fam-arg a b) (λ i F v → (fam-dom a b F , v))
-pr-ctb : (Γ : CCtx) → Vals Γ → (a b : TyShape) (T : Mean Γ (Fam a b)) → CompTy (s-sig a b) Γ T → (c1 : Code) (M1 : Mean Γ (TV a))
+pr-ctb : (Γ : CCtx) → Vals Γ → (a b : TyShape) (T : Mean Γ (Fam a b)) → CompTy (s-fam f-sig a b) Γ T → (c1 : Code) (M1 : Mean Γ (TV a))
   (p1 : PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) M1) (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T)) → Der (j-tm , Γ , a , c1 , M1) →
   CompTy b Γ (fmapM Γ (FamV a b) (Sem b) (fam-cod a b) (pr-W1 Γ a b T M1 p1))
 pr-ctb Γ vs a b T ct c1 M1 p1 d1 =
@@ -1440,50 +1436,50 @@ pr-ctb Γ vs a b T ct c1 M1 p1 d1 =
       (comp-j j-tm Γ vs a c1 M1 d1))
 pr-ty : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (W1 : Mean Γ (FamV a b)) → PathM Γ (Fam a b) (fmapM Γ (FamV a b) (Fam a b) (λ q → fst q) W1) T →
   (M2 : Mean Γ (TV b)) (p2 : PathM Γ (Sem b) (fmapM Γ (TV b) (Sem b) (λ q → fst q) M2) (fmapM Γ (FamV a b) (Sem b) (fam-cod a b) W1)) →
-  PathM Γ (Fam a b) (fmapM Γ (TV (s-sig a b)) (Fam a b) (λ q → fst q) (pr-R Γ a b W1 M2 p2)) T
+  PathM Γ (Fam a b) (fmapM Γ (TV (s-fam f-sig a b)) (Fam a b) (λ q → fst q) (pr-R Γ a b W1 M2 p2)) T
 pr-ty Γ a b T W1 pW M2 p2 =
-  pcat (Mean Γ (Fam a b)) (fmapM Γ (TV (s-sig a b)) (Fam a b) (λ q → fst q) (pr-R Γ a b W1 M2 p2)) (fmapM Γ (FamV a b) (Fam a b) (λ q → fst q) W1) T
-    (retype-fst Γ b (FamV a b) (TV (s-sig a b)) (fam-cod a b) (λ q v → (fst q , snd q , v)) W1 M2 p2 (Fam a b) (λ q → fst q) (λ q → fst q) (λ i q v → fst q)) pW
-pr-4 : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (ct : CompTy (s-sig a b) Γ T) (c1 c2 : Code)
+  pcat (Mean Γ (Fam a b)) (fmapM Γ (TV (s-fam f-sig a b)) (Fam a b) (λ q → fst q) (pr-R Γ a b W1 M2 p2)) (fmapM Γ (FamV a b) (Fam a b) (λ q → fst q) W1) T
+    (retype-fst Γ b (FamV a b) (TV (s-fam f-sig a b)) (fam-cod a b) (λ q v → (fst q , snd q , v)) W1 M2 p2 (Fam a b) (λ q → fst q) (λ q → fst q) (λ i q v → fst q)) pW
+pr-4 : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (ct : CompTy (s-fam f-sig a b) Γ T) (c1 c2 : Code)
   (W1 : Mean Γ (FamV a b)) → PathM Γ (Fam a b) (fmapM Γ (FamV a b) (Fam a b) (λ q → fst q) W1) T →
   (M1 : Mean Γ (TV a)) → PathM Γ (TV a) (fmapM Γ (FamV a b) (TV a) (fam-arg a b) W1) M1 → Der (j-tm , Γ , a , c1 , M1) →
   (M2 : Mean Γ (TV b)) (p2 : PathM Γ (Sem b) (fmapM Γ (TV b) (Sem b) (λ q → fst q) M2) (fmapM Γ (FamV a b) (Sem b) (fam-cod a b) W1)) → Der (j-tm , Γ , b , c2 , M2) →
-  RenR k-nf j-ty (ext-h Γ a (TV (s-sig a b)) (λ q → fam-dom a b (fst q)) (pr-R Γ a b W1 M2 p2)) b (pair-cod Γ a b (pr-R Γ a b W1 M2 p2)) →
-  Dec1 (Out Γ (cpair c1 c2) (m-chk (s-sig a b) T ct))
+  RenR k-nf j-ty (ext-h Γ a (TV (s-fam f-sig a b)) (λ q → fam-dom a b (fst q)) (pr-R Γ a b W1 M2 p2)) b (pair-cod Γ a b (pr-R Γ a b W1 M2 p2)) →
+  Dec1 (Out Γ (cpair c1 c2) (m-chk (s-fam f-sig a b) T ct))
 pr-4 Γ a b T ct c1 c2 W1 pW M1 pM1 d1 M2 p2 d2 rB =
   c-derived (pr-R Γ a b W1 M2 p2 , pr-ty Γ a b T W1 pW M2 p2 ,
     dpair Γ a b (pr-R Γ a b W1 M2 p2) (fst rB) c1 c2
-      (embed {(k-nf , (j-ty , ext-h Γ a (TV (s-sig a b)) (λ q → fam-dom a b (fst q)) (pr-R Γ a b W1 M2 p2) , b , fst rB , pair-cod Γ a b (pr-R Γ a b W1 M2 p2)))} (snd rB))
-      (d-tr t-any j-tm Γ a c1 M1 (fmapM Γ (TV (s-sig a b)) (TV a) (sig-1 a b) (pr-R Γ a b W1 M2 p2))
-        (psym (Mean Γ (TV a)) (fmapM Γ (TV (s-sig a b)) (TV a) (sig-1 a b) (pr-R Γ a b W1 M2 p2)) M1
-          (pcat (Mean Γ (TV a)) (fmapM Γ (TV (s-sig a b)) (TV a) (sig-1 a b) (pr-R Γ a b W1 M2 p2)) (fmapM Γ (FamV a b) (TV a) (fam-arg a b) W1) M1
-            (retype-fst Γ b (FamV a b) (TV (s-sig a b)) (fam-cod a b) (λ q v → (fst q , snd q , v)) W1 M2 p2 (TV a) (sig-1 a b) (fam-arg a b) (λ i q v → fam-arg a b q))
+      (embed {(k-nf , (j-ty , ext-h Γ a (TV (s-fam f-sig a b)) (λ q → fam-dom a b (fst q)) (pr-R Γ a b W1 M2 p2) , b , fst rB , pair-cod Γ a b (pr-R Γ a b W1 M2 p2)))} (snd rB))
+      (d-tr t-any j-tm Γ a c1 M1 (fmapM Γ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) (pr-R Γ a b W1 M2 p2))
+        (psym (Mean Γ (TV a)) (fmapM Γ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) (pr-R Γ a b W1 M2 p2)) M1
+          (pcat (Mean Γ (TV a)) (fmapM Γ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) (pr-R Γ a b W1 M2 p2)) (fmapM Γ (FamV a b) (TV a) (fam-arg a b) W1) M1
+            (retype-fst Γ b (FamV a b) (TV (s-fam f-sig a b)) (fam-cod a b) (λ q v → (fst q , snd q , v)) W1 M2 p2 (TV a) (sig-1 a b) (fam-arg a b) (λ i q v → fam-arg a b q))
             pM1))
         d1)
-      (d-tr t-any j-tm Γ b c2 M2 (fmapM Γ (TV (s-sig a b)) (TV b) (sig-2 a b) (pr-R Γ a b W1 M2 p2))
-        (psym (Mean Γ (TV b)) (fmapM Γ (TV (s-sig a b)) (TV b) (sig-2 a b) (pr-R Γ a b W1 M2 p2)) M2
-          (retype-val Γ b (FamV a b) (TV (s-sig a b)) (fam-cod a b) (λ q v → (fst q , snd q , v)) W1 M2 p2 (sig-2 a b) (λ i q v → (fam-cod a b q , v))))
+      (d-tr t-any j-tm Γ b c2 M2 (fmapM Γ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) (pr-R Γ a b W1 M2 p2))
+        (psym (Mean Γ (TV b)) (fmapM Γ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) (pr-R Γ a b W1 M2 p2)) M2
+          (retype-val Γ b (FamV a b) (TV (s-fam f-sig a b)) (fam-cod a b) (λ q v → (fst q , snd q , v)) W1 M2 p2 (sig-2 a b) (λ i q v → (fam-cod a b q , v))))
         d2))
-pr-3 : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (ct : CompTy (s-sig a b) Γ T) (c1 c2 : Code)
+pr-3 : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (ct : CompTy (s-fam f-sig a b) Γ T) (c1 c2 : Code)
   (W1 : Mean Γ (FamV a b)) → PathM Γ (Fam a b) (fmapM Γ (FamV a b) (Fam a b) (λ q → fst q) W1) T →
   (M1 : Mean Γ (TV a)) → PathM Γ (TV a) (fmapM Γ (FamV a b) (TV a) (fam-arg a b) W1) M1 → Der (j-tm , Γ , a , c1 , M1) →
   (M2 : Mean Γ (TV b)) (p2 : PathM Γ (Sem b) (fmapM Γ (TV b) (Sem b) (λ q → fst q) M2) (fmapM Γ (FamV a b) (Sem b) (fam-cod a b) W1)) → Der (j-tm , Γ , b , c2 , M2) →
-  Dec1 (Out Γ (cpair c1 c2) (m-chk (s-sig a b) T ct))
+  Dec1 (Out Γ (cpair c1 c2) (m-chk (s-fam f-sig a b) T ct))
 pr-3 Γ a b T ct c1 c2 W1 pW M1 pM1 d1 M2 p2 d2 =
   pr-4 Γ a b T ct c1 c2 W1 pW M1 pM1 d1 M2 p2 d2
-    (cod-rty a b (snd (snd (rr a))) (fst (rr b)) Γ (TV (s-sig a b)) (λ q → fst q) (pr-R Γ a b W1 M2 p2)
-      (jc-tr j-ty (s-sig a b) Γ T (fmapM Γ (TV (s-sig a b)) (Fam a b) (λ q → fst q) (pr-R Γ a b W1 M2 p2))
-        (psym (Mean Γ (Fam a b)) (fmapM Γ (TV (s-sig a b)) (Fam a b) (λ q → fst q) (pr-R Γ a b W1 M2 p2)) T (pr-ty Γ a b T W1 pW M2 p2)) ct))
-pr-2 : Rec → (Γ : CCtx) → Vals Γ → (a b : TyShape) (T : Mean Γ (Fam a b)) (ct : CompTy (s-sig a b) Γ T) (c1 c2 : Code) (M1 : Mean Γ (TV a))
+    (cod-rty a b (snd (snd (rr a))) (fst (rr b)) Γ (TV (s-fam f-sig a b)) (λ q → fst q) (pr-R Γ a b W1 M2 p2)
+      (jc-tr j-ty (s-fam f-sig a b) Γ T (fmapM Γ (TV (s-fam f-sig a b)) (Fam a b) (λ q → fst q) (pr-R Γ a b W1 M2 p2))
+        (psym (Mean Γ (Fam a b)) (fmapM Γ (TV (s-fam f-sig a b)) (Fam a b) (λ q → fst q) (pr-R Γ a b W1 M2 p2)) T (pr-ty Γ a b T W1 pW M2 p2)) ct))
+pr-2 : Rec → (Γ : CCtx) → Vals Γ → (a b : TyShape) (T : Mean Γ (Fam a b)) (ct : CompTy (s-fam f-sig a b) Γ T) (c1 c2 : Code) (M1 : Mean Γ (TV a))
   (p1 : PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) M1) (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T)) → Der (j-tm , Γ , a , c1 , M1) →
-  Dec1 (Out Γ (cpair c1 c2) (m-chk (s-sig a b) T ct))
+  Dec1 (Out Γ (cpair c1 c2) (m-chk (s-fam f-sig a b) T ct))
 pr-2 rec Γ vs a b T ct c1 c2 M1 p1 d1 =
-  d-bind (Out Γ c2 (m-chk b (fmapM Γ (FamV a b) (Sem b) (fam-cod a b) (pr-W1 Γ a b T M1 p1)) (pr-ctb Γ vs a b T ct c1 M1 p1 d1))) (Out Γ (cpair c1 c2) (m-chk (s-sig a b) T ct))
+  d-bind (Out Γ c2 (m-chk b (fmapM Γ (FamV a b) (Sem b) (fam-cod a b) (pr-W1 Γ a b T M1 p1)) (pr-ctb Γ vs a b T ct c1 M1 p1 d1))) (Out Γ (cpair c1 c2) (m-chk (s-fam f-sig a b) T ct))
     (rec Γ vs c2 (m-chk b (fmapM Γ (FamV a b) (Sem b) (fam-cod a b) (pr-W1 Γ a b T M1 p1)) (pr-ctb Γ vs a b T ct c1 M1 p1 d1)))
     (λ r2 → pr-3 Γ a b T ct c1 c2 (pr-W1 Γ a b T M1 p1) (pr-W1-fst Γ a b T M1 p1) M1 (pr-W1-arg Γ a b T M1 p1) d1 (fst r2) (fst (snd r2)) (snd (snd r2)))
 pair-at : Rec → (Γ : CCtx) → Vals Γ → (c1 c2 : Code) (s : TyShape) (T : Mean Γ (Sem s)) (ct : CompTy s Γ T) → Dec1 (Out Γ (cpair c1 c2) (m-chk s T ct))
-pair-at rec Γ vs c1 c2 (s-sig a b) T ct =
-  d-bind (Out Γ c1 (m-chk a (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T) (fst ct))) (Out Γ (cpair c1 c2) (m-chk (s-sig a b) T ct))
+pair-at rec Γ vs c1 c2 (s-fam f-sig a b) T ct =
+  d-bind (Out Γ c1 (m-chk a (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T) (fst ct))) (Out Γ (cpair c1 c2) (m-chk (s-fam f-sig a b) T ct))
     (rec Γ vs c1 (m-chk a (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T) (fst ct)))
     (λ r1 → pr-2 rec Γ vs a b T ct c1 c2 (fst r1) (fst (snd r1)) (snd (snd r1)))
 pair-at rec Γ vs c1 c2 s T ct = c-refused
@@ -1519,7 +1515,7 @@ cs-cs Γ s Pm false =
       (fmapM-fmapM Γ (Fam s-bool s) (FamV s-bool s) (TV s-bool) (λ F → (F , false)) (fam-arg s-bool s) Pm)
       (psym (Mean Γ (TV s-bool)) (fmapM Γ One1 (TV s-bool) (bool-v false) (fmapM Γ (Fam s-bool s) One1 (λ F → fst F) Pm)) (fmapM Γ (Fam s-bool s) (TV s-bool) (λ F → (fst F , false)) Pm)
         (fmapM-fmapM Γ (Fam s-bool s) One1 (TV s-bool) (λ F → fst F) (bool-v false) Pm)))))
-cs-ct : (Γ : CCtx) (s : TyShape) (Pm : Mean Γ (Fam s-bool s)) → CompTy (s-pi s-bool s) Γ Pm → (b : Bool) →
+cs-ct : (Γ : CCtx) (s : TyShape) (Pm : Mean Γ (Fam s-bool s)) → CompTy (s-fam f-pi s-bool s) Γ Pm → (b : Bool) →
   CompTy s Γ (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F b) Pm)
 cs-ct Γ s Pm ct b =
   jc-tr j-ty s Γ (fmapM Γ (FamV s-bool s) (Sem s) (fam-cod s-bool s) (fmapM Γ (Fam s-bool s) (FamV s-bool s) (λ F → (F , b)) Pm)) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F b) Pm)
@@ -1614,14 +1610,14 @@ case-fin Γ s cP x t f d pd P dP X dX Mt pt dt Mf pf df =
               (case-f s) (λ i u v → (fst (snd u) false , v))))
           df)))
 case-4 : Rec → (Γ : CCtx) → Vals Γ → (s : TyShape) (cP x t f : Code) (d : Word) → d ≡ #0 → (P : Mean (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) (Sem s)) → Der (j-ty , (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) , s , cP , P) →
-  CompTy (s-pi s-bool s) Γ (fam-of Γ s-bool s (one-mean Γ) P) → (X : Mean Γ (TV s-bool)) → Der (j-tm , Γ , s-bool , x , X) → (Mt : Mean Γ (TV s)) (pt : PathM Γ (Sem s) (fmapM Γ (TV s) (Sem s) (λ q → fst q) Mt) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F true) (fam-of Γ s-bool s (one-mean Γ) P))) → Der (j-tm , Γ , s , t , Mt) →
+  CompTy (s-fam f-pi s-bool s) Γ (fam-of Γ s-bool s (one-mean Γ) P) → (X : Mean Γ (TV s-bool)) → Der (j-tm , Γ , s-bool , x , X) → (Mt : Mean Γ (TV s)) (pt : PathM Γ (Sem s) (fmapM Γ (TV s) (Sem s) (λ q → fst q) Mt) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F true) (fam-of Γ s-bool s (one-mean Γ) P))) → Der (j-tm , Γ , s , t , Mt) →
   Dec1 (Out Γ (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf)
 case-4 rec Γ vs s cP x t f d pd P dP ct X dX Mt pt dt =
   d-bind (Out Γ f (m-chk s (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F false) (fam-of Γ s-bool s (one-mean Γ) P)) (cs-ct Γ s (fam-of Γ s-bool s (one-mean Γ) P) ct false))) (Out Γ (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf)
     (rec Γ vs f (m-chk s (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F false) (fam-of Γ s-bool s (one-mean Γ) P)) (cs-ct Γ s (fam-of Γ s-bool s (one-mean Γ) P) ct false)))
     (λ rf → case-fin Γ s cP x t f d pd P dP X dX Mt pt dt (fst rf) (fst (snd rf)) (snd (snd rf)))
 case-3 : Rec → (Γ : CCtx) → Vals Γ → (s : TyShape) (cP x t f : Code) (d : Word) → d ≡ #0 → (P : Mean (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) (Sem s)) → Der (j-ty , (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) , s , cP , P) →
-  CompTy (s-pi s-bool s) Γ (fam-of Γ s-bool s (one-mean Γ) P) → (X : Mean Γ (TV s-bool)) → Der (j-tm , Γ , s-bool , x , X) → Dec1 (Out Γ (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf)
+  CompTy (s-fam f-pi s-bool s) Γ (fam-of Γ s-bool s (one-mean Γ) P) → (X : Mean Γ (TV s-bool)) → Der (j-tm , Γ , s-bool , x , X) → Dec1 (Out Γ (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf)
 case-3 rec Γ vs s cP x t f d pd P dP ct X dX =
   d-bind (Out Γ t (m-chk s (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F true) (fam-of Γ s-bool s (one-mean Γ) P)) (cs-ct Γ s (fam-of Γ s-bool s (one-mean Γ) P) ct true))) (Out Γ (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf)
     (rec Γ vs t (m-chk s (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F true) (fam-of Γ s-bool s (one-mean Γ) P)) (cs-ct Γ s (fam-of Γ s-bool s (one-mean Γ) P) ct true)))
@@ -1631,8 +1627,8 @@ case-2 : Rec → (Γ : CCtx) → Vals Γ → (s : TyShape) (cP x t f : Code) (d 
 case-2 rec Γ vs s cP x t f d pd P dP =
   d-bind (Out Γ x (m-chk s-bool (one-mean Γ) one)) (Out Γ (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf) (rec Γ vs x (m-chk s-bool (one-mean Γ) one))
     (λ rx → case-3 rec Γ vs s cP x t f d pd P dP
-      (comp-j j-ty Γ vs (s-pi s-bool s) (cpi #2 c-bool cP) (fam-of Γ s-bool s (one-mean Γ) P)
-        (dty-pi Γ s-bool s (fam-of Γ s-bool s (one-mean Γ) P) c-bool cP (fam-dA Γ s-bool s (one-mean Γ) P c-bool (dty-bool Γ (one-mean Γ))) (fam-dB Γ s-bool s (one-mean Γ) P cP dP)))
+      (comp-j j-ty Γ vs (s-fam f-pi s-bool s) (cpi #2 c-bool cP) (fam-of Γ s-bool s (one-mean Γ) P)
+        (dty-fam f-pi Γ s-bool s (fam-of Γ s-bool s (one-mean Γ) P) c-bool cP (fam-dA Γ s-bool s (one-mean Γ) P c-bool (dty-bool Γ (one-mean Γ))) (fam-dB Γ s-bool s (one-mean Γ) P cP dP)))
       (fst rx) (snd (snd rx)))
 case-1 : Rec → (Γ : CCtx) → Vals Γ → (cP x t f : Code) (d : Word) → d ≡ #0 → Dec1 (Out Γ (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf)
 case-1 rec Γ vs cP x t f d pd =

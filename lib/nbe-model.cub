@@ -5,14 +5,14 @@ import "cube.cub"
 import "linproof.cub"
 TyU : Type 2
 TyU = (uM : Type 1) × (uM → Type)
+-- Π and Σ share their semantic type (a family); only their elements differ
+fam-el : FamF → (A : Type) → (A → Type) → Type
+fam-el f-pi A B = (x : A) → B x
+fam-el f-sig A B = (x : A) × B x
 TyE : TyShape → TyU
 TyE s-bool = (One1 , λ D̂ → Bool)
-TyE (s-pi a b) =
-  ((Â : fst (TyE a)) × (snd (TyE a) Â → fst (TyE b)) ,
-   λ D̂ → (x̂ : snd (TyE a) (fst D̂)) → snd (TyE b) (snd D̂ x̂))
-TyE (s-sig a b) =
-  ((Â : fst (TyE a)) × (snd (TyE a) Â → fst (TyE b)) ,
-   λ D̂ → (x̂ : snd (TyE a) (fst D̂)) × snd (TyE b) (snd D̂ x̂))
+TyE (s-fam fm a b) =
+  ((Â : fst (TyE a)) × (snd (TyE a) Â → fst (TyE b)) , λ D̂ → fam-el fm (snd (TyE a) (fst D̂)) (λ x̂ → snd (TyE b) (snd D̂ x̂)))
 TyE (s-path a) =
   ((pL̂ : (Â0 : fst (TyE a)) × (Â1 : fst (TyE a)) × PathP (λ i → fst (TyE a)) Â0 Â1) × snd (TyE a) (fst pL̂) × snd (TyE a) (fst (snd pL̂)) ,
    λ D̂ → PathP (λ i → snd (TyE a) (snd (snd (fst D̂)) i)) (fst (snd D̂)) (snd (snd D̂)))
@@ -121,16 +121,16 @@ Jdg = (jk : JK) × (jΓ : CCtx) × (js : TyShape) × Code × Mean jΓ (JZ jk js)
 c-bool : Code
 c-bool = cdata #0 lnil
 AppV : TyShape → TyShape → Type 1
-AppV a b = (avT : Fam a b) × El (s-pi a b) avT × El a (fst avT)
-app-f : (a b : TyShape) → AppV a b → TV (s-pi a b)
+AppV a b = (avT : Fam a b) × El (s-fam f-pi a b) avT × El a (fst avT)
+app-f : (a b : TyShape) → AppV a b → TV (s-fam f-pi a b)
 app-f a b q = (fst q , fst (snd q))
 app-a : (a b : TyShape) → AppV a b → TV a
 app-a a b q = (fst (fst q) , snd (snd q))
 app-r : (a b : TyShape) → AppV a b → TV b
 app-r a b q = (snd (fst q) (snd (snd q)) , fst (snd q) (snd (snd q)))
-sig-1 : (a b : TyShape) → TV (s-sig a b) → TV a
+sig-1 : (a b : TyShape) → TV (s-fam f-sig a b) → TV a
 sig-1 a b q = (fst (fst q) , fst (snd q))
-sig-2 : (a b : TyShape) → TV (s-sig a b) → TV b
+sig-2 : (a b : TyShape) → TV (s-fam f-sig a b) → TV b
 sig-2 a b q = (snd (fst q) (fst (snd q)) , snd (snd q))
 CaseV : TyShape → Type 1
 CaseV sP = (cvB : One1) × (cvP : Bool → Sem sP) × (cvx : Bool) × El sP (cvP true) × El sP (cvP false)
@@ -146,13 +146,13 @@ case-r sP q =
    bool-elim (λ b → El sP (fst (snd q) b)) (fst (snd (snd (snd q)))) (snd (snd (snd (snd q)))) (fst (snd (snd q))))
 bool-v : Bool → One1 → TV s-bool
 bool-v b u = (u , b)
-lam-dom : (sk : Lst Entry) (a b : TyShape) (γ : CtxV sk) → (EnvV sk γ → TV (s-pi a b)) → EnvV sk γ → Sem a
+lam-dom : (sk : Lst Entry) (a b : TyShape) (γ : CtxV sk) → (EnvV sk γ → TV (s-fam f-pi a b)) → EnvV sk γ → Sem a
 lam-dom sk a b γ e ρ = fst (fst (e ρ))
-lam-ctx : (Γ : CCtx) (a b : TyShape) → Mean Γ (TV (s-pi a b)) → CCtx
-lam-ctx Γ a b X = extM Γ a (TV (s-pi a b)) (lam-dom (fst Γ) a b) X
-lam-body : (Γ : CCtx) (a b : TyShape) (X : Mean Γ (TV (s-pi a b))) → Mean (lam-ctx Γ a b X) (TV b)
+lam-ctx : (Γ : CCtx) (a b : TyShape) → Mean Γ (TV (s-fam f-pi a b)) → CCtx
+lam-ctx Γ a b X = extM Γ a (TV (s-fam f-pi a b)) (lam-dom (fst Γ) a b) X
+lam-body : (Γ : CCtx) (a b : TyShape) (X : Mean Γ (TV (s-fam f-pi a b))) → Mean (lam-ctx Γ a b X) (TV b)
 lam-body Γ a b X =
-  dcube-push (dims (fst Γ)) (CtxV (fst Γ)) (CtxV (lcons (e-ty a) (fst Γ))) (FbE (fst Γ) (TV (s-pi a b))) (FbE (fst Γ) (TV (s-pi a b)))
+  dcube-push (dims (fst Γ)) (CtxV (fst Γ)) (CtxV (lcons (e-ty a) (fst Γ))) (FbE (fst Γ) (TV (s-fam f-pi a b))) (FbE (fst Γ) (TV (s-fam f-pi a b)))
     (FbE (lcons (e-ty a) (fst Γ)) (TV b)) (λ γ e → (γ , lam-dom (fst Γ) a b γ e))
     (λ γ e e2 ρ → (snd (fst (e (fst ρ))) (snd ρ) , snd (e (fst ρ)) (snd ρ))) (snd Γ) X X
 fline : (sk : Lst Entry) (Y Z : Type 1) (ℓ : Y → Line Z) (γ : CtxV sk) (e : EnvV sk γ → Y) → LineO (CtxV sk) (FbE sk Z) (degen-l (CtxV sk) γ)
@@ -191,8 +191,8 @@ fam-dom : (a b : TyShape) → Fam a b → Sem a
 fam-dom a b F = fst F
 fam-body : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) → Mean (ext-h Γ a (Fam a b) (fam-dom a b) T) (Sem b)
 fam-body Γ a b T = ext-lift Γ a (Fam a b) (fam-dom a b) (Sem b) (λ F x → snd F x) T
-pair-cod : (Γ : CCtx) (a b : TyShape) (R : Mean Γ (TV (s-sig a b))) → Mean (ext-h Γ a (TV (s-sig a b)) (λ q → fam-dom a b (fst q)) R) (Sem b)
-pair-cod Γ a b R = ext-lift Γ a (TV (s-sig a b)) (λ q → fam-dom a b (fst q)) (Sem b) (λ q x → snd (fst q) x) R
+pair-cod : (Γ : CCtx) (a b : TyShape) (R : Mean Γ (TV (s-fam f-sig a b))) → Mean (ext-h Γ a (TV (s-fam f-sig a b)) (λ q → fam-dom a b (fst q)) R) (Sem b)
+pair-cod Γ a b R = ext-lift Γ a (TV (s-fam f-sig a b)) (λ q → fam-dom a b (fst q)) (Sem b) (λ q x → snd (fst q) x) R
 case-b : (s : TyShape) → CaseV s → One1
 case-b s q = fst q
 case-mot : (Γ : CCtx) (s : TyShape) (R : Mean Γ (CaseV s)) → Mean (ext-h Γ s-bool (CaseV s) (case-b s) R) (Sem s)
@@ -217,7 +217,6 @@ rtag t q = t-ne
 nk-tag : NK → Tag
 nk-tag k-ne = t-ne
 nk-tag k-nf = t-nf
-data FamF = f-pi | f-sig
 data DRule = r-var | r-app | r-fst | r-snd | r-case | r-ne | r-con (b : Bool) | r-lam | r-pair | r-plam | r-papp | r-pend (b : Bool)
   | r-ty-bool | r-ty-fam (fq : FamF) | r-ty-path
 -- the judgments a rule's premises are, with their roles
@@ -229,12 +228,12 @@ tagged t (jl-cons q J rest) = tj-cons (rtag t q) J (tagged t rest)
 -- a rule's data: one record per shape (fields suffixed q: telescope instantiation captures names)
 data XVar = x-var (Γq : CCtx) (vq : VarP (fst Γq))
 data XApp = x-app (Γq : CCtx) (aq : TyShape) (bq : TyShape) (Rq : Mean Γq (AppV aq bq)) (fcq : Code) (acq : Code)
-data XProj = x-proj (Γq : CCtx) (aq : TyShape) (bq : TyShape) (Rq : Mean Γq (TV (s-sig aq bq))) (pcq : Code)
+data XProj = x-proj (Γq : CCtx) (aq : TyShape) (bq : TyShape) (Rq : Mean Γq (TV (s-fam f-sig aq bq))) (pcq : Code)
 data XCase = x-case (Γq : CCtx) (sq : TyShape) (Rq : Mean Γq (CaseV sq)) (Pcq : Code) (xcq : Code) (tcq : Code) (fcq : Code)
 data XNe = x-ne (Γq : CCtx) (Rq : Mean Γq (TV s-bool)) (cq : Code)
 data XUnit = x-unit (Γq : CCtx) (Bq : Mean Γq One1)
-data XLam = x-lam (Γq : CCtx) (aq : TyShape) (bq : TyShape) (Xq : Mean Γq (TV (s-pi aq bq))) (Acq : Code) (cq : Code)
-data XPair = x-pair (Γq : CCtx) (aq : TyShape) (bq : TyShape) (Rq : Mean Γq (TV (s-sig aq bq))) (Bcq : Code) (c1q : Code) (c2q : Code)
+data XLam = x-lam (Γq : CCtx) (aq : TyShape) (bq : TyShape) (Xq : Mean Γq (TV (s-fam f-pi aq bq))) (Acq : Code) (cq : Code)
+data XPair = x-pair (Γq : CCtx) (aq : TyShape) (bq : TyShape) (Rq : Mean Γq (TV (s-fam f-sig aq bq))) (Bcq : Code) (c1q : Code) (c2q : Code)
 data XPc = x-pc (Γq : CCtx) (aq : TyShape) (Xq : Mean Γq (TV (s-path aq))) (cq : Code)
 data XPapp = x-papp (Γq : CCtx) (aq : TyShape) (Pq : Mean Γq (TV (s-path aq))) (pq : Code) (dq : DNF) (cdq : isTrue (dnf-canon dq))
   (ndq : isTrue (dnf-nonconst dq)) (Yq : Mean Γq (TV aq)) (yq : PathM Γq (TV aq) (papp-mean Γq aq dq Pq) Yq)
@@ -261,33 +260,35 @@ pend b a q = tend b a (fst q)
 c-con : Bool → Code
 c-con true = c-true
 c-con false = c-false
+fam-code : FamF → Code → Code → Code
+fam-code f-pi cA cB = cpi #2 cA cB
+fam-code f-sig cA cB = csigma cA cB
 c-end : Bool → Code
 c-end true = ci1
 c-end false = ci0
 concl : (r : DRule) → RData r → Jdg
 concl r-var (x-var Γ v) = (j-tm , Γ , var-shape (fst Γ) v , cvar (var-word (fst Γ) v) , varCube Γ v)
 concl r-app (x-app Γ a b R f c) = (j-tm , Γ , b , capp f c , fmapM Γ (AppV a b) (TV b) (app-r a b) R)
-concl r-fst (x-proj Γ a b R p) = (j-tm , Γ , a , cfst p , fmapM Γ (TV (s-sig a b)) (TV a) (sig-1 a b) R)
-concl r-snd (x-proj Γ a b R p) = (j-tm , Γ , b , csnd p , fmapM Γ (TV (s-sig a b)) (TV b) (sig-2 a b) R)
+concl r-fst (x-proj Γ a b R p) = (j-tm , Γ , a , cfst p , fmapM Γ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) R)
+concl r-snd (x-proj Γ a b R p) = (j-tm , Γ , b , csnd p , fmapM Γ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) R)
 concl r-case (x-case Γ s R cP x t f) = (j-tm , Γ , s , c-case cP t f x , fmapM Γ (CaseV s) (TV s) (case-r s) R)
 concl r-ne (x-ne Γ R c) = (j-tm , Γ , s-bool , c , R)
 concl (r-con b) (x-unit Γ B) = (j-tm , Γ , s-bool , c-con b , fmapM Γ One1 (TV s-bool) (bool-v b) B)
-concl r-lam (x-lam Γ a b X cA c) = (j-tm , Γ , s-pi a b , clam c , X)
-concl r-pair (x-pair Γ a b R cB c1 c2) = (j-tm , Γ , s-sig a b , cpair c1 c2 , R)
+concl r-lam (x-lam Γ a b X cA c) = (j-tm , Γ , s-fam f-pi a b , clam c , X)
+concl r-pair (x-pair Γ a b R cB c1 c2) = (j-tm , Γ , s-fam f-sig a b , cpair c1 c2 , R)
 concl r-plam (x-pc Γ a X c) = (j-tm , Γ , s-path a , cplam c , X)
 concl r-papp (x-papp Γ a P p f cf nc Y y) = (j-tm , Γ , a , cpapp p (dnf-code f) , Y)
 concl (r-pend b) (x-pc Γ a P c) = (j-tm , Γ , a , cpapp c (c-end b) , fmapM Γ (TV (s-path a)) (TV a) (pend b a) P)
 concl r-ty-bool (x-unit Γ B) = (j-ty , Γ , s-bool , c-bool , B)
-concl (r-ty-fam f-pi) (x-fam Γ a b T cA cB) = (j-ty , Γ , s-pi a b , cpi #2 cA cB , T)
-concl (r-ty-fam f-sig) (x-fam Γ a b T cA cB) = (j-ty , Γ , s-sig a b , csigma cA cB , T)
+concl (r-ty-fam fm) (x-fam Γ a b T cA cB) = (j-ty , Γ , s-fam fm a b , fam-code fm cA cB , T)
 concl r-ty-path (x-tp Γ a T cL c0 c1) = (j-ty , Γ , s-path a , cpathp (cplam cL) c0 c1 , T)
 premJ : (r : DRule) → RData r → JL
 premJ r-var x = jl-nil
 premJ r-app (x-app Γ a b R f c) =
-  jl-cons q-hd (j-tm , Γ , s-pi a b , f , fmapM Γ (AppV a b) (TV (s-pi a b)) (app-f a b) R)
+  jl-cons q-hd (j-tm , Γ , s-fam f-pi a b , f , fmapM Γ (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) R)
   (jl-cons q-arg (j-tm , Γ , a , c , fmapM Γ (AppV a b) (TV a) (app-a a b) R) jl-nil)
-premJ r-fst (x-proj Γ a b R p) = jl-cons q-hd (j-tm , Γ , s-sig a b , p , R) jl-nil
-premJ r-snd (x-proj Γ a b R p) = jl-cons q-hd (j-tm , Γ , s-sig a b , p , R) jl-nil
+premJ r-fst (x-proj Γ a b R p) = jl-cons q-hd (j-tm , Γ , s-fam f-sig a b , p , R) jl-nil
+premJ r-snd (x-proj Γ a b R p) = jl-cons q-hd (j-tm , Γ , s-fam f-sig a b , p , R) jl-nil
 premJ r-case (x-case Γ s R cP x t f) =
   jl-cons q-arg (j-ty , ext-h Γ s-bool (CaseV s) (case-b s) R , s , cP , case-mot Γ s R)
   (jl-cons q-hd (j-tm , Γ , s-bool , x , fmapM Γ (CaseV s) (TV s-bool) (case-x s) R)
@@ -296,12 +297,12 @@ premJ r-case (x-case Γ s R cP x t f) =
 premJ r-ne (x-ne Γ R c) = jl-cons q-ne (j-tm , Γ , s-bool , c , R) jl-nil
 premJ (r-con b) x = jl-nil
 premJ r-lam (x-lam Γ a b X cA c) =
-  jl-cons q-arg (j-ty , Γ , a , cA , fmapM Γ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) X)
+  jl-cons q-arg (j-ty , Γ , a , cA , fmapM Γ (TV (s-fam f-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) X)
   (jl-cons q-arg (j-tm , lam-ctx Γ a b X , b , c , lam-body Γ a b X) jl-nil)
 premJ r-pair (x-pair Γ a b R cB c1 c2) =
-  jl-cons q-arg (j-ty , ext-h Γ a (TV (s-sig a b)) (λ q → fam-dom a b (fst q)) R , b , cB , pair-cod Γ a b R)
-  (jl-cons q-arg (j-tm , Γ , a , c1 , fmapM Γ (TV (s-sig a b)) (TV a) (sig-1 a b) R)
-  (jl-cons q-arg (j-tm , Γ , b , c2 , fmapM Γ (TV (s-sig a b)) (TV b) (sig-2 a b) R) jl-nil))
+  jl-cons q-arg (j-ty , ext-h Γ a (TV (s-fam f-sig a b)) (λ q → fam-dom a b (fst q)) R , b , cB , pair-cod Γ a b R)
+  (jl-cons q-arg (j-tm , Γ , a , c1 , fmapM Γ (TV (s-fam f-sig a b)) (TV a) (sig-1 a b) R)
+  (jl-cons q-arg (j-tm , Γ , b , c2 , fmapM Γ (TV (s-fam f-sig a b)) (TV b) (sig-2 a b) R) jl-nil))
 premJ r-plam (x-pc Γ a X c) = jl-cons q-arg (j-tm , dext Γ , a , c , plam-body Γ a X) jl-nil
 premJ r-papp (x-papp Γ a P p f cf nc Y y) = jl-cons q-hd (j-tm , Γ , s-path a , p , P) jl-nil
 premJ (r-pend b) (x-pc Γ a P c) = jl-cons q-hd (j-tm , Γ , s-path a , c , P) jl-nil
@@ -383,17 +384,17 @@ nvar : (Γ₀ : CCtx) (v₀ : VarP (fst Γ₀)) →
     NN (k-ne , (j-tm , Γ₀ , var-shape (fst Γ₀) v₀ , cvar (var-word (fst Γ₀) v₀) , varCube Γ₀ v₀))
 nvar Γ v = by-rule r-var t-ne (x-var Γ v) unit one
 napp : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (AppV a₀ b₀)) (f₀ c₀ : Code) →
-    NN (k-ne , (j-tm , Γ₀ , s-pi a₀ b₀ , f₀ , fmapM Γ₀ (AppV a₀ b₀) (TV (s-pi a₀ b₀)) (app-f a₀ b₀) R₀)) →
+    NN (k-ne , (j-tm , Γ₀ , s-fam f-pi a₀ b₀ , f₀ , fmapM Γ₀ (AppV a₀ b₀) (TV (s-fam f-pi a₀ b₀)) (app-f a₀ b₀) R₀)) →
     NN (k-nf , (j-tm , Γ₀ , a₀ , c₀ , fmapM Γ₀ (AppV a₀ b₀) (TV a₀) (app-a a₀ b₀) R₀)) →
     NN (k-ne , (j-tm , Γ₀ , b₀ , capp f₀ c₀ , fmapM Γ₀ (AppV a₀ b₀) (TV b₀) (app-r a₀ b₀) R₀))
 napp Γ a b R f c nf na = by-rule r-app t-ne (x-app Γ a b R f c) unit (nf , na , one)
-nfst : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-sig a₀ b₀))) (p₀ : Code) →
-    NN (k-ne , (j-tm , Γ₀ , s-sig a₀ b₀ , p₀ , R₀)) →
-    NN (k-ne , (j-tm , Γ₀ , a₀ , cfst p₀ , fmapM Γ₀ (TV (s-sig a₀ b₀)) (TV a₀) (sig-1 a₀ b₀) R₀))
+nfst : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-fam f-sig a₀ b₀))) (p₀ : Code) →
+    NN (k-ne , (j-tm , Γ₀ , s-fam f-sig a₀ b₀ , p₀ , R₀)) →
+    NN (k-ne , (j-tm , Γ₀ , a₀ , cfst p₀ , fmapM Γ₀ (TV (s-fam f-sig a₀ b₀)) (TV a₀) (sig-1 a₀ b₀) R₀))
 nfst Γ a b R p np = by-rule r-fst t-ne (x-proj Γ a b R p) unit (np , one)
-nsnd : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-sig a₀ b₀))) (p₀ : Code) →
-    NN (k-ne , (j-tm , Γ₀ , s-sig a₀ b₀ , p₀ , R₀)) →
-    NN (k-ne , (j-tm , Γ₀ , b₀ , csnd p₀ , fmapM Γ₀ (TV (s-sig a₀ b₀)) (TV b₀) (sig-2 a₀ b₀) R₀))
+nsnd : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-fam f-sig a₀ b₀))) (p₀ : Code) →
+    NN (k-ne , (j-tm , Γ₀ , s-fam f-sig a₀ b₀ , p₀ , R₀)) →
+    NN (k-ne , (j-tm , Γ₀ , b₀ , csnd p₀ , fmapM Γ₀ (TV (s-fam f-sig a₀ b₀)) (TV b₀) (sig-2 a₀ b₀) R₀))
 nsnd Γ a b R p np = by-rule r-snd t-ne (x-proj Γ a b R p) unit (np , one)
 ncase : (Γ₀ : CCtx) (s₀ : TyShape) (R₀ : Mean Γ₀ (CaseV s₀)) (cP₀ x₀ t₀ f₀ : Code) →
     NN (k-nf , (j-ty , ext-h Γ₀ s-bool (CaseV s₀) (case-b s₀) R₀ , s₀ , cP₀ , case-mot Γ₀ s₀ R₀)) →
@@ -410,15 +411,15 @@ ntrue : (Γ₀ : CCtx) (B₀ : Mean Γ₀ One1) → NN (k-nf , (j-tm , Γ₀ , s
 ntrue Γ B = by-rule (r-con true) t-nf (x-unit Γ B) unit one
 nfalse : (Γ₀ : CCtx) (B₀ : Mean Γ₀ One1) → NN (k-nf , (j-tm , Γ₀ , s-bool , c-false , fmapM Γ₀ One1 (TV s-bool) (bool-v false) B₀))
 nfalse Γ B = by-rule (r-con false) t-nf (x-unit Γ B) unit one
-nlam : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (X₀ : Mean Γ₀ (TV (s-pi a₀ b₀))) (cA₀ c₀ : Code) →
-    NN (k-nf , (j-ty , Γ₀ , a₀ , cA₀ , fmapM Γ₀ (TV (s-pi a₀ b₀)) (Sem a₀) (λ q → fam-dom a₀ b₀ (fst q)) X₀)) →
-    NN (k-nf , (j-tm , lam-ctx Γ₀ a₀ b₀ X₀ , b₀ , c₀ , lam-body Γ₀ a₀ b₀ X₀)) → NN (k-nf , (j-tm , Γ₀ , s-pi a₀ b₀ , clam c₀ , X₀))
+nlam : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (X₀ : Mean Γ₀ (TV (s-fam f-pi a₀ b₀))) (cA₀ c₀ : Code) →
+    NN (k-nf , (j-ty , Γ₀ , a₀ , cA₀ , fmapM Γ₀ (TV (s-fam f-pi a₀ b₀)) (Sem a₀) (λ q → fam-dom a₀ b₀ (fst q)) X₀)) →
+    NN (k-nf , (j-tm , lam-ctx Γ₀ a₀ b₀ X₀ , b₀ , c₀ , lam-body Γ₀ a₀ b₀ X₀)) → NN (k-nf , (j-tm , Γ₀ , s-fam f-pi a₀ b₀ , clam c₀ , X₀))
 nlam Γ a b X cA c nA nb = by-rule r-lam t-nf (x-lam Γ a b X cA c) unit (nA , nb , one)
-npair : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-sig a₀ b₀))) (cB₀ c1₀ c2₀ : Code) →
-    NN (k-nf , (j-ty , ext-h Γ₀ a₀ (TV (s-sig a₀ b₀)) (λ q → fam-dom a₀ b₀ (fst q)) R₀ , b₀ , cB₀ , pair-cod Γ₀ a₀ b₀ R₀)) →
-    NN (k-nf , (j-tm , Γ₀ , a₀ , c1₀ , fmapM Γ₀ (TV (s-sig a₀ b₀)) (TV a₀) (sig-1 a₀ b₀) R₀)) →
-    NN (k-nf , (j-tm , Γ₀ , b₀ , c2₀ , fmapM Γ₀ (TV (s-sig a₀ b₀)) (TV b₀) (sig-2 a₀ b₀) R₀)) →
-    NN (k-nf , (j-tm , Γ₀ , s-sig a₀ b₀ , cpair c1₀ c2₀ , R₀))
+npair : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-fam f-sig a₀ b₀))) (cB₀ c1₀ c2₀ : Code) →
+    NN (k-nf , (j-ty , ext-h Γ₀ a₀ (TV (s-fam f-sig a₀ b₀)) (λ q → fam-dom a₀ b₀ (fst q)) R₀ , b₀ , cB₀ , pair-cod Γ₀ a₀ b₀ R₀)) →
+    NN (k-nf , (j-tm , Γ₀ , a₀ , c1₀ , fmapM Γ₀ (TV (s-fam f-sig a₀ b₀)) (TV a₀) (sig-1 a₀ b₀) R₀)) →
+    NN (k-nf , (j-tm , Γ₀ , b₀ , c2₀ , fmapM Γ₀ (TV (s-fam f-sig a₀ b₀)) (TV b₀) (sig-2 a₀ b₀) R₀)) →
+    NN (k-nf , (j-tm , Γ₀ , s-fam f-sig a₀ b₀ , cpair c1₀ c2₀ , R₀))
 npair Γ a b R cB c1 c2 nB n1 n2 = by-rule r-pair t-nf (x-pair Γ a b R cB c1 c2) unit (nB , n1 , n2 , one)
 nplam : (Γ₀ : CCtx) (a₀ : TyShape) (X₀ : Mean Γ₀ (TV (s-path a₀))) (c₀ : Code) →
     NN (k-nf , (j-tm , dext Γ₀ , a₀ , c₀ , plam-body Γ₀ a₀ X₀)) → NN (k-nf , (j-tm , Γ₀ , s-path a₀ , cplam c₀ , X₀))
@@ -430,16 +431,11 @@ npapp : (Γ₀ : CCtx) (a₀ : TyShape) (P₀ : Mean Γ₀ (TV (s-path a₀))) (
 npapp Γ a P p f cf nc Y q np = by-rule r-papp t-ne (x-papp Γ a P p f cf nc Y q) unit (np , one)
 nty-bool : (Γ₀ : CCtx) (B₀ : Mean Γ₀ One1) → NN (k-nf , (j-ty , Γ₀ , s-bool , c-bool , B₀))
 nty-bool Γ B = by-rule r-ty-bool t-nf (x-unit Γ B) unit one
-nty-pi : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (T₀ : Mean Γ₀ (Fam a₀ b₀)) (cA₀ cB₀ : Code) →
+nty-fam : (fm : FamF) (Γ₀ : CCtx) (a₀ b₀ : TyShape) (T₀ : Mean Γ₀ (Fam a₀ b₀)) (cA₀ cB₀ : Code) →
     NN (k-nf , (j-ty , Γ₀ , a₀ , cA₀ , fmapM Γ₀ (Fam a₀ b₀) (Sem a₀) (fam-dom a₀ b₀) T₀)) →
     NN (k-nf , (j-ty , ext-h Γ₀ a₀ (Fam a₀ b₀) (fam-dom a₀ b₀) T₀ , b₀ , cB₀ , fam-body Γ₀ a₀ b₀ T₀)) →
-    NN (k-nf , (j-ty , Γ₀ , s-pi a₀ b₀ , cpi #2 cA₀ cB₀ , T₀))
-nty-pi Γ a b T cA cB nA nB = by-rule (r-ty-fam f-pi) t-nf (x-fam Γ a b T cA cB) unit (nA , nB , one)
-nty-sig : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (T₀ : Mean Γ₀ (Fam a₀ b₀)) (cA₀ cB₀ : Code) →
-    NN (k-nf , (j-ty , Γ₀ , a₀ , cA₀ , fmapM Γ₀ (Fam a₀ b₀) (Sem a₀) (fam-dom a₀ b₀) T₀)) →
-    NN (k-nf , (j-ty , ext-h Γ₀ a₀ (Fam a₀ b₀) (fam-dom a₀ b₀) T₀ , b₀ , cB₀ , fam-body Γ₀ a₀ b₀ T₀)) →
-    NN (k-nf , (j-ty , Γ₀ , s-sig a₀ b₀ , csigma cA₀ cB₀ , T₀))
-nty-sig Γ a b T cA cB nA nB = by-rule (r-ty-fam f-sig) t-nf (x-fam Γ a b T cA cB) unit (nA , nB , one)
+    NN (k-nf , (j-ty , Γ₀ , s-fam fm a₀ b₀ , fam-code fm cA₀ cB₀ , T₀))
+nty-fam fm Γ a b T cA cB nA nB = by-rule (r-ty-fam fm) t-nf (x-fam Γ a b T cA cB) unit (nA , nB , one)
 nty-path : (Γ₀ : CCtx) (a₀ : TyShape) (T₀ : Mean Γ₀ (Sem (s-path a₀))) (cL₀ c0₀ c1₀ : Code) →
     NN (k-nf , (j-ty , dext Γ₀ , a₀ , cL₀ , path-line-ty Γ₀ a₀ T₀)) →
     NN (k-nf , (j-tm , Γ₀ , a₀ , c0₀ , fmapM Γ₀ (Sem (s-path a₀)) (TV a₀) (tend-0 a₀) T₀)) →
@@ -450,15 +446,15 @@ dvar : (Γ₀ : CCtx) (v₀ : VarP (fst Γ₀)) →
     Der (j-tm , Γ₀ , var-shape (fst Γ₀) v₀ , cvar (var-word (fst Γ₀) v₀) , varCube Γ₀ v₀)
 dvar Γ v = by-rule r-var t-any (x-var Γ v) unit one
 dapp : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (AppV a₀ b₀)) (f₀ c₀ : Code) →
-    Der (j-tm , Γ₀ , s-pi a₀ b₀ , f₀ , fmapM Γ₀ (AppV a₀ b₀) (TV (s-pi a₀ b₀)) (app-f a₀ b₀) R₀) →
+    Der (j-tm , Γ₀ , s-fam f-pi a₀ b₀ , f₀ , fmapM Γ₀ (AppV a₀ b₀) (TV (s-fam f-pi a₀ b₀)) (app-f a₀ b₀) R₀) →
     Der (j-tm , Γ₀ , a₀ , c₀ , fmapM Γ₀ (AppV a₀ b₀) (TV a₀) (app-a a₀ b₀) R₀) →
     Der (j-tm , Γ₀ , b₀ , capp f₀ c₀ , fmapM Γ₀ (AppV a₀ b₀) (TV b₀) (app-r a₀ b₀) R₀)
 dapp Γ a b R f c df da = by-rule r-app t-any (x-app Γ a b R f c) unit (df , da , one)
-dfst : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-sig a₀ b₀))) (p₀ : Code) →
-    Der (j-tm , Γ₀ , s-sig a₀ b₀ , p₀ , R₀) → Der (j-tm , Γ₀ , a₀ , cfst p₀ , fmapM Γ₀ (TV (s-sig a₀ b₀)) (TV a₀) (sig-1 a₀ b₀) R₀)
+dfst : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-fam f-sig a₀ b₀))) (p₀ : Code) →
+    Der (j-tm , Γ₀ , s-fam f-sig a₀ b₀ , p₀ , R₀) → Der (j-tm , Γ₀ , a₀ , cfst p₀ , fmapM Γ₀ (TV (s-fam f-sig a₀ b₀)) (TV a₀) (sig-1 a₀ b₀) R₀)
 dfst Γ a b R p dp = by-rule r-fst t-any (x-proj Γ a b R p) unit (dp , one)
-dsnd : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-sig a₀ b₀))) (p₀ : Code) →
-    Der (j-tm , Γ₀ , s-sig a₀ b₀ , p₀ , R₀) → Der (j-tm , Γ₀ , b₀ , csnd p₀ , fmapM Γ₀ (TV (s-sig a₀ b₀)) (TV b₀) (sig-2 a₀ b₀) R₀)
+dsnd : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-fam f-sig a₀ b₀))) (p₀ : Code) →
+    Der (j-tm , Γ₀ , s-fam f-sig a₀ b₀ , p₀ , R₀) → Der (j-tm , Γ₀ , b₀ , csnd p₀ , fmapM Γ₀ (TV (s-fam f-sig a₀ b₀)) (TV b₀) (sig-2 a₀ b₀) R₀)
 dsnd Γ a b R p dp = by-rule r-snd t-any (x-proj Γ a b R p) unit (dp , one)
 dcase : (Γ₀ : CCtx) (s₀ : TyShape) (R₀ : Mean Γ₀ (CaseV s₀)) (cP₀ x₀ t₀ f₀ : Code) →
     Der (j-ty , ext-h Γ₀ s-bool (CaseV s₀) (case-b s₀) R₀ , s₀ , cP₀ , case-mot Γ₀ s₀ R₀) →
@@ -472,15 +468,15 @@ dtrue : (Γ₀ : CCtx) (B₀ : Mean Γ₀ One1) → Der (j-tm , Γ₀ , s-bool ,
 dtrue Γ B = by-rule (r-con true) t-any (x-unit Γ B) unit one
 dfalse : (Γ₀ : CCtx) (B₀ : Mean Γ₀ One1) → Der (j-tm , Γ₀ , s-bool , c-false , fmapM Γ₀ One1 (TV s-bool) (bool-v false) B₀)
 dfalse Γ B = by-rule (r-con false) t-any (x-unit Γ B) unit one
-dlam : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (X₀ : Mean Γ₀ (TV (s-pi a₀ b₀))) (cA₀ c₀ : Code) →
-    Der (j-ty , Γ₀ , a₀ , cA₀ , fmapM Γ₀ (TV (s-pi a₀ b₀)) (Sem a₀) (λ q → fam-dom a₀ b₀ (fst q)) X₀) →
-    Der (j-tm , lam-ctx Γ₀ a₀ b₀ X₀ , b₀ , c₀ , lam-body Γ₀ a₀ b₀ X₀) → Der (j-tm , Γ₀ , s-pi a₀ b₀ , clam c₀ , X₀)
+dlam : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (X₀ : Mean Γ₀ (TV (s-fam f-pi a₀ b₀))) (cA₀ c₀ : Code) →
+    Der (j-ty , Γ₀ , a₀ , cA₀ , fmapM Γ₀ (TV (s-fam f-pi a₀ b₀)) (Sem a₀) (λ q → fam-dom a₀ b₀ (fst q)) X₀) →
+    Der (j-tm , lam-ctx Γ₀ a₀ b₀ X₀ , b₀ , c₀ , lam-body Γ₀ a₀ b₀ X₀) → Der (j-tm , Γ₀ , s-fam f-pi a₀ b₀ , clam c₀ , X₀)
 dlam Γ a b X cA c dA db = by-rule r-lam t-any (x-lam Γ a b X cA c) unit (dA , db , one)
-dpair : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-sig a₀ b₀))) (cB₀ c1₀ c2₀ : Code) →
-    Der (j-ty , ext-h Γ₀ a₀ (TV (s-sig a₀ b₀)) (λ q → fam-dom a₀ b₀ (fst q)) R₀ , b₀ , cB₀ , pair-cod Γ₀ a₀ b₀ R₀) →
-    Der (j-tm , Γ₀ , a₀ , c1₀ , fmapM Γ₀ (TV (s-sig a₀ b₀)) (TV a₀) (sig-1 a₀ b₀) R₀) →
-    Der (j-tm , Γ₀ , b₀ , c2₀ , fmapM Γ₀ (TV (s-sig a₀ b₀)) (TV b₀) (sig-2 a₀ b₀) R₀) →
-    Der (j-tm , Γ₀ , s-sig a₀ b₀ , cpair c1₀ c2₀ , R₀)
+dpair : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-fam f-sig a₀ b₀))) (cB₀ c1₀ c2₀ : Code) →
+    Der (j-ty , ext-h Γ₀ a₀ (TV (s-fam f-sig a₀ b₀)) (λ q → fam-dom a₀ b₀ (fst q)) R₀ , b₀ , cB₀ , pair-cod Γ₀ a₀ b₀ R₀) →
+    Der (j-tm , Γ₀ , a₀ , c1₀ , fmapM Γ₀ (TV (s-fam f-sig a₀ b₀)) (TV a₀) (sig-1 a₀ b₀) R₀) →
+    Der (j-tm , Γ₀ , b₀ , c2₀ , fmapM Γ₀ (TV (s-fam f-sig a₀ b₀)) (TV b₀) (sig-2 a₀ b₀) R₀) →
+    Der (j-tm , Γ₀ , s-fam f-sig a₀ b₀ , cpair c1₀ c2₀ , R₀)
 dpair Γ a b R cB c1 c2 dB d1 d2 = by-rule r-pair t-any (x-pair Γ a b R cB c1 c2) unit (dB , d1 , d2 , one)
 dplam : (Γ₀ : CCtx) (a₀ : TyShape) (X₀ : Mean Γ₀ (TV (s-path a₀))) (c₀ : Code) →
     Der (j-tm , dext Γ₀ , a₀ , c₀ , plam-body Γ₀ a₀ X₀) → Der (j-tm , Γ₀ , s-path a₀ , cplam c₀ , X₀)
@@ -498,16 +494,11 @@ dpapp1 : (Γ₀ : CCtx) (a₀ : TyShape) (P₀ : Mean Γ₀ (TV (s-path a₀))) 
 dpapp1 Γ a P p dp = by-rule (r-pend true) t-any (x-pc Γ a P p) unit (dp , one)
 dty-bool : (Γ₀ : CCtx) (B₀ : Mean Γ₀ One1) → Der (j-ty , Γ₀ , s-bool , c-bool , B₀)
 dty-bool Γ B = by-rule r-ty-bool t-any (x-unit Γ B) unit one
-dty-pi : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (T₀ : Mean Γ₀ (Fam a₀ b₀)) (cA₀ cB₀ : Code) →
+dty-fam : (fm : FamF) (Γ₀ : CCtx) (a₀ b₀ : TyShape) (T₀ : Mean Γ₀ (Fam a₀ b₀)) (cA₀ cB₀ : Code) →
     Der (j-ty , Γ₀ , a₀ , cA₀ , fmapM Γ₀ (Fam a₀ b₀) (Sem a₀) (fam-dom a₀ b₀) T₀) →
     Der (j-ty , ext-h Γ₀ a₀ (Fam a₀ b₀) (fam-dom a₀ b₀) T₀ , b₀ , cB₀ , fam-body Γ₀ a₀ b₀ T₀) →
-    Der (j-ty , Γ₀ , s-pi a₀ b₀ , cpi #2 cA₀ cB₀ , T₀)
-dty-pi Γ a b T cA cB dA dB = by-rule (r-ty-fam f-pi) t-any (x-fam Γ a b T cA cB) unit (dA , dB , one)
-dty-sig : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (T₀ : Mean Γ₀ (Fam a₀ b₀)) (cA₀ cB₀ : Code) →
-    Der (j-ty , Γ₀ , a₀ , cA₀ , fmapM Γ₀ (Fam a₀ b₀) (Sem a₀) (fam-dom a₀ b₀) T₀) →
-    Der (j-ty , ext-h Γ₀ a₀ (Fam a₀ b₀) (fam-dom a₀ b₀) T₀ , b₀ , cB₀ , fam-body Γ₀ a₀ b₀ T₀) →
-    Der (j-ty , Γ₀ , s-sig a₀ b₀ , csigma cA₀ cB₀ , T₀)
-dty-sig Γ a b T cA cB dA dB = by-rule (r-ty-fam f-sig) t-any (x-fam Γ a b T cA cB) unit (dA , dB , one)
+    Der (j-ty , Γ₀ , s-fam fm a₀ b₀ , fam-code fm cA₀ cB₀ , T₀)
+dty-fam fm Γ a b T cA cB dA dB = by-rule (r-ty-fam fm) t-any (x-fam Γ a b T cA cB) unit (dA , dB , one)
 dty-path : (Γ₀ : CCtx) (a₀ : TyShape) (T₀ : Mean Γ₀ (Sem (s-path a₀))) (cL₀ c0₀ c1₀ : Code) →
     Der (j-ty , dext Γ₀ , a₀ , cL₀ , path-line-ty Γ₀ a₀ T₀) →
     Der (j-tm , Γ₀ , a₀ , c0₀ , fmapM Γ₀ (Sem (s-path a₀)) (TV a₀) (tend-0 a₀) T₀) →
