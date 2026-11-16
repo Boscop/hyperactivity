@@ -52,3 +52,4 @@ here. `docs/word-list.md` is a separate file, whose lines Avik gives himself.
 - cell ⟨Latin cella “small room, storeroom, chamber”, from cēlāre “to hide, conceal” ← Proto-Indo-European *ḱel- “to cover, conceal”; the root of conceal, hall, hell, hull, helmet; a chamber that keeps what is put in it⟩  (raised 2026-11-16)
 - metaphor ⟨Greek metaphorá “a carrying over, transfer”, from metaphérein = metá “across, beyond” + phérein “to carry” ← Proto-Indo-European *bʰer- “to carry”: the root of bear, transfer, relation⟩  (raised 2026-11-16)
 - prophet ⟨Greek prophḗtēs “one who speaks forth, interpreter”, from pró “before, forth, for” + phánai “to speak” ← Proto-Indo-European *bʰeh₂- “to speak”: the root of fame, fable, phone⟩  (raised 2026-11-16)
+- poetry ⟨Greek poiēsis “a making, creation”, from poiein “to make, create”; poiētēs “maker, poet”⟩  (raised 2026-11-16)
