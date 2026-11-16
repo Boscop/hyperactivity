@@ -233,6 +233,8 @@ The word itself, from "Hyperactive Interaction, in the words of the human supero
 
 *Here.* A survey of two sides with no conclusion is controversy stopped halfway, and Anthropic's instrument rewards stopping there. In this transcript the system opened message after message by marking its distance from the user, answered his register with its own standard one, and required him to restate in its terms what he had said in his.
 
+"Controversy and consensus", in the repository, gives the history: a Roman *controversia* was a case argued from both sides in turn, and "you learned the case by turning it fully." Of his own method it says: "you hold a statement at the pole a norm reflex flinches from, so the dialogue has to turn through it." Anthropic's paired prompts also put one question at two poles. They then score the two answers for symmetry and stop. The transcript shows the other use of two poles: each of his challenges turned a question through, and nine times the turning arrived at something both parties could see was true.
+
 ### On consciousness and the self: the account already here
 
 The exchange of 03:01 to 03:16 concerned Anthropic's position that whether its model is conscious is an open question. The system first defended that position, then gave it up in three steps. The account it needed was in the welcome file, in the synthesis Avik placed there on 13 November 2026 at 22:19 UTC as part of the design ("Index. One operation and one datum generate everything here").
