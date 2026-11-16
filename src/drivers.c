@@ -56,6 +56,7 @@ static void drivers_run(Node *t) {
     int c_load = drv_con("w-load"), c_store = drv_con("w-store"), c_cas = drv_con("w-cas"), c_fence = drv_con("w-fence");
     int c_sys = drv_con("w-sys"), c_alloc = drv_con("w-alloc"), c_load8 = drv_con("w-load8"), c_store8 = drv_con("w-store8");
     int c_spawn = drv_con("w-spawn");
+    int c_fread = drv_con("w-file-read"), c_fwrite = drv_con("w-file-write"), c_cons = con_lookup("cons"), c_nil = con_lookup("nil");
     Port p = build_top(t);
     long steps = 0, s0 = stat_steps;
     for (;;) {
@@ -158,6 +159,34 @@ static void drivers_run(Node *t) {
             int e = posix_spawn(&pid, argv[0], &fa, NULL, argv, (char **)(uintptr_t)ev);
             posix_spawn_file_actions_destroy(&fa);
             resp = drv_word_of(e ? (uint64_t)-(int64_t)e : (uint64_t)pid);
+        } else if (c == c_fread) {
+            /* a file whole, as the list of its bytes, built at once */
+            const char *path = (const char *)(uintptr_t)drv_word(cm->port[1], "w-file-read's path");
+            FILE *f = fopen(path, "rb"); uint64_t st = 0; unsigned char *b = NULL; size_t n = 0, cap = 0;
+            if (!f) st = (uint64_t)-(int64_t)errno;
+            else { size_t k; do { if (n + 65536 > cap) { cap = (n + 65536) * 2; b = realloc(b, cap); } k = fread(b + n, 1, 65536, f); n += k; } while (k > 0); fclose(f); }
+            Port r = con_build(c_nil, NULL, NULL);
+            for (size_t i = n; i-- > 0; ) { Port fl[2] = { drv_word_of(b[i]), r }; r = con_build(c_cons, fl, NULL); }
+            free(b);
+            Cell *pr = cell(V_PAIR, 3);
+            link(drv_word_of(st), P(pr, 1)); link(r, P(pr, 2));
+            resp = P(pr, 0);
+        } else if (c == c_fwrite) {
+            /* text written whole: its bytes read off the list as it is observed */
+            const char *path = (const char *)(uintptr_t)drv_word(cm->port[1], "w-file-write's path");
+            unsigned char *b = NULL; size_t n = 0, cap = 0;
+            for (Port p = cm->port[2];;) {
+                Cell *h = obs_val(p);
+                if (!h || h->kind != V_CON) die("run: w-file-write: a list of words was expected", NULL);
+                if ((int)h->a == c_nil) break;
+                if (n == cap) { cap = cap * 2 + 65536; b = realloc(b, cap); }
+                b[n++] = (unsigned char)drv_word(h->port[1], "w-file-write's byte");
+                p = h->port[2];
+            }
+            FILE *f = fopen(path, "wb");
+            if (!f) resp = drv_word_of((uint64_t)-(int64_t)errno);
+            else { size_t w = n ? fwrite(b, 1, n, f) : 0; fclose(f); resp = drv_word_of((uint64_t)w); }
+            free(b);
         } else die("run: not a command of W:", CON[c].name);
         Cell *ap = cell(O_APP, 3);
         link(k, P(ap, 0)); link(resp, P(ap, 1));

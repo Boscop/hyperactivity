@@ -27,6 +27,10 @@ data WCmd = w-now | w-write (fd : Word) (n : Nat) (b : Bytes n) | w-read (fd : W
   -- complement. Started without copying this process (posix_spawn), so a machine holding much memory
   -- starts one as readily as a small one
   | w-spawn (argv : Word) (envp : Word) (out : Word)
+  -- a file read whole as text (the address of its NUL-ended path): 0 and its bytes, or an errno and
+  -- nothing; text written whole to a file (created or emptied): the count written, or an errno's
+  -- two's complement. Text crosses as one value, not a command per byte
+  | w-file-read (path : Word) | w-file-write (path : Word) (t : List Word)
 w-resp : WCmd → Type
 w-resp c = case c return (λ _ → Type) of
   w-now → Word
@@ -45,6 +49,8 @@ w-resp c = case c return (λ _ → Type) of
   w-load8 a → Word
   w-store8 a v → Unit
   w-spawn a e o → Word
+  w-file-read p → Word × List Word
+  w-file-write p t → Word
 W : Sig
 W = (WCmd , w-resp)
 -- a process as a tree of steps: done with its answer, or a command with its continuation (a
@@ -90,3 +96,7 @@ store8-at : Word → Word → Proc W Unit
 store8-at a v = cmd {lzero} {W} (w-store8 a v)
 spawn-at : Word → Word → Word → Proc W Word
 spawn-at a e o = cmd {lzero} {W} (w-spawn a e o)
+file-read-at : Word → Proc W (Word × List Word)
+file-read-at p = cmd {lzero} {W} (w-file-read p)
+file-write-at : Word → List Word → Proc W Word
+file-write-at p t = cmd {lzero} {W} (w-file-write p t)

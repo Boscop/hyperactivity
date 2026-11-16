@@ -107,8 +107,13 @@ h-file path =
 h-text-of : Sum Unit (Word × Word) → Proc W (Sum Unit (List Word))
 h-text-of (inl u) = ret (inl unit)
 h-text-of (inr bl) = bind (h-peek (fst bl) (toNat (snd bl))) (λ t → ret (inr t))
+-- text in fresh memory with a NUL after it: its address
+h-cstr : List Word → Proc W Word
+h-cstr t = bind (alloc-bytes (wadd (fromNat (list-length t)) #1)) (λ a → bind (h-poke a t) (λ u → ret a))
+h-read-of : Word × List Word → Sum Unit (List Word)
+h-read-of r = if weq (fst r) #0 then inr (snd r) else inl unit
 h-read : List Word → Proc W (Sum Unit (List Word))
-h-read path = bind (h-file path) h-text-of
+h-read path = bind (h-cstr path) (λ p → bind (file-read-at p) (λ r → ret (h-read-of r)))
 
 -- the value of a variable in an environment block (NUL-separated NAME=VALUE), or nothing
 h-env-in : List Word → List (List Word) → Sum Unit (List Word)
@@ -186,9 +191,6 @@ h-trim : List Word → List Word
 h-trim nil = nil
 h-trim (cons x r) = if weq x #32 then h-trim r else cons x r
 
--- text in fresh memory with a NUL after it: its address
-h-cstr : List Word → Proc W Word
-h-cstr t = bind (alloc-bytes (wadd (fromNat (list-length t)) #1)) (λ a → bind (h-poke a t) (λ u → ret a))
 -- texts as a NULL-ended array of addresses (an argv or envp)
 h-ptrs-at : Word → List (List Word) → Proc W Unit
 h-ptrs-at a nil = ret unit
@@ -198,13 +200,7 @@ h-ptrs ts = bind (alloc-bytes (wmul (wadd (fromNat (list-length ts)) #1) #8)) (�
 
 -- a file written whole (created, or emptied first): whether it was
 h-write : List Word → List Word → Proc W Bool
-h-write path t =
-  bind (h-cstr path) (λ p →
-  bind (sys-call #257 #18446744073709551516 p #577 #420 #0 #0) (λ fd →
-  if wlt fd #9223372036854775808 then
-    bind (h-cstr t) (λ b → bind (sys-call #1 fd b (fromNat (list-length t)) #0 #0 #0) (λ n →
-    bind (sys-call #3 fd #0 #0 #0 #0 #0) (λ c → ret {lzero} {W} (weq n (fromNat (list-length t))))))
-  else ret {lzero} {W} false))
+h-write path t = bind (h-cstr path) (λ p → bind (file-write-at p t) (λ w → ret (wlt w #9223372036854775808)))
 -- a directory made (an existing one is fine)
 h-mkdir : List Word → Proc W Unit
 h-mkdir path = bind (h-cstr path) (λ p → bind (sys-call #83 p #493 #0 #0 #0 #0) (λ r → ret unit))
