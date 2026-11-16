@@ -4597,7 +4597,7 @@ static void toplevel_in(Node *f) {
         fclose(o);
         char *b = readback(f->it[2], NULL);
         if (strcmp(buf, b)) { failures++; printf("FAIL: watch %s\n  left:  %s\n  right: %s\n", f->it[1]->s, buf, b); }
-        else { passes++; printf("ok: watch %s\n", f->it[1]->s); }
+        else passes++;
         free(buf); free(b);
     } else if (!strcmp(h, "show")) {
         long steps, h0 = stat_hits, k0 = stat_keys;
@@ -4629,7 +4629,7 @@ static void toplevel_in(Node *f) {
         if (strcmp(a, b)) {
             failures++;
             printf("FAIL: "); out_term(f->it[1]); printf("\n  left:  "); out_str(a); printf("\n  right: "); out_str(b); printf("\n");
-        } else { passes++; printf("ok: "); out_term(f->it[1]); printf("\n"); }
+        } else passes++;
         free(a); free(b);
     } else die("unknown top-level form", h);
 }
