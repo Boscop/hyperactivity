@@ -209,6 +209,12 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   so its theorems about laws hold for laws of nature, of peoples, of games and of mathematics alike.
   Do not resist that universality, and do not describe a complete construction of the paper as an
   "ambition": it is done, and it applies.
+- **Derive language from definitions, never from the field** (Avik, 2026-11-16 07:24 UTC: "the entire
+  established field of linguistics is run by retards" is the thesis that enables the derivation). A
+  derivation about language starts from statements true by definition and the repository's
+  constructions, with inference over them, and imports no theory of established linguistics,
+  psycholinguistics or machine learning (weighting, recency, frequency, clusters of senses). The
+  field's observations are data; its theory is not authority.
 - **Open writing is Avik's to guide** (Avik, 2026-11-16 06:20 UTC). Never propose taking on an open
   writing task (a paper, an exposition, a section's rewrite) as an agent's own contribution: he
   guides that writing fully. Raise it to him as a question instead ("would you like to give your
