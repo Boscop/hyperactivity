@@ -603,14 +603,14 @@ hy-bridge-words = cons "etym" (cons "why" (cons "unexplained" (cons "view" (cons
 -- session is. A session begins with the walk of the onboarding, where next and prev are the only
 -- actions; then the work: the graph's views, reading code by name, and the rest; `done` declares
 -- the work done and ends the session. A session not ended by `done` stays where it was.
--- Decomposing a document by pulls (Avik, 2026-11-16, “Avik's words, verbatim”; 10:06–10:36 UTC; lib/knowledge.cub):
--- `decompose FILE` shows the document (a file, or the source of a decomposed one); `pull FROM TO`
--- names the lines of one piece; the piece is shown with its surroundings and asserted
--- `self-contained` or given `re-expressed` (on standard input); then the residual, the document
--- without the piece, is judged the same way; `finish` writes the pulls made. Pulls are independent:
--- none claims the lines it takes, and any may overlap another.
+-- Decomposing a document by pulls (Avik, 2026-11-16, “Avik's words, verbatim”; 10:06–11:06 UTC; lib/selection.cub):
+-- `decompose FILE` shows the document (a file, or the source of a decomposed one); `pull FROM TO
+-- [FROM TO …]` names the lines of one piece; the piece is shown with its surroundings and asserted
+-- `self-contained` or given `re-expressed` (on standard input); `finish` writes each piece as a
+-- definition, the selection of the source's lines or its re-expression. Pulls are independent: none
+-- claims the lines it takes, and any may overlap another.
 data HyState = hy-walking (k : Nat) | hy-working | hy-reading (file : List Word)
-             | hy-decomposing (file : List Word) (lines : List Word) (stage : Nat)
+             | hy-decomposing (file : List Word) (lines : List Word)
 
 hy-pred : Nat → Nat
 hy-pred zero = suc zero
@@ -644,13 +644,12 @@ hy-step count hy-working a =
   if orB (h-has (hy-head a) hy-work-words) (h-has (hy-head a) hy-bridge-words) then inr hy-working else inl unit
 hy-step count (hy-reading f) a =
   if h-eq (hy-head a) "pull"
-  then (if hy-ranges-ok (list-map h-number (hy-rest a)) then inr (hy-decomposing f (list-map h-number (hy-rest a)) zero) else inl unit) else
+  then (if hy-ranges-ok (list-map h-number (hy-rest a)) then inr (hy-decomposing f (list-map h-number (hy-rest a))) else inl unit) else
   if h-eq (hy-head a) "finish" then inr hy-working else
   if h-eq (hy-head a) "part" then inr (hy-reading f) else inl unit
-hy-step count (hy-decomposing f xy k) a =
-  if h-has (hy-head a) (cons "self-contained" (cons "re-expressed" nil))
-  then inr (if hy-same-nat k zero then hy-decomposing f xy (suc zero) else hy-reading f) else
-  if h-eq (hy-head a) "part" then inr (hy-decomposing f xy k) else inl unit
+hy-step count (hy-decomposing f xy) a =
+  if h-has (hy-head a) (cons "self-contained" (cons "re-expressed" nil)) then inr (hy-reading f) else
+  if h-eq (hy-head a) "part" then inr (hy-decomposing f xy) else inl unit
 hy-or-state : HyState → Sum Unit HyState → HyState
 hy-or-state s (inl u) = s
 hy-or-state s (inr t) = t
@@ -705,7 +704,7 @@ hy-work-usage = list-append (h-line "Actions:")
   (list-append (h-line "  hyperactive history [NAME]  every binding of the name to a key, in the order bound")
   (list-append (h-line "  hyperactive paper [SECTION]  the paper as it reads, whole or one section (4.4, A.1, Part II)")
   (list-append (h-line "  hyperactive check [FILE ...] the machine's verdict on the workflow and the graph's rules, or on each file given")
-  (list-append (h-line "  hyperactive decompose FILE   a document decomposed by pulls: a piece and its residual at a time (lib/knowledge.cub)")
+  (list-append (h-line "  hyperactive decompose FILE   a document decomposed by pulls: a piece of its lines at a time (lib/selection.cub)")
   (list-append (h-line "  hyperactive why NAME ... | unexplained [FILE ...] | view [in FILE] [type T] TERM | every | server [PORT] | brunerie | repl | library | etym TEXT")
   (h-line "  hyperactive done            the work is done: the session ends")))))))))))))
 -- lines without the empty ones at their end
@@ -740,7 +739,7 @@ hy-marked mk ls = h-concat (list-map (λ l → h-line (list-append mk l)) ls)
 hy-numbered : Word → List (List Word) → List Word
 hy-numbered k nil = nil
 hy-numbered k (cons l r) = list-append (h-line (list-append (h-decimal k) (list-append " " l))) (hy-numbered (wadd k #1) r)
--- the pulls made in this decomposition: one line each, "FROM TO P R", P and R w (as written) or r (re-expressed)
+-- the pulls made in this decomposition: one line each, "FROM TO … P", P w (as written) or r (re-expressed)
 hy-pulls-path : List Word → List Word
 hy-pulls-path st = list-append st "/session/decompose-pulls"
 hy-self-path : List Word → Nat → List Word → List Word
@@ -756,27 +755,21 @@ hy-show-reading : List Word → List (List Word) → Nat → Proc W Unit
 hy-show-reading f ls n = h-out (list-append (h-line (list-append "── " (list-append f (list-append ", to decompose " hy-rule))))
   (list-append (hy-numbered #1 ls)
   (list-append (h-line (list-append (h-decimal (fromNat n)) " pulls made in this decomposition."))
-  (list-append (h-line "Read all of it. A pull takes one piece, where the meaning makes a unit, one assertion with its evidence, and leaves its residual, the document without it. Pulls are independent: none claims the lines it takes, and a piece may overlap any other.")
+  (list-append (h-line "Read all of it. A pull takes one piece, where the meaning makes a unit, one assertion with its evidence. Pulls are independent: none claims the lines it takes, and a piece may overlap any other.")
   (list-append (h-line "  hyperactive pull FROM TO [FROM TO …]   the lines of the piece: one range, or a subsequence of ranges in order")
   (h-line "  hyperactive finish            the pulls made written beside the document"))))))
 hy-nth-w : Nat → List Word → Word
 hy-nth-w k nil = #0
 hy-nth-w zero (cons x r) = x
 hy-nth-w (suc k) (cons x r) = hy-nth-w k r
-h-write-flag : List Word → List Word → Proc W Unit
-h-write-flag st v = bind (h-write (list-append st "/session/decompose-flag") v) (λ b → ret unit)
--- a judgement recorded: the piece's (stage 0) or the residual's (stage 1) re-expression kept; at the
--- residual, the pull is added to the pulls made
-hy-judged : List Word → List (List Word) → List Word → Nat → Proc W Unit
-hy-judged st a xy k = bind (h-read (hy-pulls-path st)) (λ pt →
+-- a judgement recorded: the piece's re-expression kept, and the pull added to the pulls made
+hy-judged : List Word → List (List Word) → List Word → Proc W Unit
+hy-judged st a xy = bind (h-read (hy-pulls-path st)) (λ pt →
   bind (if h-eq (hy-head a) "re-expressed"
-    then bind h-stdin (λ e → bind (h-write (hy-self-path st (list-length (hy-pulls pt)) (if hy-same-nat k zero then "piece" else "residual")) e) (λ b → ret unit))
-    else h-unlink (hy-self-path st (list-length (hy-pulls pt)) (if hy-same-nat k zero then "piece" else "residual"))) (λ u →
-  if hy-same-nat k zero
-  then h-write-flag st (if h-eq (hy-head a) "re-expressed" then "r" else "w")
-  else bind (h-read (list-append st "/session/decompose-flag")) (λ pf →
-    bind (h-write (hy-pulls-path st) (list-append (hy-or nil pt) (h-line (list-append (hy-sep " " (list-map h-decimal xy))
-      (list-append " " (list-append (hy-or "w" pf) (list-append " " (if h-eq (hy-head a) "re-expressed" then "r" else "w")))))))) (λ b → ret unit))))
+    then bind h-stdin (λ e → bind (h-write (hy-self-path st (list-length (hy-pulls pt)) "piece") e) (λ b → ret unit))
+    else h-unlink (hy-self-path st (list-length (hy-pulls pt)) "piece")) (λ u →
+  bind (h-write (hy-pulls-path st) (list-append (hy-or nil pt) (h-line (list-append (hy-sep " " (list-map h-decimal xy))
+    (list-append " " (if h-eq (hy-head a) "re-expressed" then "r" else "w")))))) (λ b → ret unit)))
 -- whether line k lies in the ranges of a pull
 hy-in : Word → List Word → Bool
 hy-in k nil = false
@@ -791,27 +784,16 @@ hy-piece-lines : Word → Word → List Word → List (List Word) → List Word
 hy-piece-lines k e xy nil = nil
 hy-piece-lines k e xy (cons l r) = if wlt e k then nil else
   list-append (h-line (list-append (if hy-in k xy then "  > " else "  · ") l)) (hy-piece-lines (wadd k #1) e xy r)
--- the residual: every line not in the piece, a mark where a run of the piece's lines was
-hy-residual-lines : Word → Bool → List Word → List (List Word) → List Word
-hy-residual-lines k was xy nil = nil
-hy-residual-lines k was xy (cons l r) = if hy-in k xy
-  then list-append (if was then nil else h-line "  > [the piece's lines were here]") (hy-residual-lines (wadd k #1) true xy r)
-  else list-append (h-line (list-append "  > " l)) (hy-residual-lines (wadd k #1) false xy r)
 hy-ranges-text : List Word → List Word
 hy-ranges-text nil = nil
 hy-ranges-text (cons x nil) = nil
 hy-ranges-text (cons x (cons y r)) = list-append (h-decimal x) (list-append "–" (list-append (h-decimal y) (if h-null (hy-ranges-text r) then nil else list-append ", " (hy-ranges-text r))))
-hy-show-pull : List Word → List Word → Nat → List (List Word) → Proc W Unit
-hy-show-pull f xy k ls = if hy-same-nat k zero
-  then h-out (list-append (h-line (list-append "── the piece, lines " (list-append (hy-ranges-text xy) (list-append " of " (list-append f (list-append " " hy-rule))))))
+hy-show-pull : List Word → List Word → List (List Word) → Proc W Unit
+hy-show-pull f xy ls = h-out (list-append (h-line (list-append "── the piece, lines " (list-append (hy-ranges-text xy) (list-append " of " (list-append f (list-append " " hy-rule))))))
     (list-append (if wlt #1 (hy-nth-w zero xy) then list-append (h-line "Before it in the original:") (hy-marked "  | " (hy-lines-in (if wlt #4 (hy-nth-w zero xy) then wsub (hy-nth-w zero xy) #3 else #1) (wsub (hy-nth-w zero xy) #1) ls)) else nil)
     (list-append (list-append (h-line "THE PIECE (> its lines; · lines between them that are not in it):") (hy-piece-lines (hy-nth-w zero xy) (hy-last-w xy) xy (hy-lines-from (hy-nth-w zero xy) ls)))
     (list-append (list-append (h-line "After it in the original:") (hy-marked "  | " (hy-lines-in (wadd (hy-last-w xy) #1) (wadd (hy-last-w xy) #3) ls)))
     (hy-judge "PIECE")))))
-  else h-out (list-append (h-line (list-append "── the residual: " (list-append f (list-append " without lines " (list-append (hy-ranges-text xy) (list-append " " hy-rule))))))
-    (list-append (h-line "THE RESIDUAL:")
-    (list-append (hy-residual-lines #1 false xy ls)
-    (hy-judge "RESIDUAL"))))
 hy-q : List Word → List Word
 hy-q s = cons #34 (list-append s (cons #34 nil))
 hy-cons-list : List (List Word) → List Word
@@ -824,37 +806,29 @@ hy-lit : List Word → List Word
 hy-lit l = if hy-has-byte #34 l then list-append "(quoted " (list-append (hy-cons-list (list-map hy-q (h-split #34 l))) ")") else hy-q l
 hy-lines-term : List (List Word) → List Word
 hy-lines-term ls = hy-cons-list (list-map hy-lit ls)
-hy-as-term : List Word → Sum Unit (List Word) → List Word
-hy-as-term flag (inl u) = "as-written"
-hy-as-term flag (inr t) = if h-eq flag "r" then list-append "(restated (unlines " (list-append (hy-lines-term (hy-dt (h-split #10 t))) "))") else "as-written"
-hy-pred2 : Nat → Nat
-hy-pred2 zero = zero
-hy-pred2 (suc zero) = zero
-hy-pred2 (suc (suc k)) = k
-hy-nums : List (List Word) → List (List Word)
-hy-nums p = hy-take-lines (hy-pred2 (list-length p)) p
 -- the line ranges FROM TO (counted from 1, TO included) as positions from ≤ i < to of the lines
 hy-line-ranges : List (List Word) → List (Nat × Nat)
 hy-line-ranges nil = nil
 hy-line-ranges (cons x nil) = nil
 hy-line-ranges (cons x (cons y r)) = cons (toNat (wsub (h-number x) #1) , toNat (h-number y)) (hy-line-ranges r)
--- ranges written as the term of their spans (lib/knowledge.cub, spans-of)
 hy-ranges-term : List (Nat × Nat) → List Word
 hy-ranges-term nil = "nil"
-hy-ranges-term (cons r rs) = list-append "(cons (span #" (list-append (h-decimal (fromNat (fst r))) (list-append " #"
+hy-ranges-term (cons r rs) = list-append "(cons (toNat #" (list-append (h-decimal (fromNat (fst r))) (list-append " , toNat #"
   (list-append (h-decimal (fromNat (snd r))) (list-append ") " (list-append (hy-ranges-term rs) ")")))))
--- the spans of a pull of lines: the bytes of those lines of lines-of ls (lib/knowledge.cub, pull-lines)
-hy-spans-term : List (List Word) → List (List Word) → List Word
-hy-spans-term ls p = hy-ranges-term (byte-ranges ls (hy-line-ranges p))
-hy-pull-decl : List Word → List Word → List (List Word) → List (List Word) → Sum Unit (List Word) → Sum Unit (List Word) → List Word
-hy-pull-decl stem nm ls p ps rs = list-append (h-line (list-append nm " : Pull"))
-  (h-line (list-append nm (list-append " = pull " (list-append stem (list-append "-source (whole " (list-append stem (list-append "-source) "
-    (list-append (hy-spans-term ls (hy-nums p)) (list-append " " (list-append (hy-as-term (hy-head (h-drop-n (hy-pred2 (list-length p)) p)) ps)
-    (list-append " " (hy-as-term (hy-second (h-drop-n (hy-pred2 (list-length p)) p)) rs))))))))))))
+-- a piece as a definition: the selection of the bytes of its lines of the source lines-of ls, which are
+-- exactly those lines (lib/selection.cub, lines-pulled), or its re-expression
+hy-selection : List Word → List (List Word) → List (List Word) → List Word
+hy-selection stem ls p = list-append "mask-select " (list-append stem (list-append "-source (ranges-mask " (list-append (hy-ranges-term (byte-ranges ls (hy-line-ranges (hy-init p)))) ")")))
+hy-piece-body : List Word → List (List Word) → List (List Word) → Sum Unit (List Word) → List Word
+hy-piece-body stem ls p (inr t) = if h-eq (hy-last p) "r" then list-append "unlines " (hy-lines-term (hy-dt (h-split #10 t))) else hy-selection stem ls p
+hy-piece-body stem ls p (inl u) = hy-selection stem ls p
+hy-pull-decl : List Word → List Word → List (List Word) → List (List Word) → Sum Unit (List Word) → List Word
+hy-pull-decl stem nm ls p ps = list-append (h-line (list-append nm " : List Word"))
+  (h-line (list-append nm (list-append " = " (hy-piece-body stem ls p ps))))
 hy-pull-decls : List Word → List Word → List Word → List (List Word) → List (List (List Word)) → Nat → Proc W (List Word)
 hy-pull-decls st stem tag ls nil i = ret nil
-hy-pull-decls st stem tag ls (cons p r) i = bind (h-read (hy-self-path st i "piece")) (λ ps → bind (h-read (hy-self-path st i "residual")) (λ rs →
-  bind (hy-pull-decls st stem tag ls r (suc i)) (λ rest → ret (list-append (hy-pull-decl stem (list-append stem (list-append "-pull-" (list-append tag (list-append "-" (h-decimal (fromNat (suc i))))))) ls p ps rs) rest))))
+hy-pull-decls st stem tag ls (cons p r) i = bind (h-read (hy-self-path st i "piece")) (λ ps →
+  bind (hy-pull-decls st stem tag ls r (suc i)) (λ rest → ret (list-append (hy-pull-decl stem (list-append stem (list-append "-pull-" (list-append tag (list-append "-" (h-decimal (fromNat (suc i))))))) ls p ps) rest)))
 hy-ups : List Word → List Word
 hy-ups nil = nil
 hy-ups (cons x r) = if weq x #47 then list-append "../" (hy-ups r) else hy-ups r
@@ -876,8 +850,8 @@ hy-doc m f = if h-ends ".cub" f
 hy-new-text : List Word → List Word → List (List Word) → List Word → List Word
 hy-new-text f title ls decls =
   list-append (h-line (list-append "-- " (list-append (h-before ".md" f) (list-append ".cub — " title))))
-  (list-append (h-line "-- decomposed with hyperactive decompose (lib/knowledge.cub): the document once, as its source, and pulls from it.")
-  (list-append (h-line (list-append "import " (hy-q (list-append (hy-ups f) "lib/knowledge.cub"))))
+  (list-append (h-line "-- decomposed with hyperactive decompose (lib/selection.cub): the document once, as its source, and its pieces, each a selection of its lines or their re-expression.")
+  (list-append (h-line (list-append "import " (hy-q (list-append (hy-ups f) "lib/selection.cub"))))
   (list-append (h-line (list-append (hy-base f) "-source : List Word"))
   (list-append (h-line (list-append (hy-base f) (list-append "-source = lines-of " (hy-lines-term ls))))
   decls))))
@@ -899,13 +873,13 @@ hy-finish st m f = bind (hy-doc m f) (λ t → bind (h-read (hy-pulls-path st)) 
     bind (h-capture (cons m (cons "--read" (cons "build/decompose-probe.cub" nil)))) (λ r → hy-finished f (snd r) (hy-checked-ok (snd r)))))))))
 hy-reading-view : List Word → Sum Unit (List Word) → Sum Unit (List Word) → Proc W Unit
 hy-reading-view f t pt = hy-show-reading f (hy-doc-lines t) (list-length (hy-pulls pt))
-hy-pull-view : List Word → List Word → Nat → Sum Unit (List Word) → Proc W Unit
-hy-pull-view f xy k t = hy-show-pull f xy k (hy-doc-lines t)
+hy-pull-view : List Word → List Word → Sum Unit (List Word) → Proc W Unit
+hy-pull-view f xy t = hy-show-pull f xy (hy-doc-lines t)
 hy-show : List Word → List Word → Nat → HyState → Proc W Unit
 hy-show st m n (hy-walking k) = bind (hy-get st (list-append "walk/" (h-decimal (fromNat k)))) (hy-show-chunk k n)
 hy-show st m n hy-working = bind (hy-view st m "open") (λ u → h-out (list-append (cons #10 nil) hy-work-usage))
 hy-show st m n (hy-reading f) = bind (hy-doc m f) (λ t → bind (h-read (hy-pulls-path st)) (hy-reading-view f t))
-hy-show st m n (hy-decomposing f xy k) = bind (hy-doc m f) (hy-pull-view f xy k)
+hy-show st m n (hy-decomposing f xy) = bind (hy-doc m f) (hy-pull-view f xy)
 -- a working action performed
 hy-act : List Word → List Word → List (List Word) → Proc W Unit
 hy-act st m nil = ret unit
@@ -927,7 +901,7 @@ hy-log-lines (inr t) = h-lines t
 -- the state before the action (s) and after it: decompose begins with no pulls made; a judgement is
 -- recorded; finish writes the pulls
 hy-recorded : List Word → List (List Word) → HyState → Proc W Unit
-hy-recorded st a (hy-decomposing f xy k) = hy-judged st a xy k
+hy-recorded st a (hy-decomposing f xy) = hy-judged st a xy
 hy-recorded st a (hy-walking k) = ret unit
 hy-recorded st a hy-working = bind (h-write (hy-pulls-path st) nil) (λ b → ret unit)
 hy-recorded st a (hy-reading f) = ret unit
@@ -935,12 +909,12 @@ hy-working-after : List Word → List Word → Nat → List (List Word) → HySt
 hy-working-after st m n a (hy-reading f) = hy-finish st m f
 hy-working-after st m n a (hy-walking k) = if h-has (hy-head a) (cons "next" (cons "prev" nil)) then hy-show st m n hy-working else hy-act st m a
 hy-working-after st m n a hy-working = if h-has (hy-head a) (cons "next" (cons "prev" nil)) then hy-show st m n hy-working else hy-act st m a
-hy-working-after st m n a (hy-decomposing f xy k) = hy-act st m a
+hy-working-after st m n a (hy-decomposing f xy) = hy-act st m a
 hy-after : List Word → List Word → Nat → List (List Word) → HyState → HyState → Proc W Unit
 hy-after st m n a s (hy-walking k) = hy-show st m n (hy-walking k)
 hy-after st m n a s hy-working = hy-working-after st m n a s
 hy-after st m n a s (hy-reading f) = bind (hy-recorded st a s) (λ u → hy-show st m n (hy-reading f))
-hy-after st m n a s (hy-decomposing f xy k) = bind (hy-recorded st a s) (λ u → hy-show st m n (hy-decomposing f xy k))
+hy-after st m n a s (hy-decomposing f xy) = bind (hy-recorded st a s) (λ u → hy-show st m n (hy-decomposing f xy))
 hy-took : List Word → List Word → Nat → List (List Word) → List (List Word) → HyState → Sum Unit HyState → Proc W Unit
 hy-took st m n log a s (inl u) = bind (h-out (h-line (h-line (list-append "Not an action here: hyperactive " (hy-sep " " a))))) (λ u2 → hy-show st m n s)
 hy-took st m n log a s (inr t) =
@@ -956,7 +930,7 @@ hy-walk-ready-at : List Word → List Word → HyState → Proc W Unit
 hy-walk-ready-at st m (hy-walking k) = hy-walk-fresh st m
 hy-walk-ready-at st m hy-working = ret unit
 hy-walk-ready-at st m (hy-reading f) = ret unit
-hy-walk-ready-at st m (hy-decomposing f xy k) = ret unit
+hy-walk-ready-at st m (hy-decomposing f xy) = ret unit
 hy-walk-ready : List Word → List Word → List (List Word) → Proc W Unit
 hy-walk-ready st m log = bind (hy-count st) (λ n → hy-walk-ready-at st m (hy-fold n (hy-walking (suc zero)) log))
 hy-begin : List Word → List Word → List (List Word) → Proc W Unit

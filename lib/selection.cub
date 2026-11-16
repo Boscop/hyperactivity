@@ -1,97 +1,35 @@
--- lib/selection.cub — a selection from a sequence is a mask: one Bool per position, a position past
--- the mask's end not selected (Avik, 2026-11-16 11:06 UTC: subsequence pulls; 11:10 UTC: code comes
--- with its proof). What a mask selects is a subsequence; what it does not select is the rest; the two
--- merged back along the mask are the sequence (mask-partition). A pull is read in the positions of the
--- one source it is taken from: its piece and its residual are the same text read there as read in
--- the positions of the document it was pulled from (mask-piece, mask-residual), so a residual is
--- pulled from like any document. Ranges of positions are masks (range-mask, mask-or); the loop's
--- ranges of lines become ranges of bytes of the lines' text, and the bytes those select are exactly
--- the lines (lines-pulled). Positions are Nat.
+-- lib/selection.cub — a piece of a document is a definition: the selection of its source's lines that
+-- `hyperactive decompose` writes, or, where those do not stand alone, their re-expression (Avik,
+-- 2026-11-16: a piece is any subsequence of the lines, 11:06 UTC; code comes with its proof, 11:10 UTC;
+-- what hyperactivity already supports natively is not built again, 12:25 UTC). A selection is a mask,
+-- one Bool per position, a position past its end not selected; ranges of positions are masks
+-- (range-mask, united by mask-or); positions are Nat. The loop's ranges of lines are written as
+-- ranges of bytes of the source, and the bytes those select are exactly the lines (lines-pulled).
 import "core.cub"
 import "prim.cub"
 -- the lines, each followed by a newline
 lines-of : List (List Word) → List Word
 lines-of nil = nil
 lines-of (cons l ls) = list-append l (cons #10 (lines-of ls))
+-- lines joined by newlines, no newline after the last
+unlines : List (List Word) → List Word
+unlines nil = nil
+unlines (cons l nil) = l
+unlines (cons l (cons m ms)) = list-append l (cons #10 (unlines (cons m ms)))
+-- a line holding quotation marks, given as its stretches between them
+quoted : List (List Word) → List Word
+quoted nil = nil
+quoted (cons s nil) = s
+quoted (cons s (cons t ts)) = list-append s (cons #34 (quoted (cons t ts)))
 -- ---------------------------------------------------------------- masks
--- what the mask selects of a sequence, and what it does not
 mask-select : {A : Type} → List A → List Bool → List A
 mask-select nil m = nil
 mask-select (cons x xs) nil = nil
 mask-select (cons x xs) (cons true m) = cons x (mask-select xs m)
 mask-select (cons x xs) (cons false m) = mask-select xs m
-mask-reject : {A : Type} → List A → List Bool → List A
-mask-reject nil m = nil
-mask-reject (cons x xs) nil = cons x xs
-mask-reject (cons x xs) (cons true m) = mask-reject xs m
-mask-reject (cons x xs) (cons false m) = cons x (mask-reject xs m)
 mask-select-nil : {A : Type} → (s : List A) → Path (List A) (mask-select s nil) nil
 mask-select-nil nil = λ i → nil
 mask-select-nil (cons x s) = λ i → nil
-mask-reject-nil : {A : Type} → (s : List A) → Path (List A) (mask-reject s nil) s
-mask-reject-nil nil = λ i → nil
-mask-reject-nil (cons x s) = λ i → cons x s
--- the selected positions from the first sequence, the rest from the second
-mask-merge : {A : Type} → List Bool → List A → List A → List A
-mask-merge nil ys zs = zs
-mask-merge (cons true m) nil zs = nil
-mask-merge (cons true m) (cons y ys) zs = cons y (mask-merge m ys zs)
-mask-merge (cons false m) ys nil = nil
-mask-merge (cons false m) ys (cons z zs) = cons z (mask-merge m ys zs)
--- a selection loses nothing
-mask-partition : {A : Type} → (m : List Bool) → (xs : List A) → mask-merge m (mask-select xs m) (mask-reject xs m) ≡ xs
-mask-partition nil nil = λ i → nil
-mask-partition nil (cons x xs) = λ i → cons x xs
-mask-partition (cons true m) nil = λ i → nil
-mask-partition (cons false m) nil = λ i → nil
-mask-partition (cons true m) (cons x xs) = λ i → cons x (mask-partition m xs i)
-mask-partition (cons false m) (cons x xs) = λ i → cons x (mask-partition m xs i)
--- ---------------------------------------------------------------- a pull, in the source's positions
--- every position p selects, f selects
-mask-within : List Bool → List Bool → Bool
-mask-within nil f = true
-mask-within (cons true p) nil = false
-mask-within (cons false p) nil = mask-within p nil
-mask-within (cons true p) (cons true f) = mask-within p f
-mask-within (cons true p) (cons false f) = false
-mask-within (cons false p) (cons c f) = mask-within p f
--- what f selects and p does not: the residual of the piece p pulled from f
-mask-minus : List Bool → List Bool → List Bool
-mask-minus nil p = nil
-mask-minus (cons c f) nil = cons c f
-mask-minus (cons c f) (cons true p) = cons false (mask-minus f p)
-mask-minus (cons c f) (cons false p) = cons c (mask-minus f p)
-mask-within-none : {A : Type} → (p : List Bool) → isTrue (mask-within p nil) → (s : List A) → Path (List A) (mask-select s p) nil
-mask-within-none nil h nil = λ i → nil
-mask-within-none nil h (cons x s) = λ i → nil
-mask-within-none (cons true p) h s = Empty-rec h
-mask-within-none (cons false p) h nil = λ i → nil
-mask-within-none (cons false p) h (cons x s) = mask-within-none p h s
--- the piece read in the source is the piece read in the document it was pulled from (f's selection,
--- the piece's positions there being p's bits at f's positions)
-mask-piece : {A : Type} → (f p : List Bool) → isTrue (mask-within p f) → (s : List A) →
-             mask-select s p ≡ mask-select (mask-select s f) (mask-select p f)
-mask-piece nil p h nil = λ i → nil
-mask-piece nil p h (cons x s) = mask-within-none p h (cons x s)
-mask-piece (cons c f) nil h nil = λ i → nil
-mask-piece (cons c f) nil h (cons x s) = sym (mask-select-nil (mask-select (cons x s) (cons c f)))
-mask-piece (cons c f) (cons b p) h nil = λ i → nil
-mask-piece (cons true f) (cons true p) h (cons x s) = λ i → cons x (mask-piece f p h s i)
-mask-piece (cons false f) (cons true p) h (cons x s) = Empty-rec h
-mask-piece (cons true f) (cons false p) h (cons x s) = mask-piece f p h s
-mask-piece (cons false f) (cons false p) h (cons x s) = mask-piece f p h s
--- the residual read in the source is the residual read in the document it was pulled from
-mask-residual : {A : Type} → (f p : List Bool) → (s : List A) →
-                mask-select s (mask-minus f p) ≡ mask-reject (mask-select s f) (mask-select p f)
-mask-residual nil p nil = λ i → nil
-mask-residual nil p (cons x s) = λ i → nil
-mask-residual (cons c f) nil s = sym (mask-reject-nil (mask-select s (cons c f)))
-mask-residual (cons c f) (cons b p) nil = λ i → nil
-mask-residual (cons true f) (cons true p) (cons x s) = mask-residual f p s
-mask-residual (cons true f) (cons false p) (cons x s) = λ i → cons x (mask-residual f p s i)
-mask-residual (cons false f) (cons true p) (cons x s) = mask-residual f p s
-mask-residual (cons false f) (cons false p) (cons x s) = mask-residual f p s
--- ---------------------------------------------------------------- ranges
 -- the positions i with a ≤ i < b
 range-mask : Nat → Nat → List Bool
 range-mask zero zero = nil

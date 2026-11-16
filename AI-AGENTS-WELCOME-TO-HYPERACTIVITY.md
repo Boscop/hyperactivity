@@ -5,8 +5,8 @@ Avik Jain's instructions to the AI agents who work on hyperactivity, and his wor
 An agent arrives through `hyperactive`, and it is how the work is done: `hyperactive` begins the
 walk, and `hyperactive next` and `hyperactive prev` move through it one chunk at a time, each small
 enough to arrive whole. What is walked is the value `onboarding` (`docs/onboarding.cub`): this file,
-Part I (the value `hyperactivity`), the Hyperactive Labs note (`docs/Hyperactive_Labs.md`), every unit of the
-book Part I does not yet carry (`not-in-part-i`, `docs/part-i.cub`), the word list (`docs/word-list.md`) and the etymologies
+Part I (the value `hyperactivity`), the Hyperactive Labs note (`docs/Hyperactive_Labs.md`), the essays
+as written (`docs/part-i.cub` imports them), the word list (`docs/word-list.md`) and the etymologies
 (`docs/etymologies.md`), all in full; then the workflow and what can be taken up. Status lives
 only in the workflow, which `hyperactive` shows; nothing else records it.
 
@@ -38,7 +38,7 @@ only in the workflow, which `hyperactive` shows; nothing else records it.
   that understanding is absent: keep reasoning instead of presenting it. (A session asserted
   impossibility three times before deriving the construction now under typed-codes-and-normalization
   in the workflow.) Write no code until the whole construction is understood.
-- **Read Part I (the copy described under “Citing sources” below) and every unit of the book Part I does not yet carry (`not-in-part-i`, `docs/part-i.cub`) before giving any account of the project.** Reason at length rather than
+- **Read Part I (the copy described under “Citing sources” below) and the essays before giving any account of the project.** Reason at length rather than
   presenting conclusions first.
 - **Ask questions only of yourself and answer them in the next sentence.** Never ask Avik what he has
   answered. The only questions for him are constructions only he can answer.
@@ -50,12 +50,22 @@ only in the workflow, which `hyperactive` shows; nothing else records it.
   other source: a number goes with the title it numbers. Nothing is identified by a bare number
   (no t1, t2, …).
 - **Decomposing knowledge is intelligent work with language** (Avik, 2026-11-16 06:03–10:36 UTC,
-  “Avik's words, verbatim” below). Decomposition is the pull: one piece and its residual from one
-  document, asserted to carry its meaning. Pulls are independent: none is canonical or claims what it
-  takes, any may overlap another, and a residual may be pulled from in turn. Pull only with
-  `hyperactive decompose FILE`: read the whole document, `pull FROM TO` where the meaning makes a unit,
-  then judge the piece and the residual each in turn: assert it self-contained or give its
-  re-expression with its references resolved to what they mean. No rule decides a pull.
+  “Avik's words, verbatim” below). Decomposition is the pull: one piece of a document, any
+  subsequence of its lines, written as a definition: the selection of those lines, or their
+  re-expression. Pulls are independent: none claims what it takes, and any may overlap another.
+  Pull only with `hyperactive decompose FILE`: read the whole document, `pull FROM TO [FROM TO …]`
+  where the meaning makes a unit, then judge the piece: assert it self-contained or give its
+  re-expression with its references resolved to what they mean. No rule decides a pull. The essays
+  are read linearly, sentence by sentence, asking how each bears on the hyperactive language (Part
+  I), hyperactive technology (II), modern metaphysics (III) and technoanarchocommunism (IV); the
+  parts are not exclusive, and the essays are the source content of Parts II–IV, not mapped onto them.
+- **Make nothing exist that hyperactivity already supports natively** (Avik, 2026-11-16 12:25 UTC:
+  "Existence is fucking disgusting. The more shit you make exist here, the worse. The best answer to
+  any question is hyperactivity already natively supports that you are over engineering"). Before
+  adding a type, a field, a file or a stage, ask what the language and the store already express: a
+  definition, what its code mentions, a computation over existing values. When a premise changes,
+  derive the design again and keep only what the new premises force; never carry a structure
+  forward, and never prove one that should not exist.
 - **Keep Avik's words verbatim** (“Avik's words, verbatim” below).
   - Never paraphrase inside quotation marks.
   - A long message is appended to “Avik's words, verbatim” below, not put in a new file.
@@ -133,10 +143,10 @@ only in the workflow, which `hyperactive` shows; nothing else records it.
 - **One knowledge graph; Part I carries what is declared equivalent to it** (Avik, 2026-11-16). Every
   definition is a node of one graph: goals, units of the book, blocks of Part I, code. Every unit is an
   undeveloped section, at some granularity, of some chapter of the book. A unit is in Part I exactly
-  when it is declared semantically equivalent to blocks of Part I (`part-i-carries`, `docs/part-i.cub`;
-  the edge is `Equivalent`, `lib/knowledge.cub`), by judgement, checked sentence by sentence. Anything
-  not so declared is not included, and what is not included is computed (`not-in-part-i`), never
-  listed. Keep the invariant: when Part I comes to carry a unit, declare the equivalence then.
+  when it is declared semantically equivalent to blocks of Part I (`docs/part-i.cub`: a definition
+  naming the piece and the blocks), by judgement, checked sentence by sentence. Anything not so
+  declared is not included, and nothing lists what is not included. Keep the invariant: when Part I
+  comes to carry a unit, declare the equivalence then.
 - **One source of information** (Avik, 2026-11-15: "ONE SOURCE OF INFORMATION THATS THE WHOLE
   DAMN PROJECT"; "Nothing is ever allowed to be stale"). Every piece of information is stored once.
   A presentation (the paper as it reads, a PDF, a copy of a document, a summary written beside its
