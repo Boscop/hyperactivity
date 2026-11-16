@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""task-tree-server — the task graph drawn as a graph at http://localhost:8080 (2026-11-13).
+"""task-tree-server — the task graph drawn as a graph at http://localhost:8080 (2026-11-13), and the
+history (lib/history.cub, `hyperactive history`) at http://localhost:8080/history (2026-11-15).
 
 The graph is read from task-graph/hyperactivity.cub on every request (/api/graph); the page
 (tools/task-graph-view.html) lays it out in layers from the root, the order of each layer chosen to
@@ -11,6 +12,16 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 spec = importlib.util.spec_from_file_location('tg', os.path.join(ROOT, 'tools', 'task-graph.py'))
 tg = importlib.util.module_from_spec(spec); spec.loader.exec_module(tg)
 PAGE = os.path.join(ROOT, 'tools', 'task-graph-view.html')
+HISTORY_PAGE = os.path.join(ROOT, 'tools', 'history-view.html')
+
+
+def history_lines(prefix):
+    """the view history-lines over `history "prefix"`, evaluated by the machine, as `hyperactive history` shows it"""
+    import subprocess
+    if '"' in prefix or '\n' in prefix: return []
+    out = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'task-graph.py'), 'view', '--in', 'lib/history.cub',
+                          '--type', 'List (List Word)', f'history-lines (history "{prefix}")'], cwd=ROOT, capture_output=True, text=True).stdout
+    return [json.loads(l) for l in out.split('\n') if l.startswith('"')]
 
 
 def graph_json():
@@ -121,6 +132,11 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             if self.path.startswith('/api/graph'): return self.send(json.dumps(graph_json()), 'application/json')
+            if self.path.startswith('/api/history'):
+                import urllib.parse
+                q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get('name', [''])[0]
+                return self.send(json.dumps(history_lines(q)), 'application/json')
+            if self.path.split('?')[0] == '/history': return self.send(open(HISTORY_PAGE, encoding='utf-8').read(), 'text/html; charset=utf-8')
             if self.path.startswith('/doc?'):
                 import urllib.parse
                 f = os.path.normpath(urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get('path', [''])[0])

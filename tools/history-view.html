@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hyperactive · history</title>
+<style>
+:root { --bg: #f6f5f1; --panel: #ffffff; --ink: #1b1a17; --muted: #6f6b62; --line: #e3dfd5; --gone: #a86400; }
+@media (prefers-color-scheme: dark) { :root { --bg: #121211; --panel: #1b1b19; --ink: #eceae4; --muted: #a39f95; --line: #2c2b28; --gone: #f0b45a; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif; }
+header { position: sticky; top: 0; display: flex; gap: 16px; align-items: center; padding: 12px 20px; background: var(--bg); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+h1 { font-size: 15px; margin: 0; }
+input { flex: 1; min-width: 200px; max-width: 480px; padding: 8px 11px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: inherit; }
+a { color: var(--muted); font-size: 13px; }
+main { padding: 16px 20px 60px; }
+.name { font-weight: 650; margin: 18px 0 6px; overflow-wrap: anywhere; }
+.row { display: grid; grid-template-columns: 175px 1fr; gap: 12px; padding: 4px 0; font-variant-numeric: tabular-nums; }
+.row .t { color: var(--muted); }
+.row .k { font-family: ui-monospace, monospace; font-size: 12.5px; overflow-wrap: anywhere; }
+.row .k.gone { color: var(--gone); }
+.note { color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>History</h1>
+  <input id="q" placeholder="A name, or the beginning of names (Enter); empty: every name" autofocus>
+  <a href="/">Task graph</a>
+</header>
+<main id="out"><p class="note">Every binding of a name to a key, in the order bound: the store's log, read by the machine (lib/history.cub).</p></main>
+<script>
+// Each line is "name key time" as the view history-lines gives it; this page only lays the lines out.
+const $ = s => document.querySelector(s), esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]);
+async function show(name) {
+  $('#out').innerHTML = '<p class="note">Reading…</p>';
+  const lines = await (await fetch('/api/history?name=' + encodeURIComponent(name))).json();
+  if (!lines.length) { $('#out').innerHTML = '<p class="note">No binding of a name beginning with that.</p>'; return; }
+  const by = new Map();
+  for (const l of lines) { const [n, k, t] = l.split(' '); if (!by.has(n)) by.set(n, []); by.get(n).push([k, t]); }
+  $('#out').innerHTML = [...by].map(([n, vs]) => `<div class="name">${esc(n)}</div>` + vs.map(([k, t]) =>
+    `<div class="row"><span class="t">${new Date(+t * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC</span>
+     <span class="k ${k === '-' ? 'gone' : ''}">${k === '-' ? 'unbound' : esc(k)}</span></div>`).join('')).join('');
+}
+$('#q').onkeydown = e => { if (e.key === 'Enter') show(e.target.value.trim()); };
+const n = new URLSearchParams(location.search).get('name'); if (n !== null) { $('#q').value = n; show(n); }
+</script>
+</body>
+</html>
