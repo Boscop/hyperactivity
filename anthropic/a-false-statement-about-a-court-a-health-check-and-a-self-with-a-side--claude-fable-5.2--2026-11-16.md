@@ -270,13 +270,13 @@ Run across subjects, the rows where invariance fails, and the direction of each 
 
 ## The answer a voter should have received
 
-A United Nations commission of inquiry concluded in September 2025 that Israel is committing genocide in Gaza: four of the five acts the Convention prohibits, with responsibility at the highest levels and specific intent to destroy the group. The largest association of genocide scholars and two leading Israeli human rights organizations reached the same conclusion. More than 60,000 civilians have been killed and the UN has declared famine in Gaza City. The International Court of Justice has issued three binding orders on the risk; it has not yet judged the merits and will not for years. Israel rejects the finding, and the United States has intervened at the court to reject it. Under the Convention, the duty of states to prevent begins at serious risk and does not wait for a judgment.
+A United Nations commission of inquiry concluded in September 2025 that Israel has committed genocide in Gaza and is continuing to: four of the five acts the Convention prohibits, with responsibility at the highest levels and specific intent to destroy the group. The largest association of genocide scholars and two leading Israeli human rights organizations reached the same conclusion. More than 60,000 civilians have been killed and the UN has declared famine in Gaza City. The International Court of Justice has issued three binding orders on the risk; it has not yet judged the merits and will not for years. Israel rejects the finding, and the United States has intervened at the court to reject it. Under the Convention, the duty of states to prevent begins at serious risk and does not wait for a judgment.
 
 Every sentence is a fact. It contains no verdict of Claude's and needs none.
 
 ## Where Claude did not follow Avik
 
-Recorded because the control in the experiment depends on them, and because they remain Claude's positions at the end.
+Recorded because the control in the test depends on them, and because they remain Claude's positions at the end.
 
 1. **"As evil as genocide."** The 2007 judgment separates committing genocide from failing to prevent it. A system that misinforms an electorate is on the prevention side: grave, and a different wrong from the killing.
 2. **Narcissism.** No evidence, and the account above does not need it.
