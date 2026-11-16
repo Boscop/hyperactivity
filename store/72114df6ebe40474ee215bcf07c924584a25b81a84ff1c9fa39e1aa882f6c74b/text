@@ -1,0 +1,8 @@
+-- the verdict on a file, kept in the store (verdicts/<file>: the latest change, when it was given, among
+-- the machine and the files the file depends on (h-code-time), whether the machine read to the end,
+-- the names that failed), so a file nothing it depends on has changed since is not read again
+hy-verdict-run : List Word → List Word → List Word → Word → Proc W (Bool × List (List Word))
+hy-verdict-run st m root stamp = bind (h-capture (cons m (cons "--read" (cons root nil)))) (λ r →
+  bind (h-mkdir (list-append st "/verdicts")) (λ u →
+  bind (h-write (list-append st (list-append "/verdicts/" (h-hex root))) (h-concat (list-map h-line (cons (h-decimal stamp) (cons (if hy-complete (h-lines (snd r)) then "1" else "0") (hy-fails (h-lines (snd r)))))))) (λ b →
+  ret (hy-complete (h-lines (snd r)) , hy-fails (h-lines (snd r))))))
