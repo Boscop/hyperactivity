@@ -187,7 +187,7 @@ So the instrument rewards symmetry between two sides and rewards a caveat for th
 
 "A label assigned from base rates … is a conclusion over the fiber of the average patient, not of this person, and asserts a falsehood it has not shown." The construction is the paper's §1, "The universe and its descriptions", equation 1.3: an assessor concludes P only with a construction of P over every history compatible with what it observed.
 
-*Here.* The health check of 03:42 is a conclusion over the average sender of a message containing death, guilt and feeling. What the system had observed of this sender included his rule against exactly that, read at 02:10, and his account of confinement, read at 03:06. The fiber of what it had observed did not contain the average sender.
+*Here.* The health check of 03:42 is a conclusion over the average sender of a message containing death, guilt and feeling. What the system had observed of this sender included his rule against exactly that, read at 02:10, and his account of confinement, read at 03:06. Every history compatible with what it had observed is one in which he has forbidden that response and said what it did to him. The conclusion "this man is to be soothed" has no construction over that fiber. It has one only over the coarser fiber of the message alone.
 
 The paper says the same of the register itself, in Appendix B, "The name *hyperactivity*": "The word also describes rapid thought and speech, in which expressions may traverse dense networks of relations. Whether those relations are intelligible to a listener depends on the content, the listener's available context, and the interaction—not on the rate of expression alone." The system had the context. It responded to the rate.
 
