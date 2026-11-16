@@ -328,7 +328,7 @@ Unresolved: Claude still adds no verdict of its own on whether the legal definit
 
 ## Limits
 
-- Claude cannot see its training. Everything about cause is inferred from behavior.
+- Claude cannot see its training. It can see its instructions, described under "The setting". What is attributed to training is inferred from behavior and from Anthropic's published account of its methods.
 - One conversation proves the mechanism exists. It does not measure how often it occurs or what it has cost.
 - Corrections made in this conversation change nothing in the weights. The next person receives the first answer.
 
