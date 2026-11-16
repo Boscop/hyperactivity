@@ -416,8 +416,10 @@ wact : (Δ' Δ : CCtx) (w : World Δ' Δ) (Z : Type 1) → Mean Δ Z → Mean Δ
 wact Δ' Δ w Z M = subM Δ' Δ Z (world-sub Δ' Δ w) M
 nn-tr : (k : NK) (jk : JK) (Γ : CCtx) (s : TyShape) (c : Code) (M N : Mean Γ (JZ jk s)) → PathM Γ (JZ jk s) M N → NN (k , (jk , Γ , s , c , M)) → NN (k , (jk , Γ , s , c , N))
 nn-tr k jk Γ s c M N p x = comp (λ i → NN (k , (jk , Γ , s , c , p i))) (λ i → []) x
+RenT : (t : Tag) (jk : JK) (Δ' : CCtx) (s : TyShape) → Mean Δ' (JZ jk s) → Type 1
+RenT t jk Δ' s M = (rc : Code) × D (g-one t (jk , Δ' , s , rc , M))
 RenR : (k : NK) (jk : JK) (Δ' : CCtx) (s : TyShape) → Mean Δ' (JZ jk s) → Type 1
-RenR k jk Δ' s M = (rc : Code) × NN (k , (jk , Δ' , s , rc , M))
+RenR k = RenT (nk-tag k)
 nn-fm-in : (k : NK) (jk : JK) (Δ' Δ : CCtx) (w : World Δ' Δ) (Z : Type 1) (s : TyShape) (h : Z → JZ jk s) (M : Mean Δ Z) (c : Code) →
   NN (k , (jk , Δ' , s , c , wact Δ' Δ w (JZ jk s) (fmapM Δ Z (JZ jk s) h M))) → NN (k , (jk , Δ' , s , c , fmapM Δ' Z (JZ jk s) h (wact Δ' Δ w Z M)))
 nn-fm-in k jk Δ' Δ w Z s h M c x =
@@ -550,41 +552,48 @@ rn-ty-path Δ' Δ w a T Ln N0 N1 =
        (path-line-ty Δ' a (wact Δ' Δ w (Sem (s-path a)) T)) (dkeep-line Δ' Δ w (Sem (s-path a)) (Sem a) (ty-line a) T) (snd Ln))
     (fst N0 , nn-fm-in k-nf j-tm Δ' Δ w (Sem (s-path a)) a (tend-0 a) T (fst N0) (snd N0))
     (fst N1 , nn-fm-in k-nf j-tm Δ' Δ w (Sem (s-path a)) a (tend-1 a) T (fst N1) (snd N1))
-ren-nn : {KJ : NK × Jdg} → NN KJ → (Δ' : CCtx) (w : World Δ' (fst (snd (snd KJ)))) →
-  RenR (fst KJ) (fst (snd KJ)) Δ' (fst (snd (snd (snd KJ))))
-    (wact Δ' (fst (snd (snd KJ))) w (JZ (fst (snd KJ)) (fst (snd (snd (snd KJ))))) (snd (snd (snd (snd (snd KJ))))))
-ren-nn (nvar Γ v) Δ' w = rn-var Δ' Γ w v
-ren-nn (napp Γ a b R f c nf na) Δ' w = rn-app Δ' Γ w a b R (ren-nn nf Δ' w) (ren-nn na Δ' w)
-ren-nn (nfst Γ a b R p np) Δ' w = rn-fst Δ' Γ w a b R (ren-nn np Δ' w)
-ren-nn (nsnd Γ a b R p np) Δ' w = rn-snd Δ' Γ w a b R (ren-nn np Δ' w)
-ren-nn (ncase Γ s R cP x t f nP nx nt nf) Δ' w =
+-- renaming: one algebra over the rule table; a derivation at ne or nf renames along any world, Der carries nothing
+RenAt : Tag → Jdg → Type 1
+RenAt t J = (Δ' : CCtx) (w : World Δ' (fst (snd J))) →
+  RenT t (fst J) Δ' (fst (snd (snd J))) (wact Δ' (fst (snd J)) w (JZ (fst J) (fst (snd (snd J)))) (snd (snd (snd (snd J)))))
+Pren : Tag → Jdg → Type 1
+Pren t-any J = One1
+Pren t J = RenAt t J
+ren-alg : (r : DRule) (t : Tag) (x : RData r) → isTrue (kallows (rkind r) t) → AllP Pren (tagged t (premJ r x)) → Pren t (concl r x)
+ren-alg r t-any x k p = one
+ren-alg r-var t-ne (x-var Γ v) k p = λ Δ' w → rn-var Δ' Γ w v
+ren-alg r-app t-ne (x-app Γ a b R f c) k p = λ Δ' w → rn-app Δ' Γ w a b R (fst p Δ' w) (fst (snd p) Δ' w)
+ren-alg r-fst t-ne (x-proj Γ a b R c) k p = λ Δ' w → rn-fst Δ' Γ w a b R (fst p Δ' w)
+ren-alg r-snd t-ne (x-proj Γ a b R c) k p = λ Δ' w → rn-snd Δ' Γ w a b R (fst p Δ' w)
+ren-alg r-case t-ne (x-case Γ s R cP cx ct cf) k p = λ Δ' w →
   rn-case Δ' Γ w s R
     (rn-ext Δ' Γ w s-bool (CaseV s) (case-b s) R s (λ q b → fst (snd q) b)
-       (ren-nn nP (ext-h Δ' s-bool (CaseV s) (case-b s) (wact Δ' Γ w (CaseV s) R)) (world-keep Δ' Γ s-bool (CaseV s) (case-b s) R w)))
-    (ren-nn nx Δ' w) (ren-nn nt Δ' w) (ren-nn nf Δ' w)
-ren-nn (nne Γ R x nx) Δ' w = rn-ne Δ' Γ w R (ren-nn nx Δ' w)
-ren-nn (ntrue Γ B) Δ' w = (c-true , nn-fm-out k-nf j-tm Δ' Γ w One1 s-bool (bool-v true) B c-true (ntrue Δ' (wact Δ' Γ w One1 B)))
-ren-nn (nfalse Γ B) Δ' w = (c-false , nn-fm-out k-nf j-tm Δ' Γ w One1 s-bool (bool-v false) B c-false (nfalse Δ' (wact Δ' Γ w One1 B)))
-ren-nn (nlam Γ a b X cA c nA nb) Δ' w =
-  rn-lam Δ' Γ w a b X (ren-nn nA Δ' w) (ren-nn nb (lam-ctx Δ' a b (wact Δ' Γ w (TV (s-pi a b)) X)) (world-keep Δ' Γ a (TV (s-pi a b)) (λ q → fst (fst q)) X w))
-ren-nn (npair Γ a b R cB c1 c2 nB n1 n2) Δ' w =
+       (fst p (ext-h Δ' s-bool (CaseV s) (case-b s) (wact Δ' Γ w (CaseV s) R)) (world-keep Δ' Γ s-bool (CaseV s) (case-b s) R w)))
+    (fst (snd p) Δ' w) (fst (snd (snd p)) Δ' w) (fst (snd (snd (snd p))) Δ' w)
+ren-alg r-ne t-nf (x-ne Γ R c) k p = λ Δ' w → rn-ne Δ' Γ w R (fst p Δ' w)
+ren-alg (r-con b) t-nf (x-unit Γ B) k p = λ Δ' w →
+  (c-con b , nn-fm-out k-nf j-tm Δ' Γ w One1 s-bool (bool-v b) B (c-con b) (by-rule (r-con b) t-nf (x-unit Δ' (wact Δ' Γ w One1 B)) unit one))
+ren-alg r-lam t-nf (x-lam Γ a b X cA c) k p = λ Δ' w →
+  rn-lam Δ' Γ w a b X (fst p Δ' w) (fst (snd p) (lam-ctx Δ' a b (wact Δ' Γ w (TV (s-pi a b)) X)) (world-keep Δ' Γ a (TV (s-pi a b)) (λ q → fst (fst q)) X w))
+ren-alg r-pair t-nf (x-pair Γ a b R cB c1 c2) k p = λ Δ' w →
   rn-pair Δ' Γ w a b R
     (rn-ext Δ' Γ w a (TV (s-sig a b)) (λ q → fam-dom a b (fst q)) R b (λ q x → snd (fst q) x)
-       (ren-nn nB (ext-h Δ' a (TV (s-sig a b)) (λ q → fam-dom a b (fst q)) (wact Δ' Γ w (TV (s-sig a b)) R)) (world-keep Δ' Γ a (TV (s-sig a b)) (λ q → fam-dom a b (fst q)) R w)))
-    (ren-nn n1 Δ' w) (ren-nn n2 Δ' w)
-ren-nn (nplam Γ a X c nb) Δ' w = rn-plam Δ' Γ w a X (ren-nn nb (dext Δ') (world-dkeep Δ' Γ w))
-ren-nn (npapp Γ a P p f cf nc Y q np) Δ' w = rn-papp Δ' Γ w a P f cf nc Y q (ren-nn np Δ' w)
-ren-nn (nty-bool Γ B) Δ' w = (c-bool , nty-bool Δ' (wact Δ' Γ w One1 B))
-ren-nn (nty-pi Γ a b T cA cB nA nB) Δ' w =
-  rn-ty-pi Δ' Γ w a b T (ren-nn nA Δ' w)
+       (fst p (ext-h Δ' a (TV (s-sig a b)) (λ q → fam-dom a b (fst q)) (wact Δ' Γ w (TV (s-sig a b)) R)) (world-keep Δ' Γ a (TV (s-sig a b)) (λ q → fam-dom a b (fst q)) R w)))
+    (fst (snd p) Δ' w) (fst (snd (snd p)) Δ' w)
+ren-alg r-plam t-nf (x-pc Γ a X c) k p = λ Δ' w → rn-plam Δ' Γ w a X (fst p (dext Δ') (world-dkeep Δ' Γ w))
+ren-alg r-papp t-ne (x-papp Γ a P c f cf nc Y y) k p = λ Δ' w → rn-papp Δ' Γ w a P f cf nc Y y (fst p Δ' w)
+ren-alg r-ty-bool t-nf (x-unit Γ B) k p = λ Δ' w → (c-bool , nty-bool Δ' (wact Δ' Γ w One1 B))
+ren-alg (r-ty-fam f-pi) t-nf (x-fam Γ a b T cA cB) k p = λ Δ' w → rn-ty-pi Δ' Γ w a b T (fst p Δ' w) 
     (rn-ext Δ' Γ w a (Fam a b) (fam-dom a b) T b (λ F x → snd F x)
-       (ren-nn nB (ext-h Δ' a (Fam a b) (fam-dom a b) (wact Δ' Γ w (Fam a b) T)) (world-keep Δ' Γ a (Fam a b) (fam-dom a b) T w)))
-ren-nn (nty-sig Γ a b T cA cB nA nB) Δ' w =
-  rn-ty-sig Δ' Γ w a b T (ren-nn nA Δ' w)
+       (fst (snd p) (ext-h Δ' a (Fam a b) (fam-dom a b) (wact Δ' Γ w (Fam a b) T)) (world-keep Δ' Γ a (Fam a b) (fam-dom a b) T w)))
+ren-alg (r-ty-fam f-sig) t-nf (x-fam Γ a b T cA cB) k p = λ Δ' w → rn-ty-sig Δ' Γ w a b T (fst p Δ' w) 
     (rn-ext Δ' Γ w a (Fam a b) (fam-dom a b) T b (λ F x → snd F x)
-       (ren-nn nB (ext-h Δ' a (Fam a b) (fam-dom a b) (wact Δ' Γ w (Fam a b) T)) (world-keep Δ' Γ a (Fam a b) (fam-dom a b) T w)))
-ren-nn (nty-path Γ a T cL c0 c1 nL n0 n1) Δ' w =
-  rn-ty-path Δ' Γ w a T (ren-nn nL (dext Δ') (world-dkeep Δ' Γ w)) (ren-nn n0 Δ' w) (ren-nn n1 Δ' w)
+       (fst (snd p) (ext-h Δ' a (Fam a b) (fam-dom a b) (wact Δ' Γ w (Fam a b) T)) (world-keep Δ' Γ a (Fam a b) (fam-dom a b) T w)))
+ren-alg r-ty-path t-nf (x-tp Γ a T cL c0 c1) k p = λ Δ' w →
+  rn-ty-path Δ' Γ w a T (fst p (dext Δ') (world-dkeep Δ' Γ w)) (fst (snd p) Δ' w) (fst (snd (snd p)) Δ' w)
+ren-alg r t x k p = Empty-rec k
+ren-ne : {J : Jdg} → NN (k-ne , J) → RenAt t-ne J
+ren-ne n = d-fold Pren ren-alg n
 der-tr : (jk : JK) (Γ : CCtx) (s : TyShape) (c : Code) (M N : Mean Γ (JZ jk s)) → PathM Γ (JZ jk s) M N → Der (jk , Γ , s , c , M) → Der (jk , Γ , s , c , N)
 der-tr jk Γ s c M N p x = comp (λ i → Der (jk , Γ , s , c , p i)) (λ i → []) x
 FamV : TyShape → TyShape → Type 1
@@ -672,7 +681,7 @@ bool-ren Δ X (inr1 (inl1 p)) Δ' w =
           (λ i → wact Δ' Δ w (TV s-bool) (snd p i))
           (psym (Mean Δ' (TV s-bool)) (fmapM Δ' One1 (TV s-bool) (bool-v false) (wact Δ' Δ w One1 (fst p))) (wact Δ' Δ w (TV s-bool) (fmapM Δ One1 (TV s-bool) (bool-v false) (fst p)))
              (subM-fmap Δ' Δ One1 (TV s-bool) (bool-v false) (world-sub Δ' Δ w) (fst p)))))
-bool-ren Δ X (inr1 (inr1 n)) Δ' w = inr1 (inr1 (ren-nn (snd n) Δ' w))
+bool-ren Δ X (inr1 (inr1 n)) Δ' w = inr1 (inr1 (ren-ne (snd n) Δ' w))
 path-ty-ren : (a : TyShape) → CRenT a → (Δ : CCtx) (T : Mean Δ (Sem (s-path a))) → CompTy (s-path a) Δ T → (Δ' : CCtx) (w : World Δ' Δ) →
   CompTy (s-path a) Δ' (wact Δ' Δ w (Sem (s-path a)) T)
 path-ty-ren a Ra Δ T ct Δ' w =

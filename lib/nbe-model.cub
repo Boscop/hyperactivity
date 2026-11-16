@@ -174,6 +174,9 @@ tend-0 : (a : TyShape) → Sem (s-path a) → TV a
 tend-0 a D = (fst (fst D) , fst (snd D))
 tend-1 : (a : TyShape) → Sem (s-path a) → TV a
 tend-1 a D = (fst (snd (fst D)) , snd (snd D))
+tend : (b : Bool) (a : TyShape) → Sem (s-path a) → TV a
+tend false a D = tend-0 a D
+tend true a D = tend-1 a D
 carry : (n : Nat) (X : Type 1) (F : X → Type 1) (c0 c1 : Cube n X) → PathP (λ i → Cube n X) c0 c1 → DCube n X F c0 → DCube n X F c1
 carry n X F c0 c1 p d = comp (λ i → DCube n X F (p i)) (λ i → []) d
 papp-line : (Γ : CCtx) (Y Z : Type 1) (ℓ : Y → Line Z) (f : DNF) → Mean Γ Y → Mean Γ Z
@@ -200,129 +203,321 @@ pend-0 : (a : TyShape) → TV (s-path a) → TV a
 pend-0 a q = tend-0 a (fst q)
 pend-1 : (a : TyShape) → TV (s-path a) → TV a
 pend-1 a q = tend-1 a (fst q)
-data NN : (KJ : NK × Jdg) → Type 1 where
-  nvar : (Γ₀ : CCtx) (v₀ : VarP (fst Γ₀)) →
+-- ---------------------------------------------------------------- derivations: one family over the rule table
+-- A rule is its data (RData), its conclusion (concl), its premises (premJ: each a role and a judgment) and
+-- the tags it concludes at (kallows). Der is the family at tag any, the normal and neutral forms NN at nf and
+-- ne; a premise's tag is its role's tag at the conclusion's (rtag). One recursion over the family (d-fold)
+-- serves embed, renaming and the fundamental lemma: each is an algebra, one clause per rule's meaning.
+data Tag = t-ne | t-nf | t-any
+data Role = q-hd | q-arg | q-ne
+rtag : Tag → Role → Tag
+rtag t-any q = t-any
+rtag t q-arg = t-nf
+rtag t q = t-ne
+nk-tag : NK → Tag
+nk-tag k-ne = t-ne
+nk-tag k-nf = t-nf
+data FamF = f-pi | f-sig
+data DRule = r-var | r-app | r-fst | r-snd | r-case | r-ne | r-con (b : Bool) | r-lam | r-pair | r-plam | r-papp | r-pend (b : Bool)
+  | r-ty-bool | r-ty-fam (fq : FamF) | r-ty-path
+-- the judgments a rule's premises are, with their roles
+data JL = jl-nil | jl-cons (jq : Role) (jJ : Jdg) (jrest : JL)
+data TJL = tj-nil | tj-cons (tjt : Tag) (tjJ : Jdg) (tjrest : TJL)
+tagged : Tag → JL → TJL
+tagged t jl-nil = tj-nil
+tagged t (jl-cons q J rest) = tj-cons (rtag t q) J (tagged t rest)
+-- a rule's data: one record per shape (fields suffixed q: telescope instantiation captures names)
+data XVar = x-var (Γq : CCtx) (vq : VarP (fst Γq))
+data XApp = x-app (Γq : CCtx) (aq : TyShape) (bq : TyShape) (Rq : Mean Γq (AppV aq bq)) (fcq : Code) (acq : Code)
+data XProj = x-proj (Γq : CCtx) (aq : TyShape) (bq : TyShape) (Rq : Mean Γq (TV (s-sig aq bq))) (pcq : Code)
+data XCase = x-case (Γq : CCtx) (sq : TyShape) (Rq : Mean Γq (CaseV sq)) (Pcq : Code) (xcq : Code) (tcq : Code) (fcq : Code)
+data XNe = x-ne (Γq : CCtx) (Rq : Mean Γq (TV s-bool)) (cq : Code)
+data XUnit = x-unit (Γq : CCtx) (Bq : Mean Γq One1)
+data XLam = x-lam (Γq : CCtx) (aq : TyShape) (bq : TyShape) (Xq : Mean Γq (TV (s-pi aq bq))) (Acq : Code) (cq : Code)
+data XPair = x-pair (Γq : CCtx) (aq : TyShape) (bq : TyShape) (Rq : Mean Γq (TV (s-sig aq bq))) (Bcq : Code) (c1q : Code) (c2q : Code)
+data XPc = x-pc (Γq : CCtx) (aq : TyShape) (Xq : Mean Γq (TV (s-path aq))) (cq : Code)
+data XPapp = x-papp (Γq : CCtx) (aq : TyShape) (Pq : Mean Γq (TV (s-path aq))) (pq : Code) (dq : DNF) (cdq : isTrue (dnf-canon dq))
+  (ndq : isTrue (dnf-nonconst dq)) (Yq : Mean Γq (TV aq)) (yq : PathM Γq (TV aq) (papp-mean Γq aq dq Pq) Yq)
+data XFam = x-fam (Γq : CCtx) (aq : TyShape) (bq : TyShape) (Tq : Mean Γq (Fam aq bq)) (Acq : Code) (Bcq : Code)
+data XTp = x-tp (Γq : CCtx) (aq : TyShape) (Tq : Mean Γq (Sem (s-path aq))) (Lcq : Code) (c0q : Code) (c1q : Code)
+RData : DRule → Type 1
+RData r-var = XVar
+RData r-app = XApp
+RData r-fst = XProj
+RData r-snd = XProj
+RData r-case = XCase
+RData r-ne = XNe
+RData (r-con b) = XUnit
+RData r-lam = XLam
+RData r-pair = XPair
+RData r-plam = XPc
+RData r-papp = XPapp
+RData (r-pend b) = XPc
+RData r-ty-bool = XUnit
+RData (r-ty-fam fm) = XFam
+RData r-ty-path = XTp
+pend : (b : Bool) (a : TyShape) → TV (s-path a) → TV a
+pend b a q = tend b a (fst q)
+c-con : Bool → Code
+c-con true = c-true
+c-con false = c-false
+c-end : Bool → Code
+c-end true = ci1
+c-end false = ci0
+concl : (r : DRule) → RData r → Jdg
+concl r-var (x-var Γ v) = (j-tm , Γ , var-shape (fst Γ) v , cvar (var-word (fst Γ) v) , varCube Γ v)
+concl r-app (x-app Γ a b R f c) = (j-tm , Γ , b , capp f c , fmapM Γ (AppV a b) (TV b) (app-r a b) R)
+concl r-fst (x-proj Γ a b R p) = (j-tm , Γ , a , cfst p , fmapM Γ (TV (s-sig a b)) (TV a) (sig-1 a b) R)
+concl r-snd (x-proj Γ a b R p) = (j-tm , Γ , b , csnd p , fmapM Γ (TV (s-sig a b)) (TV b) (sig-2 a b) R)
+concl r-case (x-case Γ s R cP x t f) = (j-tm , Γ , s , c-case cP t f x , fmapM Γ (CaseV s) (TV s) (case-r s) R)
+concl r-ne (x-ne Γ R c) = (j-tm , Γ , s-bool , c , R)
+concl (r-con b) (x-unit Γ B) = (j-tm , Γ , s-bool , c-con b , fmapM Γ One1 (TV s-bool) (bool-v b) B)
+concl r-lam (x-lam Γ a b X cA c) = (j-tm , Γ , s-pi a b , clam c , X)
+concl r-pair (x-pair Γ a b R cB c1 c2) = (j-tm , Γ , s-sig a b , cpair c1 c2 , R)
+concl r-plam (x-pc Γ a X c) = (j-tm , Γ , s-path a , cplam c , X)
+concl r-papp (x-papp Γ a P p f cf nc Y y) = (j-tm , Γ , a , cpapp p (dnf-code f) , Y)
+concl (r-pend b) (x-pc Γ a P c) = (j-tm , Γ , a , cpapp c (c-end b) , fmapM Γ (TV (s-path a)) (TV a) (pend b a) P)
+concl r-ty-bool (x-unit Γ B) = (j-ty , Γ , s-bool , c-bool , B)
+concl (r-ty-fam f-pi) (x-fam Γ a b T cA cB) = (j-ty , Γ , s-pi a b , cpi #2 cA cB , T)
+concl (r-ty-fam f-sig) (x-fam Γ a b T cA cB) = (j-ty , Γ , s-sig a b , csigma cA cB , T)
+concl r-ty-path (x-tp Γ a T cL c0 c1) = (j-ty , Γ , s-path a , cpathp (cplam cL) c0 c1 , T)
+premJ : (r : DRule) → RData r → JL
+premJ r-var x = jl-nil
+premJ r-app (x-app Γ a b R f c) =
+  jl-cons q-hd (j-tm , Γ , s-pi a b , f , fmapM Γ (AppV a b) (TV (s-pi a b)) (app-f a b) R)
+  (jl-cons q-arg (j-tm , Γ , a , c , fmapM Γ (AppV a b) (TV a) (app-a a b) R) jl-nil)
+premJ r-fst (x-proj Γ a b R p) = jl-cons q-hd (j-tm , Γ , s-sig a b , p , R) jl-nil
+premJ r-snd (x-proj Γ a b R p) = jl-cons q-hd (j-tm , Γ , s-sig a b , p , R) jl-nil
+premJ r-case (x-case Γ s R cP x t f) =
+  jl-cons q-arg (j-ty , ext-h Γ s-bool (CaseV s) (case-b s) R , s , cP , case-mot Γ s R)
+  (jl-cons q-hd (j-tm , Γ , s-bool , x , fmapM Γ (CaseV s) (TV s-bool) (case-x s) R)
+  (jl-cons q-arg (j-tm , Γ , s , t , fmapM Γ (CaseV s) (TV s) (case-t s) R)
+  (jl-cons q-arg (j-tm , Γ , s , f , fmapM Γ (CaseV s) (TV s) (case-f s) R) jl-nil)))
+premJ r-ne (x-ne Γ R c) = jl-cons q-ne (j-tm , Γ , s-bool , c , R) jl-nil
+premJ (r-con b) x = jl-nil
+premJ r-lam (x-lam Γ a b X cA c) =
+  jl-cons q-arg (j-ty , Γ , a , cA , fmapM Γ (TV (s-pi a b)) (Sem a) (λ q → fam-dom a b (fst q)) X)
+  (jl-cons q-arg (j-tm , lam-ctx Γ a b X , b , c , lam-body Γ a b X) jl-nil)
+premJ r-pair (x-pair Γ a b R cB c1 c2) =
+  jl-cons q-arg (j-ty , ext-h Γ a (TV (s-sig a b)) (λ q → fam-dom a b (fst q)) R , b , cB , pair-cod Γ a b R)
+  (jl-cons q-arg (j-tm , Γ , a , c1 , fmapM Γ (TV (s-sig a b)) (TV a) (sig-1 a b) R)
+  (jl-cons q-arg (j-tm , Γ , b , c2 , fmapM Γ (TV (s-sig a b)) (TV b) (sig-2 a b) R) jl-nil))
+premJ r-plam (x-pc Γ a X c) = jl-cons q-arg (j-tm , dext Γ , a , c , plam-body Γ a X) jl-nil
+premJ r-papp (x-papp Γ a P p f cf nc Y y) = jl-cons q-hd (j-tm , Γ , s-path a , p , P) jl-nil
+premJ (r-pend b) (x-pc Γ a P c) = jl-cons q-hd (j-tm , Γ , s-path a , c , P) jl-nil
+premJ r-ty-bool x = jl-nil
+premJ (r-ty-fam fm) (x-fam Γ a b T cA cB) =
+  jl-cons q-arg (j-ty , Γ , a , cA , fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T)
+  (jl-cons q-arg (j-ty , ext-h Γ a (Fam a b) (fam-dom a b) T , b , cB , fam-body Γ a b T) jl-nil)
+premJ r-ty-path (x-tp Γ a T cL c0 c1) =
+  jl-cons q-arg (j-ty , dext Γ , a , cL , path-line-ty Γ a T)
+  (jl-cons q-arg (j-tm , Γ , a , c0 , fmapM Γ (Sem (s-path a)) (TV a) (tend-0 a) T)
+  (jl-cons q-arg (j-tm , Γ , a , c1 , fmapM Γ (Sem (s-path a)) (TV a) (tend-1 a) T) jl-nil))
+-- the tags a rule concludes at: eliminations at ne, introductions and types at nf, the bool coercion only at
+-- nf, the endpoints of a path only in Der; every rule but the coercion at any
+data Kind = k-elim | k-intro | k-coerce | k-der
+rkind : DRule → Kind
+rkind r-var = k-elim
+rkind r-app = k-elim
+rkind r-fst = k-elim
+rkind r-snd = k-elim
+rkind r-case = k-elim
+rkind r-papp = k-elim
+rkind r-ne = k-coerce
+rkind (r-pend b) = k-der
+rkind (r-con b) = k-intro
+rkind r-lam = k-intro
+rkind r-pair = k-intro
+rkind r-plam = k-intro
+rkind r-ty-bool = k-intro
+rkind (r-ty-fam fq) = k-intro
+rkind r-ty-path = k-intro
+kallows : Kind → Tag → Bool
+kallows k-elim t-nf = false
+kallows k-intro t-ne = false
+kallows k-coerce t-nf = true
+kallows k-coerce t = false
+kallows k-der t-any = true
+kallows k-der t = false
+kallows k t = true
+data Goal = g-one (gt : Tag) (gJ : Jdg) | g-many (gps : TJL)
+data D : (G : Goal) → Type 1 where
+  dnil : D (g-many tj-nil)
+  dcons : (t₀ : Tag) (J₀ : Jdg) (ps₀ : TJL) → D (g-one t₀ J₀) → D (g-many ps₀) → D (g-many (tj-cons t₀ J₀ ps₀))
+  drule : (r₀ : DRule) (t₀ : Tag) (x₀ : RData r₀) → isTrue (kallows (rkind r₀) t₀) → D (g-many (tagged t₀ (premJ r₀ x₀))) → D (g-one t₀ (concl r₀ x₀))
+NN : NK × Jdg → Type 1
+NN KJ = D (g-one (nk-tag (fst KJ)) (snd KJ))
+Der : Jdg → Type 1
+Der J = D (g-one t-any J)
+-- one recursion over derivations: an algebra gives each rule's meaning from its premises'
+AllP : (P : Tag → Jdg → Type 1) → TJL → Type 1
+AllP P tj-nil = One1
+AllP P (tj-cons t J ps) = P t J × AllP P ps
+GoalP : (P : Tag → Jdg → Type 1) → Goal → Type 1
+GoalP P (g-one t J) = P t J
+GoalP P (g-many ps) = AllP P ps
+d-fold : (P : Tag → Jdg → Type 1) →
+  ((r : DRule) (t : Tag) (x : RData r) → isTrue (kallows (rkind r) t) → AllP P (tagged t (premJ r x)) → P t (concl r x)) →
+  {G : Goal} → D G → GoalP P G
+d-fold P alg {G} dnil = one
+d-fold P alg {G} (dcons t J ps d e) = (d-fold P alg d , d-fold P alg e)
+d-fold P alg {G} (drule r t x w e) = alg r t x w (d-fold P alg e)
+-- a premise list from its derivations
+mk-all : (ps : TJL) → AllP (λ t J → D (g-one t J)) ps → D (g-many ps)
+mk-all tj-nil u = dnil
+mk-all (tj-cons t J ps) p = dcons t J ps (fst p) (mk-all ps (snd p))
+-- a rule at a tag, from its premises' derivations
+by-rule : (r : DRule) (t : Tag) (x : RData r) → isTrue (kallows (rkind r) t) → AllP (λ t' J → D (g-one t' J)) (tagged t (premJ r x)) → D (g-one t (concl r x))
+by-rule r t x w ps = drule r t x w (mk-all (tagged t (premJ r x)) ps)
+-- forgetting the tags: every rule at any, the coercion its premise
+retag : (t : Tag) (l : JL) → AllP (λ t' J → Der J) (tagged t l) → D (g-many (tagged t-any l))
+retag t jl-nil a = dnil
+retag t (jl-cons q J rest) a = dcons t-any J (tagged t-any rest) (fst a) (retag t rest (snd a))
+embed-alg : (r : DRule) (t : Tag) (x : RData r) → isTrue (kallows (rkind r) t) → AllP (λ t' J → Der J) (tagged t (premJ r x)) → Der (concl r x)
+embed-alg r-ne t (x-ne Γ R c) w a = fst a
+embed-alg r t x w a = drule r t-any x unit (retag t (premJ r x) a)
+embed : {KJ : NK × Jdg} → NN KJ → Der (snd KJ)
+embed {KJ} n = d-fold (λ t J → Der J) embed-alg n
+-- the rules at their tags, under the names the rest of the file uses
+nvar : (Γ₀ : CCtx) (v₀ : VarP (fst Γ₀)) →
     NN (k-ne , (j-tm , Γ₀ , var-shape (fst Γ₀) v₀ , cvar (var-word (fst Γ₀) v₀) , varCube Γ₀ v₀))
-  napp : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (AppV a₀ b₀)) (f₀ c₀ : Code) →
+nvar Γ v = by-rule r-var t-ne (x-var Γ v) unit one
+napp : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (AppV a₀ b₀)) (f₀ c₀ : Code) →
     NN (k-ne , (j-tm , Γ₀ , s-pi a₀ b₀ , f₀ , fmapM Γ₀ (AppV a₀ b₀) (TV (s-pi a₀ b₀)) (app-f a₀ b₀) R₀)) →
     NN (k-nf , (j-tm , Γ₀ , a₀ , c₀ , fmapM Γ₀ (AppV a₀ b₀) (TV a₀) (app-a a₀ b₀) R₀)) →
     NN (k-ne , (j-tm , Γ₀ , b₀ , capp f₀ c₀ , fmapM Γ₀ (AppV a₀ b₀) (TV b₀) (app-r a₀ b₀) R₀))
-  nfst : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-sig a₀ b₀))) (p₀ : Code) →
+napp Γ a b R f c nf na = by-rule r-app t-ne (x-app Γ a b R f c) unit (nf , na , one)
+nfst : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-sig a₀ b₀))) (p₀ : Code) →
     NN (k-ne , (j-tm , Γ₀ , s-sig a₀ b₀ , p₀ , R₀)) →
     NN (k-ne , (j-tm , Γ₀ , a₀ , cfst p₀ , fmapM Γ₀ (TV (s-sig a₀ b₀)) (TV a₀) (sig-1 a₀ b₀) R₀))
-  nsnd : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-sig a₀ b₀))) (p₀ : Code) →
+nfst Γ a b R p np = by-rule r-fst t-ne (x-proj Γ a b R p) unit (np , one)
+nsnd : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-sig a₀ b₀))) (p₀ : Code) →
     NN (k-ne , (j-tm , Γ₀ , s-sig a₀ b₀ , p₀ , R₀)) →
     NN (k-ne , (j-tm , Γ₀ , b₀ , csnd p₀ , fmapM Γ₀ (TV (s-sig a₀ b₀)) (TV b₀) (sig-2 a₀ b₀) R₀))
-  ncase : (Γ₀ : CCtx) (s₀ : TyShape) (R₀ : Mean Γ₀ (CaseV s₀)) (cP₀ x₀ t₀ f₀ : Code) →
+nsnd Γ a b R p np = by-rule r-snd t-ne (x-proj Γ a b R p) unit (np , one)
+ncase : (Γ₀ : CCtx) (s₀ : TyShape) (R₀ : Mean Γ₀ (CaseV s₀)) (cP₀ x₀ t₀ f₀ : Code) →
     NN (k-nf , (j-ty , ext-h Γ₀ s-bool (CaseV s₀) (case-b s₀) R₀ , s₀ , cP₀ , case-mot Γ₀ s₀ R₀)) →
     NN (k-ne , (j-tm , Γ₀ , s-bool , x₀ , fmapM Γ₀ (CaseV s₀) (TV s-bool) (case-x s₀) R₀)) →
     NN (k-nf , (j-tm , Γ₀ , s₀ , t₀ , fmapM Γ₀ (CaseV s₀) (TV s₀) (case-t s₀) R₀)) →
     NN (k-nf , (j-tm , Γ₀ , s₀ , f₀ , fmapM Γ₀ (CaseV s₀) (TV s₀) (case-f s₀) R₀)) →
     NN (k-ne , (j-tm , Γ₀ , s₀ , c-case cP₀ t₀ f₀ x₀ , fmapM Γ₀ (CaseV s₀) (TV s₀) (case-r s₀) R₀))
-  nne : (Γ₀ : CCtx) (R₀ : Mean Γ₀ (TV s-bool)) (x₀ : Code) →
+ncase Γ s R cP x t f nP nx nt nf =
+  by-rule r-case t-ne (x-case Γ s R cP x t f) unit (nP , nx , nt , nf , one)
+nne : (Γ₀ : CCtx) (R₀ : Mean Γ₀ (TV s-bool)) (x₀ : Code) →
     NN (k-ne , (j-tm , Γ₀ , s-bool , x₀ , R₀)) → NN (k-nf , (j-tm , Γ₀ , s-bool , x₀ , R₀))
-  ntrue : (Γ₀ : CCtx) (B₀ : Mean Γ₀ One1) → NN (k-nf , (j-tm , Γ₀ , s-bool , c-true , fmapM Γ₀ One1 (TV s-bool) (bool-v true) B₀))
-  nfalse : (Γ₀ : CCtx) (B₀ : Mean Γ₀ One1) → NN (k-nf , (j-tm , Γ₀ , s-bool , c-false , fmapM Γ₀ One1 (TV s-bool) (bool-v false) B₀))
-  nlam : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (X₀ : Mean Γ₀ (TV (s-pi a₀ b₀))) (cA₀ c₀ : Code) →
+nne Γ R x nx = by-rule r-ne t-nf (x-ne Γ R x) unit (nx , one)
+ntrue : (Γ₀ : CCtx) (B₀ : Mean Γ₀ One1) → NN (k-nf , (j-tm , Γ₀ , s-bool , c-true , fmapM Γ₀ One1 (TV s-bool) (bool-v true) B₀))
+ntrue Γ B = by-rule (r-con true) t-nf (x-unit Γ B) unit one
+nfalse : (Γ₀ : CCtx) (B₀ : Mean Γ₀ One1) → NN (k-nf , (j-tm , Γ₀ , s-bool , c-false , fmapM Γ₀ One1 (TV s-bool) (bool-v false) B₀))
+nfalse Γ B = by-rule (r-con false) t-nf (x-unit Γ B) unit one
+nlam : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (X₀ : Mean Γ₀ (TV (s-pi a₀ b₀))) (cA₀ c₀ : Code) →
     NN (k-nf , (j-ty , Γ₀ , a₀ , cA₀ , fmapM Γ₀ (TV (s-pi a₀ b₀)) (Sem a₀) (λ q → fam-dom a₀ b₀ (fst q)) X₀)) →
     NN (k-nf , (j-tm , lam-ctx Γ₀ a₀ b₀ X₀ , b₀ , c₀ , lam-body Γ₀ a₀ b₀ X₀)) → NN (k-nf , (j-tm , Γ₀ , s-pi a₀ b₀ , clam c₀ , X₀))
-  npair : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-sig a₀ b₀))) (cB₀ c1₀ c2₀ : Code) →
+nlam Γ a b X cA c nA nb = by-rule r-lam t-nf (x-lam Γ a b X cA c) unit (nA , nb , one)
+npair : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-sig a₀ b₀))) (cB₀ c1₀ c2₀ : Code) →
     NN (k-nf , (j-ty , ext-h Γ₀ a₀ (TV (s-sig a₀ b₀)) (λ q → fam-dom a₀ b₀ (fst q)) R₀ , b₀ , cB₀ , pair-cod Γ₀ a₀ b₀ R₀)) →
     NN (k-nf , (j-tm , Γ₀ , a₀ , c1₀ , fmapM Γ₀ (TV (s-sig a₀ b₀)) (TV a₀) (sig-1 a₀ b₀) R₀)) →
     NN (k-nf , (j-tm , Γ₀ , b₀ , c2₀ , fmapM Γ₀ (TV (s-sig a₀ b₀)) (TV b₀) (sig-2 a₀ b₀) R₀)) →
     NN (k-nf , (j-tm , Γ₀ , s-sig a₀ b₀ , cpair c1₀ c2₀ , R₀))
-  nplam : (Γ₀ : CCtx) (a₀ : TyShape) (X₀ : Mean Γ₀ (TV (s-path a₀))) (c₀ : Code) →
+npair Γ a b R cB c1 c2 nB n1 n2 = by-rule r-pair t-nf (x-pair Γ a b R cB c1 c2) unit (nB , n1 , n2 , one)
+nplam : (Γ₀ : CCtx) (a₀ : TyShape) (X₀ : Mean Γ₀ (TV (s-path a₀))) (c₀ : Code) →
     NN (k-nf , (j-tm , dext Γ₀ , a₀ , c₀ , plam-body Γ₀ a₀ X₀)) → NN (k-nf , (j-tm , Γ₀ , s-path a₀ , cplam c₀ , X₀))
-  npapp : (Γ₀ : CCtx) (a₀ : TyShape) (P₀ : Mean Γ₀ (TV (s-path a₀))) (p₀ : Code) (f₀ : DNF) →
+nplam Γ a X c nb = by-rule r-plam t-nf (x-pc Γ a X c) unit (nb , one)
+npapp : (Γ₀ : CCtx) (a₀ : TyShape) (P₀ : Mean Γ₀ (TV (s-path a₀))) (p₀ : Code) (f₀ : DNF) →
     isTrue (dnf-canon f₀) → isTrue (dnf-nonconst f₀) →
     (Y₀ : Mean Γ₀ (TV a₀)) → PathM Γ₀ (TV a₀) (papp-mean Γ₀ a₀ f₀ P₀) Y₀ →
     NN (k-ne , (j-tm , Γ₀ , s-path a₀ , p₀ , P₀)) → NN (k-ne , (j-tm , Γ₀ , a₀ , cpapp p₀ (dnf-code f₀) , Y₀))
-  nty-bool : (Γ₀ : CCtx) (B₀ : Mean Γ₀ One1) → NN (k-nf , (j-ty , Γ₀ , s-bool , c-bool , B₀))
-  nty-pi : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (T₀ : Mean Γ₀ (Fam a₀ b₀)) (cA₀ cB₀ : Code) →
+npapp Γ a P p f cf nc Y q np = by-rule r-papp t-ne (x-papp Γ a P p f cf nc Y q) unit (np , one)
+nty-bool : (Γ₀ : CCtx) (B₀ : Mean Γ₀ One1) → NN (k-nf , (j-ty , Γ₀ , s-bool , c-bool , B₀))
+nty-bool Γ B = by-rule r-ty-bool t-nf (x-unit Γ B) unit one
+nty-pi : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (T₀ : Mean Γ₀ (Fam a₀ b₀)) (cA₀ cB₀ : Code) →
     NN (k-nf , (j-ty , Γ₀ , a₀ , cA₀ , fmapM Γ₀ (Fam a₀ b₀) (Sem a₀) (fam-dom a₀ b₀) T₀)) →
     NN (k-nf , (j-ty , ext-h Γ₀ a₀ (Fam a₀ b₀) (fam-dom a₀ b₀) T₀ , b₀ , cB₀ , fam-body Γ₀ a₀ b₀ T₀)) →
     NN (k-nf , (j-ty , Γ₀ , s-pi a₀ b₀ , cpi #2 cA₀ cB₀ , T₀))
-  nty-sig : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (T₀ : Mean Γ₀ (Fam a₀ b₀)) (cA₀ cB₀ : Code) →
+nty-pi Γ a b T cA cB nA nB = by-rule (r-ty-fam f-pi) t-nf (x-fam Γ a b T cA cB) unit (nA , nB , one)
+nty-sig : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (T₀ : Mean Γ₀ (Fam a₀ b₀)) (cA₀ cB₀ : Code) →
     NN (k-nf , (j-ty , Γ₀ , a₀ , cA₀ , fmapM Γ₀ (Fam a₀ b₀) (Sem a₀) (fam-dom a₀ b₀) T₀)) →
     NN (k-nf , (j-ty , ext-h Γ₀ a₀ (Fam a₀ b₀) (fam-dom a₀ b₀) T₀ , b₀ , cB₀ , fam-body Γ₀ a₀ b₀ T₀)) →
     NN (k-nf , (j-ty , Γ₀ , s-sig a₀ b₀ , csigma cA₀ cB₀ , T₀))
-  nty-path : (Γ₀ : CCtx) (a₀ : TyShape) (T₀ : Mean Γ₀ (Sem (s-path a₀))) (cL₀ c0₀ c1₀ : Code) →
+nty-sig Γ a b T cA cB nA nB = by-rule (r-ty-fam f-sig) t-nf (x-fam Γ a b T cA cB) unit (nA , nB , one)
+nty-path : (Γ₀ : CCtx) (a₀ : TyShape) (T₀ : Mean Γ₀ (Sem (s-path a₀))) (cL₀ c0₀ c1₀ : Code) →
     NN (k-nf , (j-ty , dext Γ₀ , a₀ , cL₀ , path-line-ty Γ₀ a₀ T₀)) →
     NN (k-nf , (j-tm , Γ₀ , a₀ , c0₀ , fmapM Γ₀ (Sem (s-path a₀)) (TV a₀) (tend-0 a₀) T₀)) →
     NN (k-nf , (j-tm , Γ₀ , a₀ , c1₀ , fmapM Γ₀ (Sem (s-path a₀)) (TV a₀) (tend-1 a₀) T₀)) →
     NN (k-nf , (j-ty , Γ₀ , s-path a₀ , cpathp (cplam cL₀) c0₀ c1₀ , T₀))
-data Der : (J : Jdg) → Type 1 where
-  dvar : (Γ₀ : CCtx) (v₀ : VarP (fst Γ₀)) →
+nty-path Γ a T cL c0 c1 nL n0 n1 = by-rule r-ty-path t-nf (x-tp Γ a T cL c0 c1) unit (nL , n0 , n1 , one)
+dvar : (Γ₀ : CCtx) (v₀ : VarP (fst Γ₀)) →
     Der (j-tm , Γ₀ , var-shape (fst Γ₀) v₀ , cvar (var-word (fst Γ₀) v₀) , varCube Γ₀ v₀)
-  dapp : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (AppV a₀ b₀)) (f₀ c₀ : Code) →
+dvar Γ v = by-rule r-var t-any (x-var Γ v) unit one
+dapp : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (AppV a₀ b₀)) (f₀ c₀ : Code) →
     Der (j-tm , Γ₀ , s-pi a₀ b₀ , f₀ , fmapM Γ₀ (AppV a₀ b₀) (TV (s-pi a₀ b₀)) (app-f a₀ b₀) R₀) →
     Der (j-tm , Γ₀ , a₀ , c₀ , fmapM Γ₀ (AppV a₀ b₀) (TV a₀) (app-a a₀ b₀) R₀) →
     Der (j-tm , Γ₀ , b₀ , capp f₀ c₀ , fmapM Γ₀ (AppV a₀ b₀) (TV b₀) (app-r a₀ b₀) R₀)
-  dfst : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-sig a₀ b₀))) (p₀ : Code) →
+dapp Γ a b R f c df da = by-rule r-app t-any (x-app Γ a b R f c) unit (df , da , one)
+dfst : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-sig a₀ b₀))) (p₀ : Code) →
     Der (j-tm , Γ₀ , s-sig a₀ b₀ , p₀ , R₀) → Der (j-tm , Γ₀ , a₀ , cfst p₀ , fmapM Γ₀ (TV (s-sig a₀ b₀)) (TV a₀) (sig-1 a₀ b₀) R₀)
-  dsnd : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-sig a₀ b₀))) (p₀ : Code) →
+dfst Γ a b R p dp = by-rule r-fst t-any (x-proj Γ a b R p) unit (dp , one)
+dsnd : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-sig a₀ b₀))) (p₀ : Code) →
     Der (j-tm , Γ₀ , s-sig a₀ b₀ , p₀ , R₀) → Der (j-tm , Γ₀ , b₀ , csnd p₀ , fmapM Γ₀ (TV (s-sig a₀ b₀)) (TV b₀) (sig-2 a₀ b₀) R₀)
-  dcase : (Γ₀ : CCtx) (s₀ : TyShape) (R₀ : Mean Γ₀ (CaseV s₀)) (cP₀ x₀ t₀ f₀ : Code) →
+dsnd Γ a b R p dp = by-rule r-snd t-any (x-proj Γ a b R p) unit (dp , one)
+dcase : (Γ₀ : CCtx) (s₀ : TyShape) (R₀ : Mean Γ₀ (CaseV s₀)) (cP₀ x₀ t₀ f₀ : Code) →
     Der (j-ty , ext-h Γ₀ s-bool (CaseV s₀) (case-b s₀) R₀ , s₀ , cP₀ , case-mot Γ₀ s₀ R₀) →
     Der (j-tm , Γ₀ , s-bool , x₀ , fmapM Γ₀ (CaseV s₀) (TV s-bool) (case-x s₀) R₀) →
     Der (j-tm , Γ₀ , s₀ , t₀ , fmapM Γ₀ (CaseV s₀) (TV s₀) (case-t s₀) R₀) →
     Der (j-tm , Γ₀ , s₀ , f₀ , fmapM Γ₀ (CaseV s₀) (TV s₀) (case-f s₀) R₀) →
     Der (j-tm , Γ₀ , s₀ , c-case cP₀ t₀ f₀ x₀ , fmapM Γ₀ (CaseV s₀) (TV s₀) (case-r s₀) R₀)
-  dtrue : (Γ₀ : CCtx) (B₀ : Mean Γ₀ One1) → Der (j-tm , Γ₀ , s-bool , c-true , fmapM Γ₀ One1 (TV s-bool) (bool-v true) B₀)
-  dfalse : (Γ₀ : CCtx) (B₀ : Mean Γ₀ One1) → Der (j-tm , Γ₀ , s-bool , c-false , fmapM Γ₀ One1 (TV s-bool) (bool-v false) B₀)
-  dlam : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (X₀ : Mean Γ₀ (TV (s-pi a₀ b₀))) (cA₀ c₀ : Code) →
+dcase Γ s R cP x t f dP dx dt df =
+  by-rule r-case t-any (x-case Γ s R cP x t f) unit (dP , dx , dt , df , one)
+dtrue : (Γ₀ : CCtx) (B₀ : Mean Γ₀ One1) → Der (j-tm , Γ₀ , s-bool , c-true , fmapM Γ₀ One1 (TV s-bool) (bool-v true) B₀)
+dtrue Γ B = by-rule (r-con true) t-any (x-unit Γ B) unit one
+dfalse : (Γ₀ : CCtx) (B₀ : Mean Γ₀ One1) → Der (j-tm , Γ₀ , s-bool , c-false , fmapM Γ₀ One1 (TV s-bool) (bool-v false) B₀)
+dfalse Γ B = by-rule (r-con false) t-any (x-unit Γ B) unit one
+dlam : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (X₀ : Mean Γ₀ (TV (s-pi a₀ b₀))) (cA₀ c₀ : Code) →
     Der (j-ty , Γ₀ , a₀ , cA₀ , fmapM Γ₀ (TV (s-pi a₀ b₀)) (Sem a₀) (λ q → fam-dom a₀ b₀ (fst q)) X₀) →
     Der (j-tm , lam-ctx Γ₀ a₀ b₀ X₀ , b₀ , c₀ , lam-body Γ₀ a₀ b₀ X₀) → Der (j-tm , Γ₀ , s-pi a₀ b₀ , clam c₀ , X₀)
-  dpair : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-sig a₀ b₀))) (cB₀ c1₀ c2₀ : Code) →
+dlam Γ a b X cA c dA db = by-rule r-lam t-any (x-lam Γ a b X cA c) unit (dA , db , one)
+dpair : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (R₀ : Mean Γ₀ (TV (s-sig a₀ b₀))) (cB₀ c1₀ c2₀ : Code) →
     Der (j-ty , ext-h Γ₀ a₀ (TV (s-sig a₀ b₀)) (λ q → fam-dom a₀ b₀ (fst q)) R₀ , b₀ , cB₀ , pair-cod Γ₀ a₀ b₀ R₀) →
     Der (j-tm , Γ₀ , a₀ , c1₀ , fmapM Γ₀ (TV (s-sig a₀ b₀)) (TV a₀) (sig-1 a₀ b₀) R₀) →
     Der (j-tm , Γ₀ , b₀ , c2₀ , fmapM Γ₀ (TV (s-sig a₀ b₀)) (TV b₀) (sig-2 a₀ b₀) R₀) →
     Der (j-tm , Γ₀ , s-sig a₀ b₀ , cpair c1₀ c2₀ , R₀)
-  dplam : (Γ₀ : CCtx) (a₀ : TyShape) (X₀ : Mean Γ₀ (TV (s-path a₀))) (c₀ : Code) →
+dpair Γ a b R cB c1 c2 dB d1 d2 = by-rule r-pair t-any (x-pair Γ a b R cB c1 c2) unit (dB , d1 , d2 , one)
+dplam : (Γ₀ : CCtx) (a₀ : TyShape) (X₀ : Mean Γ₀ (TV (s-path a₀))) (c₀ : Code) →
     Der (j-tm , dext Γ₀ , a₀ , c₀ , plam-body Γ₀ a₀ X₀) → Der (j-tm , Γ₀ , s-path a₀ , cplam c₀ , X₀)
-  dpapp : (Γ₀ : CCtx) (a₀ : TyShape) (P₀ : Mean Γ₀ (TV (s-path a₀))) (p₀ : Code) (f₀ : DNF) →
+dplam Γ a X c db = by-rule r-plam t-any (x-pc Γ a X c) unit (db , one)
+dpapp : (Γ₀ : CCtx) (a₀ : TyShape) (P₀ : Mean Γ₀ (TV (s-path a₀))) (p₀ : Code) (f₀ : DNF) →
     isTrue (dnf-canon f₀) → isTrue (dnf-nonconst f₀) →
     (Y₀ : Mean Γ₀ (TV a₀)) → PathM Γ₀ (TV a₀) (papp-mean Γ₀ a₀ f₀ P₀) Y₀ →
     Der (j-tm , Γ₀ , s-path a₀ , p₀ , P₀) → Der (j-tm , Γ₀ , a₀ , cpapp p₀ (dnf-code f₀) , Y₀)
-  dpapp0 : (Γ₀ : CCtx) (a₀ : TyShape) (P₀ : Mean Γ₀ (TV (s-path a₀))) (p₀ : Code) →
+dpapp Γ a P p f cf nc Y q dp = by-rule r-papp t-any (x-papp Γ a P p f cf nc Y q) unit (dp , one)
+dpapp0 : (Γ₀ : CCtx) (a₀ : TyShape) (P₀ : Mean Γ₀ (TV (s-path a₀))) (p₀ : Code) →
     Der (j-tm , Γ₀ , s-path a₀ , p₀ , P₀) → Der (j-tm , Γ₀ , a₀ , cpapp p₀ ci0 , fmapM Γ₀ (TV (s-path a₀)) (TV a₀) (pend-0 a₀) P₀)
-  dpapp1 : (Γ₀ : CCtx) (a₀ : TyShape) (P₀ : Mean Γ₀ (TV (s-path a₀))) (p₀ : Code) →
+dpapp0 Γ a P p dp = by-rule (r-pend false) t-any (x-pc Γ a P p) unit (dp , one)
+dpapp1 : (Γ₀ : CCtx) (a₀ : TyShape) (P₀ : Mean Γ₀ (TV (s-path a₀))) (p₀ : Code) →
     Der (j-tm , Γ₀ , s-path a₀ , p₀ , P₀) → Der (j-tm , Γ₀ , a₀ , cpapp p₀ ci1 , fmapM Γ₀ (TV (s-path a₀)) (TV a₀) (pend-1 a₀) P₀)
-  dty-bool : (Γ₀ : CCtx) (B₀ : Mean Γ₀ One1) → Der (j-ty , Γ₀ , s-bool , c-bool , B₀)
-  dty-pi : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (T₀ : Mean Γ₀ (Fam a₀ b₀)) (cA₀ cB₀ : Code) →
+dpapp1 Γ a P p dp = by-rule (r-pend true) t-any (x-pc Γ a P p) unit (dp , one)
+dty-bool : (Γ₀ : CCtx) (B₀ : Mean Γ₀ One1) → Der (j-ty , Γ₀ , s-bool , c-bool , B₀)
+dty-bool Γ B = by-rule r-ty-bool t-any (x-unit Γ B) unit one
+dty-pi : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (T₀ : Mean Γ₀ (Fam a₀ b₀)) (cA₀ cB₀ : Code) →
     Der (j-ty , Γ₀ , a₀ , cA₀ , fmapM Γ₀ (Fam a₀ b₀) (Sem a₀) (fam-dom a₀ b₀) T₀) →
     Der (j-ty , ext-h Γ₀ a₀ (Fam a₀ b₀) (fam-dom a₀ b₀) T₀ , b₀ , cB₀ , fam-body Γ₀ a₀ b₀ T₀) →
     Der (j-ty , Γ₀ , s-pi a₀ b₀ , cpi #2 cA₀ cB₀ , T₀)
-  dty-sig : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (T₀ : Mean Γ₀ (Fam a₀ b₀)) (cA₀ cB₀ : Code) →
+dty-pi Γ a b T cA cB dA dB = by-rule (r-ty-fam f-pi) t-any (x-fam Γ a b T cA cB) unit (dA , dB , one)
+dty-sig : (Γ₀ : CCtx) (a₀ b₀ : TyShape) (T₀ : Mean Γ₀ (Fam a₀ b₀)) (cA₀ cB₀ : Code) →
     Der (j-ty , Γ₀ , a₀ , cA₀ , fmapM Γ₀ (Fam a₀ b₀) (Sem a₀) (fam-dom a₀ b₀) T₀) →
     Der (j-ty , ext-h Γ₀ a₀ (Fam a₀ b₀) (fam-dom a₀ b₀) T₀ , b₀ , cB₀ , fam-body Γ₀ a₀ b₀ T₀) →
     Der (j-ty , Γ₀ , s-sig a₀ b₀ , csigma cA₀ cB₀ , T₀)
-  dty-path : (Γ₀ : CCtx) (a₀ : TyShape) (T₀ : Mean Γ₀ (Sem (s-path a₀))) (cL₀ c0₀ c1₀ : Code) →
+dty-sig Γ a b T cA cB dA dB = by-rule (r-ty-fam f-sig) t-any (x-fam Γ a b T cA cB) unit (dA , dB , one)
+dty-path : (Γ₀ : CCtx) (a₀ : TyShape) (T₀ : Mean Γ₀ (Sem (s-path a₀))) (cL₀ c0₀ c1₀ : Code) →
     Der (j-ty , dext Γ₀ , a₀ , cL₀ , path-line-ty Γ₀ a₀ T₀) →
     Der (j-tm , Γ₀ , a₀ , c0₀ , fmapM Γ₀ (Sem (s-path a₀)) (TV a₀) (tend-0 a₀) T₀) →
     Der (j-tm , Γ₀ , a₀ , c1₀ , fmapM Γ₀ (Sem (s-path a₀)) (TV a₀) (tend-1 a₀) T₀) →
     Der (j-ty , Γ₀ , s-path a₀ , cpathp (cplam cL₀) c0₀ c1₀ , T₀)
+dty-path Γ a T cL c0 c1 dL d0 d1 = by-rule r-ty-path t-any (x-tp Γ a T cL c0 c1) unit (dL , d0 , d1 , one)
 TCode : CCtx → TyShape → Type 1
 TCode Γ s = (c : Code) × (v : Mean Γ (TV s)) × Der (j-tm , Γ , s , c , v)
 teval : (Γ : CCtx) (s : TyShape) → TCode Γ s → Mean Γ (TV s)
 teval Γ s t = fst (snd t)
-embed : {KJ : NK × Jdg} → NN KJ → Der (snd KJ)
-embed (nvar Γ v) = dvar Γ v
-embed (napp Γ a b R f c nf na) = dapp Γ a b R f c (embed nf) (embed na)
-embed (nfst Γ a b R p np) = dfst Γ a b R p (embed np)
-embed (nsnd Γ a b R p np) = dsnd Γ a b R p (embed np)
-embed (ncase Γ s R cP x t f nP nx nt nf) = dcase Γ s R cP x t f (embed nP) (embed nx) (embed nt) (embed nf)
-embed (nne Γ R x nx) = embed nx
-embed (ntrue Γ B) = dtrue Γ B
-embed (nfalse Γ B) = dfalse Γ B
-embed (nlam Γ a b X cA c nA nb) = dlam Γ a b X cA c (embed nA) (embed nb)
-embed (npair Γ a b R cB c1 c2 nB n1 n2) = dpair Γ a b R cB c1 c2 (embed nB) (embed n1) (embed n2)
-embed (nplam Γ a X c nb) = dplam Γ a X c (embed nb)
-embed (npapp Γ a P p f cf nc Y q np) = dpapp Γ a P p f cf nc Y q (embed np)
-embed (nty-bool Γ B) = dty-bool Γ B
-embed (nty-pi Γ a b T cA cB nA nB) = dty-pi Γ a b T cA cB (embed nA) (embed nB)
-embed (nty-sig Γ a b T cA cB nA nB) = dty-sig Γ a b T cA cB (embed nA) (embed nB)
-embed (nty-path Γ a T cL c0 c1 nL n0 n1) = dty-path Γ a T cL c0 c1 (embed nL) (embed n0) (embed n1)
 SubF : (sk' sk : Lst Entry) → CtxV sk' → Type 1
 SubF sk' sk γ' = (sfγ : CtxV sk) × (EnvV sk' γ' → EnvV sk sfγ)
 sub-base : (Δ Γ : CCtx) → DCube (dims (fst Δ)) (CtxV (fst Δ)) (SubF (fst Δ) (fst Γ)) (snd Δ) → Cube (dims (fst Δ)) (CtxV (fst Γ))
