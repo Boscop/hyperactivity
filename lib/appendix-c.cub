@@ -7,8 +7,10 @@
 -- returning 1 after 13 instructions with writeFrame(μ, o, t, n, b + 4) at o, o + 8, o + 16 — each
 -- run ending at the return address, for every initial memory μ. The rows are computed by the checker
 -- at these buffer contents and lengths; χ_b over every buffer and length is the same three rows with
--- them symbolic, which needs the model's flag computation related to the comparisons s < 4 and n > s − 4.
+-- them symbolic: appcx-chi states it, and appcx-chi-short, -long and -ok are χ_b at the three inputs;
+-- the proof over every input needs the model's flag computation related to the comparisons s < 4 and n > s − 4.
 import "isa/x86/run.cub"
+import "frame-decoder.cub"
 -- the bytes, eight at a time, little-endian
 appcx-code : X86 → X86
 appcx-code s = x86-poke #6 #4194344 #215230236000256 (x86-poke #8 #4194336 #483854951991300 (x86-poke #8 #4194328 #5155856348856535042
@@ -32,3 +34,21 @@ appcx-long mu = λ k → (#0 , fst (appcx-frame0 mu #206338819887668 #10) , fst 
 -- s = 6, n = 2 ≤ s − 4, t = 0x1234: (true, writeFrame(μ, o, t, n, b + 4))
 appcx-ok : (mu : ByteMap) → appcx-observe (snd (x86-run #13 (appcx-init mu #206338818970164 #6))) ≡ (#1 , #4660 , #2 , #5242884 , #4198400)
 appcx-ok mu = λ k → (#1 , #4660 , #2 , #5242884 , #4198400)
+-- D(z) as observed: n := read16le(b, 2) and t := read16le(b, 0) are the buffer's second and first
+-- 16-bit fields; the three rows of appc-D (lib/frame-decoder.cub) on the observation
+appcx-D : ByteMap → Word → Word → Bits #64 × Bits #64 × Bits #64 × Bits #64 × Bits #64
+appcx-D mu buf s =
+  if fd-ltb (toNat s) fd-four then (#0 , fst (appcx-frame0 mu buf s) , fst (snd (appcx-frame0 mu buf s)) , snd (snd (appcx-frame0 mu buf s)) , #4198400)
+  else (if fd-ltb (fd-monus (toNat s) fd-four) (toNat (wand (wshr buf #16) #65535)) then (#0 , fst (appcx-frame0 mu buf s) , fst (snd (appcx-frame0 mu buf s)) , snd (snd (appcx-frame0 mu buf s)) , #4198400)
+  else (#1 , wand buf #65535 , wand (wshr buf #16) #65535 , #5242884 , #4198400))
+-- χ_b (C.1): for every initial memory, buffer and length, a run of the bytes reaches a state whose
+-- observation is D(z), stated
+appcx-chi : Type
+appcx-chi = (mu : ByteMap) → (buf s : Word) → (k : Word) × (appcx-observe (snd (x86-run k (appcx-init mu buf s))) ≡ appcx-D mu buf s)
+-- the three runs above are χ_b at their inputs: D there is what each run observed
+appcx-chi-short : (mu : ByteMap) → (k : Word) × (appcx-observe (snd (x86-run k (appcx-init mu #206338818970164 #3))) ≡ appcx-D mu #206338818970164 #3)
+appcx-chi-short mu = (#4 , appcx-short mu)
+appcx-chi-long : (mu : ByteMap) → (k : Word) × (appcx-observe (snd (x86-run k (appcx-init mu #206338819887668 #10))) ≡ appcx-D mu #206338819887668 #10)
+appcx-chi-long mu = (#8 , appcx-long mu)
+appcx-chi-ok : (mu : ByteMap) → (k : Word) × (appcx-observe (snd (x86-run k (appcx-init mu #206338818970164 #6))) ≡ appcx-D mu #206338818970164 #6)
+appcx-chi-ok mu = (#13 , appcx-ok mu)

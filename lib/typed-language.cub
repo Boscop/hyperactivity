@@ -3,12 +3,12 @@
 -- structural recursion”, “The substitution theorem”) as code: simple types with Byte, Unit, ×, +, ⇒
 -- and contexts, variables vz and vs, the typed terms, environments and lookup, the interpretation by
 -- structural recursion, renaming and weakening, substitution with its lift under binders, and the
--- semantic substitution environment evalEnv. The lookup equation, the binder law and the
--- substitution theorem are not here: a function defined by elimination of these indexed families,
--- applied to a constructor, reduces through a transport along the constructor's index path, and the
--- machine's transport along a constant line is a path to the identity (transportRefl), not a
--- reduction; so each equation needs those transports carried, or the presentation of lib/nbe.cub,
--- whose typed codes carry their meanings in their indices.
+-- semantic substitution environment evalEnv, and the binder law and the substitution theorem stated
+-- as types (tl-binder-law, tl-substitution-theorem). Their proofs are not here: a function defined by
+-- elimination of these indexed families, applied to a constructor, reduces through a transport along
+-- the constructor's index path, and the machine's transport along a constant line is a path to the
+-- identity (transportRefl), not a reduction; so each equation needs those transports carried, or the
+-- presentation of lib/nbe.cub, whose typed codes carry their meanings in their indices.
 -- Terms and variables are indexed by a context and a type (Var(Γ, A), Tm(Γ, A)); a context's tail
 -- and head (tl-tail, tl-head) state the binder lifts at every index.
 import "core.cub"
@@ -113,3 +113,9 @@ tl-subst (tl-case g a b c e l r) d th = tl-case d a b c (tl-subst e d th) (tl-su
 tl-evalEnv : (g d : TlCtx) → TlSub g d → TlEnv d → TlEnv g
 tl-evalEnv tl-empty d th rho = unit
 tl-evalEnv (tl-ext g a) d th rho = (tl-evalEnv g d (λ b i → th b (tl-vs g a b i)) rho , tl-eval {(d , a)} (th a (tl-vz g a)) rho)
+-- the binder law (5.x): evalEnv(lift(θ), (ρ, v)) = (evalEnv(θ, ρ), v), stated
+tl-binder-law : Type
+tl-binder-law = (g d : TlCtx) → (a : TlTy) → (th : TlSub g d) → (rho : TlEnv d) → (v : tl-el a) → tl-evalEnv (tl-ext g a) (tl-ext d a) (tl-sub-lift g d a th) (rho , v) ≡ (tl-evalEnv g d th rho , v)
+-- the substitution theorem: eval(subst(θ, t), ρ) = eval(t, evalEnv(θ, ρ)), stated
+tl-substitution-theorem : Type
+tl-substitution-theorem = (g d : TlCtx) → (a : TlTy) → (t : TlTm (g , a)) → (th : TlSub g d) → (rho : TlEnv d) → tl-eval {the (TlCtx × TlTy) (d , a)} (tl-subst {the (TlCtx × TlTy) (g , a)} t d th) rho ≡ tl-eval {the (TlCtx × TlTy) (g , a)} t (tl-evalEnv g d th rho)
