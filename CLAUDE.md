@@ -12,3 +12,6 @@ goal's statement in `task-graph/hyperactivity.cub`, an instruction to agents int
 “Avik's words, verbatim”. An
 insight reached with him is placed the same way. The aim is that an agent finishing the walk holds
 his complete insight.
+
+Write no code in any language but hyperactive (`.cub`). Nothing new in Python, shell or C:
+the pre-commit hook, lib/guard.cub, refuses it.
