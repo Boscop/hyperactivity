@@ -5,6 +5,7 @@
 -- by name through the store, never by file: a name points to its written piece (the declaration
 -- with its statement) and to its checked key; what uses a name is what the checker found mentions it.
 import "host.cub"
+import "selection.cub"
 
 hy-get : List Word → List Word → Proc W (Sum Unit (List Word))
 hy-get st rel = h-read (list-append st (cons #47 rel))
@@ -823,10 +824,6 @@ hy-lit : List Word → List Word
 hy-lit l = if hy-has-byte #34 l then list-append "(quoted " (list-append (hy-cons-list (list-map hy-q (h-split #34 l))) ")") else hy-q l
 hy-lines-term : List (List Word) → List Word
 hy-lines-term ls = hy-cons-list (list-map hy-lit ls)
--- the byte at which line k (counted from 1) begins
-hy-offset : Word → List (List Word) → Word
-hy-offset k nil = #0
-hy-offset k (cons l r) = if weq k #1 then #0 else wadd (wadd (fromNat (list-length l)) #1) (hy-offset (wsub k #1) r)
 hy-as-term : List Word → Sum Unit (List Word) → List Word
 hy-as-term flag (inl u) = "as-written"
 hy-as-term flag (inr t) = if h-eq flag "r" then list-append "(restated (unlines " (list-append (hy-lines-term (hy-dt (h-split #10 t))) "))") else "as-written"
@@ -836,11 +833,19 @@ hy-pred2 (suc zero) = zero
 hy-pred2 (suc (suc k)) = k
 hy-nums : List (List Word) → List (List Word)
 hy-nums p = hy-take-lines (hy-pred2 (list-length p)) p
+-- the line ranges FROM TO (counted from 1, TO included) as positions from ≤ i < to of the lines
+hy-line-ranges : List (List Word) → List (Nat × Nat)
+hy-line-ranges nil = nil
+hy-line-ranges (cons x nil) = nil
+hy-line-ranges (cons x (cons y r)) = cons (toNat (wsub (h-number x) #1) , toNat (h-number y)) (hy-line-ranges r)
+-- ranges written as the term of their spans (lib/knowledge.cub, spans-of)
+hy-ranges-term : List (Nat × Nat) → List Word
+hy-ranges-term nil = "nil"
+hy-ranges-term (cons r rs) = list-append "(cons (span #" (list-append (h-decimal (fromNat (fst r))) (list-append " #"
+  (list-append (h-decimal (fromNat (snd r))) (list-append ") " (list-append (hy-ranges-term rs) ")")))))
+-- the spans of a pull of lines: the bytes of those lines of lines-of ls (lib/knowledge.cub, pull-lines)
 hy-spans-term : List (List Word) → List (List Word) → List Word
-hy-spans-term ls nil = "nil"
-hy-spans-term ls (cons x nil) = "nil"
-hy-spans-term ls (cons x (cons y r)) = list-append "(cons (span #" (list-append (h-decimal (hy-offset (h-number x) ls)) (list-append " #"
-  (list-append (h-decimal (hy-offset (wadd (h-number y) #1) ls)) (list-append ") " (list-append (hy-spans-term ls r) ")")))))
+hy-spans-term ls p = hy-ranges-term (byte-ranges ls (hy-line-ranges p))
 hy-pull-decl : List Word → List Word → List (List Word) → List (List Word) → Sum Unit (List Word) → Sum Unit (List Word) → List Word
 hy-pull-decl stem nm ls p ps rs = list-append (h-line (list-append nm " : Pull"))
   (h-line (list-append nm (list-append " = pull " (list-append stem (list-append "-source (whole " (list-append stem (list-append "-source) "

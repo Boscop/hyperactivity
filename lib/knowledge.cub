@@ -3,6 +3,7 @@
 -- unit asserted to carry the same meaning, made of pulls: a piece and its residual at a time. No machine verifies semantic equivalence today; the
 -- declaration is made by judgement and checked sentence by sentence (docs/to-be-incorporated-into-paper.cub,
 -- “Knowledge work: units, decomposition, recomposition”).
+import "selection.cub"
 import "paper.cub"
 import "document.cub"
 -- a line holding quotation marks, given as its stretches between them
@@ -24,56 +25,44 @@ quoted (cons s (cons t ts)) = list-append s (cons #34 (quoted (cons t ts)))
 data Span = span (from : Word) (to : Word)
 data As = as-written | restated (text : List Word)
 data Pull = pull (source : List Word) (pulled-from : List Span) (piece : List Span) (piece-as : As) (residual-as : As)
--- the first k bytes, and what follows them
-k-take : Word → List Word → List Word
-k-take k nil = nil
-k-take k (cons x r) = if weq k #0 then nil else cons x (k-take (wsub k #1) r)
-k-drop : Word → List Word → List Word
-k-drop k nil = nil
-k-drop k (cons x r) = if weq k #0 then cons x r else k-drop (wsub k #1) r
-k-length : List Word → Word
-k-length nil = #0
-k-length (cons x r) = wadd #1 (k-length r)
+-- ranges as the mask of the positions they cover (lib/selection.cub): a span's numerals are positions
+-- by toNat, and every theorem of lib/selection.cub on masks holds of a pull's ranges through it
+spans-mask : List Span → List Bool
+spans-mask nil = nil
+spans-mask (cons (span a b) r) = mask-or (range-mask (toNat a) (toNat b)) (spans-mask r)
+-- ranges of positions written as spans: they cover exactly those positions (toNat (fromNat n) = n)
+spans-of : List (Nat × Nat) → List Span
+spans-of nil = nil
+spans-of (cons r rs) = cons (span (fromNat (fst r)) (fromNat (snd r))) (spans-of rs)
+spans-of-mask : (rs : List (Nat × Nat)) → spans-mask (spans-of rs) ≡ ranges-mask rs
+spans-of-mask nil = λ i → nil
+spans-of-mask (cons r rs) = λ i → mask-or (range-mask (toNat-fromNat (fst r) i) (toNat-fromNat (snd r) i)) (spans-of-mask rs i)
 -- the whole of a source, as ranges
 whole : List Word → List Span
-whole s = cons (span #0 (k-length s)) nil
--- the text of a set of ranges of a source, in order
+whole s = cons (span #0 (fromNat (list-length s))) nil
+-- the text of a set of ranges of a source: the subsequence they select
 spans-text : List Word → List Span → List Word
-spans-text s nil = nil
-spans-text s (cons (span a b) r) = list-append (k-take (wsub b a) (k-drop a s)) (spans-text s r)
--- ranges with one range taken away
-span-minus : Word → Word → Span → List Span
-span-minus a b (span x y) = if (if wlt x b then wlt a y else false)
-  then list-append (if wlt x a then cons (span x a) nil else nil) (if wlt b y then cons (span b y) nil else nil)
-  else cons (span x y) nil
-spans-minus-one : Word → Word → List Span → List Span
-spans-minus-one a b nil = nil
-spans-minus-one a b (cons z r) = list-append (span-minus a b z) (spans-minus-one a b r)
-spans-minus : List Span → List Span → List Span
-spans-minus zs nil = zs
-spans-minus zs (cons (span a b) r) = spans-minus (spans-minus-one a b zs) r
-k-le : Word → Word → Bool
-k-le a b = if wlt b a then false else true
--- a range within a set of ranges, and every range of one set within another
-span-within : Span → List Span → Bool
-span-within z nil = false
-span-within (span a b) (cons (span x y) r) = if (if wlt a x then false else k-le b y) then true else span-within (span a b) r
-spans-within : List Span → List Span → Bool
-spans-within nil zs = true
-spans-within (cons z r) zs = if span-within z zs then spans-within r zs else false
--- a pull's residual: what it was pulled from, without the piece
-residual : Pull → List Span
-residual (pull s f p pa ra) = spans-minus f p
+spans-text s z = mask-select s (spans-mask z)
+-- a pull's residual: what it was pulled from, without the piece (lib/selection.cub, mask-residual: the
+-- same text read in the source as in the document pulled from)
+residual : Pull → List Bool
+residual (pull s f p pa ra) = mask-minus (spans-mask f) (spans-mask p)
+-- the piece lies within what it was pulled from (lib/selection.cub, mask-piece: then the piece is the
+-- same text read in the source as in the document pulled from)
 admissible : Pull → Bool
-admissible (pull s f p pa ra) = spans-within p f
+admissible (pull s f p pa ra) = mask-within (spans-mask p) (spans-mask f)
+-- a pull the loop writes for ranges of lines of the source lines-of ls: its piece is exactly those lines
+pull-lines : (ls : List (List Word)) → (rs : List (Nat × Nat)) →
+             spans-text (lines-of ls) (spans-of (byte-ranges ls rs)) ≡ lines-of (mask-select ls (ranges-mask rs))
+pull-lines ls rs = (λ i → mask-select (lines-of ls) (spans-of-mask (byte-ranges ls rs) i)) ∙ lines-pulled ls rs
 -- the units a pull gives: the piece and the residual, each as written or as re-expressed
-as-text : List Word → List Span → As → List Word
-as-text s z as-written = spans-text s z
-as-text s z (restated t) = t
+as-text : List Word → List Bool → As → List Word
+as-text s m as-written = mask-select s m
+as-text s m (restated t) = t
 piece-text : Pull → List Word
-piece-text (pull s f p pa ra) = as-text s p pa
+piece-text (pull s f p pa ra) = as-text s (spans-mask p) pa
 residual-text : Pull → List Word
-residual-text (pull s f p pa ra) = as-text s (spans-minus f p) ra
+residual-text (pull s f p pa ra) = as-text s (mask-minus (spans-mask f) (spans-mask p)) ra
 -- the declaration `hyperactive decompose` makes for the essay it writes: who walked it, and when
 decomposed-by : List Word → List Word → List Word
 decomposed-by who date = list-append "Decomposed by " (list-append who (list-append " with hyperactive decompose, " (list-append date ": an intelligent partition; each part shown with its surroundings in the original and asserted self-contained with its relevant context, or re-expressed with its references resolved and checked sentence by sentence against it.")))
