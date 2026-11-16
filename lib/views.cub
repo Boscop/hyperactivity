@@ -248,23 +248,36 @@ v-check-report ps = bind (h-out (v-lines ps)) (λ u → bind (h-out (v-summary p
 v-check : List Word → Proc W Unit
 v-check st = bind (v-statement-problems st (list-map (λ e → fst e) v-all)) (λ sp →
   v-check-report (list-append (v-step-all v-node-problems (list-map (λ e → fst e) v-all)) sp))
-v-command : List Word → List Word → List (List Word) → Proc W Unit
-v-command st c rest =
-  if h-eq c "show" then v-show-all st rest else
-  if h-eq c "tree" then h-out v-tree else
-  if h-eq c "order" then h-out v-order else
-  if h-eq c "open" then v-open st else
-  if h-eq c "check" then v-check st else
-  h-fail (list-append "views: no view " c)
-v-dispatch : List Word → List (List Word) → Proc W Unit
-v-dispatch st nil = h-out v-tree
-v-dispatch st (cons c rest) = v-command st c rest
-v-store-of : Sum Unit (List Word) → List Word
-v-store-of (inl u) = ".cubical-store"
-v-store-of (inr d) = d
+-- the views kept: computed once from the graph's value and kept in the store (views/), stamped with
+-- the latest change under the repository (views/stamp); lib/hyperactive.cub serves them from there and
+-- runs this program when the stamp has moved
+v-show-texts : List Word → List (List Word) → Proc W (List (List Word × List Word))
+v-show-texts st nil = ret nil
+v-show-texts st (cons i r) = bind (v-statement st i) (λ s → bind (v-show-texts st r) (λ rest → ret (cons (i , v-show-text i s) rest)))
+v-show-of : List Word → List (List Word × List Word) → List Word
+v-show-of i nil = nil
+v-show-of i (cons e r) = if h-eq i (fst e) then snd e else v-show-of i r
+v-open-text : List (List Word × List Word) → List Word
+v-open-text shows =
+  list-append (if h-null (h-concat v-in-progress) then nil else list-append (h-line (h-line "In progress:")) (h-concat (list-map (λ i → v-show-of i shows) v-in-progress)))
+  (list-append (h-line "Can start now and unblocks the most:") (h-concat (list-map (λ x → list-append (v-line x) (v-gain-line x)) (v-top v-ready))))
+v-keep-shows : List Word → List (List Word × List Word) → Proc W Unit
+v-keep-shows dir nil = ret unit
+v-keep-shows dir (cons e r) = bind (h-write (list-append dir (list-append "show-" (h-hex (fst e)))) (snd e)) (λ b → v-keep-shows dir r)
+v-keep : List Word → Proc W Unit
+v-keep st =
+  bind (h-dir-time (toNat #12) ".") (λ stamp →
+  bind (h-mkdir st) (λ u → bind (h-mkdir (list-append st "/views")) (λ u2 →
+  bind (v-show-texts st (list-map (λ e → fst e) v-all)) (λ shows →
+  bind (v-keep-shows (list-append st "/views/") shows) (λ u3 →
+  bind (v-statement-problems st (list-map (λ e → fst e) v-all)) (λ sp →
+  bind (h-write (list-append st "/views/check") (list-append (v-lines (list-append (v-step-all v-node-problems (list-map (λ e → fst e) v-all)) sp)) (v-summary (list-append (v-step-all v-node-problems (list-map (λ e → fst e) v-all)) sp)))) (λ b1 →
+  bind (h-write (list-append st "/views/tree") v-tree) (λ b2 →
+  bind (h-write (list-append st "/views/order") v-order) (λ b3 →
+  bind (h-write (list-append st "/views/open") (v-open-text shows)) (λ b4 →
+  bind (h-write (list-append st "/views/stamp") (h-decimal stamp)) (λ b5 → exit #0)))))))))))
 v-main : Proc W Unit
-v-main = bind (h-env "CUBICAL_STORE") (λ e → bind h-args (λ a →
-  bind (v-dispatch (v-store-of e) (h-drop-n (suc (suc zero)) a)) (λ u → exit #0)))
+v-main = bind (h-env "CUBICAL_STORE") (λ e → v-keep (h-store-of e))
 v-run : Step W Unit
 v-run = to-step v-main
 #run v-run

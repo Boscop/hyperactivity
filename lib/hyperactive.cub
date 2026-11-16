@@ -83,12 +83,23 @@ hy-fails (cons l r) = if h-prefix "FAIL: " l then cons (hy-fail-name l) (hy-fail
 hy-complete : List (List Word) → Bool
 hy-complete nil = false
 hy-complete (cons l r) = if h-infix " passed, " l then true else hy-complete r
-hy-verdict : List Word → List Word → Proc W (Bool × List (List Word))
-hy-verdict m root = bind (h-capture (cons m (cons "--read" (cons root nil)))) (λ r →
-  ret (hy-complete (h-lines (snd r)) , hy-fails (h-lines (snd r))))
-hy-verdicts : List Word → List (List Word) → Proc W (List (Bool × List (List Word)))
-hy-verdicts m nil = ret nil
-hy-verdicts m (cons r rs) = bind (hy-verdict m r) (λ v → bind (hy-verdicts m rs) (λ vs → ret (cons v vs)))
+-- the verdict on a file, kept in the store (verdicts/<file>: the stamp of the latest change under
+-- the repository when it was given, whether the machine read to the end, the names that failed), so
+-- a file nothing has changed since is not given to the machine again
+hy-verdict-run : List Word → List Word → List Word → Word → Proc W (Bool × List (List Word))
+hy-verdict-run st m root stamp = bind (h-capture (cons m (cons "--read" (cons root nil)))) (λ r →
+  bind (h-mkdir (list-append st "/verdicts")) (λ u →
+  bind (h-write (list-append st (list-append "/verdicts/" (h-hex root))) (h-concat (list-map h-line (cons (h-decimal stamp) (cons (if hy-complete (h-lines (snd r)) then "1" else "0") (hy-fails (h-lines (snd r)))))))) (λ b →
+  ret (hy-complete (h-lines (snd r)) , hy-fails (h-lines (snd r))))))
+hy-verdict-kept : List Word → List Word → List Word → Word → List (List Word) → Proc W (Bool × List (List Word))
+hy-verdict-kept st m root stamp (cons s (cons c fs)) = if h-eq s (h-decimal stamp) then ret {lzero} {W} (h-eq c "1" , fs) else hy-verdict-run st m root stamp
+hy-verdict-kept st m root stamp ls = hy-verdict-run st m root stamp
+hy-verdict : List Word → List Word → List Word → Proc W (Bool × List (List Word))
+hy-verdict st m root = bind (h-dir-time (toNat #12) ".") (λ stamp →
+  bind (hy-get st (list-append "verdicts/" (h-hex root))) (λ k → hy-verdict-kept st m root stamp (h-split #10 (hy-or nil k))))
+hy-verdicts : List Word → List Word → List (List Word) → Proc W (List (Bool × List (List Word)))
+hy-verdicts st m nil = ret nil
+hy-verdicts st m (cons r rs) = bind (hy-verdict st m r) (λ v → bind (hy-verdicts st m rs) (λ vs → ret (cons v vs)))
 -- what is wrong after a change, against before it: runs that did not end, and new failures
 hy-subset : List (List Word) → List (List Word) → List (List Word)
 hy-subset nil b = nil
@@ -125,13 +136,13 @@ hy-keep st m name path old roots removing nil =
     bind (h-unlink (list-append st (list-append "/bound/" (h-hex name)))) (λ u2 → h-out (h-line (list-append "removed " name))))
   else bind (hy-get st (list-append "bound/" (h-hex name))) (λ k → h-out (h-line (list-append name (list-append "   (" (list-append (hy-key-label k) ")")))))
 hy-keep st m name path old roots removing (cons p ps) =
-  bind (h-write path old) (λ w → bind (hy-verdicts m roots) (λ v →
+  bind (h-write path old) (λ w → bind (hy-verdicts st m roots) (λ v →
   bind (h-say (list-append (h-line "nothing written: it does not check") (h-indented "  " (cons p ps)))) (λ u → exit #1)))
 hy-change : List Word → List Word → List Word → List Word → List Word → List Word → List Word → List (List Word) → Bool → Proc W Unit
 hy-change st m name expect path old new roots removing =
-  bind (hy-verdicts m roots) (λ before →
+  bind (hy-verdicts st m roots) (λ before →
   bind (h-write path new) (λ w1 →
-  bind (hy-verdicts m roots) (λ after →
+  bind (hy-verdicts st m roots) (λ after →
   bind (hy-piece-of st name) (λ piece →
   hy-keep st m name path old roots removing (list-append (hy-wrong before after) (hy-read-back removing name piece expect))))))
 -- write: the piece found, its file rendered with the change, the change checked
@@ -392,11 +403,27 @@ hy-work-usage = list-append (h-line "Actions:")
   (list-append (h-line "  hyperactive decompose FILE   a document decomposed into self-contained parts, one by one (lib/knowledge.cub)")
   (list-append (h-line "  hyperactive etym TEXT | why | unexplained | view | every | server | brunerie | repl | library   (still the earlier programs, until each is written in hyperactive)")
   (h-line "  hyperactive done            the work is done: the session ends")))))))))))))
-hy-views : List Word → List (List Word) → Proc W Unit
-hy-views m a = bind (h-run (cons m (cons "lib/views.cub" a))) (λ r → ret unit)
-hy-check : List Word → List (List Word) → Proc W Unit
-hy-check m nil = bind (hy-machine-on m "task-graph/hyperactivity.cub") (λ u → hy-views m (cons "check" nil))
-hy-check m (cons f r) = hy-machine-all m (cons f r)
+-- the graph's views, kept in the store by lib/views.cub (views/), made again when anything under the
+-- repository has changed since
+hy-views-ready : List Word → List Word → Proc W Unit
+hy-views-ready st m = bind (hy-get st "views/stamp") (λ s → bind (h-dir-time (toNat #12) ".") (λ now →
+  if h-eq (hy-or nil s) (h-decimal now) then ret {lzero} {W} unit else bind (h-run (cons m (cons "lib/views.cub" nil))) (λ r → ret {lzero} {W} unit)))
+hy-view : List Word → List Word → List Word → Proc W Unit
+hy-view st m v = bind (hy-views-ready st m) (λ u → bind (hy-get st (list-append "views/" v)) (λ t → h-out (hy-or nil t)))
+hy-show-nodes : List Word → List (List Word) → Proc W Unit
+hy-show-nodes st nil = ret unit
+hy-show-nodes st (cons i r) = bind (hy-get st (list-append "views/show-" (h-hex i))) (λ t →
+  bind (h-out (hy-or (h-line (h-line (list-append i ": no such node"))) t)) (λ u → hy-show-nodes st r))
+hy-views : List Word → List Word → List (List Word) → Proc W Unit
+hy-views st m nil = hy-view st m "tree"
+hy-views st m (cons c rest) = if h-eq c "show" then bind (hy-views-ready st m) (λ u → hy-show-nodes st rest) else hy-view st m c
+-- check: the machine's verdict on the task graph (kept like a write's) and the graph's rules
+hy-verdict-text : List Word → Bool × List (List Word) → List Word
+hy-verdict-text f v = list-append (h-line (list-append f (if fst v then (if h-null (h-concat (snd v)) then ": the machine reads it to the end; nothing fails" else ": these fail:") else ": the machine does not read it to the end")))
+  (h-indented "  " (snd v))
+hy-check : List Word → List Word → List (List Word) → Proc W Unit
+hy-check st m nil = bind (hy-verdict st m "task-graph/hyperactivity.cub") (λ v → bind (h-out (hy-verdict-text "task-graph/hyperactivity.cub" v)) (λ u → hy-view st m "check"))
+hy-check st m (cons f r) = hy-machine-all m (cons f r)
 -- lines without the empty ones at their end
 hy-dt-at : List Word → List (List Word) → List (List Word)
 hy-dt-at l nil = if h-null l then nil else cons l nil
@@ -517,7 +544,7 @@ hy-record st a i =
   if h-eq (hy-head a) "self-contained" then h-unlink (hy-self-path st i) else ret unit
 hy-show : List Word → List Word → Nat → HyState → Proc W Unit
 hy-show st m n (hy-walking k) = bind (hy-get st (list-append "walk/" (h-decimal (fromNat k)))) (hy-show-chunk k n)
-hy-show st m n hy-working = bind (hy-views m (cons "open" nil)) (λ u → h-out (list-append (cons #10 nil) hy-work-usage))
+hy-show st m n hy-working = bind (hy-view st m "open") (λ u → h-out (list-append (cons #10 nil) hy-work-usage))
 hy-show st m n (hy-reading f) = bind (h-read f) (λ t → hy-show-reading f (hy-doc-lines t))
 hy-show st m n (hy-decomposing f cs i) = bind (h-read f) (λ t → hy-show-part f cs i (hy-doc-lines t))
 -- a working action performed
@@ -529,10 +556,10 @@ hy-act st m (cons c rest) =
   if h-eq c "remove" then hy-remove st m rest else
   if h-eq c "history" then hy-history st rest else
   if h-eq c "paper" then hy-paper st m rest else
-  if h-eq c "check" then hy-check m rest else
+  if h-eq c "check" then hy-check st m rest else
   if h-eq c "done" then bind (h-write (list-append st "/session/log") nil) (λ b → h-out (h-line "The work is declared done; the session is over. The next session begins with the walk."))
   else if h-has c hy-bridge-words then hy-bridge m c rest
-  else hy-views m (cons c rest)
+  else hy-views st m (cons c rest)
 
 -- one call: the action taken when valid, then what the state reached shows
 hy-log-lines : Sum Unit (List Word) → List (List Word)
