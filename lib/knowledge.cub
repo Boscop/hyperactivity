@@ -1,11 +1,6 @@
 -- lib/knowledge.cub — knowledge work as units (Avik, 2026-11-16 06:03 and 06:08 UTC, verbatim in
 -- AI-AGENTS-WELCOME-TO-HYPERACTIVITY.md). An essay bare is one unit; its decomposition is a second
--- unit, a collection of smaller units asserted to carry the same meaning. Decomposition is two stages:
--- a partition of the essay into parts, then each part made self-contained by re-expressing it with its
--- references to other parts resolved. An Essay holds both units at once: the parts as the essay writes
--- them (so `bare`, the lines of the parts in order, is the essay exactly, and no copy of it is stored), the
--- re-expression of each part that refers to others, and the declaration of their equivalence (who
--- declared it, when, after what check). No machine verifies semantic equivalence today; the
+-- unit asserted to carry the same meaning, made of pulls: a piece and its residual at a time. No machine verifies semantic equivalence today; the
 -- declaration is made by judgement and checked sentence by sentence (docs/to-be-incorporated-into-paper.cub,
 -- “Knowledge work: units, decomposition, recomposition”).
 import "paper.cub"
@@ -15,40 +10,78 @@ quoted : List (List Word) → List Word
 quoted nil = nil
 quoted (cons s nil) = s
 quoted (cons s (cons t ts)) = list-append s (cons #34 (quoted (cons t ts)))
--- a part of the partition: consecutive lines of the essay as it writes them (a blank line between parts
--- belongs to the part before it), and, where the part refers to other parts, its re-expression with
--- those references resolved
-data Part = part (lines : List (List Word))
-          | referring (lines : List (List Word)) (self : List (List Word))
-data Essay = essay (name : List Word) (parts : List Part) (declared : List Word)
-part-lines : Part → List (List Word)
-part-lines (part ls) = ls
-part-lines (referring ls s) = ls
-all-lines : List Part → List (List Word)
-all-lines nil = nil
-all-lines (cons p ps) = list-append (part-lines p) (all-lines ps)
--- the essay bare: the lines of its parts in order, then a closing newline
-bare : Essay → List Word
-bare (essay n ps d) = list-append (unlines (all-lines ps)) (cons #10 nil)
--- a part as a unit: the part itself, or its re-expression
-part-unit : Part → List Word
-part-unit (part ls) = unlines ls
-part-unit (referring ls s) = unlines s
--- the essay decomposed: its units, in order
-units : Essay → List (List Word)
-units (essay n ps d) = list-map part-unit ps
+-- Decomposition is the pull (Avik, 2026-11-16 10:06–10:36 UTC): one act on one document gives a piece
+-- and its residual, the document without the piece, and asserts that the two together carry the
+-- document's meaning. Pulls are independent objects: none is canonical, none claims the bytes it
+-- covers, any number may be made from one document and overlap freely, and a residual is a document
+-- like any other, so the next pull may be from it. Everything is addressed in the coordinates of the
+-- one source: a document pulled from, a piece and a residual are each a set of byte ranges of it, so any
+-- two pulls are comparable (overlap, containment) by computation. Where a piece or a residual does not
+-- stand alone, it carries its re-expression, with its references resolved; that text is a new source.
+-- What the machine checks is that a pull's piece lies within what it was pulled from (`admissible`);
+-- that the units carry the same meaning is asserted, by judgement, sentence by sentence.
+data Span = span (from : Word) (to : Word)
+data As = as-written | restated (text : List Word)
+data Pull = pull (source : List Word) (pulled-from : List Span) (piece : List Span) (piece-as : As) (residual-as : As)
+-- the first k bytes, and what follows them
+k-take : Word → List Word → List Word
+k-take k nil = nil
+k-take k (cons x r) = if weq k #0 then nil else cons x (k-take (wsub k #1) r)
+k-drop : Word → List Word → List Word
+k-drop k nil = nil
+k-drop k (cons x r) = if weq k #0 then cons x r else k-drop (wsub k #1) r
+k-length : List Word → Word
+k-length nil = #0
+k-length (cons x r) = wadd #1 (k-length r)
+-- the whole of a source, as ranges
+whole : List Word → List Span
+whole s = cons (span #0 (k-length s)) nil
+-- the text of a set of ranges of a source, in order
+spans-text : List Word → List Span → List Word
+spans-text s nil = nil
+spans-text s (cons (span a b) r) = list-append (k-take (wsub b a) (k-drop a s)) (spans-text s r)
+-- ranges with one range taken away
+span-minus : Word → Word → Span → List Span
+span-minus a b (span x y) = if (if wlt x b then wlt a y else false)
+  then list-append (if wlt x a then cons (span x a) nil else nil) (if wlt b y then cons (span b y) nil else nil)
+  else cons (span x y) nil
+spans-minus-one : Word → Word → List Span → List Span
+spans-minus-one a b nil = nil
+spans-minus-one a b (cons z r) = list-append (span-minus a b z) (spans-minus-one a b r)
+spans-minus : List Span → List Span → List Span
+spans-minus zs nil = zs
+spans-minus zs (cons (span a b) r) = spans-minus (spans-minus-one a b zs) r
+k-le : Word → Word → Bool
+k-le a b = if wlt b a then false else true
+-- a range within a set of ranges, and every range of one set within another
+span-within : Span → List Span → Bool
+span-within z nil = false
+span-within (span a b) (cons (span x y) r) = if (if wlt a x then false else k-le b y) then true else span-within (span a b) r
+spans-within : List Span → List Span → Bool
+spans-within nil zs = true
+spans-within (cons z r) zs = if span-within z zs then spans-within r zs else false
+-- a pull's residual: what it was pulled from, without the piece
+residual : Pull → List Span
+residual (pull s f p pa ra) = spans-minus f p
+admissible : Pull → Bool
+admissible (pull s f p pa ra) = spans-within p f
+-- the units a pull gives: the piece and the residual, each as written or as re-expressed
+as-text : List Word → List Span → As → List Word
+as-text s z as-written = spans-text s z
+as-text s z (restated t) = t
+piece-text : Pull → List Word
+piece-text (pull s f p pa ra) = as-text s p pa
+residual-text : Pull → List Word
+residual-text (pull s f p pa ra) = as-text s (spans-minus f p) ra
 -- the declaration `hyperactive decompose` makes for the essay it writes: who walked it, and when
 decomposed-by : List Word → List Word → List Word
 decomposed-by who date = list-append "Decomposed by " (list-append who (list-append " with hyperactive decompose, " (list-append date ": an intelligent partition; each part shown with its surroundings in the original and asserted self-contained with its relevant context, or re-expressed with its references resolved and checked sentence by sentence against it.")))
--- an essay as a document: the essay bare, named by its title
-essay-document : Essay → Document
-essay-document (essay n ps d) = projection n (bare (essay n ps d))
 -- ---------------------------------------------------------------- what Part I carries (2026-11-16)
 -- Avik: a unit is in Part I exactly when it is declared semantically equivalent to a decomposed piece
 -- of Part I; anything not so mapped is not included, and while that invariant is kept no list of what
 -- is outside is maintained: it is computed. A declaration names the unit and the blocks of Part I
 -- (lib/paper.cub) that carry its meaning, and is made by judgement, checked sentence by sentence.
-data Equivalent = equivalent (unit : Part) (blocks : List Block) (declared : List Word)
+data Equivalent = equivalent (unit : Pull) (blocks : List Block) (declared : List Word)
 declared-equivalent : List Word → List Word → List Word
 declared-equivalent who date = list-append "Declared semantically equivalent by " (list-append who (list-append ", " (list-append date ": judged, and checked sentence by sentence against the blocks of Part I it names.")))
 -- two runs of lines equal, line by line
@@ -57,23 +90,27 @@ lines-eq nil nil = true
 lines-eq nil (cons m ms) = false
 lines-eq (cons l ls) nil = false
 lines-eq (cons l ls) (cons m ms) = if text-eq l m then lines-eq ls ms else false
--- one unit: the same lines, and the same re-expression
-part-eq : Part → Part → Bool
-part-eq (part ls) (part ms) = lines-eq ls ms
-part-eq (part ls) (referring ms t) = false
-part-eq (referring ls s) (part ms) = false
-part-eq (referring ls s) (referring ms t) = if lines-eq ls ms then lines-eq s t else false
-equivalent-unit : Equivalent → Part
+-- one unit: the same piece of the same source, as written or as the same re-expression
+spans-eq : List Span → List Span → Bool
+spans-eq nil nil = true
+spans-eq nil (cons z r) = false
+spans-eq (cons z r) nil = false
+spans-eq (cons (span a b) r) (cons (span c d) t) = if weq a c then (if weq b d then spans-eq r t else false) else false
+pull-piece : Pull → List Span
+pull-piece (pull s f p pa ra) = p
+pull-eq : Pull → Pull → Bool
+pull-eq p q = if text-eq (piece-text p) (piece-text q) then spans-eq (pull-piece p) (pull-piece q) else false
+equivalent-unit : Equivalent → Pull
 equivalent-unit (equivalent p bs d) = p
 -- whether a declaration names the unit
-carried : List Equivalent → Part → Bool
+carried : List Equivalent → Pull → Bool
 carried nil p = false
-carried (cons e es) p = if part-eq (equivalent-unit e) p then true else carried es p
+carried (cons e es) p = if pull-eq (equivalent-unit e) p then true else carried es p
 -- the named units no declaration names, in the order given
-uncarried : List Equivalent → List (List Word × Part) → List (List Word × Part)
+uncarried : List Equivalent → List (List Word × Pull) → List (List Word × Pull)
 uncarried es nil = nil
 uncarried es (cons np nps) = if carried es (snd np) then uncarried es nps else cons np (uncarried es nps)
 -- named units as one text: each under its name as a heading, self-contained
-units-text : List (List Word × Part) → List Word
+units-text : List (List Word × Pull) → List Word
 units-text nil = nil
-units-text (cons np nps) = list-append "## " (list-append (fst np) (cons #10 (cons #10 (list-append (part-unit (snd np)) (cons #10 (cons #10 (units-text nps)))))))
+units-text (cons np nps) = list-append "## " (list-append (fst np) (cons #10 (cons #10 (list-append (piece-text (snd np)) (cons #10 (cons #10 (units-text nps)))))))

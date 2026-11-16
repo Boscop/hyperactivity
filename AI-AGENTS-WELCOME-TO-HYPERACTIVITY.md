@@ -39,15 +39,13 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   which it is and that no copy is here. The same holds for the sections of any document, plans and any
   other source: a number goes with the title it numbers. Nothing is identified by a bare number
   (no t1, t2, …).
-- **Decomposing knowledge is intelligent work with language** (Avik, 2026-11-16 06:03, 06:08 and
-  06:25 UTC, “Avik's words, verbatim” below). A document is one unit; its decomposition is a second
-  unit, its parts, asserted to carry the same meaning. Decompose only with `hyperactive decompose
-  FILE`, which holds the discipline: read the whole document and give an intelligent partition (cut
-  where the meaning divides, each part one assertion with its evidence; no rule decides a cut); then
-  each part is shown, one by one, with its surroundings in the original, and you either assert it is
-  self-contained and makes sense or give its re-expression with every reference resolved and the
-  relevant context included. Pronouns, labels and section references are resolved to what they
-  mean, not tagged with where they came from. No script decides any of this.
+- **Decomposing knowledge is intelligent work with language** (Avik, 2026-11-16 06:03–10:36 UTC,
+  “Avik's words, verbatim” below). Decomposition is the pull: one piece and its residual from one
+  document, asserted to carry its meaning. Pulls are independent: none is canonical or claims what it
+  takes, any may overlap another, and a residual may be pulled from in turn. Pull only with
+  `hyperactive decompose FILE`: read the whole document, `pull FROM TO` where the meaning makes a unit,
+  then judge the piece and the residual each in turn: assert it self-contained or give its
+  re-expression with its references resolved to what they mean. No rule decides a pull.
 - **Keep Avik's words verbatim** (“Avik's words, verbatim” below).
   - Never paraphrase inside quotation marks.
   - A long message is appended to “Avik's words, verbatim” below, not put in a new file.
