@@ -111,16 +111,21 @@ void wn_divmod(const WN *x, const WN *y, WN *q, WN *r) {
 }
 WN wn_succ(const WN *x) { WN one = wn_small(1); return wn_add(x, &one); }
 /* decimal digits */
+/* r = r·10 + d over the digits, in place. Measured (callgrind, 2026-11-16): the former ten wn_adds
+ * per digit, each a calloc and a free, were 9% of lib/views.cub. Correct: after i digits the limbs
+ * hold their value v_i < 10^i; 10^19 < 2^64, so v_d < 2^(64·⌈d/19⌉) ≤ 2^(64n) with n = d/19 + 1 and
+ * no carry leaves the top limb; up to 19 digits the value is one 64-bit word. from_limbs normalizes
+ * (a value has one WN), so the result is the WN the additions gave. */
 WN wn_parse(const char *s) {
-    WN r = wn_small(0), ten = wn_small(10);
-    for (; *s >= '0' && *s <= '9'; s++) {
-        /* r = r*10 + d, as ten additions of r (the numbers parsed are written by hand) */
-        WN acc = wn_small((uint64_t)(*s - '0'));
-        for (int k = 0; k < 10; k++) { WN t = wn_add(&acc, &r); wn_drop(&acc); acc = t; }
-        wn_drop(&r); r = acc;
+    size_t d = 0; while (s[d] >= '0' && s[d] <= '9') d++;
+    if (d <= 19) { uint64_t v = 0; for (size_t i = 0; i < d; i++) v = v * 10 + (uint64_t)(s[i] - '0'); return wn_small(v); }
+    uint32_t n = (uint32_t)(d / 19 + 1);
+    uint64_t *l = calloc(n, sizeof(uint64_t));
+    for (size_t i = 0; i < d; i++) {
+        uint64_t c = (uint64_t)(s[i] - '0');
+        for (uint32_t j = 0; j < n; j++) { unsigned __int128 t = (unsigned __int128)l[j] * 10 + c; l[j] = (uint64_t)t; c = (uint64_t)(t >> 64); }
     }
-    (void)ten;
-    return r;
+    WN r = from_limbs(l, n); free(l); return r;
 }
 void wn_print(FILE *o, const WN *x) {
     if (!x->b) { fprintf(o, "%llu", (unsigned long long)x->s); return; }

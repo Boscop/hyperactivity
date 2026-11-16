@@ -171,9 +171,7 @@ static char *intern(const char *s) {
 /* (the header of an interned name: [-4] its mark, [-3] its hash, [-2] its latest binder + 1) */
 static inline size_t sym_hash(const char *x) { unsigned *m = (unsigned *)x - 3; if (!*m) *m = (unsigned)kw_hash(x) | 1; return *m; }
 static inline unsigned sym_bind(const char *x) { return ((const unsigned *)x)[-2]; }
-static inline unsigned sym_bind_epoch(const char *x) { return ((const unsigned *)x)[-1]; }
-static unsigned bind_epoch = 1;   /* bumped whenever binders are popped: what a header remembers is from one epoch */
-static inline void sym_bind_set(const char *x, unsigned i) { ((unsigned *)x)[-2] = i; ((unsigned *)x)[-1] = bind_epoch; }
+static inline void sym_bind_set(const char *x, unsigned i) { ((unsigned *)x)[-2] = i; }
 /* a mark on an interned name (kept just before its characters): the merge of name sets */
 static inline unsigned sym_mark(const char *x) { return ((const unsigned *)x)[-4]; }
 static inline void sym_mark_set(const char *x, unsigned e) { ((unsigned *)x)[-4] = e; }
@@ -1773,7 +1771,7 @@ static Port held_copy(Cell *r) {
 }
 
 /* ---------------- compiling: binder levels and lifting ---------------- */
-typedef struct { const char *name; int level, slot; size_t h; } Bind;
+typedef struct { const char *name; int level, slot; size_t h; unsigned prev; } Bind;   /* prev: its name's header when pushed */
 typedef struct {
     int is_thunk, scope_start, nslots, ucap;
     int *uses;
@@ -1786,30 +1784,30 @@ static Level *levels; static size_t caplevels; static int nlevels;
 static long stat_syn_bytes, stat_perm_bytes, stat_rec_bytes;   /* CUBICAL_MEMDEF: bytes of compiled code made, of permanent node copies, of records */
 static Syn *syn(int tag, int n) { Syn *s = calloc(1, sizeof(Syn)); stat_syn_bytes += (long)(sizeof(Syn) + ((size_t)n + 1) * sizeof(Syn *)); s->tag = tag; s->n = n; s->k = calloc((size_t)n + 1, sizeof(Syn *)); return s; }
 static Bind *lookup(const char *name) { size_t h = (unsigned)kw_hash(name) | 1; for (int i = nbinds - 1; i >= 0; i--) if (binds[i].h == h && (binds[i].name == name || !strcmp(binds[i].name, name))) return &binds[i]; return NULL; }
-/* the same for an interned name: its hash from its header */
-/* the same for an interned name: the binder its header remembers when that is still the latest
- * (a binder pushed later updates it, binders are only ever popped from the top), else found and
- * remembered */
+/* the same for an interned name, from its header. Invariant: an interned name's header holds 1 + the
+ * index of its topmost binder in binds[0, nbinds), or 0 when it has none. It holds at intern (the
+ * header is zeroed, nothing bound); a push of x sets x's header to the new top and keeps the old
+ * value in the binder (prev); a pop takes the top binder away and gives its name back prev, which was
+ * the name's topmost binder below it: the stack under a binder is the stack its push saw, since
+ * binders change only at the top, by push_bind, pop_binds and lift's push again. So the header is the scan's answer, and
+ * no lookup scans. Measured (callgrind, 2026-11-16): the scan, run whenever a pop of any binder had
+ * invalidated every header (the former epoch), was 5.5% of lib/views.cub. CUB_CHKBIND=1 checks every
+ * lookup against the scan. */
 static Bind *lookup_i(const char *name) {
-    if (sym_bind_epoch(name) == bind_epoch) {
-        /* remembered in this epoch: binders were only pushed since, a push of this name updating it */
-        unsigned c = sym_bind(name);
-        static int chk = -1; if (chk < 0) chk = getenv("CUB_CHKBIND") != NULL;   /* read once: getenv scans the environment */
-        if (chk) { Bind *b = lookup(name); if (b != (c ? &binds[c - 1] : NULL)) { fprintf(stderr, "bind cache wrong for %s: cached %u (nbinds %d), scan %ld\n", name, c, nbinds, b ? b - binds : -1L); abort(); } }
-        return c ? &binds[c - 1] : NULL;
-    }
-    size_t h = sym_hash(name);
-    for (int i = nbinds - 1; i >= 0; i--) if (binds[i].h == h && (binds[i].name == name || !strcmp(binds[i].name, name))) { sym_bind_set(name, (unsigned)i + 1); return &binds[i]; }
-    sym_bind_set(name, 0);
-    return NULL;
+    unsigned c = sym_bind(name);
+    static int chk = -1; if (chk < 0) chk = getenv("CUB_CHKBIND") != NULL;   /* read once: getenv scans the environment */
+    if (chk) { Bind *b = lookup(name); if (b != (c ? &binds[c - 1] : NULL)) { fprintf(stderr, "bind cache wrong for %s: cached %u (nbinds %d), scan %ld\n", name, c, nbinds, b ? b - binds : -1L); abort(); } }
+    return c ? &binds[c - 1] : NULL;
 }
 static bool constant_sym(const char *s);
 static void push_bind(const char *name, int level, int slot) {
     if (constant_sym(name)) die("a constant cannot be bound:", name);
     if (keyword(name)) die("a keyword cannot be bound:", name);
     name = intern(name);   /* (its header remembers this binder) */
-    GROW(binds, capbinds, (size_t)nbinds + 1); binds[nbinds++] = (Bind){ name, level, slot, (unsigned)kw_hash(name) | 1 };
+    GROW(binds, capbinds, (size_t)nbinds + 1); binds[nbinds++] = (Bind){ name, level, slot, (unsigned)kw_hash(name) | 1, sym_bind(name) };
     sym_bind_set(name, (unsigned)nbinds); }
+/* the binders above `to` taken away, top first, each name's header given back */
+static void pop_binds(int to) { while (nbinds > to) { nbinds--; sym_bind_set(binds[nbinds].name, binds[nbinds].prev); } }
 static int new_slot(void) {
     Level *L = &levels[nlevels - 1];
     if (L->nslots == L->ucap) { L->ucap = L->ucap ? L->ucap * 2 : 8; L->uses = realloc(L->uses, (size_t)L->ucap * sizeof(int)); }
@@ -1890,14 +1888,17 @@ static int lift(Node *t) {
     int li = nlevels - 1;
     Level *L = &levels[li];
     for (int k = 0; k < L->nenv; k++) if (node_eq(L->env_nodes[k], t)) { return L->env_slots[k]; }
-    int sb = L->scope_start, nb = nbinds, nsaved = nb - sb;
+    int sb = L->scope_start, nsaved = nbinds - sb;
     Bind *saved = malloc((size_t)(nsaved + 1) * sizeof(Bind));
     memcpy(saved, binds + sb, (size_t)nsaved * sizeof(Bind));
     Level savedL = *L;
-    nbinds = sb; nlevels = li; bind_epoch++;
+    pop_binds(sb); nlevels = li;
     Syn *s = compile_lazy(t);
     levels[li] = savedL; nlevels = li + 1;
-    memcpy(binds + sb, saved, (size_t)nsaved * sizeof(Bind)); nbinds = nb; bind_epoch++;
+    /* the saved binders pushed again in order, each name's header kept in its prev (capbinds already held
+     * them) */
+    pop_binds(sb);
+    for (int k = 0; k < nsaved; k++) { Bind e = saved[k]; e.prev = sym_bind(e.name); binds[nbinds++] = e; sym_bind_set(e.name, (unsigned)nbinds); }
     free(saved);
     L = &levels[li];
     int slot = new_slot();
@@ -2190,7 +2191,7 @@ static Syn *compile_record(Node *param, Node *body, bool thunk) {
     levels[li] = (Level){ .is_thunk = thunk, .scope_start = nbinds };
     if (!thunk) push_bind(param->s, li, new_slot());
     Syn *b = compile(body);
-    nbinds = levels[li].scope_start; bind_epoch++;
+    pop_binds(levels[li].scope_start);
     Level L = levels[li];
     nlevels--;
     Record *r = calloc(1, sizeof(Record));
@@ -2317,7 +2318,7 @@ static Syn *compile_bound(int tag, Node *name, Node *body) {
     int slot = new_slot();
     push_bind(name->s, nlevels - 1, slot);
     Syn *s = syn(tag, 1); s->slot = slot; s->k[0] = compile(body);
-    nbinds--; bind_epoch++;
+    pop_binds(nbinds - 1);
     return s;
 }
 static Syn *compile_n(int tag, Node *t, int from, int n) {
@@ -2361,7 +2362,7 @@ static Record *compile_branch(const Names *env, Node **pn, int np, Node *body) {
     for (int e = 0; e < env->n; e++) { es[e] = new_slot(); push_bind(env->v[e], li, es[e]); }
     for (int q = 0; q < np; q++) push_bind(pn[q]->s, li, q);
     Syn *b = compile(body);
-    nbinds = levels[li].scope_start; bind_epoch++;
+    pop_binds(levels[li].scope_start);
     Level L = levels[li];
     nlevels--;
     if (L.nenv) die("internal: a case branch lifted a term", NULL);
@@ -2657,7 +2658,7 @@ static Syn *compile(Node *t) {
 static bool top_lazy;    /* a definition's body: built when first used */
 /* a desugared term compiled at the top level (the caller holds the arena mark) */
 static Syn *compile_top_ds(Node *d, int *nslots, int **uses) {
-    nbinds = 0; nlevels = 1; bind_epoch++;
+    pop_binds(0); nlevels = 1;
     GROW(levels, caplevels, 1);
     levels[0] = (Level){ 0 };
     Syn *s = top_lazy ? compile_lazy(d) : compile(d);
@@ -3843,7 +3844,7 @@ static void toplevel_in(Node *f) {
             Node *pn[256];
             while (b->list && b->n == 3 && is(b->it[0], "lam") && np < 256) { pn[np++] = param_name(b->it[1]); b = b->it[2]; }
             if (np >= 1) {
-                nbinds = 0; nlevels = 1; GROW(levels, caplevels, 1); levels[0] = (Level){ 0 }; bind_epoch++;
+                pop_binds(0); nlevels = 1; GROW(levels, caplevels, 1); levels[0] = (Level){ 0 };
                 Names none = { 0 };
                 G[g].nary = compile_branch(&none, pn, np, b);
                 nlevels = 0;
