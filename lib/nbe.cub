@@ -9988,6 +9988,85 @@ lam-at rec Γ vs c₀ (s-pi a b) T ct =
               (psym (Mean Γ (Fam a b)) (fmapM Γ (Fam a b) (Fam a b) (λ F → F) T) T (fmap-id (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) (Fam a b)) (snd Γ) T)) ct))))
     (λ rB → lam-3 Γ a b T ct c₀ (fst rB) (fst (snd rB)) (snd (snd rB)) (fst (rr a) Γ (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T) (fst ct)))
 lam-at rec Γ vs c₀ s T ct = c-refused
+-- a pair against Σ's family T: the first component against the domain; the family at it (pr-W1, by
+-- retype) gives the second's type, its computability the Σ clause at the identity world; the pair's
+-- meaning by retype again; the codomain premise's code reified (cod-rty at the pair)
+pr-W1 : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (M1 : Mean Γ (TV a)) →
+  PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) M1) (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T) → Mean Γ (FamV a b)
+pr-W1 Γ a b T M1 p1 = retype Γ a (Fam a b) (FamV a b) (fam-dom a b) (λ F v → (F , v)) T M1 p1
+pr-R : (Γ : CCtx) (a b : TyShape) (W1 : Mean Γ (FamV a b)) (M2 : Mean Γ (TV b)) →
+  PathM Γ (Sem b) (fmapM Γ (TV b) (Sem b) (λ q → fst q) M2) (fmapM Γ (FamV a b) (Sem b) (fam-cod a b) W1) → Mean Γ (TV (s-sig a b))
+pr-R Γ a b W1 M2 p2 = retype Γ b (FamV a b) (TV (s-sig a b)) (fam-cod a b) (λ q v → (fst q , snd q , v)) W1 M2 p2
+pr-W1-fst : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (M1 : Mean Γ (TV a))
+  (p1 : PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) M1) (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T)) →
+  PathM Γ (Fam a b) (fmapM Γ (FamV a b) (Fam a b) (λ q → fst q) (pr-W1 Γ a b T M1 p1)) T
+pr-W1-fst Γ a b T M1 p1 =
+  pcat (Mean Γ (Fam a b)) (fmapM Γ (FamV a b) (Fam a b) (λ q → fst q) (pr-W1 Γ a b T M1 p1)) (fmapM Γ (Fam a b) (Fam a b) (λ F → F) T) T
+    (retype-fst Γ a (Fam a b) (FamV a b) (fam-dom a b) (λ F v → (F , v)) T M1 p1 (Fam a b) (λ q → fst q) (λ F → F) (λ i F v → F))
+    (fmap-id (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) (Fam a b)) (snd Γ) T)
+pr-W1-arg : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (M1 : Mean Γ (TV a))
+  (p1 : PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) M1) (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T)) →
+  PathM Γ (TV a) (fmapM Γ (FamV a b) (TV a) (fam-arg a b) (pr-W1 Γ a b T M1 p1)) M1
+pr-W1-arg Γ a b T M1 p1 = retype-val Γ a (Fam a b) (FamV a b) (fam-dom a b) (λ F v → (F , v)) T M1 p1 (fam-arg a b) (λ i F v → (fam-dom a b F , v))
+pr-ctb : (Γ : CCtx) → Vals Γ → (a b : TyShape) (T : Mean Γ (Fam a b)) → CompTy (s-sig a b) Γ T → (c1 : Code) (M1 : Mean Γ (TV a))
+  (p1 : PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) M1) (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T)) → Der (j-tm , Γ , a , c1 , M1) →
+  CompTy b Γ (fmapM Γ (FamV a b) (Sem b) (fam-cod a b) (pr-W1 Γ a b T M1 p1))
+pr-ctb Γ vs a b T ct c1 M1 p1 d1 =
+  snd ct Γ (world-id Γ) (pr-W1 Γ a b T M1 p1)
+    (pcat (Mean Γ (Fam a b)) (fmapM Γ (FamV a b) (Fam a b) (λ q → fst q) (pr-W1 Γ a b T M1 p1)) T (wact Γ Γ (world-id Γ) (Fam a b) T)
+      (pr-W1-fst Γ a b T M1 p1) (psym (Mean Γ (Fam a b)) (wact Γ Γ (world-id Γ) (Fam a b) T) T (subM-id Γ (Fam a b) T)))
+    (comp-tr a Γ M1 (fmapM Γ (FamV a b) (TV a) (fam-arg a b) (pr-W1 Γ a b T M1 p1))
+      (psym (Mean Γ (TV a)) (fmapM Γ (FamV a b) (TV a) (fam-arg a b) (pr-W1 Γ a b T M1 p1)) M1 (pr-W1-arg Γ a b T M1 p1))
+      (comp-tm Γ vs a c1 M1 d1))
+pr-ty : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (W1 : Mean Γ (FamV a b)) → PathM Γ (Fam a b) (fmapM Γ (FamV a b) (Fam a b) (λ q → fst q) W1) T →
+  (M2 : Mean Γ (TV b)) (p2 : PathM Γ (Sem b) (fmapM Γ (TV b) (Sem b) (λ q → fst q) M2) (fmapM Γ (FamV a b) (Sem b) (fam-cod a b) W1)) →
+  PathM Γ (Fam a b) (fmapM Γ (TV (s-sig a b)) (Fam a b) (λ q → fst q) (pr-R Γ a b W1 M2 p2)) T
+pr-ty Γ a b T W1 pW M2 p2 =
+  pcat (Mean Γ (Fam a b)) (fmapM Γ (TV (s-sig a b)) (Fam a b) (λ q → fst q) (pr-R Γ a b W1 M2 p2)) (fmapM Γ (FamV a b) (Fam a b) (λ q → fst q) W1) T
+    (retype-fst Γ b (FamV a b) (TV (s-sig a b)) (fam-cod a b) (λ q v → (fst q , snd q , v)) W1 M2 p2 (Fam a b) (λ q → fst q) (λ q → fst q) (λ i q v → fst q)) pW
+pr-4 : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (ct : CompTy (s-sig a b) Γ T) (c1 c2 : Code)
+  (W1 : Mean Γ (FamV a b)) → PathM Γ (Fam a b) (fmapM Γ (FamV a b) (Fam a b) (λ q → fst q) W1) T →
+  (M1 : Mean Γ (TV a)) → PathM Γ (TV a) (fmapM Γ (FamV a b) (TV a) (fam-arg a b) W1) M1 → Der (j-tm , Γ , a , c1 , M1) →
+  (M2 : Mean Γ (TV b)) (p2 : PathM Γ (Sem b) (fmapM Γ (TV b) (Sem b) (λ q → fst q) M2) (fmapM Γ (FamV a b) (Sem b) (fam-cod a b) W1)) → Der (j-tm , Γ , b , c2 , M2) →
+  RenR k-nf j-ty (ext-h Γ a (TV (s-sig a b)) (λ q → fam-dom a b (fst q)) (pr-R Γ a b W1 M2 p2)) b (pair-cod Γ a b (pr-R Γ a b W1 M2 p2)) →
+  Dec1 (Out Γ (cpair c1 c2) (m-chk (s-sig a b) T ct))
+pr-4 Γ a b T ct c1 c2 W1 pW M1 pM1 d1 M2 p2 d2 rB =
+  c-derived (pr-R Γ a b W1 M2 p2 , pr-ty Γ a b T W1 pW M2 p2 ,
+    dpair Γ a b (pr-R Γ a b W1 M2 p2) (fst rB) c1 c2
+      (embed {(k-nf , (j-ty , ext-h Γ a (TV (s-sig a b)) (λ q → fam-dom a b (fst q)) (pr-R Γ a b W1 M2 p2) , b , fst rB , pair-cod Γ a b (pr-R Γ a b W1 M2 p2)))} (snd rB))
+      (der-tr j-tm Γ a c1 M1 (fmapM Γ (TV (s-sig a b)) (TV a) (sig-1 a b) (pr-R Γ a b W1 M2 p2))
+        (psym (Mean Γ (TV a)) (fmapM Γ (TV (s-sig a b)) (TV a) (sig-1 a b) (pr-R Γ a b W1 M2 p2)) M1
+          (pcat (Mean Γ (TV a)) (fmapM Γ (TV (s-sig a b)) (TV a) (sig-1 a b) (pr-R Γ a b W1 M2 p2)) (fmapM Γ (FamV a b) (TV a) (fam-arg a b) W1) M1
+            (retype-fst Γ b (FamV a b) (TV (s-sig a b)) (fam-cod a b) (λ q v → (fst q , snd q , v)) W1 M2 p2 (TV a) (sig-1 a b) (fam-arg a b) (λ i q v → fam-arg a b q))
+            pM1))
+        d1)
+      (der-tr j-tm Γ b c2 M2 (fmapM Γ (TV (s-sig a b)) (TV b) (sig-2 a b) (pr-R Γ a b W1 M2 p2))
+        (psym (Mean Γ (TV b)) (fmapM Γ (TV (s-sig a b)) (TV b) (sig-2 a b) (pr-R Γ a b W1 M2 p2)) M2
+          (retype-val Γ b (FamV a b) (TV (s-sig a b)) (fam-cod a b) (λ q v → (fst q , snd q , v)) W1 M2 p2 (sig-2 a b) (λ i q v → (fam-cod a b q , v))))
+        d2))
+pr-3 : (Γ : CCtx) (a b : TyShape) (T : Mean Γ (Fam a b)) (ct : CompTy (s-sig a b) Γ T) (c1 c2 : Code)
+  (W1 : Mean Γ (FamV a b)) → PathM Γ (Fam a b) (fmapM Γ (FamV a b) (Fam a b) (λ q → fst q) W1) T →
+  (M1 : Mean Γ (TV a)) → PathM Γ (TV a) (fmapM Γ (FamV a b) (TV a) (fam-arg a b) W1) M1 → Der (j-tm , Γ , a , c1 , M1) →
+  (M2 : Mean Γ (TV b)) (p2 : PathM Γ (Sem b) (fmapM Γ (TV b) (Sem b) (λ q → fst q) M2) (fmapM Γ (FamV a b) (Sem b) (fam-cod a b) W1)) → Der (j-tm , Γ , b , c2 , M2) →
+  Dec1 (Out Γ (cpair c1 c2) (m-chk (s-sig a b) T ct))
+pr-3 Γ a b T ct c1 c2 W1 pW M1 pM1 d1 M2 p2 d2 =
+  pr-4 Γ a b T ct c1 c2 W1 pW M1 pM1 d1 M2 p2 d2
+    (cod-rty a b (snd (snd (rr a))) (fst (rr b)) Γ (TV (s-sig a b)) (λ q → fst q) (pr-R Γ a b W1 M2 p2)
+      (ty-tr (s-sig a b) Γ T (fmapM Γ (TV (s-sig a b)) (Fam a b) (λ q → fst q) (pr-R Γ a b W1 M2 p2))
+        (psym (Mean Γ (Fam a b)) (fmapM Γ (TV (s-sig a b)) (Fam a b) (λ q → fst q) (pr-R Γ a b W1 M2 p2)) T (pr-ty Γ a b T W1 pW M2 p2)) ct))
+pr-2 : Rec → (Γ : CCtx) → Vals Γ → (a b : TyShape) (T : Mean Γ (Fam a b)) (ct : CompTy (s-sig a b) Γ T) (c1 c2 : Code) (M1 : Mean Γ (TV a))
+  (p1 : PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) M1) (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T)) → Der (j-tm , Γ , a , c1 , M1) →
+  Dec1 (Out Γ (cpair c1 c2) (m-chk (s-sig a b) T ct))
+pr-2 rec Γ vs a b T ct c1 c2 M1 p1 d1 =
+  d-bind (Out Γ c2 (m-chk b (fmapM Γ (FamV a b) (Sem b) (fam-cod a b) (pr-W1 Γ a b T M1 p1)) (pr-ctb Γ vs a b T ct c1 M1 p1 d1))) (Out Γ (cpair c1 c2) (m-chk (s-sig a b) T ct))
+    (rec Γ vs c2 (m-chk b (fmapM Γ (FamV a b) (Sem b) (fam-cod a b) (pr-W1 Γ a b T M1 p1)) (pr-ctb Γ vs a b T ct c1 M1 p1 d1)))
+    (λ r2 → pr-3 Γ a b T ct c1 c2 (pr-W1 Γ a b T M1 p1) (pr-W1-fst Γ a b T M1 p1) M1 (pr-W1-arg Γ a b T M1 p1) d1 (fst r2) (fst (snd r2)) (snd (snd r2)))
+pair-at : Rec → (Γ : CCtx) → Vals Γ → (c1 c2 : Code) (s : TyShape) (T : Mean Γ (Sem s)) (ct : CompTy s Γ T) → Dec1 (Out Γ (cpair c1 c2) (m-chk s T ct))
+pair-at rec Γ vs c1 c2 (s-sig a b) T ct =
+  d-bind (Out Γ c1 (m-chk a (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T) (fst ct))) (Out Γ (cpair c1 c2) (m-chk (s-sig a b) T ct))
+    (rec Γ vs c1 (m-chk a (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T) (fst ct)))
+    (λ r1 → pr-2 rec Γ vs a b T ct c1 c2 (fst r1) (fst (snd r1)) (snd (snd r1)))
+pair-at rec Γ vs c1 c2 s T ct = c-refused
 elab-step : Cv → Rec → Rec
 elab-step cv rec Γ vs (cdata d lnil) m-ty =
   o-bind (d ≡ #0) (Out Γ (cdata d lnil) m-ty) (w-dec d #0)
@@ -10008,6 +10087,7 @@ elab-step cv rec Γ vs (csnd p) m-inf = d-bind (Out Γ p m-inf) (Out Γ (csnd p)
 elab-step cv rec Γ vs (ccon d k lnil lnil) (m-chk s T ct) =
   o-bind (d ≡ #0) (Out Γ (ccon d k lnil lnil) (m-chk s T ct)) (w-dec d #0) (λ pd → chk-con-at Γ d k s T ct pd)
 elab-step cv rec Γ vs (clam c₀) (m-chk s T ct) = lam-at rec Γ vs c₀ s T ct
+elab-step cv rec Γ vs (cpair c1 c2) (m-chk s T ct) = pair-at rec Γ vs c1 c2 s T ct
 elab-step cv rec Γ vs c (m-chk s T ct) = d-bind (Out Γ c m-inf) (Out Γ c (m-chk s T ct)) (rec Γ vs c m-inf) (switch cv Γ vs c s T ct)
 elab-step cv rec Γ vs c m = c-refused
 -- the checker: the step iterated by fuel (c-fuel, as lib/codes.cub's traversals)
