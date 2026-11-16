@@ -335,6 +335,56 @@ plam-eta Γ a X =
           X
           (fmapM-fmapM Γ (TV (s-path a)) (Line (TV a)) (TV (s-path a)) (path-pt a) (pt-inv a) X)
           (fmap-id (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) (TV (s-path a))) (snd Γ) X)))
+-- retype at a cube only propositionally the projection: move along the path (the coherence carried by a
+-- filler), then retype-eta
+retype-eta2 : (Γ : CCtx) (a : TyShape) (U1 W Z : Type 1) (ty : U1 → Sem a) (w : (u : U1) → El a (ty u) → W) (u : Z → U1) (e : (z : Z) → El a (ty (u z)))
+  (Rm : Mean Γ Z) (Um : Mean Γ U1) (qU : PathM Γ U1 Um (fmapM Γ Z U1 u Rm))
+  (p : PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) (fmapM Γ Z (TV a) (λ z → (ty (u z) , e z)) Rm)) (fmapM Γ U1 (Sem a) ty Um)) →
+  PathM Γ W (retype Γ a U1 W ty w Um (fmapM Γ Z (TV a) (λ z → (ty (u z) , e z)) Rm) p) (fmapM Γ Z W (λ z → w (u z) (e z)) Rm)
+retype-eta2 Γ a U1 W Z ty w u e Rm Um qU p =
+  pcat (Mean Γ W) (retype Γ a U1 W ty w Um (fmapM Γ Z (TV a) (λ z → (ty (u z) , e z)) Rm) p)
+    (retype Γ a U1 W ty w (fmapM Γ Z U1 u Rm) (fmapM Γ Z (TV a) (λ z → (ty (u z) , e z)) Rm)
+       (comp (λ k → PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) (fmapM Γ Z (TV a) (λ z → (ty (u z) , e z)) Rm)) (fmapM Γ U1 (Sem a) ty (qU k))) (λ k → []) p))
+    (fmapM Γ Z W (λ z → w (u z) (e z)) Rm)
+    (λ j → retype Γ a U1 W ty w (qU j) (fmapM Γ Z (TV a) (λ z → (ty (u z) , e z)) Rm)
+       (comp (λ k → PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) (fmapM Γ Z (TV a) (λ z → (ty (u z) , e z)) Rm)) (fmapM Γ U1 (Sem a) ty (qU (j /\ k)))) (λ k → [ j = 0 ↦ p ]) p))
+    (retype-eta Γ a U1 W Z ty w u e Rm
+       (comp (λ k → PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) (fmapM Γ Z (TV a) (λ z → (ty (u z) , e z)) Rm)) (fmapM Γ U1 (Sem a) ty (qU k))) (λ k → []) p))
+-- unline after a line body is the fibre map (uirx, then fusion)
+ul-eta : (Γ : CCtx) (Y Z : Type 1) (ℓ : Y → Line Z) (X : Mean Γ Y) → PathM Γ (Line Z) (ul Γ Z (dline-body Γ Y Z ℓ X)) (fmapM Γ Y (Line Z) ℓ X)
+ul-eta Γ Y Z ℓ X =
+  pcat (Mean Γ (Line Z)) (ul Γ Z (dline-body Γ Y Z ℓ X))
+    (dcube-fmap (dims (fst Γ)) (CtxV (fst Γ)) (λ xq → LineO (CtxV (fst Γ)) (FbE (fst Γ) Z) (degen-l (CtxV (fst Γ)) xq)) (FbE (fst Γ) (Line Z)) (pl-tri (fst Γ) Z) (snd Γ)
+       (dcube-fmap (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) Y) (λ xq → LineO (CtxV (fst Γ)) (FbE (fst Γ) Z) (degen-l (CtxV (fst Γ)) xq)) (fline (fst Γ) Y Z ℓ) (snd Γ) X))
+    (fmapM Γ Y (Line Z) ℓ X)
+    (λ i → dcube-fmap (dims (fst Γ)) (CtxV (fst Γ)) (λ xq → LineO (CtxV (fst Γ)) (FbE (fst Γ) Z) (degen-l (CtxV (fst Γ)) xq)) (FbE (fst Γ) (Line Z)) (pl-tri (fst Γ) Z) (snd Γ)
+       (uirx (dims (fst Γ)) (CtxV (fst Γ)) (Line (CtxV (fst Γ))) (FbE (fst Γ) Y) (LineO (CtxV (fst Γ)) (FbE (fst Γ) Z)) (degen-l (CtxV (fst Γ))) (fline (fst Γ) Y Z ℓ) (snd Γ) X i))
+    (fmap-fmap (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) Y) (λ xq → LineO (CtxV (fst Γ)) (FbE (fst Γ) Z) (degen-l (CtxV (fst Γ)) xq)) (FbE (fst Γ) (Line Z))
+       (fline (fst Γ) Y Z ℓ) (pl-tri (fst Γ) Z) (snd Γ) X)
+-- a path type's meaning from its line and its ends: two retypes
+tp-W : (Γ : CCtx) (a : TyShape) (Lm : Mean Γ (Line (Sem a))) (M0 : Mean Γ (TV a)) →
+  PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) M0) (fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst l) Lm) → Mean Γ (LnE a)
+tp-W Γ a Lm M0 q0 = retype Γ a (Line (Sem a)) (LnE a) (λ l → fst l) (λ l v → (l , v)) Lm M0 q0
+tp-T : (Γ : CCtx) (a : TyShape) (Lm : Mean Γ (Line (Sem a))) (M0 : Mean Γ (TV a))
+  (q0 : PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) M0) (fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst l) Lm)) (M1 : Mean Γ (TV a)) →
+  PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) M1) (fmapM Γ (LnE a) (Sem a) (λ q → fst (snd (fst q))) (tp-W Γ a Lm M0 q0)) → Mean Γ (Sem (s-path a))
+tp-T Γ a Lm M0 q0 M1 q1 = retype Γ a (LnE a) (Sem (s-path a)) (λ q → fst (snd (fst q))) (λ q v → (fst q , snd q , v)) (tp-W Γ a Lm M0 q0) M1 q1
+tp-W-eta : (Γ : CCtx) (a : TyShape) (T : Mean Γ (Sem (s-path a))) (Lm : Mean Γ (Line (Sem a))) (qL : PathM Γ (Line (Sem a)) Lm (fmapM Γ (Sem (s-path a)) (Line (Sem a)) (ty-line a) T))
+  (q0 : PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) (fmapM Γ (Sem (s-path a)) (TV a) (tend-0 a) T)) (fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst l) Lm)) →
+  PathM Γ (LnE a) (tp-W Γ a Lm (fmapM Γ (Sem (s-path a)) (TV a) (tend-0 a) T) q0) (fmapM Γ (Sem (s-path a)) (LnE a) (λ D → (ty-line a D , fst (snd D))) T)
+tp-W-eta Γ a T Lm qL q0 =
+  retype-eta2 Γ a (Line (Sem a)) (LnE a) (Sem (s-path a)) (λ l → fst l) (λ l v → (l , v)) (ty-line a) (λ D → fst (snd D)) T Lm qL q0
+tp-eta : (Γ : CCtx) (a : TyShape) (T : Mean Γ (Sem (s-path a))) (Lm : Mean Γ (Line (Sem a))) (qL : PathM Γ (Line (Sem a)) Lm (fmapM Γ (Sem (s-path a)) (Line (Sem a)) (ty-line a) T))
+  (q0 : PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) (fmapM Γ (Sem (s-path a)) (TV a) (tend-0 a) T)) (fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst l) Lm))
+  (q1 : PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) (fmapM Γ (Sem (s-path a)) (TV a) (tend-1 a) T))
+          (fmapM Γ (LnE a) (Sem a) (λ q → fst (snd (fst q))) (tp-W Γ a Lm (fmapM Γ (Sem (s-path a)) (TV a) (tend-0 a) T) q0))) →
+  PathM Γ (Sem (s-path a)) (tp-T Γ a Lm (fmapM Γ (Sem (s-path a)) (TV a) (tend-0 a) T) q0 (fmapM Γ (Sem (s-path a)) (TV a) (tend-1 a) T) q1) T
+tp-eta Γ a T Lm qL q0 q1 =
+  pcat (Mean Γ (Sem (s-path a))) (tp-T Γ a Lm (fmapM Γ (Sem (s-path a)) (TV a) (tend-0 a) T) q0 (fmapM Γ (Sem (s-path a)) (TV a) (tend-1 a) T) q1)
+    (fmapM Γ (Sem (s-path a)) (Sem (s-path a)) (λ D → D) T) T
+    (retype-eta2 Γ a (LnE a) (Sem (s-path a)) (Sem (s-path a)) (λ q → fst (snd (fst q))) (λ q v → (fst q , snd q , v)) (λ D → (ty-line a D , fst (snd D))) (λ D → snd (snd D)) T
+       (tp-W Γ a Lm (fmapM Γ (Sem (s-path a)) (TV a) (tend-0 a) T) q0) (tp-W-eta Γ a T Lm qL q0) q1)
+    (fmap-id (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) (Sem (s-path a))) (snd Γ) T)
 -- determinacy: two derivations of one code over a path of contexts have paths of shapes, codes and meanings
 DetR : (J1 J2 : Jdg) → PathP (λ i → CCtx) (fst (snd J1)) (fst (snd J2)) → Type 1
 DetR J1 J2 pΓ = (pk : PathP (λ i → JK) (fst J1) (fst J2)) × (ps : PathP (λ i → TyShape) (fst (snd (snd J1))) (fst (snd (snd J2)))) ×
