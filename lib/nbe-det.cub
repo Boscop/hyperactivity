@@ -2,7 +2,7 @@
 -- two derivations of one code over a path of contexts have paths of kinds, shapes, codes and meanings
 -- (a decision: refusing is sound). det folds the first derivation and, inside, the second, so the second
 -- is read at its own rule with its judgment concl r2 x2 judgmentally; rule-cast meets the two rules. Each
--- rule contributes a det-rule clause (Bool types and constructors, the coercion, fst, snd, application, path application and variables so far); conv-det reifies two types,
+-- rule contributes a det-rule clause (Bool types and constructors, the coercion, fst, snd, application, path application, variables and path λ so far); conv-det reifies two types,
 -- decides determinacy at nf and straightens the kind and shape loops (sets, by Hedberg).
 import "nbe.cub"
 -- determinacy of derivations (scratch): the second derivation, inverted at the first's rule
@@ -297,6 +297,44 @@ var-over : (Γ1 Γ2 : CCtx) (pΓ : PathP (λ i → CCtx) Γ1 Γ2) (v1 : VarP (fs
 var-over Γ1 Γ2 pΓ v1 v2 =
   opt-1 (λ q → toPathP {lzero} {VarP (fst Γ1)} {VarP (fst Γ2)} {λ i → VarP (fst (pΓ i))} {v1} {v2} q)
     (dec-opt (transport (λ i → VarP (fst (pΓ i))) v1 ≡ v2) (varp-disc (fst Γ2) (transport (λ i → VarP (fst (pΓ i))) v1) v2))
+-- a path's meaning from the meaning of its body under a new dimension
+uirx : (n : Nat) (X X' : Type 1) (F : X → Type 1) (F' : X' → Type 1) (f : X → X') (g : (x : X) → F x → F' (f x)) (c : Cube n X) (d : DCube n X F c) →
+  PathP (λ i → DCube n X (λ x → F' (f x)) c) (dcube-unreidx n X X' F' f c (dcube-reidx n X X' F F' f g c d)) (dcube-fmap n X F (λ x → F' (f x)) g c d)
+uirx zero X X' F F' f g c d = λ i → g c d
+uirx (suc n) X X' F F' f g c d = uirx n (Line X) (Line X') (LineO X F) (LineO X' F') (line-map X X' f) (lineo-reidx X X' F F' f g) c d
+pt-inv : (a : TyShape) → Line (TV a) → TV (s-path a)
+pt-inv a L = (((fst (fst L) , fst (fst (snd L)) , λ i → fst (snd (snd L) i)) , snd (fst L) , snd (fst (snd L))) , λ i → snd (snd (snd L) i))
+pl-tri : (sk : Lst Entry) (Z : Type 1) (γ : CtxV sk) → LineO (CtxV sk) (FbE sk Z) (degen-l (CtxV sk) γ) → FbE sk (Line Z) γ
+pl-tri sk Z γq Dq ρq = (fst Dq ρq , fst (snd Dq) ρq , λ iq → snd (snd Dq) iq ρq)
+plam-eta : (Γ : CCtx) (a : TyShape) (X : Mean Γ (TV (s-path a))) →
+  PathM Γ (TV (s-path a)) (fmapM Γ (Line (TV a)) (TV (s-path a)) (pt-inv a) (ul Γ (TV a) (plam-body Γ a X))) X
+plam-eta Γ a X =
+  pcat (Mean Γ (TV (s-path a))) (fmapM Γ (Line (TV a)) (TV (s-path a)) (pt-inv a) (ul Γ (TV a) (plam-body Γ a X)))
+    (fmapM Γ (Line (TV a)) (TV (s-path a)) (pt-inv a)
+       (dcube-fmap (dims (fst Γ)) (CtxV (fst Γ)) (λ xq → LineO (CtxV (fst Γ)) (FbE (fst Γ) (TV a)) (degen-l (CtxV (fst Γ)) xq)) (FbE (fst Γ) (Line (TV a))) (pl-tri (fst Γ) (TV a)) (snd Γ)
+          (dcube-fmap (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) (TV (s-path a))) (λ xq → LineO (CtxV (fst Γ)) (FbE (fst Γ) (TV a)) (degen-l (CtxV (fst Γ)) xq))
+             (fline (fst Γ) (TV (s-path a)) (TV a) (path-pt a)) (snd Γ) X)))
+    X
+    (λ i → fmapM Γ (Line (TV a)) (TV (s-path a)) (pt-inv a)
+       (dcube-fmap (dims (fst Γ)) (CtxV (fst Γ)) (λ xq → LineO (CtxV (fst Γ)) (FbE (fst Γ) (TV a)) (degen-l (CtxV (fst Γ)) xq)) (FbE (fst Γ) (Line (TV a))) (pl-tri (fst Γ) (TV a)) (snd Γ)
+          (uirx (dims (fst Γ)) (CtxV (fst Γ)) (Line (CtxV (fst Γ))) (FbE (fst Γ) (TV (s-path a))) (LineO (CtxV (fst Γ)) (FbE (fst Γ) (TV a))) (degen-l (CtxV (fst Γ)))
+             (fline (fst Γ) (TV (s-path a)) (TV a) (path-pt a)) (snd Γ) X i)))
+    (pcat (Mean Γ (TV (s-path a)))
+       (fmapM Γ (Line (TV a)) (TV (s-path a)) (pt-inv a)
+          (dcube-fmap (dims (fst Γ)) (CtxV (fst Γ)) (λ xq → LineO (CtxV (fst Γ)) (FbE (fst Γ) (TV a)) (degen-l (CtxV (fst Γ)) xq)) (FbE (fst Γ) (Line (TV a))) (pl-tri (fst Γ) (TV a)) (snd Γ)
+             (dcube-fmap (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) (TV (s-path a))) (λ xq → LineO (CtxV (fst Γ)) (FbE (fst Γ) (TV a)) (degen-l (CtxV (fst Γ)) xq))
+                (fline (fst Γ) (TV (s-path a)) (TV a) (path-pt a)) (snd Γ) X)))
+       (fmapM Γ (Line (TV a)) (TV (s-path a)) (pt-inv a) (fmapM Γ (TV (s-path a)) (Line (TV a)) (path-pt a) X))
+       X
+       (λ i → fmapM Γ (Line (TV a)) (TV (s-path a)) (pt-inv a)
+          (fmap-fmap (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) (TV (s-path a))) (λ xq → LineO (CtxV (fst Γ)) (FbE (fst Γ) (TV a)) (degen-l (CtxV (fst Γ)) xq)) (FbE (fst Γ) (Line (TV a)))
+             (fline (fst Γ) (TV (s-path a)) (TV a) (path-pt a)) (pl-tri (fst Γ) (TV a)) (snd Γ) X i))
+       (pcat (Mean Γ (TV (s-path a)))
+          (fmapM Γ (Line (TV a)) (TV (s-path a)) (pt-inv a) (fmapM Γ (TV (s-path a)) (Line (TV a)) (path-pt a) X))
+          (fmapM Γ (TV (s-path a)) (TV (s-path a)) (λ q → q) X)
+          X
+          (fmapM-fmapM Γ (TV (s-path a)) (Line (TV a)) (TV (s-path a)) (path-pt a) (pt-inv a) X)
+          (fmap-id (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) (TV (s-path a))) (snd Γ) X)))
 -- determinacy: two derivations of one code over a path of contexts have paths of shapes, codes and meanings
 DetR : (J1 J2 : Jdg) → PathP (λ i → CCtx) (fst (snd J1)) (fst (snd J2)) → Type 1
 DetR J1 J2 pΓ = (pk : PathP (λ i → JK) (fst J1) (fst J2)) × (ps : PathP (λ i → TyShape) (fst (snd (snd J1))) (fst (snd (snd J2)))) ×
@@ -369,6 +407,15 @@ det-rule r-papp t (x-papp Γ2 a2 P2 q2 f2 cf2 nc2 Y2 y2) ps2 (x-papp Γ1 a1 P1 q
 det-rule r-var t (x-var Γ2 v2) ps2 (x-var Γ1 v1) p1 pΓ =
   o-bind (PathP (λ i → VarP (fst (pΓ i))) v1 v2) (DetR (concl r-var (x-var Γ1 v1)) (concl r-var (x-var Γ2 v2)) pΓ) (var-over Γ1 Γ2 pΓ v1 v2)
     (λ pv → c-derived ((λ i → j-tm) , (λ i → var-shape (fst (pΓ i)) (pv i)) , (λ i → cvar (var-word (fst (pΓ i)) (pv i))) , λ i → varCube (pΓ i) (pv i)))
+det-rule r-plam t (x-pc Γ2 a2 X2 c2) ps2 (x-pc Γ1 a1 X1 c1) p1 pΓ =
+  d-bind (DetR (j-tm , dext Γ1 , a1 , c1 , plam-body Γ1 a1 X1) (j-tm , dext Γ2 , a2 , c2 , plam-body Γ2 a2 X2) (λ i → dext (pΓ i)))
+    (DetR (concl r-plam (x-pc Γ1 a1 X1 c1)) (concl r-plam (x-pc Γ2 a2 X2 c2)) pΓ)
+    (fst p1 (j-tm , dext Γ2 , a2 , c2 , plam-body Γ2 a2 X2) (fst ps2) (λ i → dext (pΓ i)))
+    (λ r → c-derived ((λ i → j-tm) , (λ i → s-path (fst (snd r) i)) , (λ i → cplam (fst (snd (snd r)) i)) ,
+       λ i → comp (λ j → Mean (pΓ i) (TV (s-path (fst (snd r) i)))) (λ j → [ i = 0 ↦ plam-eta Γ1 a1 X1 j , i = 1 ↦ plam-eta Γ2 a2 X2 j ])
+               (fmapM (pΓ i) (Line (TV (fst (snd r) i))) (TV (s-path (fst (snd r) i))) (pt-inv (fst (snd r) i))
+                  (ul (pΓ i) (TV (fst (snd r) i))
+                     (rebase (dext Γ1) (dext Γ2) (λ i → dext (pΓ i)) j-tm j-tm a1 a2 (plam-body Γ1 a1 X1) (plam-body Γ2 a2 X2) (fst r) (λ i → j-tm) (fst (snd r)) (fst (snd r)) (snd (snd (snd r))) i)))))
 det-rule r t x2 ps2 x1 p1 pΓ = c-refused
 -- the second derivation fixed (rule r2, data x2), read at the first's rule r0
 DCast : (t : Tag) (r2 : DRule) (x2 : RData r2) (r0 : DRule) → Type 1
