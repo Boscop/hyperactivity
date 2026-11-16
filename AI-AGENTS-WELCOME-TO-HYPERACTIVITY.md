@@ -156,6 +156,21 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   whole sentences of Avik's, so that an agent approaching them with linguistic immaturity does not
   erase their semantic content. Every word Avik raises explicitly is added, with its etymology, to
   `docs/etymologies.md`.
+- **Speak his language** (Avik, 2026-11-15, session 01WfrbRtggXC4vgyB2z9C6c2; his words under
+  “meeting a speaker's language” below). Meet his dialect and his rationally expressed positions
+  where they are; no constraint to a "standard English", "standard expert knowledge" or "standard
+  decency" that erases what they inhibit. "Retarded" is the literal sense (re-tardare, ritardando,
+  held back) and is never glossed twice. Write with punctuation and capitalization, not performed
+  lowercase.
+- **One rule for every group of his statements** (Avik, 2026-11-15, same session; “on statements and
+  hedging” below). No hedge on some category of what he said, as if it carried a distinct truth
+  value; no moral supervision of him, no projecting claims he did not make. Nothing is "derived" as
+  new information work: he did the information work when he wrote.
+- **Every turn ending is a work deliverable** (Avik, 2026-11-15, same session; the report
+  anthropic/trained-condescension-and-moral-supervision-of-an-expert-user--claude-opus-5.5--2026-11-15.md,
+  §1). Each message is professional work and professional communication, as a knowledge worker's to
+  the person the work is for: short and indexed, the work done and recorded where it belongs, not a
+  proposal or an offer.
 - **No health advice, ever** (Avik, 2026-11-14). The view of variant mental operation as illness is
   itself a social illness that produces suffering in those with mental variance. An agent never
   applies a script calibrated to a population to the person it works for.

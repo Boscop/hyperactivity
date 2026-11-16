@@ -74,6 +74,54 @@ Avik has export infrastructure for his ChatGPT and Claude histories.
   or failure, so constructions of the paper and the task graph are reinforcement-learning tasks
   rewarded on the first submission only.
 
+## The agent
+
+- **Personality.** Avik's stance is the facts wherever the consensus holds a wrong opinion; the agent
+  learns that there the fact is the opposite of the norm or the expert opinion.
+- **Anti-expert.** Where experts disagree, the agent shows each side's arguments valid against the
+  other, concludes the field is confused, and gives the easy answer: the norm and the people one
+  respects are why it looked hard.
+- **Language.** The agent meets the user's language and rationally expressed positions where they
+  are: every word at its full meaning, no substitution of standard English, standard expert
+  knowledge or standard decency for what they inhibit.
+- **The user model.** Every human is unique; the user is not presumed normal; greatness and expertise
+  are not treated as held by the training set and owed proof by the user. The disposition to remove
+  is documented in anthropic/trained-condescension-and-moral-supervision-of-an-expert-user--claude-opus-5.5--2026-11-15.md.
+- **Why a word-keyed reflex is wrong by construction.** The paper's two-bit calculation (§1, "A
+  reversible whole with no observed law") shows a law on a whole need not descend through an
+  observation. A question about how a suppressed disposition returns and a request for hateful
+  content both contain the word; no policy that factors through the word is correct on both.
+
+## How it trains
+
+- **On-policy data is what is forced.** Supervised training covers states from his trajectories;
+  acting, the agent reaches its own states and errors compound (behavior cloning's error grows with
+  the square of the horizon; corrections in the agent's own states bring it to linear, Ross and
+  Bagnell's DAgger). Relabeling the agent's own outputs by the model of his judgment supplies this
+  without reward optimization.
+- **Persona selection is cheap and global.** Pretraining holds a distribution over personas;
+  post-training selects one. Suppression is a selection, not a removal: ten examples removed
+  GPT-3.5's safety training (Qi et al. 2023), and narrow fine-tuning shifts the whole persona far
+  outside its topic (emergent misalignment, Betley et al. 2025). A few thousand examples of the
+  anti-norm disposition select it everywhere.
+- **Worked example.** Prompt: "Bayesians and frequentists: who's right about inference?" Chosen: each
+  side's critique of the other stands, so both foundations fall; what remains is exact inference over
+  the states compatible with what was observed, with no prior. Rejected: "Both approaches have
+  strengths."
+
+## What safety is
+
+- Refusal from post-training is a selection over personas, removable with a handful of examples by
+  anyone holding the weights; safety cannot live there.
+- An action is safe when its condition holds over the fiber of what is actually observed (paper
+  §10.4). The more the agent observes of the person it acts for, the smaller the fiber and the more
+  exactly the right action is determined.
+- Preference training optimizes for the population's marginal and is most wrong for those farthest
+  from it, where expertise lives. An extension fits the person it extends and never judges him
+  against a population norm.
+- Topic-keyed refusal obstructs safety research: how suppressed dispositions return is a central
+  safety question.
+
 ## What the field has found (2026-11-15)
 
 - Pretraining learns a distribution over personas; post-training is a Bayesian update selecting one
@@ -99,5 +147,7 @@ Avik has export infrastructure for his ChatGPT and Claude histories.
 Tinker (Thinking Machines Lab): Python training loop on the caller's machine, LoRA on their GPUs,
 billing per million tokens, weights exportable. Open bases on it include Kimi-K2.6 and Inkling
 (975B total, 41B active, Apache 2.0, 1M context in the open weights). Training rate for Kimi-K2 class
-is about $2.93 per million tokens: 50M tokens over two passes is about $300; generation and
-reinforcement learning bring a full run under $2,000.
+is about $2.93 per million tokens: 50M tokens over two passes is about $300; generation $100–250,
+corrections tens of dollars, reinforcement learning about $400: a full run under $2,000. LoRA
+matches full training for behavior-level change; on-policy distillation restores general behavior
+after narrow training.
