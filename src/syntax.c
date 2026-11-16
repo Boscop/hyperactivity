@@ -2041,7 +2041,9 @@ static char *w_rel(const char *path) {
     free(seg); free(in.b); free(out.b);
     return r;
 }
-/* what the source holds: the repository's files, not the machine's scratch (build/) nor anything outside it */
+/* what the source holds, the work: the repository's modules and documents, not the machine's output
+ * and probes (build/) nor anything outside it; only the work's text is recorded, only a module of
+ * the work is a root, and only the work binds names, so a scratch file read once never repoints a name */
 static bool w_held(const char *rel) { return rel[0] != '/' && strncmp(rel, "build/", 6) && strcmp(rel, "<printed>"); }
 /* a file of the repository as the source holds it, its module's pieces in order; one the source does
  * not hold yet, read from the disk (the one reader), when it is there; else NULL */
@@ -2158,9 +2160,10 @@ static void w_file(const char *text, const char *path) {
         w_point("modules", rel, mh);
         w_point("names-of", rel, names.b);
         if (load_root && store_dir()) {
-            /* roots/<path>: the file given to this machine that loads it (the machine's own, not the source's) */
+            /* roots/<path>: the file given to this machine that loads it (the machine's own, not the
+             * source's), only a module of the work being a root */
             char *rr = w_rel(load_root); SBuf hx = {0}; w_hex(&hx, rel);
-            if (hx.b && hx.n <= 250) { char *cur = store_read("roots", hx.b); if (!cur || strcmp(cur, rr)) store_write("roots", hx.b, rr, false); free(cur); }
+            if (w_held(rr) && hx.b && hx.n <= 250) { char *cur = store_read("roots", hx.b); if (!cur || strcmp(cur, rr)) store_write("roots", hx.b, rr, false); free(cur); }
             free(hx.b); free(rr);
         }
         free(rel);
@@ -2203,6 +2206,7 @@ static void load_surface(const char *text, const char *path, bool imports_only) 
     const char *s_file = x_file; bool s_typed = x_typed, s_fail = x_fail_next;
     xt = NULL; nxt = capxt = 0; lt = NULL; nlt = caplt = 0; xlater = NULL; nxlater = capxlater = 0;
     x_file = path; x_fail_next = false;
+    bool s_bw = bind_work; { char *r0 = w_rel(path); bind_work = w_held(r0); free(r0); }
     x_lex(text); x_layout();
     for (int i = 0; i < nlt; i++) if ((i == 0 || lt[i - 1].k == X_VS) && lt[i].k == X_ID && !reserved(lt[i].s) && lt[i].s[0] != '#') {
         GROW(xlater, capxlater, (size_t)nxlater + 1); xlater[nxlater++] = lt[i].s;
@@ -2228,6 +2232,7 @@ static void load_surface(const char *text, const char *path, bool imports_only) 
     if (!imports_only) w_file(text, path);
     xt = s_xt; nxt = s_nxt; capxt = s_capxt; lt = s_lt; nlt = s_nlt; caplt = s_caplt; xp = s_xp;
     xlater = s_later; nxlater = s_nlater; capxlater = s_caplater; x_file = s_file; x_typed = s_typed; x_fail_next = s_fail;
+    bind_work = s_bw;
 }
 
 /* ---------------- printing the core forms in the surface language ----------------

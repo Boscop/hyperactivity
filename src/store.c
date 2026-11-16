@@ -362,8 +362,11 @@ static void names_load(void) {
     }
     free(t);
 }
+/* whether the file being read is part of the work (src/syntax.c, w_held): a scratch file's definitions
+ * are checked like any, but bind no name and enter no name's history */
+static bool bind_work = true;
 static void names_bind(const char *name, const char *key) {
-    if (!store_dir()) return;
+    if (!store_dir() || !bind_work) return;
     /* bound/<name in hex>: the name's key now, read by name with no log to scan */
     SBuf hx = {0}; for (const unsigned char *c = (const unsigned char *)name; *c; c++) sb_fmt(&hx, "%02x", *c);
     if (hx.b && hx.n <= 250) { char *cur = store_read("bound", hx.b); if (!cur || strcmp(cur, key)) store_write("bound", hx.b, key, false); free(cur); }
