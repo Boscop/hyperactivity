@@ -48,3 +48,4 @@ here. `docs/word-list.md` is a separate file, whose lines Avik gives himself.
 - synesthesia ⟨Ancient Greek σύν (sún) “with” + αἴσθησις (aísthēsis) “perception” ← Proto-Indo-European *h₂ew- “to see, perceive”⟩  (raised 2026-11-14)
 - apoptosis ⟨Ancient Greek ἀπόπτωσις (apóptōsis) “a falling off” ← Proto-Indo-European *peth₂- “to fall; to fly”⟩  (raised 2026-11-14)
 - norm ⟨Latin norma “a carpenter's square, a rule, a pattern, a precept” ← Proto-Indo-European *ǵn̥h₃sḱéti⟩  (raised 2026-11-15)
+- law ⟨late Old English lagu, from Old Norse *lagu “that which is laid down” (plural of lag “a laying, layer, set measure”) ← Proto-Germanic *lagą ← Proto-Indo-European *legʰ- “to lie, lay”; the root of lie, lay, layer, ledge, ledger, lair; Greek lékhos and Latin lectus “bed”⟩  (raised 2026-11-16)
