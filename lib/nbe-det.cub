@@ -2,7 +2,7 @@
 -- two derivations of one code over a path of contexts have paths of kinds, shapes, codes and meanings
 -- (a decision: refusing is sound). det folds the first derivation and, inside, the second, so the second
 -- is read at its own rule with its judgment concl r2 x2 judgmentally; rule-cast meets the two rules. Each
--- rule contributes a det-rule clause (Bool types and constructors, the coercion, fst, snd, application, path application, variables and path λ so far); conv-det reifies two types,
+-- rule contributes a det-rule clause (Bool types and constructors, the coercion, fst, snd, application, path application, variables, path λ and path types so far); conv-det reifies two types,
 -- decides determinacy at nf and straightens the kind and shape loops (sets, by Hedberg).
 import "nbe.cub"
 -- determinacy of derivations (scratch): the second derivation, inverted at the first's rule
@@ -385,6 +385,72 @@ tp-eta Γ a T Lm qL q0 q1 =
     (retype-eta2 Γ a (LnE a) (Sem (s-path a)) (Sem (s-path a)) (λ q → fst (snd (fst q))) (λ q v → (fst q , snd q , v)) (λ D → (ty-line a D , fst (snd D))) (λ D → snd (snd D)) T
        (tp-W Γ a Lm (fmapM Γ (Sem (s-path a)) (TV a) (tend-0 a) T) q0) (tp-W-eta Γ a T Lm qL q0) q1)
     (fmap-id (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) (Sem (s-path a))) (snd Γ) T)
+q0e : (Γ : CCtx) (a : TyShape) (T : Mean Γ (Sem (s-path a))) →
+  PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) (fmapM Γ (Sem (s-path a)) (TV a) (tend-0 a) T)) (fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst l) (ul Γ (Sem a) (path-line-ty Γ a T)))
+q0e Γ a T =
+  pcat (Mean Γ (Sem a)) (fmapM Γ (TV a) (Sem a) (λ q → fst q) (fmapM Γ (Sem (s-path a)) (TV a) (tend-0 a) T)) (fmapM Γ (Sem (s-path a)) (Sem a) (λ D → fst (fst D)) T)
+    (fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst l) (ul Γ (Sem a) (path-line-ty Γ a T)))
+    (fmapM-fmapM Γ (Sem (s-path a)) (TV a) (Sem a) (tend-0 a) (λ q → fst q) T)
+    (psym (Mean Γ (Sem a)) (fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst l) (ul Γ (Sem a) (path-line-ty Γ a T))) (fmapM Γ (Sem (s-path a)) (Sem a) (λ D → fst (fst D)) T)
+       (pcat (Mean Γ (Sem a)) (fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst l) (ul Γ (Sem a) (path-line-ty Γ a T)))
+          (fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst l) (fmapM Γ (Sem (s-path a)) (Line (Sem a)) (ty-line a) T)) (fmapM Γ (Sem (s-path a)) (Sem a) (λ D → fst (fst D)) T)
+          (λ i → fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst l) (ul-eta Γ (Sem (s-path a)) (Sem a) (ty-line a) T i))
+          (fmapM-fmapM Γ (Sem (s-path a)) (Line (Sem a)) (Sem a) (ty-line a) (λ l → fst l) T)))
+q1e : (Γ : CCtx) (a : TyShape) (T : Mean Γ (Sem (s-path a))) →
+  PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) (fmapM Γ (Sem (s-path a)) (TV a) (tend-1 a) T))
+    (fmapM Γ (LnE a) (Sem a) (λ q → fst (snd (fst q))) (tp-W Γ a (ul Γ (Sem a) (path-line-ty Γ a T)) (fmapM Γ (Sem (s-path a)) (TV a) (tend-0 a) T) (q0e Γ a T)))
+q1e Γ a T =
+  pcat (Mean Γ (Sem a)) (fmapM Γ (TV a) (Sem a) (λ q → fst q) (fmapM Γ (Sem (s-path a)) (TV a) (tend-1 a) T)) (fmapM Γ (Sem (s-path a)) (Sem a) (λ D → fst (snd (fst D))) T)
+    (fmapM Γ (LnE a) (Sem a) (λ q → fst (snd (fst q))) (tp-W Γ a (ul Γ (Sem a) (path-line-ty Γ a T)) (fmapM Γ (Sem (s-path a)) (TV a) (tend-0 a) T) (q0e Γ a T)))
+    (fmapM-fmapM Γ (Sem (s-path a)) (TV a) (Sem a) (tend-1 a) (λ q → fst q) T)
+    (psym (Mean Γ (Sem a)) (fmapM Γ (LnE a) (Sem a) (λ q → fst (snd (fst q))) (tp-W Γ a (ul Γ (Sem a) (path-line-ty Γ a T)) (fmapM Γ (Sem (s-path a)) (TV a) (tend-0 a) T) (q0e Γ a T)))
+       (fmapM Γ (Sem (s-path a)) (Sem a) (λ D → fst (snd (fst D))) T)
+       (pcat (Mean Γ (Sem a)) (fmapM Γ (LnE a) (Sem a) (λ q → fst (snd (fst q))) (tp-W Γ a (ul Γ (Sem a) (path-line-ty Γ a T)) (fmapM Γ (Sem (s-path a)) (TV a) (tend-0 a) T) (q0e Γ a T)))
+          (fmapM Γ (LnE a) (Sem a) (λ q → fst (snd (fst q))) (fmapM Γ (Sem (s-path a)) (LnE a) (λ D → (ty-line a D , fst (snd D))) T))
+          (fmapM Γ (Sem (s-path a)) (Sem a) (λ D → fst (snd (fst D))) T)
+          (λ i → fmapM Γ (LnE a) (Sem a) (λ q → fst (snd (fst q))) (tp-W-eta Γ a T (ul Γ (Sem a) (path-line-ty Γ a T)) (ul-eta Γ (Sem (s-path a)) (Sem a) (ty-line a) T) (q0e Γ a T) i))
+          (fmapM-fmapM Γ (Sem (s-path a)) (LnE a) (Sem a) (λ D → (ty-line a D , fst (snd D))) (λ q → fst (snd (fst q))) T)))
+tp-end : (Γ : CCtx) (a : TyShape) (T : Mean Γ (Sem (s-path a))) →
+  PathM Γ (Sem (s-path a)) (tp-T Γ a (ul Γ (Sem a) (path-line-ty Γ a T)) (fmapM Γ (Sem (s-path a)) (TV a) (tend-0 a) T) (q0e Γ a T) (fmapM Γ (Sem (s-path a)) (TV a) (tend-1 a) T) (q1e Γ a T)) T
+tp-end Γ a T = tp-eta Γ a T (ul Γ (Sem a) (path-line-ty Γ a T)) (ul-eta Γ (Sem (s-path a)) (Sem a) (ty-line a) T) (q0e Γ a T) (q1e Γ a T)
+tp-q0 : (Γ1 Γ2 : CCtx) (pΓ : PathP (λ i → CCtx) Γ1 Γ2) (a1 a2 : TyShape) (pa : PathP (λ i → TyShape) a1 a2) (T1 : Mean Γ1 (Sem (s-path a1))) (T2 : Mean Γ2 (Sem (s-path a2)))
+  (mL : PathP (λ i → Mean (dext (pΓ i)) (Sem (pa i))) (path-line-ty Γ1 a1 T1) (path-line-ty Γ2 a2 T2))
+  (m0 : PathP (λ i → Mean (pΓ i) (TV (pa i))) (fmapM Γ1 (Sem (s-path a1)) (TV a1) (tend-0 a1) T1) (fmapM Γ2 (Sem (s-path a2)) (TV a2) (tend-0 a2) T2)) →
+  PathP (λ k → PathM (pΓ k) (Sem (pa k)) (fmapM (pΓ k) (TV (pa k)) (Sem (pa k)) (λ q → fst q) (m0 k)) (fmapM (pΓ k) (Line (Sem (pa k))) (Sem (pa k)) (λ l → fst l) (ul (pΓ k) (Sem (pa k)) (mL k))))
+    (q0e Γ1 a1 T1) (q0e Γ2 a2 T2)
+tp-q0 Γ1 Γ2 pΓ a1 a2 pa T1 T2 mL m0 =
+  isProp→PathP {lsuc lzero}
+    {PathM Γ1 (Sem a1) (fmapM Γ1 (TV a1) (Sem a1) (λ q → fst q) (m0 i0)) (fmapM Γ1 (Line (Sem a1)) (Sem a1) (λ l → fst l) (ul Γ1 (Sem a1) (mL i0)))}
+    {PathM Γ2 (Sem a2) (fmapM Γ2 (TV a2) (Sem a2) (λ q → fst q) (m0 i1)) (fmapM Γ2 (Line (Sem a2)) (Sem a2) (λ l → fst l) (ul Γ2 (Sem a2) (mL i1)))}
+    (λ k → PathM (pΓ k) (Sem (pa k)) (fmapM (pΓ k) (TV (pa k)) (Sem (pa k)) (λ q → fst q) (m0 k)) (fmapM (pΓ k) (Line (Sem (pa k))) (Sem (pa k)) (λ l → fst l) (ul (pΓ k) (Sem (pa k)) (mL k))))
+    (λ p q → Mean-set Γ2 (Sem a2) (fst (shape-sets a2)) (fmapM Γ2 (TV a2) (Sem a2) (λ q → fst q) (m0 i1)) (fmapM Γ2 (Line (Sem a2)) (Sem a2) (λ l → fst l) (ul Γ2 (Sem a2) (mL i1))) p q)
+    (q0e Γ1 a1 T1) (q0e Γ2 a2 T2)
+tp-q1 : (Γ1 Γ2 : CCtx) (pΓ : PathP (λ i → CCtx) Γ1 Γ2) (a1 a2 : TyShape) (pa : PathP (λ i → TyShape) a1 a2) (T1 : Mean Γ1 (Sem (s-path a1))) (T2 : Mean Γ2 (Sem (s-path a2)))
+  (mL : PathP (λ i → Mean (dext (pΓ i)) (Sem (pa i))) (path-line-ty Γ1 a1 T1) (path-line-ty Γ2 a2 T2))
+  (m0 : PathP (λ i → Mean (pΓ i) (TV (pa i))) (fmapM Γ1 (Sem (s-path a1)) (TV a1) (tend-0 a1) T1) (fmapM Γ2 (Sem (s-path a2)) (TV a2) (tend-0 a2) T2))
+  (m1 : PathP (λ i → Mean (pΓ i) (TV (pa i))) (fmapM Γ1 (Sem (s-path a1)) (TV a1) (tend-1 a1) T1) (fmapM Γ2 (Sem (s-path a2)) (TV a2) (tend-1 a2) T2)) →
+  PathP (λ k → PathM (pΓ k) (Sem (pa k)) (fmapM (pΓ k) (TV (pa k)) (Sem (pa k)) (λ q → fst q) (m1 k))
+                  (fmapM (pΓ k) (LnE (pa k)) (Sem (pa k)) (λ q → fst (snd (fst q))) (tp-W (pΓ k) (pa k) (ul (pΓ k) (Sem (pa k)) (mL k)) (m0 k) (tp-q0 Γ1 Γ2 pΓ a1 a2 pa T1 T2 mL m0 k))))
+    (q1e Γ1 a1 T1) (q1e Γ2 a2 T2)
+tp-q1 Γ1 Γ2 pΓ a1 a2 pa T1 T2 mL m0 m1 =
+  isProp→PathP {lsuc lzero}
+    {PathM Γ1 (Sem a1) (fmapM Γ1 (TV a1) (Sem a1) (λ q → fst q) (m1 i0))
+       (fmapM Γ1 (LnE a1) (Sem a1) (λ q → fst (snd (fst q))) (tp-W Γ1 a1 (ul Γ1 (Sem a1) (mL i0)) (m0 i0) (tp-q0 Γ1 Γ2 pΓ a1 a2 pa T1 T2 mL m0 i0)))}
+    {PathM Γ2 (Sem a2) (fmapM Γ2 (TV a2) (Sem a2) (λ q → fst q) (m1 i1))
+       (fmapM Γ2 (LnE a2) (Sem a2) (λ q → fst (snd (fst q))) (tp-W Γ2 a2 (ul Γ2 (Sem a2) (mL i1)) (m0 i1) (tp-q0 Γ1 Γ2 pΓ a1 a2 pa T1 T2 mL m0 i1)))}
+    (λ k → PathM (pΓ k) (Sem (pa k)) (fmapM (pΓ k) (TV (pa k)) (Sem (pa k)) (λ q → fst q) (m1 k))
+             (fmapM (pΓ k) (LnE (pa k)) (Sem (pa k)) (λ q → fst (snd (fst q))) (tp-W (pΓ k) (pa k) (ul (pΓ k) (Sem (pa k)) (mL k)) (m0 k) (tp-q0 Γ1 Γ2 pΓ a1 a2 pa T1 T2 mL m0 k))))
+    (λ p q → Mean-set Γ2 (Sem a2) (fst (shape-sets a2)) (fmapM Γ2 (TV a2) (Sem a2) (λ q → fst q) (m1 i1))
+       (fmapM Γ2 (LnE a2) (Sem a2) (λ q → fst (snd (fst q))) (tp-W Γ2 a2 (ul Γ2 (Sem a2) (mL i1)) (m0 i1) (tp-q0 Γ1 Γ2 pΓ a1 a2 pa T1 T2 mL m0 i1))) p q)
+    (q1e Γ1 a1 T1) (q1e Γ2 a2 T2)
+tp-join : (Γ1 Γ2 : CCtx) (pΓ : PathP (λ i → CCtx) Γ1 Γ2) (a1 a2 : TyShape) (pa : PathP (λ i → TyShape) a1 a2) (T1 : Mean Γ1 (Sem (s-path a1))) (T2 : Mean Γ2 (Sem (s-path a2))) →
+  PathP (λ i → Mean (dext (pΓ i)) (Sem (pa i))) (path-line-ty Γ1 a1 T1) (path-line-ty Γ2 a2 T2) →
+  PathP (λ i → Mean (pΓ i) (TV (pa i))) (fmapM Γ1 (Sem (s-path a1)) (TV a1) (tend-0 a1) T1) (fmapM Γ2 (Sem (s-path a2)) (TV a2) (tend-0 a2) T2) →
+  PathP (λ i → Mean (pΓ i) (TV (pa i))) (fmapM Γ1 (Sem (s-path a1)) (TV a1) (tend-1 a1) T1) (fmapM Γ2 (Sem (s-path a2)) (TV a2) (tend-1 a2) T2) →
+  PathP (λ i → Mean (pΓ i) (Sem (s-path (pa i)))) T1 T2
+tp-join Γ1 Γ2 pΓ a1 a2 pa T1 T2 mL m0 m1 = λ i →
+  comp (λ j → Mean (pΓ i) (Sem (s-path (pa i)))) (λ j → [ i = 0 ↦ tp-end Γ1 a1 T1 j , i = 1 ↦ tp-end Γ2 a2 T2 j ])
+    (tp-T (pΓ i) (pa i) (ul (pΓ i) (Sem (pa i)) (mL i)) (m0 i) (tp-q0 Γ1 Γ2 pΓ a1 a2 pa T1 T2 mL m0 i) (m1 i) (tp-q1 Γ1 Γ2 pΓ a1 a2 pa T1 T2 mL m0 m1 i))
 -- determinacy: two derivations of one code over a path of contexts have paths of shapes, codes and meanings
 DetR : (J1 J2 : Jdg) → PathP (λ i → CCtx) (fst (snd J1)) (fst (snd J2)) → Type 1
 DetR J1 J2 pΓ = (pk : PathP (λ i → JK) (fst J1) (fst J2)) × (ps : PathP (λ i → TyShape) (fst (snd (snd J1))) (fst (snd (snd J2)))) ×
@@ -418,7 +484,30 @@ sig-det sel cd h Γ1 Γ2 pΓ a1 b1 a2 b2 R1 R2 c1 c2 r =
            (h (sh-a (fst (snd r) i)) (sh-b (fst (snd r) i)))
            (rebase Γ1 Γ2 pΓ j-tm j-tm (s-fam f-sig a1 b1) (s-fam f-sig a2 b2) R1 R2 (fst r) (λ i → j-tm) (fst (snd r))
               (λ i → s-fam f-sig (sh-a (fst (snd r) i)) (sh-b (fst (snd r) i))) (snd (snd (snd r))) i))
+tp-det : (Γ1 Γ2 : CCtx) (pΓ : PathP (λ i → CCtx) Γ1 Γ2) (a1 a2 : TyShape) (T1 : Mean Γ1 (Sem (s-path a1))) (T2 : Mean Γ2 (Sem (s-path a2))) (l1 u1 v1 l2 u2 v2 : Code) →
+  DetR (j-ty , dext Γ1 , a1 , l1 , path-line-ty Γ1 a1 T1) (j-ty , dext Γ2 , a2 , l2 , path-line-ty Γ2 a2 T2) (λ i → dext (pΓ i)) →
+  DetR (j-tm , Γ1 , a1 , u1 , fmapM Γ1 (Sem (s-path a1)) (TV a1) (tend-0 a1) T1) (j-tm , Γ2 , a2 , u2 , fmapM Γ2 (Sem (s-path a2)) (TV a2) (tend-0 a2) T2) pΓ →
+  DetR (j-tm , Γ1 , a1 , v1 , fmapM Γ1 (Sem (s-path a1)) (TV a1) (tend-1 a1) T1) (j-tm , Γ2 , a2 , v2 , fmapM Γ2 (Sem (s-path a2)) (TV a2) (tend-1 a2) T2) pΓ →
+  DetR (concl r-ty-path (x-tp Γ1 a1 T1 l1 u1 v1)) (concl r-ty-path (x-tp Γ2 a2 T2 l2 u2 v2)) pΓ
+tp-det Γ1 Γ2 pΓ a1 a2 T1 T2 l1 u1 v1 l2 u2 v2 eL e0 e1 =
+  ((λ i → j-ty) , (λ i → s-path (fst (snd eL) i)) ,
+   (λ i → cpathp (cplam (fst (snd (snd eL)) i)) (fst (snd (snd e0)) i) (fst (snd (snd e1)) i)) ,
+   tp-join Γ1 Γ2 pΓ a1 a2 (fst (snd eL)) T1 T2
+     (rebase (dext Γ1) (dext Γ2) (λ i → dext (pΓ i)) j-ty j-ty a1 a2 (path-line-ty Γ1 a1 T1) (path-line-ty Γ2 a2 T2) (fst eL) (λ i → j-ty) (fst (snd eL)) (fst (snd eL)) (snd (snd (snd eL))))
+     (rebase Γ1 Γ2 pΓ j-tm j-tm a1 a2 (fmapM Γ1 (Sem (s-path a1)) (TV a1) (tend-0 a1) T1) (fmapM Γ2 (Sem (s-path a2)) (TV a2) (tend-0 a2) T2) (fst e0) (λ i → j-tm) (fst (snd e0)) (fst (snd eL)) (snd (snd (snd e0))))
+     (rebase Γ1 Γ2 pΓ j-tm j-tm a1 a2 (fmapM Γ1 (Sem (s-path a1)) (TV a1) (tend-1 a1) T1) (fmapM Γ2 (Sem (s-path a2)) (TV a2) (tend-1 a2) T2) (fst e1) (λ i → j-tm) (fst (snd e1)) (fst (snd eL)) (snd (snd (snd e1)))))
 det-rule : (r : DRule) (t : Tag) (x2 : RData r) → AllP Dg (tagged t (premJ r x2)) → DetRule r t x2
+det-rule r-ty-path t (x-tp Γ2 a2 T2 l2 u2 v2) ps2 (x-tp Γ1 a1 T1 l1 u1 v1) p1 pΓ =
+  d-bind (DetR (j-ty , dext Γ1 , a1 , l1 , path-line-ty Γ1 a1 T1) (j-ty , dext Γ2 , a2 , l2 , path-line-ty Γ2 a2 T2) (λ i → dext (pΓ i)))
+    (DetR (concl r-ty-path (x-tp Γ1 a1 T1 l1 u1 v1)) (concl r-ty-path (x-tp Γ2 a2 T2 l2 u2 v2)) pΓ)
+    (fst p1 (j-ty , dext Γ2 , a2 , l2 , path-line-ty Γ2 a2 T2) (fst ps2) (λ i → dext (pΓ i)))
+    (λ eL → d-bind (DetR (j-tm , Γ1 , a1 , u1 , fmapM Γ1 (Sem (s-path a1)) (TV a1) (tend-0 a1) T1) (j-tm , Γ2 , a2 , u2 , fmapM Γ2 (Sem (s-path a2)) (TV a2) (tend-0 a2) T2) pΓ)
+       (DetR (concl r-ty-path (x-tp Γ1 a1 T1 l1 u1 v1)) (concl r-ty-path (x-tp Γ2 a2 T2 l2 u2 v2)) pΓ)
+       (fst (snd p1) (j-tm , Γ2 , a2 , u2 , fmapM Γ2 (Sem (s-path a2)) (TV a2) (tend-0 a2) T2) (fst (snd ps2)) pΓ)
+       (λ e0 → d-bind (DetR (j-tm , Γ1 , a1 , v1 , fmapM Γ1 (Sem (s-path a1)) (TV a1) (tend-1 a1) T1) (j-tm , Γ2 , a2 , v2 , fmapM Γ2 (Sem (s-path a2)) (TV a2) (tend-1 a2) T2) pΓ)
+          (DetR (concl r-ty-path (x-tp Γ1 a1 T1 l1 u1 v1)) (concl r-ty-path (x-tp Γ2 a2 T2 l2 u2 v2)) pΓ)
+          (fst (snd (snd p1)) (j-tm , Γ2 , a2 , v2 , fmapM Γ2 (Sem (s-path a2)) (TV a2) (tend-1 a2) T2) (fst (snd (snd ps2))) pΓ)
+          (λ e1 → c-derived (tp-det Γ1 Γ2 pΓ a1 a2 T1 T2 l1 u1 v1 l2 u2 v2 eL e0 e1))))
 det-rule r-ty-bool t (x-unit Γ2 B2) ps2 (x-unit Γ1 B1) p1 pΓ =
   c-derived ((λ i → j-ty) , (λ i → s-bool) , (λ i → c-bool) , mean1-pathP Γ1 Γ2 pΓ B1 B2)
 det-rule (r-con b) t (x-unit Γ2 B2) ps2 (x-unit Γ1 B1) p1 pΓ =
