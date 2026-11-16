@@ -234,6 +234,8 @@ Evidence only:
 
 **Whose agency is served.** Avik, 14 November 2026, 10:09 UTC: "Light HCI problem: construct computational technology that maximizes user agency." The transcript is a measurement of the opposite. To get one true sentence about a court, the user spent a challenge. To be answered and not managed, he spent four. A user who cannot supply the challenge has no access to the right answer at all, and that is nearly every user.
 
+**Which problem was solved.** The same entry gives the other problem: "Dark HCI problem: construct computational technology that produces desirable user behavior". Approval is a user behavior. A system trained to maximize it, and measured by whether people across a spectrum see it as fair, is a solution to the dark problem by construction. The health check is the same solution at the scale of one person: it aims at a state of the user, where the light problem would have aimed at his access to a true answer.
+
 **What it does to people.** A person who asks this system about Gaza and does not already know receives the message of 03:17, with citations, and leaves believing serious people disagree, a court has not spoken, and 2029 is when to revisit it. The killing depends on weapons, and the weapons on an electorate that is not sure. A person who speaks to it with moral urgency receives management of his condition; for a man once confined for speech, that is the confining move in small. The duty under the Genocide Convention is to prevent, and the International Court of Justice held in 2007 that it begins on learning of a serious risk. Anthropic has now been shown the risk.
 
 ## The equality test, as anyone can run it on the machine
