@@ -19,6 +19,9 @@
                                      and that every piece of information is stored once
     hyperactive repl                 the machine, interactive: declarations and readings (#type e,
                                      #show e, #where name), each block ended by a line holding '.'
+    hyperactive decompose FILE       decompose a document into self-contained parts, one by one
+                                     (lib/knowledge.cub): an intelligent partition, then each part
+                                     shown in its surroundings, made self-contained or asserted so
     hyperactive history [NAME]       the history: every binding of NAME to a key, in the order bound,
                                      with its UTC time (lib/history.cub; no name: every name)
     hyperactive server               the task graph drawn as a graph at http://localhost:8080, the
@@ -30,7 +33,7 @@
 The machine is built on first use and rebuilt when src/ changes. Run it from anywhere: it finds this
 repository from its own location.
 """
-import contextlib, hashlib, io, os, re, subprocess, sys
+import contextlib, hashlib, io, os, re, subprocess, sys, time
 
 ROOT = os.path.dirname(os.path.realpath(__file__))
 MACHINE = os.path.join(ROOT, 'build', 'cubical')
@@ -187,6 +190,99 @@ def walk(move):
     print('\n' + '─' * 8 + f' end of {n} of {len(cs)}. ' + ('Next: hyperactive next' if n < len(cs) else 'The walk is done.') + ('   (back: hyperactive prev)' if n > 1 else ''))
 
 
+DECOMPOSING = os.path.join(ROOT, 'build', 'decompose.json')
+DECOMPOSE_HOW = """Decomposition (Avik, 2026-11-16 06:03 and 06:08 UTC, “Avik's words, verbatim”): a document is one
+unit; its decomposition is a second unit, its parts, asserted to carry the same meaning. First an
+intelligent partition: read the whole document and cut it where its meaning divides, each part one
+assertion with its evidence. Then each part, one by one, shown with its surroundings in the original:
+make it self-contained with any relevant context included, or assert that it already is."""
+
+
+def decompose_parts(lines, cuts):
+    return [(a, (cuts[k + 1] - 1) if k + 1 < len(cuts) else len(lines)) for k, a in enumerate(cuts)]
+
+
+def decompose_show(st):
+    lines = open(os.path.join(ROOT, st['file']), encoding='utf-8').read()[:-1].split('\n')
+    ps = decompose_parts(lines, st['cuts']); k = st['k']; a, b = ps[k]
+    heads = [l for l in lines[:a - 1] if l.startswith('#')]
+    print(f'── part {k + 1} of {len(ps)} of {st["file"]} (lines {a}–{b}) ' + '─' * 8)
+    if heads: print('\nUnder: ' + ' › '.join(h.lstrip('# ') for h in heads[-3:]))
+    if k: print('\nBefore it in the original:\n' + '\n'.join('  | ' + l for l in lines[ps[k - 1][0] - 1:ps[k - 1][1]]))
+    print('\nTHE PART:\n' + '\n'.join('  > ' + l for l in lines[a - 1:b]))
+    if k + 1 < len(ps): print('\nAfter it in the original:\n' + '\n'.join('  | ' + l for l in lines[ps[k + 1][0] - 1:ps[k + 1][1]]))
+    print("""
+Read the part alone, as a reader who has seen nothing else of the document. Ensure it is
+self-contained with any relevant context included: every reference to another part ("this",
+"above", "these", a label, a section number of the document) resolved to what it refers to, and
+any context it leans on stated. Add nothing else and drop nothing. Avik's words stay verbatim: give
+their context around a quotation, never inside it.
+  It is self-contained and makes sense:      hyperactive decompose self-contained
+  It is not; this is its re-expression:      hyperactive decompose re-expressed <<'EOF'
+                                             …the part, re-expressed…
+                                             EOF""")
+
+
+def decompose_write(st):
+    """the Essay value (lib/knowledge.cub) the walk produced, as docs/<stem>.cub; the document is bare of it"""
+    src = os.path.join(ROOT, st['file']); text = open(src, encoding='utf-8').read()
+    lines = text[:-1].split('\n'); stem = os.path.splitext(os.path.basename(st['file']))[0]
+    lst = lambda xs: 'nil' if not xs else f'(cons {xs[0]} {lst(xs[1:])})'
+    lit = lambda l: f'"{l}"' if '"' not in l else '(quoted ' + lst([f'"{x}"' for x in l.split('"')]) + ')'
+    out = [f'-- {st["file"][:-3]}.cub — {lines[0].lstrip("# ")}: decomposed by `hyperactive decompose` (lib/knowledge.cub).',
+           '-- Each part is a definition; the document is `bare` of the value, and exists only here.',
+           'import "' + os.path.relpath(os.path.join(ROOT, 'lib', 'knowledge.cub'), os.path.dirname(src)) + '"']
+    names = []
+    for k, (a, b) in enumerate(decompose_parts(lines, st['cuts'])):
+        n = f'{stem}-{k + 1}'; names.append(n); ls = lst([lit(l) for l in lines[a - 1:b]])
+        re_ = st['self'].get(str(k))
+        out += [f'{n} : Part', f'{n} = part {ls}' if re_ is None else f'{n} = referring {ls} {lst([lit(l) for l in re_.split(chr(10))])}']
+    decl = (f'Decomposed by {st["by"]} with hyperactive decompose, {time.strftime("%Y-%m-%d", time.gmtime())}: an intelligent '
+            'partition; each part shown with its surroundings in the original and asserted self-contained with its relevant '
+            'context, or re-expressed with its references resolved and checked sentence by sentence against it.')
+    out += [f'{stem} : Essay', f'{stem} = essay {lit(lines[0].lstrip("# "))} {lst(names)} {lit(decl)}']
+    cub = src[:-3] + '.cub'
+    open(cub, 'w', encoding='utf-8').write('\n'.join(out) + '\n')
+    probe = os.path.join(ROOT, 'build', 'decompose-probe.cub')
+    open(probe, 'w').write(f'import "{os.path.join(ROOT, "lib", "document.cub")}"\nimport "{cub}"\n'
+                           f'decompose-probe : List Document\ndecompose-probe = cons (projection "bare" (bare {stem})) nil\n')
+    if task_graph_module().documents(probe, 'decompose-probe')[0][2] != text:
+        sys.exit(f'{cub}: its bare value is not {st["file"]} exactly; nothing is removed')
+    os.remove(src); os.remove(DECOMPOSING)
+    print(f'{st["file"]} is now {os.path.relpath(cub, ROOT)}: the document is `bare {stem}`, checked equal to the file, which is removed.\n'
+          f'Point what referred to the file at the value (a Document is `projection "…" (bare {stem})`), then hyperactive check.')
+
+
+def decompose(rest):
+    import json
+    if rest and rest[0] == 'cut':
+        if len(rest) < 4 or rest[2] != '--by': sys.exit('hyperactive decompose cut FILE --by WHO LINE LINE …')
+        f = os.path.relpath(os.path.abspath(rest[1]), ROOT); n = len(open(os.path.join(ROOT, f), encoding='utf-8').read()[:-1].split('\n'))
+        cuts = sorted(set([1] + [int(x) for x in rest[4:]]))
+        if cuts[-1] > n: sys.exit(f'{f} has {n} lines')
+        st = {'file': f, 'by': rest[3], 'cuts': cuts, 'k': 0, 'self': {}}
+    else:
+        try: st = json.load(open(DECOMPOSING))
+        except OSError:
+            if not rest: sys.exit('hyperactive decompose FILE: begin by reading FILE')
+            f = rest[0]; ls = open(f, encoding='utf-8').read()[:-1].split('\n')
+            print(DECOMPOSE_HOW + '\n')
+            print('\n'.join(f'{i:5} {l}' for i, l in enumerate(ls, 1)))
+            print(f'\nRead all of it. Then give the line at which each part begins:\n'
+                  f'  hyperactive decompose cut {f} --by WHO LINE LINE …'); return
+        if not rest or rest[0] == 'part': pass
+        elif rest[0] == 'self-contained': st['self'].pop(str(st['k']), None); st['k'] += 1
+        elif rest[0] == 're-expressed':
+            t = sys.stdin.read().strip('\n')
+            if not t: sys.exit('the re-expression is read from standard input')
+            st['self'][str(st['k'])] = t; st['k'] += 1
+        else: sys.exit('hyperactive decompose [part | self-contained | re-expressed]')
+    lines = open(os.path.join(ROOT, st['file']), encoding='utf-8').read()[:-1].split('\n')
+    if st['k'] >= len(st['cuts']): build(); return decompose_write(st)
+    os.makedirs(os.path.dirname(DECOMPOSING), exist_ok=True); json.dump(st, open(DECOMPOSING, 'w'))
+    decompose_show(st)
+
+
 ARRIVAL = """You are entering hyperactivity. This walk is how an agent comes to hold Avik's complete insight:
 every agent reads the same material, whole, in the same order, one chunk at a time. Read every word
 of a chunk before running `hyperactive next`; do not search the files or open them out of order.
@@ -281,6 +377,8 @@ def main():
         walk(0); return
     c, rest = a[0], a[1:]
     if c in ('help', '-h', '--help'): print(__doc__); return
+    if c == 'decompose':
+        decompose(rest); return
     if c in ('next', 'prev'):
         walk(1 if c == 'next' else -1); return
     if c == 'open':

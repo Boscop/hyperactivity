@@ -1,0 +1,38 @@
+-- lib/knowledge.cub — knowledge work as units (Avik, 2026-11-16 06:03 and 06:08 UTC, verbatim in
+-- AI-AGENTS-WELCOME-TO-HYPERACTIVITY.md). An essay bare is one unit; its decomposition is a second
+-- unit, a collection of smaller units asserted to carry the same meaning. Decomposition is two stages:
+-- a partition of the essay into parts, then each part made self-contained by re-expressing it with its
+-- references to other parts resolved. An Essay holds both units at once: the parts as the essay writes
+-- them (so `bare`, the lines of the parts in order, is the essay exactly, and no copy of it is stored), the
+-- re-expression of each part that refers to others, and the declaration of their equivalence (who
+-- declared it, when, after what check). No machine verifies semantic equivalence today; the
+-- declaration is made by judgement and checked sentence by sentence (docs/to-be-incorporated-into-paper.cub,
+-- “Knowledge work: units, decomposition, recomposition”).
+import "paper.cub"
+-- a line holding quotation marks, given as its stretches between them
+quoted : List (List Word) → List Word
+quoted nil = nil
+quoted (cons s nil) = s
+quoted (cons s (cons t ts)) = list-append s (cons #34 (quoted (cons t ts)))
+-- a part of the partition: consecutive lines of the essay as it writes them (a blank line between parts
+-- belongs to the part before it), and, where the part refers to other parts, its re-expression with
+-- those references resolved
+data Part = part (lines : List (List Word))
+          | referring (lines : List (List Word)) (self : List (List Word))
+data Essay = essay (name : List Word) (parts : List Part) (declared : List Word)
+part-lines : Part → List (List Word)
+part-lines (part ls) = ls
+part-lines (referring ls s) = ls
+all-lines : List Part → List (List Word)
+all-lines nil = nil
+all-lines (cons p ps) = list-append (part-lines p) (all-lines ps)
+-- the essay bare: the lines of its parts in order, then a closing newline
+bare : Essay → List Word
+bare (essay n ps d) = list-append (unlines (all-lines ps)) (cons #10 nil)
+-- a part as a unit: the part itself, or its re-expression
+part-unit : Part → List Word
+part-unit (part ls) = unlines ls
+part-unit (referring ls s) = unlines s
+-- the essay decomposed: its units, in order
+units : Essay → List (List Word)
+units (essay n ps d) = list-map part-unit ps

@@ -32,5 +32,5 @@ Then, on a Python reading of git built for it:
 What was built after onboarding (2026-11-15). Nothing new holds the history: the store already keeps
 every checked definition under its content key and logs each binding of a name to a key with its
 time. The language reads that log as a value, `history "name"`, a List Binding (lib/history.cub),
-and views of it are code over that list; `hyperactive history NAME` shows every binding of names
-beginning with NAME, in the order bound.
+and views of it are code over that list; `hyperactive history NAME` shows every binding of NAME,
+in the order bound, with its UTC time.

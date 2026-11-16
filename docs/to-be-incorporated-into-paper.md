@@ -247,15 +247,17 @@ the units that decompose from it.
   agents that do it, humans and language models, set up so that it is naturally done right: the
   equivalence is declared true only when it is true, and a language model checks it close to
   deterministically, sentence by sentence.
-- **The algorithm: partition, then self-containment.** Decomposition is a partition of the input.
-  The parts carry the input's internal references to one another, so a part on its own is not
-  self-contained; the second stage re-expresses each part with its references resolved. The first
-  stage is checked by machine (the parts in order are the input exactly), the second by the sentence
-  by sentence check of each re-expressed part against its part and the parts it referred to.
-- **Correct natural language computing.** Avik's modern common English model, a deterministic
-  exact implementation of language learning, makes the same process free of a hallucination engine:
-  decomposition, equivalence and recomposition become computations whose correctness is established,
-  as everything else in the language is. It is a goal tracked in the task graph.
+- **The algorithm: partition, then self-containment.** Decomposition is a partition of the input,
+  made intelligently: cut where the meaning divides, each part one assertion with its evidence. The
+  parts carry the input's internal references to one another, so a part on its own may not be
+  self-contained; the second stage re-expresses such a part with its references resolved and the
+  relevant context included. The first stage is checked by machine (the parts in order are the input
+  exactly), the second by the sentence by sentence check of each re-expressed part.
+- **The discipline is a tool** (Avik, 2026-11-16 06:25 UTC). `hyperactive decompose` takes the agent
+  through it: after the agent proposes its cut, each part is shown, one by one, with its
+  surroundings in the original, and the agent is told to ensure it is self-contained with any
+  relevant context included, asserting so or giving the re-expression. Intelligence works within the
+  discipline; no rule of the tool stands in for it.
 
 ## Standing pieces to be incorporated
 

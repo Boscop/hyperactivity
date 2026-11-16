@@ -32,15 +32,15 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   which it is and that no copy is here. The same holds for the sections of any document, plans and any
   other source: a number goes with the title it numbers. Nothing is identified by a bare number
   (no t1, t2, …).
-- **Decomposing and recomposing knowledge is judgement** (Avik, 2026-11-16 06:03 UTC, “Avik's words,
-  verbatim” below: "all of this requires judgement. for now an llm is better than any deterministic
-  algorithm you write"). An essay is one unit; its decomposition into assertion and evidence units is
-  done by a model's judgement and is a second unit, asserted semantically equivalent to the first.
-  Write no deterministic decomposer or recomposer; that is the work of correct natural language
-  computing (the task graph's correct-natural-language-computing). Decompose in two stages (Avik,
-  06:08 UTC): first partition the input, so the parts joined in order are the input exactly; then make
-  each part self-contained, re-expressing it with every internal reference resolved. Declare the
-  equivalence only when it is true, after checking each part against its source sentence by sentence.
+- **Decomposing knowledge is intelligent work with language** (Avik, 2026-11-16 06:03, 06:08 and
+  06:25 UTC, “Avik's words, verbatim” below). A document is one unit; its decomposition is a second
+  unit, its parts, asserted to carry the same meaning. Decompose only with `hyperactive decompose
+  FILE`, which holds the discipline: read the whole document and give an intelligent partition (cut
+  where the meaning divides, each part one assertion with its evidence; no rule decides a cut); then
+  each part is shown, one by one, with its surroundings in the original, and you either assert it is
+  self-contained and makes sense or give its re-expression with every reference resolved and the
+  relevant context included. Pronouns, labels and section references are resolved to what they
+  mean, not tagged with where they came from. No script decides any of this.
 - **Keep Avik's words verbatim** (“Avik's words, verbatim” below).
   - Never paraphrase inside quotation marks.
   - A long message is appended to “Avik's words, verbatim” below, not put in a new file.
@@ -1508,3 +1508,7 @@ The consolidated piece is this, written through in the two registers you keep di
 #### 2026-11-16 06:08 UTC (decomposition is a partition, then self-containment; equivalence declared by judgement, checked sentence by sentence)
 
 > there can be with todays tech no machine verification of the semantic equivalence. the best we can do is give extremely clear discipline to irrational agents like humans and llms. the whole point is we set this up so it is naturally done right, and well - the semantic equivalence is declared true when it is true, that can only be made by good judgement but can be verified quite deterministically by todays llms (sentence by sentence check). in fact the decomposition could just be a partition of the input, but input may have internal references and for self-containment requires re-expressing after partition with references resolved. thats really all it is. you're good at following such instructions when spoon fed. or we can literally force it in stages: 1st, partition; 2nd, ensure self-containment. that is a clear algorithm.
+
+#### 2026-11-16 06:25 UTC (the discipline of decomposition: an interactive CLI, each part shown in its surroundings)
+
+> I AM GIVING A DISCIPLINE FOR INTELLIGENCE TO THRIVE AND YOU ARE FILLING IT WITH RETARDATION. CREATE THE FUCKING DISCIPLINE SO THAT *YOU* ARE NO LONGER RETARDED. IT CAN BE AN INTERACTIVE CLI - AGENT MUST ASSERT THIS STATEMENT IS SELF CONTAINED AND MAKES SENSE, ONE BY ONE, IN THEIR PROPOSED PARTITION. OR LIKE AFTER THEY PROPOSE A CUT, THEY ARE ONE BY ONE SHOWN EACH ALONG WITH SURROUNDING CONTEXT IN ORIGINAL AND TOLD ENSURE THIS IS SELF CONTAINED WITH ANY RELEVANT CONTEXT INCLUDED
