@@ -293,10 +293,11 @@ h-stdin : Proc W (List Word)
 h-stdin = h-read-fd #0 (toNat #1024)
 -- another program run to its end, its output (standard output and standard error) taken: its exit
 -- status and that output
-h-capture : List (List Word) → Proc W (Word × List Word)
-h-capture args =
+-- (with: settings added to the environment it is given, NAME=VALUE each)
+h-capture-with : List (List Word) → List (List Word) → Proc W (Word × List Word)
+h-capture-with extra args =
   bind (h-read "/proc/self/environ") (λ env →
-  bind (h-ptrs args) (λ argv → bind (h-ptrs (h-env-block env)) (λ envp →
+  bind (h-ptrs args) (λ argv → bind (h-ptrs (list-append extra (h-env-block env))) (λ envp →
   bind (alloc-bytes #8) (λ fds → bind (sys-call #293 fds #524288 #0 #0 #0 #0) (λ pr →
   bind (load-at fds) (λ both →
   bind (spawn-at argv envp (wshr both #32)) (λ pid →
@@ -304,6 +305,8 @@ h-capture args =
   bind (h-read-fd (wand both #4294967295) (toNat #4096)) (λ out →
   bind (sys-call #3 (wand both #4294967295) #0 #0 #0 #0 #0) (λ c2 →
   if wlt pid #9223372036854775808 then bind (h-wait pid) (λ s → ret {lzero} {W} (s , out)) else ret {lzero} {W} (#127 , out)))))))))))
+h-capture : List (List Word) → Proc W (Word × List Word)
+h-capture args = h-capture-with nil args
 -- the names in a directory (not . and ..)
 h-dir-entries : Word → Word → Word → Nat → Proc W (List (List Word))
 h-dir-entries buf off n zero = ret nil
@@ -349,3 +352,6 @@ h-take-n : {A : Type} → Nat → List A → List A
 h-take-n zero xs = nil
 h-take-n (suc n) nil = nil
 h-take-n (suc n) (cons x r) = cons x (h-take-n n r)
+-- text between quotation marks
+h-quote : List Word → List Word
+h-quote s = cons #34 (list-append s (cons #34 nil))

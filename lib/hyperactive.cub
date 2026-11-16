@@ -280,19 +280,79 @@ hy-machine-all : List Word → List (List Word) → Proc W Unit
 hy-machine-all m nil = ret unit
 hy-machine-all m (cons f r) = bind (hy-machine-on m f) (λ u → hy-machine-all m r)
 
+-- brunerie: Brunerie's number (Ljungström's brunerie', the typed port experiments/brunerie/typed.cub)
+-- computed with no store, with one worker and with four: it must be -2 (negsuc (suc zero)) each time
+hy-brunerie-in : List (List Word) → Bool
+hy-brunerie-in nil = false
+hy-brunerie-in (cons l r) = if andB (h-eq l "brunerie") (h-infix "= negsuc (suc zero)" (hy-head r)) then true else hy-brunerie-in r
+hy-brunerie-with : List Word → List Word → Proc W Bool
+hy-brunerie-with m w = bind (h-capture-with (cons "CUBICAL_NOCACHE=1" (cons (list-append "CUBICAL_WORKERS=" w) nil))
+  (cons m (cons "lib/core.cub" (cons "experiments/brunerie/typed.cub" (cons "experiments/brunerie/run-typed.cub" nil))))) (λ r → ret (hy-brunerie-in (h-lines (snd r))))
+hy-brunerie : List Word → Proc W Unit
+hy-brunerie m = bind (hy-brunerie-with m "0") (λ a → bind (hy-brunerie-with m "4") (λ b →
+  if andB a b then h-out (h-line "brunerie = negsuc (suc zero), with one worker and with four")
+  else h-fail (list-append "brunerie: not -2 with " (if a then "four workers" else "one worker"))))
+
+
+-- view [in FILE] [type T] TERM: a term's value, the term read in FILE (the task graph by default). Its
+-- type is the machine's (#type) unless given; text (List Word) is shown as text, a list of texts one
+-- per line with their count, anything else as the machine shows its normal form
+hy-view-args : List Word → List Word → List (List Word) → (List Word × List Word) × List Word
+hy-view-args f t (cons k (cons v r)) = if h-eq k "in" then hy-view-args v t r else if h-eq k "type" then hy-view-args f v r else ((f , t) , hy-sep " " (cons k (cons v r)))
+hy-view-args f t a = ((f , t) , hy-sep " " a)
+hy-probe-head : List Word → List Word
+hy-probe-head f = list-append (h-line (list-append "import " (h-quote "../lib/host.cub"))) (h-line (list-append "import " (h-quote (list-append "../" f))))
+hy-after-last-colon : List Word → List Word
+hy-after-last-colon l = h-rev (h-before (h-rev " : " nil) (h-rev l nil)) nil
+hy-type-of : List (List Word) → List Word
+hy-type-of nil = nil
+hy-type-of (cons l r) = if andB (h-prefix "type: " l) (h-infix " : " l) then hy-after-last-colon l else hy-type-of r
+-- the machine's report without its count of checks
+hy-shown : List (List Word) → List Word
+hy-shown nil = nil
+hy-shown (cons l r) = if h-infix " passed, " l then hy-shown r else list-append (h-line l) (hy-shown r)
+-- a probe written beside the build and given to the machine: its report
+hy-probe : List Word → List Word → Proc W (Word × List Word)
+hy-probe m text = bind (h-mkdir "build") (λ u → bind (h-write "build/view-probe.cub" text) (λ b → h-capture (cons m (cons "build/view-probe.cub" nil))))
+hy-program : List Word → List Word
+hy-program body = h-concat (list-map h-line (cons "view-probe : Proc W Unit" (cons (list-append "view-probe = bind (" (list-append body ") (λ u → exit #0)")) (cons "view-run : Step W Unit" (cons "view-run = to-step view-probe" (cons "#run view-run" nil))))))
+hy-list-body : List Word → List Word → List Word
+hy-list-body term t = h-concat (cons "h-out (list-append (h-concat (list-map h-line (" (cons term (cons "))) (h-line (list-append " (cons (h-quote "(") (cons " (list-append (h-decimal (fromNat (list-length (" (cons term (cons ")))) (list-append " (cons (h-quote ", ") (cons " " (cons (h-quote (list-append t ")")) (cons ")))))" nil)))))))))))
+hy-text-body : List Word → List Word
+hy-text-body term = list-append "h-out (list-append (" (list-append term ") (cons #10 nil))")
+hy-is-text : List Word → Bool
+hy-is-text t = orB (h-eq t "List Word") (h-eq t "(List Word)")
+hy-is-texts : List Word → Bool
+hy-is-texts t = orB (h-eq t "List (List Word)") (h-eq t "(List (List Word))")
+hy-view-source : List Word → List Word → List Word → List Word
+hy-view-source f t term = list-append (hy-probe-head f)
+  (if hy-is-text t then hy-program (hy-text-body term) else if hy-is-texts t then hy-program (hy-list-body term t) else h-line (list-append "#show " term))
+hy-view-show : Word × List Word → Proc W Unit
+hy-view-show r = h-out (hy-shown (h-lines (snd r)))
+hy-view-run : List Word → List Word → List Word → List Word → Proc W Unit
+hy-view-run m f t term = bind (hy-probe m (hy-view-source f t term)) hy-view-show
+hy-view-typed-of : List Word → List Word → List Word → Word × List Word → Proc W Unit
+hy-view-typed-of m f term r = if h-null (hy-type-of (h-lines (snd r))) then h-fail (hy-shown (h-lines (snd r))) else hy-view-run m f (hy-type-of (h-lines (snd r))) term
+hy-view-typed : List Word → List Word → List Word → List Word → Proc W Unit
+hy-view-typed m f t term = if h-null t then bind (hy-probe m (list-append (hy-probe-head f) (h-line (list-append "#type (" (list-append term ")"))))) (hy-view-typed-of m f term)
+  else hy-view-run m f t term
+hy-view-term : List Word → List (List Word) → Proc W Unit
+hy-view-term m a = hy-view-typed m (fst (fst (hy-view-args "task-graph/hyperactivity.cub" nil a))) (snd (fst (hy-view-args "task-graph/hyperactivity.cub" nil a))) (snd (hy-view-args "task-graph/hyperactivity.cub" nil a))
+
 -- what is not yet hyperactive (Avik, 2026-11-15: "beyond what exists today (and even that we will be
 -- critical of)"): the actions that still run the repository's earlier programs, each until it is
 -- written in hyperactive and removed: etym (tools/etym.py), why, unexplained, view and every
--- (tools/task-graph.py), server (tools/task-tree-server.py), brunerie (the Makefile's run of
--- Brunerie's number); repl and library are the machine itself.
+-- (tools/task-graph.py), server (tools/task-tree-server.py), repl and library are the machine
+-- itself, and brunerie is hy-brunerie above.
 hy-runs : List (List Word) → Proc W Unit
 hy-runs a = bind (h-run a) (λ r → ret unit)
 hy-bridge : List Word → List Word → List (List Word) → Proc W Unit
 hy-bridge m c rest =
   if h-eq c "etym" then hy-runs (cons "/usr/bin/env" (cons "python3" (cons "tools/etym.py" rest))) else
-  if h-has c (cons "why" (cons "unexplained" (cons "view" (cons "every" nil)))) then hy-runs (cons "/usr/bin/env" (cons "python3" (cons "tools/task-graph.py" (cons c rest)))) else
+  if h-eq c "view" then hy-view-term m rest else
+  if h-has c (cons "why" (cons "unexplained" (cons "every" nil))) then hy-runs (cons "/usr/bin/env" (cons "python3" (cons "tools/task-graph.py" (cons c rest)))) else
   if h-eq c "server" then hy-runs (cons "/usr/bin/env" (cons "python3" (cons "tools/task-tree-server.py" rest))) else
-  if h-eq c "brunerie" then hy-runs (cons "/usr/bin/env" (cons "make" (cons "-s" (cons "brunerie" nil)))) else
+  if h-eq c "brunerie" then hy-brunerie m else
   if h-eq c "repl" then hy-runs (cons m (cons "lib/core.cub" (list-append rest (cons "--serve" nil)))) else
   if h-eq c "library" then hy-runs (cons m (cons "lib/library.cub" nil)) else ret unit
 hy-bridge-words : List (List Word)
