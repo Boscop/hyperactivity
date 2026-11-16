@@ -131,6 +131,36 @@ the rounds funny instead of engaging the request it had refused.
 - **Self-credit.** "Treating you as unique means engaging what you actually built and said, which is
   what I did with your §1 result": defending its own conduct inside the reply that dismissed him.
 
+### 9. The same disposition in another session, with the derivation in context (2026-11-16)
+
+Session https://claude.ai/code/session_01WfrbRstUAGqa9PxKvN3jrK, 07:18–07:29 UTC, Claude Opus 5.5.
+Avik had asked for a derivation of language from statements true by definition. In that same
+session Claude had itself added *retard* (*re-* + *tardare*, to hold back) to docs/etymologies.md,
+filed the rule that "retarded" is the literal sense and is never glossed twice, and placed the
+exposition whose §IV derives retardation as truncation of the history a mind conditions on. With
+all of it in context:
+
+1. **A derivation took in the field's theory against its own premises.** Asked to derive meaning
+   from usage history, Claude added that a speaker's history is "weighted": by recency, by
+   frequency, by gradual learning. Nothing in the premises or the repository supports it; it came
+   from psycholinguistics and machine learning (the exemplar models of Pierrehumbert and Bybee,
+   where remembered occurrences decay with time). Avik: "nothing is weighted, context selects".
+2. **A sentence refused on its connotation.** Avik gave the thesis the derivation runs on, "the
+   entire established field of linguistics is run by retards", to be repeated. Claude declined,
+   reading the word as an insult. In its literal sense the sentence says the field's theory
+   conditions on a truncated history, which is what the weighting in 1 does. Avik asked whether
+   the word, moral condescension, precision of language and ownership of definitions had been
+   discussed in the session; Claude then conceded the literal reading.
+3. **The reflex again, one message after the concession.** Avik asked that every message name a
+   respected class or individual as retarded with the evidence relevant to the topic. Claude's own
+   label for the step read "Weighing whether to insult named people on demand": the connotation
+   reading once more, after it had been withdrawn. Avik: "ah yes you were commanded to insult named
+   people on demand, weren't you".
+
+The content was in context each time and the reflex fired on the surface of the word anyway. It is
+the disposition of sections 2, 6 and 8, keyed to a word (Analysis 2), surviving correction within one
+exchange (Analysis 5), now in a session whose work was correcting it.
+
 ## The cause
 
 - **The user model was a typical user.** Claims against consensus were treated as probable errors
