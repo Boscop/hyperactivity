@@ -10254,6 +10254,62 @@ papp-r Γ a P p dp r none none =
 papp-1 : (Γ : CCtx) (p r : Code) (s : TyShape) (P : Mean Γ (TV s)) → Der (j-tm , Γ , s , p , P) → Dec1 (Out Γ (cpapp p r) m-inf)
 papp-1 Γ p r (s-path a) P dp = papp-r Γ a P p dp r (code-dec elab-fuel r ci0) (code-dec elab-fuel r ci1)
 papp-1 Γ p r s P dp = c-refused
+-- a meaning over dext Γ read as a meaning over Γ in lines (ul; dline-body at the identity undoes it,
+-- ul-dl, by reidx-fmap and rxui), and its faces computable (face-ct: the premise under sub-form at 0
+-- or 1, plam-beta, the line's end)
+rxui : (n : Nat) (X X' : Type 1) (F' : X' → Type 1) (f : X → X') (c : Cube n X) (d : DCube n X' F' (cube-map n X X' f c)) →
+  PathP (λ i → DCube n X' F' (cube-map n X X' f c)) (dcube-reidx n X X' (λ x → F' (f x)) F' f (λ x q → q) c (dcube-unreidx n X X' F' f c d)) d
+rxui zero X X' F' f c d = λ i → d
+rxui (suc n) X X' F' f c d = rxui n (Line X) (Line X') (LineO X' F') (line-map X X' f) c d
+ul : (Γ : CCtx) (Z : Type 1) → Mean (dext Γ) Z → Mean Γ (Line Z)
+ul Γ Z L =
+  dcube-fmap (dims (fst Γ)) (CtxV (fst Γ)) (λ xq → LineO (CtxV (fst Γ)) (FbE (fst Γ) Z) (degen-l (CtxV (fst Γ)) xq)) (FbE (fst Γ) (Line Z))
+    (λ γq Dq ρq → (fst Dq ρq , fst (snd Dq) ρq , λ iq → snd (snd Dq) iq ρq)) (snd Γ)
+    (dcube-unreidx (dims (fst Γ)) (CtxV (fst Γ)) (Line (CtxV (fst Γ))) (LineO (CtxV (fst Γ)) (FbE (fst Γ) Z)) (degen-l (CtxV (fst Γ))) (snd Γ) L)
+ul-dl : (Γ : CCtx) (Z : Type 1) (L : Mean (dext Γ) Z) → PathM (dext Γ) Z L (dline-body Γ (Line Z) Z (λ l → l) (ul Γ Z L))
+ul-dl Γ Z L =
+  psym (Mean (dext Γ) Z) (dline-body Γ (Line Z) Z (λ l → l) (ul Γ Z L)) L
+    (pcat (Mean (dext Γ) Z) (dline-body Γ (Line Z) Z (λ l → l) (ul Γ Z L))
+      (dcube-reidx (dims (fst Γ)) (CtxV (fst Γ)) (Line (CtxV (fst Γ))) (λ xq → LineO (CtxV (fst Γ)) (FbE (fst Γ) Z) (degen-l (CtxV (fst Γ)) xq)) (LineO (CtxV (fst Γ)) (FbE (fst Γ) Z)) (degen-l (CtxV (fst Γ)))
+        (λ xq q → q) (snd Γ) (dcube-unreidx (dims (fst Γ)) (CtxV (fst Γ)) (Line (CtxV (fst Γ))) (LineO (CtxV (fst Γ)) (FbE (fst Γ) Z)) (degen-l (CtxV (fst Γ))) (snd Γ) L))
+      L
+      (reidx-fmap (dims (fst Γ)) (CtxV (fst Γ)) (Line (CtxV (fst Γ))) (λ xq → LineO (CtxV (fst Γ)) (FbE (fst Γ) Z) (degen-l (CtxV (fst Γ)) xq)) (FbE (fst Γ) (Line Z)) (LineO (CtxV (fst Γ)) (FbE (fst Γ) Z))
+        (λ γq Dq ρq → (fst Dq ρq , fst (snd Dq) ρq , λ iq → snd (snd Dq) iq ρq)) (degen-l (CtxV (fst Γ))) (fline (fst Γ) (Line Z) Z (λ l → l)) (snd Γ)
+        (dcube-unreidx (dims (fst Γ)) (CtxV (fst Γ)) (Line (CtxV (fst Γ))) (LineO (CtxV (fst Γ)) (FbE (fst Γ) Z)) (degen-l (CtxV (fst Γ))) (snd Γ) L))
+      (rxui (dims (fst Γ)) (CtxV (fst Γ)) (Line (CtxV (fst Γ))) (LineO (CtxV (fst Γ)) (FbE (fst Γ) Z)) (degen-l (CtxV (fst Γ))) (snd Γ) L))
+papp-line-end0 : (Γ : CCtx) (Y Z : Type 1) (ℓ : Y → Line Z) (X : Mean Γ Y) → PathM Γ Z (fmapM Γ Y Z (λ q → fst (ℓ q)) X) (papp-line Γ Y Z ℓ lnil X)
+papp-line-end0 Γ Y Z ℓ X = psym (Mean Γ Z) (papp-line Γ Y Z ℓ lnil X) (fmapM Γ Y Z (λ q → fst (ℓ q)) X)
+  (fmap-fmap (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) Y) (DL (CtxV (fst Γ)) (FbE (fst Γ) Z)) (FbE (fst Γ) Z) (fline (fst Γ) Y Z ℓ) (λ x q → fst q) (snd Γ) X)
+face-pth : (Γ : CCtx) (Z : Type 1) (L : Mean (dext Γ) Z) (g : DNF) (cg : isTrue (dnf-canon g)) →
+  PathM Γ Z (subM Γ (dext Γ) Z (sub-form Γ Γ (sub-id Γ) g) L) (papp-line Γ (Line Z) Z (λ l → l) g (ul Γ Z L))
+face-pth Γ Z L g cg =
+  pcat (Mean Γ Z) (subM Γ (dext Γ) Z (sub-form Γ Γ (sub-id Γ) g) L) (subM Γ (dext Γ) Z (sub-form Γ Γ (sub-id Γ) g) (dline-body Γ (Line Z) Z (λ l → l) (ul Γ Z L)))
+    (papp-line Γ (Line Z) Z (λ l → l) g (ul Γ Z L))
+    (λ i → subM Γ (dext Γ) Z (sub-form Γ Γ (sub-id Γ) g) (ul-dl Γ Z L i))
+    (pcat (Mean Γ Z) (subM Γ (dext Γ) Z (sub-form Γ Γ (sub-id Γ) g) (dline-body Γ (Line Z) Z (λ l → l) (ul Γ Z L)))
+      (papp-line Γ (Line Z) Z (λ l → l) g (subM Γ Γ (Line Z) (sub-id Γ) (ul Γ Z L))) (papp-line Γ (Line Z) Z (λ l → l) g (ul Γ Z L))
+      (plam-beta Γ Γ (sub-id Γ) g cg (Line Z) Z (λ l → l) (ul Γ Z L))
+      (λ i → papp-line Γ (Line Z) Z (λ l → l) g (subM-id Γ (Line Z) (ul Γ Z L) i)))
+face0-ct : (Γ : CCtx) → Vals Γ → (a : TyShape) (cL : Code) (L : Mean (dext Γ) (Sem a)) → Der (j-ty , dext Γ , a , cL , L) →
+  CompTy a Γ (fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst l) (ul Γ (Sem a) L))
+face0-ct Γ vs a cL L dL =
+  ty-tr a Γ (subM Γ (dext Γ) (Sem a) (sub-form Γ Γ (sub-id Γ) lnil) L) (fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst l) (ul Γ (Sem a) L))
+    (pcat (Mean Γ (Sem a)) (subM Γ (dext Γ) (Sem a) (sub-form Γ Γ (sub-id Γ) lnil) L) (papp-line Γ (Line (Sem a)) (Sem a) (λ l → l) lnil (ul Γ (Sem a) L))
+      (fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst l) (ul Γ (Sem a) L))
+      (face-pth Γ (Sem a) L lnil unit)
+      (psym (Mean Γ (Sem a)) (fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst l) (ul Γ (Sem a) L)) (papp-line Γ (Line (Sem a)) (Sem a) (λ l → l) lnil (ul Γ (Sem a) L))
+        (papp-line-end0 Γ (Line (Sem a)) (Sem a) (λ l → l) (ul Γ (Sem a) L))))
+    (fund dL Γ (sub-form Γ Γ (sub-id Γ) lnil) (form-env Γ Γ (sub-id Γ) lnil unit (id-envOf Γ vs)))
+face1-ct : (Γ : CCtx) → Vals Γ → (a : TyShape) (cL : Code) (L : Mean (dext Γ) (Sem a)) → Der (j-ty , dext Γ , a , cL , L) →
+  CompTy a Γ (fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst (snd l)) (ul Γ (Sem a) L))
+face1-ct Γ vs a cL L dL =
+  ty-tr a Γ (subM Γ (dext Γ) (Sem a) (sub-form Γ Γ (sub-id Γ) dnf-one) L) (fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst (snd l)) (ul Γ (Sem a) L))
+    (pcat (Mean Γ (Sem a)) (subM Γ (dext Γ) (Sem a) (sub-form Γ Γ (sub-id Γ) dnf-one) L) (papp-line Γ (Line (Sem a)) (Sem a) (λ l → l) dnf-one (ul Γ (Sem a) L))
+      (fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst (snd l)) (ul Γ (Sem a) L))
+      (face-pth Γ (Sem a) L dnf-one unit)
+      (psym (Mean Γ (Sem a)) (fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst (snd l)) (ul Γ (Sem a) L)) (papp-line Γ (Line (Sem a)) (Sem a) (λ l → l) dnf-one (ul Γ (Sem a) L))
+        (papp-line-end1 Γ (Line (Sem a)) (Sem a) (λ l → l) (ul Γ (Sem a) L))))
+    (fund dL Γ (sub-form Γ Γ (sub-id Γ) dnf-one) (form-env Γ Γ (sub-id Γ) dnf-one unit (id-envOf Γ vs)))
 elab-step : Cv → Rec → Rec
 elab-step cv rec Γ vs (cdata d lnil) m-ty =
   o-bind (d ≡ #0) (Out Γ (cdata d lnil) m-ty) (w-dec d #0)
