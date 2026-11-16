@@ -4791,8 +4791,8 @@ static void load_file(const char *path, bool must) {
     if (pl <= 4 || strcmp(rp + pl - 4, ".cub")) die("refused: a file of core forms is outside the type system; only .cub files load:", path);
     char *text = slurp(rp);
     /* a file the system runs as a program (its first line `#!build/cubical`, 2026-11-15: hyperactive
-     * is bootstrapped from the machine alone) reads with that line blank */
-    if (text[0] == '#' && text[1] == '!') for (char *c = text; *c && *c != '\n'; c++) *c = ' ';
+     * is bootstrapped from the machine alone) keeps that line: the reader reads it as a comment
+     * (src/syntax.c, x_lex), so the written store holds the text exactly as written */
     /* the surface language: its imports first, then the running key, then its declarations. What is
      * remembered between runs is the store's, per definition and by content (src/store.c): the
      * elaboration, the checker's answer, accepted or refused (2026-11-12: the per-file cache that
@@ -4818,7 +4818,6 @@ static void imports_of(const char *path) {
     char *rp = realpath(path, NULL);
     if (!rp) { printf("imports: %s ?\n", path); return; }
     char *text = slurp(rp);
-    if (text[0] == '#' && text[1] == '!') for (char *c = text; *c && *c != '\n'; c++) *c = ' ';
     xt = NULL; nxt = capxt = 0; lt = NULL; nlt = caplt = 0; x_file = rp;
     x_lex(text); x_layout(); xp = 0;
     char *dir = strdup(rp); char *sl = strrchr(dir, '/'); if (sl) *sl = 0;

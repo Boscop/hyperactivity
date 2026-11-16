@@ -19,7 +19,7 @@
 #include "sha256.c"
 #include <dirent.h>
 #include <time.h>
-int unlink(const char *); int rmdir(const char *);
+int unlink(const char *); int rmdir(const char *); int getpid(void);
 
 typedef struct { char *b; size_t n, cap; } SBuf;
 static void sb_putn(SBuf *o, const char *s, size_t l) {
@@ -286,8 +286,14 @@ static void store_write(const char *key, const char *file, const char *text, boo
     char *p = store_path(key, file); if (!p) return;
     char *dir = store_path(key, "");
     mkdir(store_dir(), 0777); mkdir(dir, 0777); free(dir);
-    FILE *f = fopen(p, append ? "a" : "w"); free(p); if (!f) return;
-    fputs(text, f); fclose(f);
+    if (append) { FILE *f = fopen(p, "a"); free(p); if (!f) return; fputs(text, f); fclose(f); return; }
+    /* a whole entry is written beside it and renamed over it (atomic on POSIX): a machine killed while
+     * writing, or another machine reading the same store, never sees a truncated entry */
+    char *t = malloc(strlen(p) + 32); sprintf(t, "%s.%ld.tmp", p, (long)getpid());
+    FILE *f = fopen(t, "w"); if (!f) { free(t); free(p); return; }
+    bool ok = fputs(text, f) >= 0; ok = (fclose(f) == 0) && ok;
+    if (!ok || rename(t, p) != 0) unlink(t);
+    free(t); free(p);
 }
 /* a `check` line by the current checker */
 static bool store_checked(const char *key) {

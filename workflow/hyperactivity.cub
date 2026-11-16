@@ -605,11 +605,11 @@ paper-examples = node "Every construction in the paper, its examples and appendi
 -- manuscript with runs of blank lines collapsed and a blank line after each heading, byte for byte.
 -- Cost: checking the value fresh takes 170 s (about 190 machine steps per byte of text: each byte is
 -- a cons the checker checks), once, since the store keeps each block under its content key (the graph
--- check now uses the store); rendering `human` takes about 100 s and is kept under the content it reads
--- (tools/workflow.py documents). (2) the copies left the tree. (3) docs/onboarding.cub serves
+-- check now uses the store); rendering `human` takes about 100 s and is kept in the store
+-- (paper/text, lib/paper-view.cub). (2) the copies left the tree. (3) docs/onboarding.cub serves
 -- `projection "the paper…" (human hyperactivity)` (lib/document.cub's second constructor).
--- (4) tools/workflow.py one-source (no stored .pdf/.docx/.epub; no prose line of 100 characters or
--- more in two files), run by `hyperactive check`, .githooks/pre-commit and pre-push (core.hooksPath set
+-- (4) lib/guard.cub's one-source check (no stored .pdf/.docx/.epub; no prose line of 100 characters or
+-- more in two files), run at every commit by .githooks/pre-commit (core.hooksPath set
 -- by every run of hyperactive) and .github/workflows/one-source.yml on every push and pull request.
 -- GitHub.com runs no hook before accepting a push, so a push from a clone without the hooks is caught by
 -- the GitHub check after it lands; requiring that check on main would refuse such pushes outright but
@@ -617,8 +617,8 @@ paper-examples = node "Every construction in the paper, its examples and appendi
 -- block and the names of the lib/ definitions that are its code; `pure` is the pure page (headings,
 -- displayed constructions, the code realizing them; `code: NAME` lines, which the walk replaces by the
 -- definition), and onboarding walks it (66k characters against the human projection's 335k);
--- `hyperactive paper [SECTION]` gives the human projection; the graph check fails on a name that is not
--- exactly one lib/ definition. Realized so far, from code already in lib/: (1.2) fiberEquiv;
+-- `hyperactive paper [SECTION]` gives the human projection; hyperactive check fails on a name that no
+-- file the machine has read declares. Realized so far, from code already in lib/: (1.2) fiberEquiv;
 -- §4.4's (4.17)–(4.27) from lib/sort.cub; (6.1) TCode, teval, (6.5) normalize-nf, normalize-sound,
 -- (6.6) compiled, compiled-sound, (6.7) compiler-code, compiler-code-sound from lib/nbe.cub; §6.2's
 -- specializer (lib/specialize.cub), §7.6's processes and handlers (lib/proc.cub, lib/world.cub,
@@ -783,13 +783,13 @@ paper-matches-implementation = node "Every implementation detail the paper state
 -- files loaded up to the checker's definition (comments and unrelated definitions included) plus
 -- the machine binary, not the content keys of the definitions the checker consists of. So a comment
 -- edited in the bootstrap files invalidates every certificate in the store.
--- Known (2026-11-13, at src/store.c): wrong. store_write writes an entry in place (fopen "w"). A
+-- Known (2026-11-13, at src/store.c): store_write wrote an entry in place (fopen "w"). A
 -- machine killed while writing (measured 2026-11-13: the kernel killed one for lack of memory while
--- four read in parallel) leaves a truncated entry that later runs read as a whole one, and two
--- machines on one store can read each other's half-written entries; the store is a cache whose
+-- four read in parallel) left a truncated entry that later runs read as a whole one, and two
+-- machines on one store could read each other's half-written entries; the store is a cache whose
 -- entries decide what is not checked again, so a truncated entry could change a result. Fix: write
--- to a temporary file in the same directory and rename it over the entry (atomic on POSIX). Until
--- then tools/task- graph.py gives each parallel reader its own store.
+-- to a temporary file in the same directory and rename it over the entry (atomic on POSIX). Done
+-- 2026-11-16: store_write writes a whole entry beside it and renames it over the entry.
 -- Known (2026-11-12, at Makefile): every target sets CUBICAL_NOCACHE=1, so the standard commands
 -- never use the store and recheck everything from nothing (64 s for the library). With the store
 -- warm, elaboration and compilation still run for every definition (29 s), so incremental checking
@@ -808,15 +808,15 @@ paper-matches-implementation = node "Every implementation detail the paper state
 -- declarations and their bindings, each declaration's code), so that views are terms of the
 -- language applied to it, and a reading that evaluates a view. Replacing a binding is #retract then
 -- a new declaration. 2026-11-12: `declarations T` is every checked definition of type
--- T in scope, as a list (src/ syntax.c), so views over values of a type are terms (lib/task-
--- graph.cub's over Node) and `#show` of one is the reading that evaluates it (tools/workflow.py
+-- T in scope, as a list (src/ syntax.c), so views over values of a type are terms (lib/
+-- workflow.cub's over Node) and `#show` of one is the reading that evaluates it (hyperactive
 -- view). Still missing: each declaration's code as a value, so that a view can read the code
 -- itself, every declaration of every type.
 -- Known (2026-11-12, at lib/workflow.cub): The work as one graph of nodes. Done: goals and
 -- tickets are one kind of node (workflow/hyperactivity.cub); every declaration of the code is a
 -- node of the same graph, its reason computed from the machine's reading `#uses` (a declaration
 -- with a reason mentions it), from the machine naming it (src/), or stated in the comment above it
--- as `(part of NODE)` or `(prerequisite to NODE)` (tools/workflow.py why, unexplained). Measured
+-- as `(part of NODE)` or `(prerequisite to NODE)` (hyperactive why, unexplained). Measured
 -- 2026-11-12 over every file: 4310 of 8312 declarations have no reason; stating the rest where the
 -- code's text establishes a reason is what remains (“The Hyperactive Workflow” (docs/to-be-incorporated-into-paper.cub)). Library
 -- API nothing uses (lib/std.cub's pow, fact, happly, the univalence lemmas; lib/prelude.cub's
@@ -832,13 +832,19 @@ paper-matches-implementation = node "Every implementation detail the paper state
 --   actions taken, kept in the store.
 -- - The store holds the written code: each declaration with its statement under its hash, each name's
 --   pointer to it, and each file as the list of its pieces.
--- - def, write, remove, the walk, the graph's views and rules, paper, history and decompose are the
---   loop's actions.
+-- - def, write, remove, the walk, the graph's views and rules, paper, history, decompose, why,
+--   unexplained, view, every, server and brunerie are the loop's actions; a file's path names its
+--   head (the comment and imports before its first definition) for def and write.
+-- - check gives the machine's verdict on the graph, the graph's rules, and every name the paper's
+--   realized constructions give as code that no file the machine has read declares; check FILE ...
+--   gives each file's verdict, a machine that ends without one reported as such; each exits 1 when
+--   any fails.
 -- - lib/leash.cub guards the harness's tool calls.
--- - lib/guard.cub refuses any commit of code in another language.
+-- - lib/guard.cub, at every commit (.githooks/pre-commit) and on GitHub, refuses any file of code in
+--   another language and any piece of prose held twice (the one-source check).
 -- Not yet:
--- - etym, why, unexplained, view, every, server and brunerie still run the earlier programs;
--- - the one-source check runs at push only (tools/workflow.py);
+-- - etym still runs tools/etym.py: its source is fetched over HTTPS and indexed in sqlite, and the
+--   world's commands reach neither;
 -- - onboarding into the core code.
 -- Known (2026-11-15, Avik): the screen shows information, and information acts: it acts on the user
 -- through the senses and guides attention, and the user acts on the device through its senses; two
@@ -878,7 +884,7 @@ paper-matches-implementation = node "Every implementation detail the paper state
 -- paragraphs (the paper's at its sections), the position kept in build/; the workflow and what
 -- can be taken up follow, generated. The numbered `walk N` is gone. Corrected (2026-11-15, Avik:
 -- "Either it is purely correct code ... or it's wrong"): the walk takes its documents from the
--- machine's evaluation of onboarding (tools/workflow.py documents), not from the file's text, and
+-- machine's evaluation of onboarding (lib/walk.cub), not from the file's text, and
 -- serves a file only when its SHA-256 is the digest the value holds; a Document's path is from the
 -- repository root (src/syntax.c), so the value names its files on its own; the root's essential
 -- context is the value onboarding itself, so the graph's check checks it; the PDF is served as
@@ -898,10 +904,12 @@ paper-matches-implementation = node "Every implementation detail the paper state
 -- page would continue them (Proto-Hellenic *génos); a word's later etymology paragraphs (an
 -- alternative or deeper root given there) are shown but not followed; kaikki.org (wiktextract) and
 -- dumps.wikimedia.org are unreachable from these sessions.
--- Known (2026-11-14, at tools/workflow.py): needs-work. `hyperactive why` and `hyperactive
--- unexplained` read every file through the machine before answering, and took over ten minutes
--- without finishing on 2026-11-14, so the check that every top-level object of the code has a reason
--- is not usable from the interface.
+-- Known (2026-11-14, at lib/hyperactive.cub): needs-work. `hyperactive why` and `hyperactive
+-- unexplained` answer from the store (each name's written piece and its dependencies). Measured
+-- 2026-11-16 over lib/: unexplained took 12.0 minutes for the 8752 declarations read (4592 have no
+-- reason), about 80 ms a declaration, with every set operation linear; the time is the program's own
+-- reading of each statement and its uses, so the check that every top-level object of the code has
+-- a reason is slow to use from the interface until the machine runs such programs faster.
 product-implementation : Node
 product-implementation = node "The live interactive collaboration system and tooling over the language and its code and data." (cons the-product nil)
 -- onboarding-from-part-i (2026-11-15, Avik: "onboarding should force reading paper &

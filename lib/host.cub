@@ -214,9 +214,11 @@ h-without p (cons e r) = if h-prefix p e then h-without p r else cons e (h-witho
 h-env-block : Sum Unit (List Word) → List (List Word)
 h-env-block (inl u) = nil
 h-env-block (inr t) = h-without "CUBICAL_STACKED=" (h-nonempty (h-split #0 t))
+-- a child waited for: its exit status, or 128 and the signal's number when a signal ended it (as a
+-- shell reports it), so a killed child never reads as one that succeeded
 h-wait : Word → Proc W Word
 h-wait pid = bind (alloc-bytes #8) (λ st → bind (sys-call #61 pid st #0 #0 #0 #0) (λ r →
-  bind (load-at st) (λ s → ret (wand (wshr s #8) #255))))
+  bind (load-at st) (λ s → ret (if weq (wand s #127) #0 then wand (wshr s #8) #255 else wadd #128 (wand s #127)))))
 h-run : List (List Word) → Proc W Word
 h-run args =
   bind (h-read "/proc/self/environ") (λ env →
@@ -381,6 +383,9 @@ h-minus-f (suc f) (cons x xs) nil = cons x xs
 h-minus-f (suc f) (cons x xs) (cons y ys) = if h-eq x y then h-minus-f f xs ys else if h-lt x y then cons x (h-minus-f f xs (cons y ys)) else h-minus-f f (cons x xs) ys
 h-minus : List (List Word) → List (List Word) → List (List Word)
 h-minus a b = h-minus-f (plus (list-length a) (list-length b)) a b
+-- a and b both, both sorted
+h-inter : List (List Word) → List (List Word) → List (List Word)
+h-inter a b = h-minus a (h-minus a b)
 h-union : List (List Word) → List (List Word) → List (List Word)
 h-union a b = h-merge (plus (list-length a) (list-length b)) a b
 -- a list of texts without its first

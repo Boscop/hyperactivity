@@ -265,13 +265,11 @@ v-lines : List (List Word) → List Word
 v-lines ps = h-concat (list-map h-line ps)
 v-summary : List (List Word) → List Word
 v-summary ps = h-line (list-append (h-decimal (fromNat v-rounds)) (if h-null (h-concat ps) then " nodes; consistent" else list-append " nodes; " (list-append (h-decimal (fromNat (list-length ps))) " problem(s)")))
-v-code : List (List Word) → Word
-v-code ps = if h-null (h-concat ps) then #0 else #1
-v-check-report : List (List Word) → Proc W Unit
-v-check-report ps = bind (h-out (v-lines ps)) (λ u → bind (h-out (v-summary ps)) (λ u2 → exit (v-code ps)))
-v-check : List Word → Proc W Unit
-v-check st = bind (v-statement-problems st (list-map (λ e → fst e) v-all)) (λ sp →
-  v-check-report (list-append v-graph-problems sp))
+-- the graph's problems kept: views/problems, each problem a line (none when the graph keeps every
+-- rule), and views/check, the problems and the summary
+v-keep-check : List Word → List (List Word) → Proc W Bool
+v-keep-check st ps = bind (h-write (list-append st "/views/problems") (v-lines ps)) (λ b →
+  h-write (list-append st "/views/check") (list-append (v-lines ps) (v-summary ps)))
 -- the graph as JSON, for the page that draws it (lib/server.cub, tools/workflow-view.html): each
 -- node with its sentence, its parents, its statement and the findings it records (Known …), the
 -- questions it puts to Avik, its state in the order of work (first, ready, last, waiting, goal,
@@ -394,7 +392,7 @@ v-keep st =
   bind (v-show-texts st (list-map (λ e → fst e) v-all)) (λ shows →
   bind (v-keep-shows (list-append st "/views/") shows) (λ u3 →
   bind (v-statement-problems st (list-map (λ e → fst e) v-all)) (λ sp →
-  bind (h-write (list-append st "/views/check") (list-append (v-lines (list-append v-graph-problems sp)) (v-summary (list-append v-graph-problems sp)))) (λ b1 →
+  bind (v-keep-check st (list-append v-graph-problems sp)) (λ b1 →
   bind (h-write (list-append st "/views/nodes") (h-concat (list-map (λ e → h-line (v-joined " " (cons (fst e) (v-parts (fst e))))) v-all))) (λ b6 →
   bind (h-write (list-append st "/views/roots") (h-concat (list-map h-line v-roots))) (λ b7 →
   bind (v-json st) (λ js → bind (h-write (list-append st "/views/graph.json") js) (λ b8 →
@@ -404,6 +402,7 @@ v-keep st =
   bind (h-write (list-append st "/views/stamp") (h-decimal stamp)) (λ b5 → exit #0)))))))))))))))
 v-main : Proc W Unit
 v-main = bind (h-env "CUBICAL_STORE") (λ e → v-keep (h-store-of e))
+-- v-run: keeps the views of the workflow in the store (part of product-implementation)
 v-run : Step W Unit
 v-run = to-step v-main
 #run v-run

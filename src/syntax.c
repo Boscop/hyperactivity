@@ -71,6 +71,9 @@ static void x_lex(const char *text) {
     while (*p) {
         if (*p == '\n') { p++; line++; ls = p; continue; }
         if (isspace((unsigned char)*p)) { p++; continue; }
+        /* a file the system runs as a program: its first line `#!build/cubical` is read as a comment,
+         * so the text stays as written and the store records it exactly */
+        if (p == text && p[0] == '#' && p[1] == '!') { while (*p && *p != '\n') p++; continue; }
         if (p[0] == '-' && p[1] == '-') { while (*p && *p != '\n') p++; continue; }
         if (p[0] == '{' && p[1] == '-') {
             int depth = 0;
