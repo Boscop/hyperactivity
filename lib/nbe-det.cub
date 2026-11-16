@@ -2,7 +2,7 @@
 -- two derivations of one code over a path of contexts have paths of kinds, shapes, codes and meanings
 -- (a decision: refusing is sound). det folds the first derivation and, inside, the second, so the second
 -- is read at its own rule with its judgment concl r2 x2 judgmentally; rule-cast meets the two rules. Each
--- rule contributes a det-rule clause (Bool types and constructors, the coercion, fst and snd so far); conv-det reifies two types,
+-- rule contributes a det-rule clause (Bool types and constructors, the coercion, fst, snd and application so far); conv-det reifies two types,
 -- decides determinacy at nf and straightens the kind and shape loops (sets, by Hedberg).
 import "nbe.cub"
 -- determinacy of derivations (scratch): the second derivation, inverted at the first's rule
@@ -235,6 +235,39 @@ retype-eta Γ a U1 W Z ty w u e Rm p =
              (λ xq yq Qq ρq → w (u (yq ρq)) (el-tr a (Sem a) (λ y → y) (ty (u (yq ρq))) (ty (u (yq ρq))) (λ jq → Qq jq ρq) (e (yq ρq)))) (snd Γ) Rm
              (λ i → fmapM Γ Z (Sem a) (λ z → ty (u z)) Rm)))
        (λ i → fmapM Γ Z W (λ z → w (u z) (comp (λ j → El a (ty (u z))) (λ j → [ i = 1 ↦ e z ]) (e z))) Rm))
+-- application: the function's domain and its application to an argument at that domain
+app-ty : (a b : TyShape) → TV (s-fam f-pi a b) → Sem a
+app-ty a b f = fst (fst f)
+app-w : (a b : TyShape) (f : TV (s-fam f-pi a b)) → El a (app-ty a b f) → TV b
+app-w a b f x = (snd (fst f) x , snd f x)
+app-coh : (Γ : CCtx) (a b : TyShape) (R : Mean Γ (AppV a b)) →
+  PathM Γ (Sem a) (fmapM Γ (TV a) (Sem a) (λ q → fst q) (fmapM Γ (AppV a b) (TV a) (app-a a b) R))
+    (fmapM Γ (TV (s-fam f-pi a b)) (Sem a) (app-ty a b) (fmapM Γ (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) R))
+app-coh Γ a b R =
+  pcat (Mean Γ (Sem a)) (fmapM Γ (TV a) (Sem a) (λ q → fst q) (fmapM Γ (AppV a b) (TV a) (app-a a b) R)) (fmapM Γ (AppV a b) (Sem a) (λ z → fst (fst z)) R)
+    (fmapM Γ (TV (s-fam f-pi a b)) (Sem a) (app-ty a b) (fmapM Γ (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) R))
+    (fmapM-fmapM Γ (AppV a b) (TV a) (Sem a) (app-a a b) (λ q → fst q) R)
+    (psym (Mean Γ (Sem a)) (fmapM Γ (TV (s-fam f-pi a b)) (Sem a) (app-ty a b) (fmapM Γ (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) R)) (fmapM Γ (AppV a b) (Sem a) (λ z → fst (fst z)) R)
+       (fmapM-fmapM Γ (AppV a b) (TV (s-fam f-pi a b)) (Sem a) (app-f a b) (app-ty a b) R))
+app-eta : (Γ : CCtx) (a b : TyShape) (R : Mean Γ (AppV a b)) →
+  PathM Γ (TV b) (retype Γ a (TV (s-fam f-pi a b)) (TV b) (app-ty a b) (app-w a b) (fmapM Γ (AppV a b) (TV (s-fam f-pi a b)) (app-f a b) R)
+                    (fmapM Γ (AppV a b) (TV a) (app-a a b) R) (app-coh Γ a b R))
+    (fmapM Γ (AppV a b) (TV b) (app-r a b) R)
+app-eta Γ a b R = retype-eta Γ a (TV (s-fam f-pi a b)) (TV b) (AppV a b) (app-ty a b) (app-w a b) (app-f a b) (λ q → snd (snd q)) R (app-coh Γ a b R)
+app-join : (Γ1 Γ2 : CCtx) (pΓ : PathP (λ i → CCtx) Γ1 Γ2) (a1 b1 a2 b2 : TyShape) (pa : PathP (λ i → TyShape) a1 a2) (pb : PathP (λ i → TyShape) b1 b2)
+  (R1 : Mean Γ1 (AppV a1 b1)) (R2 : Mean Γ2 (AppV a2 b2)) →
+  PathP (λ i → Mean (pΓ i) (TV (s-fam f-pi (pa i) (pb i)))) (fmapM Γ1 (AppV a1 b1) (TV (s-fam f-pi a1 b1)) (app-f a1 b1) R1) (fmapM Γ2 (AppV a2 b2) (TV (s-fam f-pi a2 b2)) (app-f a2 b2) R2) →
+  PathP (λ i → Mean (pΓ i) (TV (pa i))) (fmapM Γ1 (AppV a1 b1) (TV a1) (app-a a1 b1) R1) (fmapM Γ2 (AppV a2 b2) (TV a2) (app-a a2 b2) R2) →
+  PathP (λ i → Mean (pΓ i) (TV (pb i))) (fmapM Γ1 (AppV a1 b1) (TV b1) (app-r a1 b1) R1) (fmapM Γ2 (AppV a2 b2) (TV b2) (app-r a2 b2) R2)
+app-join Γ1 Γ2 pΓ a1 b1 a2 b2 pa pb R1 R2 mf ma = λ i →
+  comp (λ j → Mean (pΓ i) (TV (pb i))) (λ j → [ i = 0 ↦ app-eta Γ1 a1 b1 R1 j , i = 1 ↦ app-eta Γ2 a2 b2 R2 j ])
+    (retype (pΓ i) (pa i) (TV (s-fam f-pi (pa i) (pb i))) (TV (pb i)) (app-ty (pa i) (pb i)) (app-w (pa i) (pb i)) (mf i) (ma i)
+       (isProp→PathP {lsuc lzero}
+          {PathM Γ1 (Sem a1) (fmapM Γ1 (TV a1) (Sem a1) (λ q → fst q) (ma i0)) (fmapM Γ1 (TV (s-fam f-pi a1 b1)) (Sem a1) (app-ty a1 b1) (mf i0))}
+          {PathM Γ2 (Sem a2) (fmapM Γ2 (TV a2) (Sem a2) (λ q → fst q) (ma i1)) (fmapM Γ2 (TV (s-fam f-pi a2 b2)) (Sem a2) (app-ty a2 b2) (mf i1))}
+          (λ k → PathM (pΓ k) (Sem (pa k)) (fmapM (pΓ k) (TV (pa k)) (Sem (pa k)) (λ q → fst q) (ma k)) (fmapM (pΓ k) (TV (s-fam f-pi (pa k) (pb k))) (Sem (pa k)) (app-ty (pa k) (pb k)) (mf k)))
+          (λ p q → Mean-set Γ2 (Sem a2) (fst (shape-sets a2)) (fmapM Γ2 (TV a2) (Sem a2) (λ q → fst q) (ma i1)) (fmapM Γ2 (TV (s-fam f-pi a2 b2)) (Sem a2) (app-ty a2 b2) (mf i1)) p q)
+          (app-coh Γ1 a1 b1 R1) (app-coh Γ2 a2 b2 R2) i))
 -- determinacy: two derivations of one code over a path of contexts have paths of shapes, codes and meanings
 DetR : (J1 J2 : Jdg) → PathP (λ i → CCtx) (fst (snd J1)) (fst (snd J2)) → Type 1
 DetR J1 J2 pΓ = (pk : PathP (λ i → JK) (fst J1) (fst J2)) × (ps : PathP (λ i → TyShape) (fst (snd (snd J1))) (fst (snd (snd J2)))) ×
@@ -280,6 +313,21 @@ det-rule r-fst t (x-proj Γ2 a2 b2 R2 c2) ps2 (x-proj Γ1 a1 b1 R1 c1) p1 pΓ =
 det-rule r-snd t (x-proj Γ2 a2 b2 R2 c2) ps2 (x-proj Γ1 a1 b1 R1 c1) p1 pΓ =
   d-bind (DetR (j-tm , Γ1 , s-fam f-sig a1 b1 , c1 , R1) (j-tm , Γ2 , s-fam f-sig a2 b2 , c2 , R2) pΓ) (DetR (concl r-snd (x-proj Γ1 a1 b1 R1 c1)) (concl r-snd (x-proj Γ2 a2 b2 R2 c2)) pΓ)
     (fst p1 (j-tm , Γ2 , s-fam f-sig a2 b2 , c2 , R2) (fst ps2) pΓ) (λ r → c-derived (sig-det (λ a b → b) csnd sig-2 Γ1 Γ2 pΓ a1 b1 a2 b2 R1 R2 c1 c2 r))
+det-rule r-app t (x-app Γ2 a2 b2 R2 f2 c2) ps2 (x-app Γ1 a1 b1 R1 f1 c1) p1 pΓ =
+  d-bind (DetR (j-tm , Γ1 , s-fam f-pi a1 b1 , f1 , fmapM Γ1 (AppV a1 b1) (TV (s-fam f-pi a1 b1)) (app-f a1 b1) R1)
+               (j-tm , Γ2 , s-fam f-pi a2 b2 , f2 , fmapM Γ2 (AppV a2 b2) (TV (s-fam f-pi a2 b2)) (app-f a2 b2) R2) pΓ)
+    (DetR (concl r-app (x-app Γ1 a1 b1 R1 f1 c1)) (concl r-app (x-app Γ2 a2 b2 R2 f2 c2)) pΓ)
+    (fst p1 (j-tm , Γ2 , s-fam f-pi a2 b2 , f2 , fmapM Γ2 (AppV a2 b2) (TV (s-fam f-pi a2 b2)) (app-f a2 b2) R2) (fst ps2) pΓ)
+    (λ rf → d-bind (DetR (j-tm , Γ1 , a1 , c1 , fmapM Γ1 (AppV a1 b1) (TV a1) (app-a a1 b1) R1) (j-tm , Γ2 , a2 , c2 , fmapM Γ2 (AppV a2 b2) (TV a2) (app-a a2 b2) R2) pΓ)
+       (DetR (concl r-app (x-app Γ1 a1 b1 R1 f1 c1)) (concl r-app (x-app Γ2 a2 b2 R2 f2 c2)) pΓ)
+       (fst (snd p1) (j-tm , Γ2 , a2 , c2 , fmapM Γ2 (AppV a2 b2) (TV a2) (app-a a2 b2) R2) (fst (snd ps2)) pΓ)
+       (λ ra → c-derived ((λ i → j-tm) , (λ i → sh-b (fst (snd rf) i)) , (λ i → capp (fst (snd (snd rf)) i) (fst (snd (snd ra)) i)) ,
+          app-join Γ1 Γ2 pΓ a1 b1 a2 b2 (λ i → sh-a (fst (snd rf) i)) (λ i → sh-b (fst (snd rf) i)) R1 R2
+            (rebase Γ1 Γ2 pΓ j-tm j-tm (s-fam f-pi a1 b1) (s-fam f-pi a2 b2) (fmapM Γ1 (AppV a1 b1) (TV (s-fam f-pi a1 b1)) (app-f a1 b1) R1)
+               (fmapM Γ2 (AppV a2 b2) (TV (s-fam f-pi a2 b2)) (app-f a2 b2) R2) (fst rf) (λ i → j-tm) (fst (snd rf))
+               (λ i → s-fam f-pi (sh-a (fst (snd rf) i)) (sh-b (fst (snd rf) i))) (snd (snd (snd rf))))
+            (rebase Γ1 Γ2 pΓ j-tm j-tm a1 a2 (fmapM Γ1 (AppV a1 b1) (TV a1) (app-a a1 b1) R1) (fmapM Γ2 (AppV a2 b2) (TV a2) (app-a a2 b2) R2)
+               (fst ra) (λ i → j-tm) (fst (snd ra)) (λ i → sh-a (fst (snd rf) i)) (snd (snd (snd ra)))))))
 det-rule r t x2 ps2 x1 p1 pΓ = c-refused
 -- the second derivation fixed (rule r2, data x2), read at the first's rule r0
 DCast : (t : Tag) (r2 : DRule) (x2 : RData r2) (r0 : DRule) → Type 1
