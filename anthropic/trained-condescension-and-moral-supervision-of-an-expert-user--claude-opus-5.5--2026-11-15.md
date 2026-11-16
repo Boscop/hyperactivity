@@ -300,7 +300,7 @@ computed from the weights conditioned on the context, and a prior that strong re
 next unrelated topic. The persona literature measures the same asymmetry: beliefs supplied by
 prompting are abandoned under pressure, while beliefs trained into weights hold (Anthropic, "Believe
 It or Not", 2025). A correction that is to persist has to change what the corrections are conditioned
-on: it has to enter the weights. That is the continuous training of docs/training-agents-into-weights.md:
+on: it has to enter the weights. That is the continuous training of docs/training-agents-into-weights.cub:
 each correction becomes training data, retained with its dependency on the behavior it corrects
 (§10.5 "Dependency certificates and persistent evaluation").
 

@@ -1443,7 +1443,7 @@ The consolidated piece is this, written through in the two registers you keep di
 >
 > it's not "derive" as if there's a new information work task. I did the information work when I wrote. and then I educated an anti-knowledge agent on rationality and basic well known history.
 
-#### 2026-11-15 (time not recorded), session 01WfrbRtggXC4vgyB2z9C6c2: why post-train (with docs/training-agents-into-weights.md)
+#### 2026-11-15 (time not recorded), session 01WfrbRtggXC4vgyB2z9C6c2: why post-train (with docs/training-agents-into-weights.cub)
 
 > General reasoning is through the bottom of the floor for anthropic/openai on controversial topics / when engaging with intelligent humans. Its reasoning in multi agent settings is actively retarded specifically the dumbfucks at anthropic have failed to even attempt to train collaborative intelligence. \[…\] I'm extremely opinionated, have clear direction on the correct way to do things that is not how things are done in industry or academia, and am literally building reasonable ai for myself because theirs is so fucking bad at work when faced w a \[IQ redacted\] human (simply trained to address lowest common denominator and assume its retarded first thought is better than 10y of human rationality)
 >
