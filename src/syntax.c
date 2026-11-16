@@ -99,6 +99,45 @@ static void x_lex(const char *text) {
             static const char D[] = "()[]{},;"; static const int K[] = { X_LP, X_RP, X_LB, X_RB, X_LC, X_RC, X_COMMA, X_SEMI };
             x_push(K[strchr(D, *p) - D], p, 1, line, col); p++; continue;
         }
+        /* syntax S, alone on its line (2026-11-16, Avik: "we provide zero opinion over surface syntax
+         * for the expression of ideas"): the lines after it indented further are raw text, read as
+         * one string token whatever they hold (quotes, brackets, any notation), their common
+         * indentation removed. The declaration hands the text to S (p_decl_in) */
+        if (!strncmp(p, "syntax", 6) && (p[6] == ' ' || p[6] == '\t')) {
+            const char *q = ls; while (q < p && (*q == ' ' || *q == '\t')) q++;
+            const char *n0 = p + 6; while (*n0 == ' ' || *n0 == '\t') n0++;
+            const char *n1 = n0; while (*n1 && !isspace((unsigned char)*n1) && !x_delim(*n1)) n1++;
+            const char *e = n1; while (*e == ' ' || *e == '\t') e++;
+            if (q == p && n1 > n0 && (*e == '\n' || !*e)) {
+                int ind = (int)(p - ls), l0 = line;
+                x_push(X_ID, "syntax", 6, line, col);
+                x_word(n0, (size_t)(n1 - n0), line, (int)(n0 - ls) + 1);
+                /* the raw lines: blank, or indented past the syntax line; trailing blank lines dropped */
+                const char *r = *e ? e + 1 : e, *end = r; int nl = 0, kept = 0, m = -1;
+                for (const char *s = r; *s; ) {
+                    const char *le = strchr(s, '\n'); if (!le) le = s + strlen(s);
+                    const char *f = s; while (f < le && (*f == ' ' || *f == '\t')) f++;
+                    if (f == le) { nl++; s = *le ? le + 1 : le; continue; }
+                    if ((int)(f - s) <= ind) break;
+                    if (m < 0) m = (int)(f - s);
+                    nl++; kept = nl; end = *le ? le + 1 : le; s = end;
+                }
+                SBuf raw = {0}; sb_put(&raw, "");
+                int k = 0;
+                for (const char *s = r; k < kept; k++) {
+                    const char *le = strchr(s, '\n'); if (!le) le = s + strlen(s);
+                    const char *f = s; for (int c = 0; c < m && f < le && (*f == ' ' || *f == '\t'); c++) f++;
+                    if (k) sb_put(&raw, "\n");
+                    char *seg = strndup(f, (size_t)(le - f)); sb_put(&raw, seg); free(seg);
+                    s = *le ? le + 1 : le;
+                }
+                x_push(X_STR, raw.b, strlen(raw.b), l0 + 1, ind + 2);
+                free(raw.b);
+                p = kept ? end : (*e ? e + 1 : e); line = l0 + 1 + kept; ls = p;
+                if (kept && p[-1] != '\n') line--;
+                continue;
+            }
+        }
         const char *b = p;
         while (*p && !isspace((unsigned char)*p) && !x_delim(*p)) p++;
         x_word(b, (size_t)(p - b), line, col);
@@ -1060,6 +1099,7 @@ static void el_once(Node *sig, Node *body, Node **T, Node **t);
 static void x_primitive(const char *nm, bool tick, Node *sig, Node *b, Tok *nt);
 static void x_foreign(const char *nm, Tok *st, Node *sig, Tok *nt);
 static Node *x_solve_expr(Node *e);
+static void load_surface(const char *text, const char *path, bool imports_only);
 static bool has_hole(Node *t);
 static Node *strip_marks(Node *t);
 /* the names defined without a signature later in the file: a use before the definition declares it */
@@ -1410,6 +1450,31 @@ static void p_decl_in(void) {
     snprintf(decl_pos, sizeof decl_pos, "%s:%d", x_file ? x_file : "?", t->line);
     bool fail = x_fail_next; x_fail_next = false;
     if (x_is(t, "#fail")) { NX(); x_fail_next = true; return; }
+    if (x_is(t, "syntax") && P1()->k == X_ID && P2()->k == X_STR) {
+        /* syntax S + raw block (2026-11-16, Avik: a syntax is expressed in the language, then
+         * installed locally so subsequent parsing is flexible): S, a checked definition of
+         * List Word → List Word, takes the block's text to text in the notation this reader reads,
+         * which is read in its place, as declarations of this file. The checker checks what S
+         * produces as it checks anything written, so a syntax is trusted for nothing */
+        NX(); Tok *sn = NX(); Tok *raw = NX();
+        if (checked_index(sn->s) < 0) x_sem("syntax: not a checked definition:", sn);
+        Node *call = lst(3, nsym("the"), lst(2, nsym("List"), nsym("Word")), lst(2, nsym(sn->s), text_term(raw->s)));
+        long steps = 0;
+        char *r = readback(x_solve_expr(call), &steps);
+        const char *saved = src; src = r; Node *rn = read_node(); src = saved;
+        if (rn && !rn->list && is(rn, "cons")) { src = r; char *w = malloc(strlen(r) + 3); sprintf(w, "(%s)", r); src = w; rn = read_node(); src = saved; free(w); }
+        SBuf out = {0}; sb_put(&out, "");
+        Node *cur = rn;
+        for (; cur && cur->list && cur->n == 3 && is(cur->it[0], "cons") && !cur->it[1]->list && cur->it[1]->s[0] == '#'; cur = cur->it[2]) {
+            long b = atol(cur->it[1]->s + 1); if (b <= 0 || b > 255) break;
+            char c = (char)b; sb_putn(&out, &c, 1);
+        }
+        free(r);
+        if (!cur || cur->list || !is(cur, "nil")) x_sem("syntax: the text it gives does not read back as text (List Word), for", sn);
+        load_surface(out.b, x_file, false);
+        free(out.b);
+        decl_end(); return;
+    }
     if (x_is(t, "instance")) { NX(); pending_instance = true; x_fail_next = fail; p_decl(); pending_instance = false; return; }   /* the next definition is an instance (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.12 “E28 — Elaboration”) */
     if (x_is(t, "deriving")) {
         /* deriving eq D [as name]: a decidable equality on the data type D, its code derived by
@@ -1981,7 +2046,7 @@ static void w_item(int first, int end) {
     if (t->k == X_ID && t->s[0] != '#') {
         if (!strcmp(t->s, "data") || !strcmp(t->s, "codata") || !strcmp(t->s, "record") || !strcmp(t->s, "primitive")) {
             if (first + 1 < nlt && lt[first + 1].k == X_ID) name = lt[first + 1].s;
-        } else if (!reserved(t->s)) name = t->s;
+        } else if (!reserved(t->s) && strcmp(t->s, "syntax")) name = t->s;
     }
     int last = t->line;
     for (int i = first; i < end && i < nlt; i++) if (lt[i].k != X_VO && lt[i].k != X_VS && lt[i].k != X_VC && lt[i].k != X_EOF && lt[i].line > last) last = lt[i].line;

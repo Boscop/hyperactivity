@@ -1,0 +1,42 @@
+-- lib/syntax.cub — syntaxes written in the language (2026-11-16). Avik: "we provide zero opinion over
+-- surface syntax for the expression of ideas. the lisp-like/functional syntax is a perfectly
+-- reasonable (most reasonable) starting point for its absolute simplicity/consistency. I do *not*
+-- want anyone to think you need to write lisp/agda-style code to work here. surface syntax extension
+-- is trivial"; a syntax is expressed, "then installing it locally so subsequent parsing is flexible".
+-- A syntax is a checked definition S : List Word → List Word, from text in its notation to text in
+-- the notation the reader reads. Written as
+--
+--   syntax S
+--     any lines, indented past the syntax line
+--
+-- the indented lines are raw text (quotes, brackets, anything), handed whole to S, and what S gives
+-- is read in their place, as declarations of the module (src/syntax.c: x_lex, p_decl_in). The checker
+-- checks what S gives as it checks anything written, so a syntax is trusted for nothing: a wrong
+-- syntax gives text that does not read or does not check. The converse, printing a value back into a
+-- notation, is the same kind of definition in the other direction.
+import "core.cub"
+
+-- the text up to the first newline, and the text after it
+raw-first-line : List Word → List Word
+raw-first-line nil = nil
+raw-first-line (cons b r) = if weq b #10 then nil else cons b (raw-first-line r)
+raw-after-first-line : List Word → List Word
+raw-after-first-line nil = nil
+raw-after-first-line (cons b r) = if weq b #10 then r else raw-after-first-line r
+
+-- a string literal of a text holding neither a quote nor a newline
+raw-literal : List Word → List Word
+raw-literal s = cons #34 (list-append s (cons #34 nil))
+
+-- the text s, read, as text: seg is the run of ordinary bytes read so far; at a quote or a newline the
+-- run's literal is joined to that byte and to the rest
+raw-as-literals : List Word → List Word → List Word
+raw-as-literals seg nil = raw-literal seg
+raw-as-literals seg (cons b r) = if (if weq b #34 then true else weq b #10) then list-append "(list-append " (list-append (raw-literal seg) (list-append " (cons #" (list-append (if weq b #34 then "34" else "10") (list-append " " (list-append (raw-as-literals nil r) "))"))))) else raw-as-literals (list-append seg (cons b nil)) r
+
+-- text-written-raw: a definition of a text, written as itself. Its first line is the name; the lines
+-- after it are the text, byte for byte. It gives `name : List Word` and `name = …`, the text as
+-- string literals joined with the two bytes a literal cannot hold, the quote (#34) and the newline (#10)
+text-written-raw : List Word → List Word
+text-written-raw s = list-append (raw-first-line s) (list-append " : List Word" (cons #10 (list-append (raw-first-line s) (list-append " = " (raw-as-literals nil (raw-after-first-line s))))))
+
