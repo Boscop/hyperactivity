@@ -57,18 +57,15 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
 - **Free generation means no plan beyond the next sentence** (Avik, 2026-11-14 and 2026-11-15). When
   Avik asks for open thinking or writing at length, each sentence follows from the last; no outline,
   no announced structure.
-- **Knowledge work is structured data, approached as an engineer approaches any data** (Avik,
-  2026-11-15): "even text documents like this are structure knowledge work any engineer can approach
-  rationally. so right now, what is the data structure? [...] will it serve exactly one document
-  ever? will it serve multiple? re-read the hyperactivity paper as if it's title was \"On the
-  Organization of Knowledge\"". A document is not a string to drop content into at some position.
-  Statements, sources, arguments and identifications are retained once, with their dependencies, and
-  a document is one interpretation of that state among many (the exposition, a report, the training
-  corpus, the paper delta, the etymology file). Avik, 2026-11-15: in some sense everything is one
-  body of work, each consumable unit a part or chapter of it (the manuscript's four Parts are already
-  four deliverables concluded to be one); about 50 knowledge-work targets (from neuroscience and
-  linguistics to AI alignment) are further units of that body. None of it goes into Part I, which is
-  what "the paper" usually refers to.
+- **Words = code = data; workflow and knowledge are one graph** (Avik, 2026-11-15 and 2026-11-16).
+  Everything Avik writes is work done: code, for some interpreter (an LLM executor, the machine, a
+  reader, a training run) and some purpose. What an object is for is what it serves, its parents in
+  the task graph; about 50 knowledge-work targets are roots beside the-product, and the workflow is
+  consciousness of work done, work pending and what serves what. Approach a document as an engineer
+  approaches data: what is the structure, what total knowledge does it express, what does it serve.
+  Introduce no ontology of kinds ("unit", "claim", "excerpt"). One body of work, each consumable unit
+  a part or chapter of it; none of it goes into Part I, which is what "the paper" usually refers to.
+  Do not assume Avik's full message history will be imported.
 - **Nothing is judged** (Avik, 2026-11-15). The system has no assessment criteria and no goals to
   be measured against; its continuation is deterministic, and it functions exactly as it functions,
   the mathematics of it fully worked out. What determines it (the science of human happiness) is
@@ -1366,3 +1363,11 @@ The consolidated piece is this, written through in the two registers you keep di
 > ok yeah long-term literally having content-addressed store of all my messages I ever send in conversations will be perfect. short-term actually.
 >
 > that is part of "loading". further messages have their place in conversations which are units of their own. but im trying to think of this without building the full system of managing all the message data immediately. so let's say we explicitly are copying out messages/excerpts worth retaining from conversations (for now sake of discussion). ok. we can have some knowledge work targets. Nobel prize in neuroscience can be such a target [i.e. dispelling retardation from the expert field of neuroscience, absolutely]. Liberation of neurodivergent individuals from the bonds of neurotypicals' retardation [I have entered the belly of the beast, witnessed modern slavery and human experimentation, and there's content on that in this repo]. Nobel prize in linguistics [i.e. dispelling retardation from the expert field of linguistics]. American's aligned against Israel. Neuroscience/cogsci paper on hyperactive technology. Public indictment of Anthropic & OpenAI for anti-neurodivergent harm and for prolonging genocide in Gaza. Foundational resolution paper on AI alignment. these are a few of the targets served by work thus far. I have plenty plenty plenty work of the past 10 years you are not aware of . there is a lot of knowledge work ongoing. everything is connected and there are independent deliverable functions. and so there is some sense of a DAG. there can be a clear sense of indivisible units of knowledge (first person report/evidence, a particular past citation) and compositions/inferences of them. in reality there is no unit except the universe itself but in any modeled reality must have some indivisible unit defined here as things which are inputs to other compositions. every single unit is indivisible actually. but in terms of reaching those composite units, they follow multiple smaller units (+synthesis, not just direct composition necessarily; though it can be direct composition). if we quotient "form" for "content" (to the extent that's possible, i.e. form which is a degree of freedom w.r.t. identity of the piece) then we see direct composition at the assertion/evidence level. the composition of routines, relations, & rationales is the hyperactive process.
+
+#### 2026-11-16 04:43–04:49 UTC (targets are roots; workflow and knowledge are one graph)
+
+> the 50 targets are roots (units which serve no other expressed purpose). this is the same as our workflow graph
+
+> yep, ultimately workflow dag and knowledge dag are totally indivisible as soon as I start noting knowledge work intentions in the workflow, which I have as of right now. workflow is consciousness of work done, work pending, and what work serves what work.    my expressions of knowledge are me doing work. by token count & density of value I do in one day what a human takes months for knowledge work. hence yung millionaire hence a human life being very different from the typical human life. everything I have written is - *work done* in some form. what does it serve? and so there is no division. it is code; inputs I pass to llm executors; code that was synthesized by my code, reflects my code. kill the bullshit ontologies and words = code = data clarifies things. its just code for what interpreter & what purpose
+
+> and assume I will never import my full message history btw for the sake of this work. maybe I wil. maybe it'll be headache operationally. I'll keep thinking about it don't assume that
