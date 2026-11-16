@@ -269,6 +269,24 @@ hy-machine-all : List Word → List (List Word) → Proc W Unit
 hy-machine-all m nil = ret unit
 hy-machine-all m (cons f r) = bind (hy-machine-on m f) (λ u → hy-machine-all m r)
 
+-- what is not yet hyperactive (Avik, 2026-11-15: "beyond what exists today (and even that we will be
+-- critical of)"): the actions that still run the repository's earlier programs, each until it is
+-- written in hyperactive and removed: etym (tools/etym.py), why, unexplained, view and every
+-- (tools/task-graph.py), server (tools/task-tree-server.py), brunerie (the Makefile's run of
+-- Brunerie's number); repl and library are the machine itself.
+hy-runs : List (List Word) → Proc W Unit
+hy-runs a = bind (h-run a) (λ r → ret unit)
+hy-bridge : List Word → List Word → List (List Word) → Proc W Unit
+hy-bridge m c rest =
+  if h-eq c "etym" then hy-runs (cons "/usr/bin/env" (cons "python3" (cons "tools/etym.py" rest))) else
+  if h-has c (cons "why" (cons "unexplained" (cons "view" (cons "every" nil)))) then hy-runs (cons "/usr/bin/env" (cons "python3" (cons "tools/task-graph.py" (cons c rest)))) else
+  if h-eq c "server" then hy-runs (cons "/usr/bin/env" (cons "python3" (cons "tools/task-tree-server.py" rest))) else
+  if h-eq c "brunerie" then hy-runs (cons "/usr/bin/env" (cons "make" (cons "-s" (cons "brunerie" nil)))) else
+  if h-eq c "repl" then hy-runs (cons m (cons "lib/core.cub" (list-append rest (cons "--serve" nil)))) else
+  if h-eq c "library" then hy-runs (cons m (cons "lib/library.cub" nil)) else ret unit
+hy-bridge-words : List (List Word)
+hy-bridge-words = cons "etym" (cons "why" (cons "unexplained" (cons "view" (cons "every" (cons "server" (cons "brunerie" (cons "repl" (cons "library" nil))))))))
+
 -- The session (2026-11-15, Avik: "the interactive loop of understanding/contributing"; "the cli may
 -- simply deliver exactly the onboarding contents in a sequence of turns"): one loop whose state is a
 -- value, the actions taken so far (session/log in the store, one per line) folded from the first
@@ -309,7 +327,7 @@ hy-step count (hy-walking k) a =
   if h-eq (hy-head a) "prev" then inr (hy-walking (hy-pred k)) else inl unit
 hy-step count hy-working a =
   if h-eq (hy-head a) "decompose" then (if h-null (hy-second a) then inl unit else inr (hy-reading (hy-second a))) else
-  if h-has (hy-head a) hy-work-words then inr hy-working else inl unit
+  if orB (h-has (hy-head a) hy-work-words) (h-has (hy-head a) hy-bridge-words) then inr hy-working else inl unit
 hy-step count (hy-reading f) a =
   if h-eq (hy-head a) "cut" then (if hy-ascending (cons #1 (list-map h-number (hy-rest a))) then inr (hy-decomposing f (cons #1 (list-map h-number (hy-rest a))) zero) else inl unit) else
   if h-eq (hy-head a) "part" then inr (hy-reading f) else inl unit
@@ -372,7 +390,8 @@ hy-work-usage = list-append (h-line "Actions:")
   (list-append (h-line "  hyperactive paper [SECTION]  the paper as it reads, whole or one section (4.4, A.1, Part II)")
   (list-append (h-line "  hyperactive check [FILE ...] the machine's verdict on the task graph and the graph's rules, or on each file given")
   (list-append (h-line "  hyperactive decompose FILE   a document decomposed into self-contained parts, one by one (lib/knowledge.cub)")
-  (h-line "  hyperactive done            the work is done: the session ends"))))))))))))
+  (list-append (h-line "  hyperactive etym TEXT | why | unexplained | view | every | server | brunerie | repl | library   (still the earlier programs, until each is written in hyperactive)")
+  (h-line "  hyperactive done            the work is done: the session ends")))))))))))))
 hy-views : List Word → List (List Word) → Proc W Unit
 hy-views m a = bind (h-run (cons m (cons "lib/views.cub" a))) (λ r → ret unit)
 hy-check : List Word → List (List Word) → Proc W Unit
@@ -512,6 +531,7 @@ hy-act st m (cons c rest) =
   if h-eq c "paper" then hy-paper st m rest else
   if h-eq c "check" then hy-check m rest else
   if h-eq c "done" then bind (h-write (list-append st "/session/log") nil) (λ b → h-out (h-line "The work is declared done; the session is over. The next session begins with the walk."))
+  else if h-has c hy-bridge-words then hy-bridge m c rest
   else hy-views m (cons c rest)
 
 -- one call: the action taken when valid, then what the state reached shows
@@ -555,11 +575,12 @@ hy-walk-ready : List Word → List Word → List (List Word) → Proc W Unit
 hy-walk-ready st m log = bind (hy-count st) (λ n → hy-walk-ready-at st m (hy-fold n (hy-walking (suc zero)) log))
 hy-begin : List Word → List Word → List (List Word) → Proc W Unit
 hy-begin st m a =
+  bind (h-run (cons "/usr/bin/env" (cons "git" (cons "config" (cons "core.hooksPath" (cons ".githooks" nil)))))) (λ g →
   bind (h-mkdir st) (λ u → bind (h-mkdir (list-append st "/session")) (λ u2 →
   bind (hy-get st "session/log") (λ l →
   bind (hy-walk-ready st m (hy-log-lines l)) (λ u3 →
   bind (hy-count st) (λ n →
-  bind (hy-take st m n (hy-log-lines l) a) (λ u4 → exit #0))))))
+  bind (hy-take st m n (hy-log-lines l) a) (λ u4 → exit #0)))))))
 hy-main : Proc W Unit
 hy-main = bind (h-env "CUBICAL_STORE") (λ e → bind h-args (λ args → hy-begin (h-store-of e) (hy-machine args) (h-drop-n (suc (suc zero)) args)))
 hy-run : Step W Unit

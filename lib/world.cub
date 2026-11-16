@@ -21,6 +21,12 @@ data WCmd = w-now | w-write (fd : Word) (n : Nat) (b : Bytes n) | w-read (fd : W
   -- commands are added here, at the end: lib/elf.cub dispatches on the constructors' indices
   | w-sys (nr : Word) (a1 : Word) (a2 : Word) (a3 : Word) (a4 : Word) (a5 : Word) (a6 : Word)
   | w-alloc (n : Word) | w-load8 (a : Word) | w-store8 (a : Word) (v : Word)
+  -- another program started (2026-11-16): argv and envp the addresses of NULL-ended arrays of
+  -- NUL-ended strings, the program the first of argv; its standard output and error the descriptor
+  -- out (a negative out: this process's). The response is its process id, or an errno's two's
+  -- complement. Started without copying this process (posix_spawn), so a machine holding much memory
+  -- starts one as readily as a small one
+  | w-spawn (argv : Word) (envp : Word) (out : Word)
 w-resp : WCmd → Type
 w-resp c = case c return (λ _ → Type) of
   w-now → Word
@@ -38,6 +44,7 @@ w-resp c = case c return (λ _ → Type) of
   w-alloc n → Word
   w-load8 a → Word
   w-store8 a v → Unit
+  w-spawn a e o → Word
 W : Sig
 W = (WCmd , w-resp)
 -- a process as a tree of steps: done with its answer, or a command with its continuation (a
@@ -81,3 +88,5 @@ load8-at : Word → Proc W Word
 load8-at a = cmd {lzero} {W} (w-load8 a)
 store8-at : Word → Word → Proc W Unit
 store8-at a v = cmd {lzero} {W} (w-store8 a v)
+spawn-at : Word → Word → Word → Proc W Word
+spawn-at a e o = cmd {lzero} {W} (w-spawn a e o)

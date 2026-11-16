@@ -14,6 +14,7 @@
  * w-store8 are one byte at an address. */
 #include <time.h>
 #include <errno.h>
+#include <spawn.h>
 /* unistd.h's link(2) clashes with the net's link(): the two system calls are declared here */
 extern long read(int, void *, unsigned long);
 extern long write(int, const void *, unsigned long);
@@ -54,6 +55,7 @@ static void drivers_run(Node *t) {
     int c_open = drv_con("w-open"), c_close = drv_con("w-close");
     int c_load = drv_con("w-load"), c_store = drv_con("w-store"), c_cas = drv_con("w-cas"), c_fence = drv_con("w-fence");
     int c_sys = drv_con("w-sys"), c_alloc = drv_con("w-alloc"), c_load8 = drv_con("w-load8"), c_store8 = drv_con("w-store8");
+    int c_spawn = drv_con("w-spawn");
     Port p = build_top(t);
     long steps = 0, s0 = stat_steps;
     for (;;) {
@@ -145,6 +147,17 @@ static void drivers_run(Node *t) {
             uint64_t a = drv_word(cm->port[1], "w-store8's address"), v = drv_word(cm->port[2], "w-store8's value");
             *(volatile uint8_t *)(uintptr_t)a = (uint8_t)v;
             resp = con_build(c_unit, NULL, NULL);
+        } else if (c == c_spawn) {
+            /* another program started without copying this process: argv and envp NULL-ended arrays at
+             * addresses, its standard output and error the descriptor out unless out is negative */
+            uint64_t av = drv_word(cm->port[1], "w-spawn's argv"), ev = drv_word(cm->port[2], "w-spawn's envp"), out = drv_word(cm->port[3], "w-spawn's out");
+            posix_spawn_file_actions_t fa; posix_spawn_file_actions_init(&fa);
+            if ((int64_t)out >= 0) { posix_spawn_file_actions_adddup2(&fa, (int)out, 1); posix_spawn_file_actions_adddup2(&fa, (int)out, 2); }
+            char **argv = (char **)(uintptr_t)av; pid_t pid = 0;
+            fflush(stdout);
+            int e = posix_spawn(&pid, argv[0], &fa, NULL, argv, (char **)(uintptr_t)ev);
+            posix_spawn_file_actions_destroy(&fa);
+            resp = drv_word_of(e ? (uint64_t)-(int64_t)e : (uint64_t)pid);
         } else die("run: not a command of W:", CON[c].name);
         Cell *ap = cell(O_APP, 3);
         link(k, P(ap, 0)); link(resp, P(ap, 1));

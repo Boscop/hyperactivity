@@ -106,13 +106,22 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   the files listed in its `g-frozen`. Those files may be deleted. Today's Python and shell are being
   replaced by hyperactive programs, then removed; until then, writing or editing any of them is
   refused.
-- **Code is read and written only through `hyperactive`** (Avik, 2026-11-15: "do you write/read code
-  using files and text commands? that is unacceptable"). Read a definition with `hyperactive def NAME`
-  (its statement, text, key and users), and nodes with show and why. Write code with `hyperactive
-  write [--after NAME]`, passing whole declarations on standard input, and remove it with `hyperactive
-  remove NAME`. The write is kept only if everything it touches checks. Never open, grep, sed or edit
-  a .cub file. The harness enforces this: `.claude/settings.json` runs `hyperactive leash` before every
-  tool call.
+- **`hyperactive` is one loop, and code is reached only through it** (Avik, 2026-11-15: "do you
+  write/read code using files and text commands? that is unacceptable"; "the interactive loop of
+  understanding/contributing"). `hyperactive` is lib/hyperactive.cub, run by the machine. The session
+  is a value: the actions taken so far, kept in the store. Each `hyperactive ACTION` takes one action,
+  if it is valid where the session is, and shows the state reached and the actions valid there.
+  `hyperactive` alone shows where the session is.
+  - The session begins with the walk, where `next` and `prev` are the only actions.
+  - Then the work: `show`, `tree`, `order`, `open`, `check`, `paper`, `history`, `decompose`.
+  - Code is read by name with `def NAME`, from the store, by its written piece and key.
+  - `write NAME [after OTHER]` takes the declaration, with its statement, on standard input. It is
+    kept only if the machine reads it as exactly NAME's piece and nothing newly fails where the
+    change is loaded.
+  - `remove NAME` takes away a definition nothing uses.
+  - `done` declares the work done and ends the session.
+  Never open, grep, sed or edit a .cub file. The harness enforces this: `.claude/settings.json` runs
+  lib/leash.cub before every tool call.
 - **Use the organization; never sprawl** (Avik, 2026-11-15). The paper delta, `docs/paper-delta.cub`,
   is a set of pointers (`document "path"`: a path and its content hash) and nothing else, no
   descriptions. Each piece it points to is work written at a distinct time and not yet in the paper;

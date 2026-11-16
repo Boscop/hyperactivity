@@ -210,9 +210,14 @@ h-mkdir : List Word → Proc W Unit
 h-mkdir path = bind (h-cstr path) (λ p → bind (sys-call #83 p #493 #0 #0 #0 #0) (λ r → ret unit))
 
 -- another program run to its end, its output this program's: its exit status (0 when it succeeded)
+-- the environment a child is given: this one's, but for the machine's note that its stack was raised (a
+-- child machine raises its own)
+h-without : List Word → List (List Word) → List (List Word)
+h-without p nil = nil
+h-without p (cons e r) = if h-prefix p e then h-without p r else cons e (h-without p r)
 h-env-block : Sum Unit (List Word) → List (List Word)
 h-env-block (inl u) = nil
-h-env-block (inr t) = h-nonempty (h-split #0 t)
+h-env-block (inr t) = h-without "CUBICAL_STACKED=" (h-nonempty (h-split #0 t))
 h-wait : Word → Proc W Word
 h-wait pid = bind (alloc-bytes #8) (λ st → bind (sys-call #61 pid st #0 #0 #0 #0) (λ r →
   bind (load-at st) (λ s → ret (wand (wshr s #8) #255))))
@@ -220,10 +225,8 @@ h-run : List (List Word) → Proc W Word
 h-run args =
   bind (h-read "/proc/self/environ") (λ env →
   bind (h-ptrs args) (λ argv → bind (h-ptrs (h-env-block env)) (λ envp →
-  bind (load-at argv) (λ path →
-  bind (sys-call #57 #0 #0 #0 #0 #0 #0) (λ pid →
-  if weq pid #0 then bind (sys-call #59 path argv envp #0 #0 #0) (λ e → bind (exit #127) (λ u → ret {lzero} {W} #127))
-  else h-wait pid)))))
+  bind (spawn-at argv envp #18446744073709551615) (λ pid →
+  if wlt pid #9223372036854775808 then h-wait pid else ret {lzero} {W} #127))))
 
 -- the latest time anything under a directory was changed (nanoseconds since 1970): every regular
 -- file's modification time, through every directory but .git, build and .cubical-store, to depth
@@ -298,19 +301,13 @@ h-capture : List (List Word) → Proc W (Word × List Word)
 h-capture args =
   bind (h-read "/proc/self/environ") (λ env →
   bind (h-ptrs args) (λ argv → bind (h-ptrs (h-env-block env)) (λ envp →
-  bind (load-at argv) (λ path →
-  bind (alloc-bytes #8) (λ fds → bind (sys-call #293 fds #0 #0 #0 #0 #0) (λ pr →
+  bind (alloc-bytes #8) (λ fds → bind (sys-call #293 fds #524288 #0 #0 #0 #0) (λ pr →
   bind (load-at fds) (λ both →
-  bind (sys-call #57 #0 #0 #0 #0 #0 #0) (λ pid →
-  if weq pid #0 then
-    bind (sys-call #33 (wshr both #32) #1 #0 #0 #0 #0) (λ a → bind (sys-call #33 (wshr both #32) #2 #0 #0 #0 #0) (λ b →
-    bind (sys-call #3 (wand both #4294967295) #0 #0 #0 #0 #0) (λ c →
-    bind (sys-call #59 path argv envp #0 #0 #0) (λ e → bind (exit #127) (λ u → ret {lzero} {W} (#127 , nil))))))
-  else
-    bind (sys-call #3 (wshr both #32) #0 #0 #0 #0 #0) (λ c →
-    bind (h-read-fd (wand both #4294967295) (toNat #4096)) (λ out →
-    bind (sys-call #3 (wand both #4294967295) #0 #0 #0 #0 #0) (λ c2 →
-    bind (h-wait pid) (λ s → ret {lzero} {W} (s , out)))))))))))))
+  bind (spawn-at argv envp (wshr both #32)) (λ pid →
+  bind (sys-call #3 (wshr both #32) #0 #0 #0 #0 #0) (λ c →
+  bind (h-read-fd (wand both #4294967295) (toNat #4096)) (λ out →
+  bind (sys-call #3 (wand both #4294967295) #0 #0 #0 #0 #0) (λ c2 →
+  if wlt pid #9223372036854775808 then bind (h-wait pid) (λ s → ret {lzero} {W} (s , out)) else ret {lzero} {W} (#127 , out)))))))))))
 -- the names in a directory (not . and ..)
 h-dir-entries : Word → Word → Word → Nat → Proc W (List (List Word))
 h-dir-entries buf off n zero = ret nil
@@ -351,3 +348,8 @@ h-before p (cons x r) = if h-prefix p (cons x r) then nil else cons x (h-before 
 -- a file removed
 h-unlink : List Word → Proc W Unit
 h-unlink path = bind (h-cstr path) (λ p → bind (sys-call #87 p #0 #0 #0 #0 #0) (λ r → ret unit))
+-- the first n of a list
+h-take-n : {A : Type} → Nat → List A → List A
+h-take-n zero xs = nil
+h-take-n (suc n) nil = nil
+h-take-n (suc n) (cons x r) = cons x (h-take-n n r)
