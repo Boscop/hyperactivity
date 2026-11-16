@@ -268,6 +268,11 @@ app-join Γ1 Γ2 pΓ a1 b1 a2 b2 pa pb R1 R2 mf ma = λ i →
           (λ k → PathM (pΓ k) (Sem (pa k)) (fmapM (pΓ k) (TV (pa k)) (Sem (pa k)) (λ q → fst q) (ma k)) (fmapM (pΓ k) (TV (s-fam f-pi (pa k) (pb k))) (Sem (pa k)) (app-ty (pa k) (pb k)) (mf k)))
           (λ p q → Mean-set Γ2 (Sem a2) (fst (shape-sets a2)) (fmapM Γ2 (TV a2) (Sem a2) (λ q → fst q) (ma i1)) (fmapM Γ2 (TV (s-fam f-pi a2 b2)) (Sem a2) (app-ty a2 b2) (mf i1)) p q)
           (app-coh Γ1 a1 b1 R1) (app-coh Γ2 a2 b2 R2) i))
+o-bool : (A : Type) (b : Bool) → (b ≡ true → A) → Opt A
+o-bool A true k = some (k (λ i → true))
+o-bool A false k = none
+dnf-opt : (f g : DNF) → Opt (f ≡ g)
+dnf-opt f g = o-bool (f ≡ g) (dnf-eq f g) (dnf-eq-sound f g)
 -- determinacy: two derivations of one code over a path of contexts have paths of shapes, codes and meanings
 DetR : (J1 J2 : Jdg) → PathP (λ i → CCtx) (fst (snd J1)) (fst (snd J2)) → Type 1
 DetR J1 J2 pΓ = (pk : PathP (λ i → JK) (fst J1) (fst J2)) × (ps : PathP (λ i → TyShape) (fst (snd (snd J1))) (fst (snd (snd J2)))) ×
@@ -328,6 +333,15 @@ det-rule r-app t (x-app Γ2 a2 b2 R2 f2 c2) ps2 (x-app Γ1 a1 b1 R1 f1 c1) p1 p�
                (λ i → s-fam f-pi (sh-a (fst (snd rf) i)) (sh-b (fst (snd rf) i))) (snd (snd (snd rf))))
             (rebase Γ1 Γ2 pΓ j-tm j-tm a1 a2 (fmapM Γ1 (AppV a1 b1) (TV a1) (app-a a1 b1) R1) (fmapM Γ2 (AppV a2 b2) (TV a2) (app-a a2 b2) R2)
                (fst ra) (λ i → j-tm) (fst (snd ra)) (λ i → sh-a (fst (snd rf) i)) (snd (snd (snd ra)))))))
+det-rule r-papp t (x-papp Γ2 a2 P2 q2 f2 cf2 nc2 Y2 y2) ps2 (x-papp Γ1 a1 P1 q1 f1 cf1 nc1 Y1 y1) p1 pΓ =
+  d-bind (DetR (j-tm , Γ1 , s-path a1 , q1 , P1) (j-tm , Γ2 , s-path a2 , q2 , P2) pΓ)
+    (DetR (concl r-papp (x-papp Γ1 a1 P1 q1 f1 cf1 nc1 Y1 y1)) (concl r-papp (x-papp Γ2 a2 P2 q2 f2 cf2 nc2 Y2 y2)) pΓ)
+    (fst p1 (j-tm , Γ2 , s-path a2 , q2 , P2) (fst ps2) pΓ)
+    (λ r → o-bind (f1 ≡ f2) (DetR (concl r-papp (x-papp Γ1 a1 P1 q1 f1 cf1 nc1 Y1 y1)) (concl r-papp (x-papp Γ2 a2 P2 q2 f2 cf2 nc2 Y2 y2)) pΓ) (dnf-opt f1 f2)
+       (λ pf → c-derived ((λ i → j-tm) , (λ i → sh-a (fst (snd r) i)) , (λ i → cpapp (fst (snd (snd r)) i) (dnf-code (pf i))) ,
+          λ i → comp (λ j → Mean (pΓ i) (TV (sh-a (fst (snd r) i)))) (λ j → [ i = 0 ↦ y1 j , i = 1 ↦ y2 j ])
+                  (papp-mean (pΓ i) (sh-a (fst (snd r) i)) (pf i)
+                     (rebase Γ1 Γ2 pΓ j-tm j-tm (s-path a1) (s-path a2) P1 P2 (fst r) (λ i → j-tm) (fst (snd r)) (λ i → s-path (sh-a (fst (snd r) i))) (snd (snd (snd r))) i)))))
 det-rule r t x2 ps2 x1 p1 pΓ = c-refused
 -- the second derivation fixed (rule r2, data x2), read at the first's rule r0
 DCast : (t : Tag) (r2 : DRule) (x2 : RData r2) (r0 : DRule) → Type 1
