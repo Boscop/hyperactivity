@@ -13,5 +13,5 @@ goal's statement in `task-graph/hyperactivity.cub`, an instruction to agents int
 insight reached with him is placed the same way. The aim is that an agent finishing the walk holds
 his complete insight.
 
-Write no code in any language but hyperactive (`.cub`). Nothing new in Python, shell or C:
-the pre-commit hook, lib/guard.cub, refuses it.
+Write no code in any language but hyperactive (`.cub`): no Python, no shell. The core C changes
+only to fix the core, each change recorded in the guard's list (lib/guard.cub, the pre-commit hook).

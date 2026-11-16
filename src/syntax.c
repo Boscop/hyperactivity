@@ -1958,6 +1958,93 @@ static void p_decl_in(void) {
 }
 /* a file in the surface language. Loading is reentrant (an import loads another file): each file
  * has its own tokens. skip_imports: its imports were loaded already (load_file loads them first). */
+/* ---------------- the written code, in the store ----------------
+ * (2026-11-15, Avik: code is objects referred to by hash, with zero file paths; the reader is the
+ * one reader.) As the reader reads a file's declarations it cuts the file into pieces, every byte in
+ * exactly one: each declaration with the comment directly above it (its statement), the lines of a
+ * name declared on consecutive items (a signature, a comment, its equations) as one piece, and the
+ * text between declarations as pieces of its own. Each piece is an object of the store under the
+ * SHA-256 of its bytes (<hash>/text); a declared name points to its piece (written/<name in hex>);
+ * the file is the list of its pieces' hashes, one per line, an object too (<hash>/module), and
+ * modules/<path from the repository root, in hex> points to it. A file is these objects rendered. */
+typedef struct { const char *name; int first, last; } WItem;
+static WItem *witems; static int nwitems, capwitems;
+static void w_hex(SBuf *o, const char *s) { for (const unsigned char *c = (const unsigned char *)s; *c; c++) sb_fmt(o, "%02x", *c); }
+static void w_item(int first, int end) {
+    const char *name = NULL;
+    Tok *t = &lt[first];
+    if (t->k == X_ID && t->s[0] != '#') {
+        if (!strcmp(t->s, "data") || !strcmp(t->s, "codata") || !strcmp(t->s, "record") || !strcmp(t->s, "primitive")) {
+            if (first + 1 < nlt && lt[first + 1].k == X_ID) name = lt[first + 1].s;
+        } else if (!reserved(t->s)) name = t->s;
+    }
+    int last = t->line;
+    for (int i = first; i < end && i < nlt; i++) if (lt[i].k != X_VO && lt[i].k != X_VS && lt[i].k != X_VC && lt[i].k != X_EOF && lt[i].line > last) last = lt[i].line;
+    GROW(witems, capwitems, (size_t)nwitems + 1);
+    witems[nwitems++] = (WItem){ name, t->line, last };
+}
+/* a piece stored: its bytes under their hash; the hash returned */
+static void w_piece(const char *b, size_t n, char out[65]) {
+    key_hash(b, n, out);
+    char *p = store_path(out, "text"); if (!p) return;
+    struct stat st; if (stat(p, &st) != 0) { char *s = malloc(n + 1); memcpy(s, b, n); s[n] = 0; store_write(out, "text", s, false); free(s); }
+    free(p);
+}
+/* a pointer file (written/<hex>, modules/<hex>, bound/<hex>) set to v when it is not v already */
+static void w_point(const char *dir, const char *name, const char *v) {
+    SBuf hx = {0}; w_hex(&hx, name);
+    if (!hx.b || hx.n > 250) { free(hx.b); return; }
+    char *cur = store_read(dir, hx.b);
+    if (!cur || strcmp(cur, v)) store_write(dir, hx.b, v, false);
+    free(cur); free(hx.b);
+}
+/* the path from the repository root (the nearest directory above holding .git), else as given */
+static char *w_rel(const char *path) {
+    char *rp = realpath(path, NULL); if (!rp) return strdup(path);
+    char *d = strdup(rp); char *slash;
+    while ((slash = strrchr(d, '/')) && slash != d) {
+        *slash = 0;
+        char *g = malloc(strlen(d) + 6); sprintf(g, "%s/.git", d);
+        struct stat st; int found = stat(g, &st) == 0; free(g);
+        if (found) { char *r = strdup(rp + strlen(d) + 1); free(d); free(rp); return r; }
+    }
+    free(d); return rp;
+}
+static void w_file(const char *text, const char *path) {
+    if (!store_dir()) { nwitems = 0; return; }
+    size_t len = strlen(text);
+    int nl = 0; size_t *off = malloc((len + 2) * sizeof(size_t));
+    off[++nl] = 0;   /* off[k]: where line k begins (1-based) */
+    for (size_t i = 0; i < len; i++) if (text[i] == '\n' && i + 1 < len) off[++nl] = i + 1;
+    off[nl + 1] = len;
+    /* each item's lines: the comment directly above it, then its own; a name's consecutive items one */
+    WItem *ps = malloc((size_t)(nwitems + 1) * sizeof(WItem)); int np = 0; int prev_end = 0;
+    for (int i = 0; i < nwitems; i++) {
+        int a = witems[i].first, b = witems[i].last;
+        if (a < 1 || b > nl || a <= prev_end) continue;
+        while (a - 1 > prev_end && off[a] - off[a - 1] >= 2 && text[off[a - 1]] == '-' && text[off[a - 1] + 1] == '-') a--;
+        if (np && witems[i].name && ps[np - 1].name && !strcmp(ps[np - 1].name, witems[i].name) && a == ps[np - 1].last + 1) { ps[np - 1].last = b; prev_end = b; continue; }
+        ps[np++] = (WItem){ witems[i].name, a, b }; prev_end = b;
+    }
+    SBuf mod = {0}; char h[65]; int c = 1;
+    for (int i = 0; i <= np; i++) {
+        int a = i < np ? ps[i].first : nl + 1;
+        if (a > c) { w_piece(text + off[c], off[a] - off[c], h); sb_put(&mod, h); sb_put(&mod, "\n"); }
+        if (i == np) break;
+        w_piece(text + off[ps[i].first], off[ps[i].last + 1] - off[ps[i].first], h);
+        sb_put(&mod, h); sb_put(&mod, "\n");
+        if (ps[i].name) w_point("written", ps[i].name, h);
+        c = ps[i].last + 1;
+    }
+    if (mod.b) {
+        char mh[65]; key_hash(mod.b, mod.n, mh);
+        char *p = store_path(mh, "module");
+        struct stat st; if (p && stat(p, &st) != 0) store_write(mh, "module", mod.b, false);
+        free(p);
+        char *rel = w_rel(path); w_point("modules", rel, mh); free(rel);
+    }
+    free(mod.b); free(ps); free(off); nwitems = 0;
+}
 static void load_surface(const char *text, const char *path, bool imports_only) {
     Tok *s_xt = xt, *s_lt = lt; int s_nxt = nxt, s_capxt = capxt, s_nlt = nlt, s_caplt = caplt, s_xp = xp;
     char **s_later = xlater; int s_nlater = nxlater, s_caplater = capxlater;
@@ -1982,8 +2069,11 @@ static void load_surface(const char *text, const char *path, bool imports_only) 
             while (P0()->k != X_EOF && !(d == 0 && P0()->k == X_VS)) { if (P0()->k == X_VO) d++; else if (P0()->k == X_VC) d--; NX(); }
             continue;
         }
+        int first = xp;
         p_decl();
+        if (!imports_only) w_item(first, xp);
     }
+    if (!imports_only) w_file(text, path);
     xt = s_xt; nxt = s_nxt; capxt = s_capxt; lt = s_lt; nlt = s_nlt; caplt = s_caplt; xp = s_xp;
     xlater = s_later; nxlater = s_nlater; capxlater = s_caplater; x_file = s_file; x_typed = s_typed; x_fail_next = s_fail;
 }

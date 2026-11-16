@@ -338,6 +338,10 @@ static void names_load(void) {
 }
 static void names_bind(const char *name, const char *key) {
     if (!store_dir()) return;
+    /* bound/<name in hex>: the name's key now, read by name with no log to scan */
+    SBuf hx = {0}; for (const unsigned char *c = (const unsigned char *)name; *c; c++) sb_fmt(&hx, "%02x", *c);
+    if (hx.b && hx.n <= 250) { char *cur = store_read("bound", hx.b); if (!cur || strcmp(cur, key)) store_write("bound", hx.b, key, false); free(cur); }
+    free(hx.b);
     names_load();
     int i; for (i = 0; i < nnb && strcmp(NB[i].name, name); i++) ;
     if (i < nnb && NB[i].key && !strcmp(NB[i].key, key)) return;
