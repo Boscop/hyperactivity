@@ -1,0 +1,152 @@
+-- lib/nbe-det.cub — determinacy of derivations over the rule table, conversion from it, and the checker:
+-- two derivations of one code over a path of contexts have paths of kinds, shapes, codes and meanings
+-- (a decision: refusing is sound). det folds the first derivation and, inside, the second, so the second
+-- is read at its own rule with its judgment concl r2 x2 judgmentally; rule-cast meets the two rules. Each
+-- rule contributes a det-rule clause (Bool types and constructors so far); conv-det reifies two types,
+-- decides determinacy at nf and straightens the kind and shape loops (sets, by Hedberg).
+import "nbe.cub"
+-- determinacy of derivations (scratch): the second derivation, inverted at the first's rule
+bool-cast : (b b' : Bool) (P : Bool → Type 1) → P b' → Dec1 (P b)
+bool-cast true true P x = c-derived x
+bool-cast false false P x = c-derived x
+bool-cast b b' P x = c-refused
+rule-cast : (r r' : DRule) (P : DRule → Type 1) → P r' → Dec1 (P r)
+rule-cast r-var r-var P x = c-derived x
+rule-cast r-app r-app P x = c-derived x
+rule-cast r-fst r-fst P x = c-derived x
+rule-cast r-snd r-snd P x = c-derived x
+rule-cast r-case r-case P x = c-derived x
+rule-cast r-ne r-ne P x = c-derived x
+rule-cast (r-con b) (r-con b') P x = bool-cast b b' (λ c → P (r-con c)) x
+rule-cast r-lam r-lam P x = c-derived x
+rule-cast r-pair r-pair P x = c-derived x
+rule-cast r-plam r-plam P x = c-derived x
+rule-cast r-papp r-papp P x = c-derived x
+rule-cast (r-pend b) (r-pend b') P x = bool-cast b b' (λ c → P (r-pend c)) x
+rule-cast r-ty-bool r-ty-bool P x = c-derived x
+rule-cast (r-ty-fam f) (r-ty-fam f') P x = fam-cast f f' (λ g → P (r-ty-fam g)) x
+rule-cast r-ty-path r-ty-path P x = c-derived x
+rule-cast r r' P x = c-refused
+-- a derivation at tag t of J2, read at rule r: its data, its premises, and its judgment as concl
+Inv : (r : DRule) (t : Tag) (J2 : Jdg) → Type 1
+Inv r t J2 = (x : RData r) × AllP (λ t' J → D (g-one t' J)) (tagged t (premJ r x)) × PathP (λ i → Jdg) (concl r x) J2
+allp-map : (P Q : Tag → Jdg → Type 1) → ((t : Tag) (J : Jdg) → P t J → Q t J) → (ps : TJL) → AllP P ps → AllP Q ps
+allp-map P Q f tj-nil a = one
+allp-map P Q f (tj-cons t J ps) a = (f t J (fst a) , allp-map P Q f ps (snd a))
+-- inversion as a fold: each derivation rebuilt beside its reading at any rule
+DInv : Tag → Jdg → Type 1
+DInv t J = D (g-one t J) × ((r : DRule) → Dec1 (Inv r t J))
+inv-alg : (r2 : DRule) (t : Tag) (x2 : RData r2) → isTrue (kallows (rkind r2) t) → AllP DInv (tagged t (premJ r2 x2)) → DInv t (concl r2 x2)
+inv-alg r2 t x2 w a =
+  (by-rule r2 t x2 w (allp-map DInv (λ t' J → D (g-one t' J)) (λ t' J q → fst q) (tagged t (premJ r2 x2)) a) ,
+   λ r → rule-cast r r2 (λ r0 → Inv r0 t (concl r2 x2))
+           (x2 , allp-map DInv (λ t' J → D (g-one t' J)) (λ t' J q → fst q) (tagged t (premJ r2 x2)) a , λ i → concl r2 x2))
+inv : (r : DRule) (t : Tag) (J2 : Jdg) → D (g-one t J2) → Dec1 (Inv r t J2)
+inv r t J2 d = snd (d-fold DInv inv-alg d) r
+-- shapes and judgment kinds have decidable equality, so they are sets (Hedberg's Discrete→isSet)
+apart : (A : Type) (f : A → Bool) (a b : A) → isTrue (f a) → Neg (isTrue (f b)) → Neg (a ≡ b)
+apart A f a b x k p = k (subst {lzero} {lzero} {A} {λ y → isTrue (f y)} {a} {b} p x)
+fam-pi? : FamF → Bool
+fam-pi? f-pi = true
+fam-pi? f-sig = false
+fam-disc : Discrete FamF
+fam-disc f-pi f-pi = yes (λ i → f-pi)
+fam-disc f-sig f-sig = yes (λ i → f-sig)
+fam-disc f-pi f-sig = no (apart FamF fam-pi? f-pi f-sig unit (λ e → e))
+fam-disc f-sig f-pi = no (apart FamF (λ f → not (fam-pi? f)) f-sig f-pi unit (λ e → e))
+jk-tm? : JK → Bool
+jk-tm? j-tm = true
+jk-tm? j-ty = false
+jk-disc : Discrete JK
+jk-disc j-tm j-tm = yes (λ i → j-tm)
+jk-disc j-ty j-ty = yes (λ i → j-ty)
+jk-disc j-tm j-ty = no (apart JK jk-tm? j-tm j-ty unit (λ e → e))
+jk-disc j-ty j-tm = no (apart JK (λ k → not (jk-tm? k)) j-ty j-tm unit (λ e → e))
+sh-fm : TyShape → FamF
+sh-fm (s-fam f a b) = f
+sh-fm s = f-pi
+sh-a : TyShape → TyShape
+sh-a (s-fam f a b) = a
+sh-a (s-path a) = a
+sh-a s = s-bool
+sh-b : TyShape → TyShape
+sh-b (s-fam f a b) = b
+sh-b s = s-bool
+sh-bool? : TyShape → Bool
+sh-bool? s-bool = true
+sh-bool? s = false
+sh-fam? : TyShape → Bool
+sh-fam? (s-fam f a b) = true
+sh-fam? s = false
+sh-path? : TyShape → Bool
+sh-path? (s-path a) = true
+sh-path? s = false
+dec-fam : (f f' : FamF) (a a' b b' : TyShape) → Dec (f ≡ f') → Dec (a ≡ a') → Dec (b ≡ b') → Dec (s-fam f a b ≡ s-fam f' a' b')
+dec-fam f f' a a' b b' (yes p) (yes q) (yes r) = yes (λ i → s-fam (p i) (q i) (r i))
+dec-fam f f' a a' b b' (no n) q r = no (λ e → n (λ i → sh-fm (e i)))
+dec-fam f f' a a' b b' (yes p) (no n) r = no (λ e → n (λ i → sh-a (e i)))
+dec-fam f f' a a' b b' (yes p) (yes q) (no n) = no (λ e → n (λ i → sh-b (e i)))
+dec-path : (a a' : TyShape) → Dec (a ≡ a') → Dec (s-path a ≡ s-path a')
+dec-path a a' (yes p) = yes (λ i → s-path (p i))
+dec-path a a' (no n) = no (λ e → n (λ i → sh-a (e i)))
+shape-disc : Discrete TyShape
+shape-disc s-bool s-bool = yes (λ i → s-bool)
+shape-disc (s-fam f a b) (s-fam f' a' b') = dec-fam f f' a a' b b' (fam-disc f f') (shape-disc a a') (shape-disc b b')
+shape-disc (s-path a) (s-path a') = dec-path a a' (shape-disc a a')
+shape-disc s-bool s = no (apart TyShape sh-bool? s-bool s unit (λ e → e))
+shape-disc (s-fam f a b) s = no (apart TyShape sh-fam? (s-fam f a b) s unit (λ e → e))
+shape-disc (s-path a) s = no (apart TyShape sh-path? (s-path a) s unit (λ e → e))
+-- determinacy: two derivations of one code over a path of contexts have paths of shapes, codes and meanings
+DetR : (J1 J2 : Jdg) → PathP (λ i → CCtx) (fst (snd J1)) (fst (snd J2)) → Type 1
+DetR J1 J2 pΓ = (pk : PathP (λ i → JK) (fst J1) (fst J2)) × (ps : PathP (λ i → TyShape) (fst (snd (snd J1))) (fst (snd (snd J2)))) ×
+  (pc : PathP (λ i → Code) (fst (snd (snd (snd J1)))) (fst (snd (snd (snd J2))))) ×
+  PathP (λ i → Mean (pΓ i) (JZ (pk i) (ps i))) (snd (snd (snd (snd J1)))) (snd (snd (snd (snd J2))))
+Pdet : Tag → Jdg → Type 1
+Pdet t J1 = (J2 : Jdg) → D (g-one t J2) → (pΓ : PathP (λ i → CCtx) (fst (snd J1)) (fst (snd J2))) → Dec1 (DetR J1 J2 pΓ)
+Dg : Tag → Jdg → Type 1
+Dg t J = D (g-one t J)
+-- the per-rule clause: both derivations at rule r, the first's premises decided, the second's at hand
+DetRule : (r : DRule) (t : Tag) (x2 : RData r) → Type 1
+DetRule r t x2 = (x1 : RData r) → AllP Pdet (tagged t (premJ r x1)) → (pΓ : PathP (λ i → CCtx) (fst (snd (concl r x1))) (fst (snd (concl r x2)))) →
+  Dec1 (DetR (concl r x1) (concl r x2) pΓ)
+mean1-pathP : (Γ1 Γ2 : CCtx) (pΓ : PathP (λ i → CCtx) Γ1 Γ2) (B1 : Mean Γ1 One1) (B2 : Mean Γ2 One1) → PathP (λ i → Mean (pΓ i) One1) B1 B2
+mean1-pathP Γ1 Γ2 pΓ B1 B2 = isProp→PathP (λ i → Mean (pΓ i) One1) (mean1-path Γ2) B1 B2
+det-rule : (r : DRule) (t : Tag) (x2 : RData r) → AllP Dg (tagged t (premJ r x2)) → DetRule r t x2
+det-rule r-ty-bool t (x-unit Γ2 B2) ps2 (x-unit Γ1 B1) p1 pΓ =
+  c-derived ((λ i → j-ty) , (λ i → s-bool) , (λ i → c-bool) , mean1-pathP Γ1 Γ2 pΓ B1 B2)
+det-rule (r-con b) t (x-unit Γ2 B2) ps2 (x-unit Γ1 B1) p1 pΓ =
+  c-derived ((λ i → j-tm) , (λ i → s-bool) , (λ i → c-con b) , λ i → fmapM (pΓ i) One1 (TV s-bool) (bool-v b) (mean1-pathP Γ1 Γ2 pΓ B1 B2 i))
+det-rule r t x2 ps2 x1 p1 pΓ = c-refused
+-- the second derivation fixed (rule r2, data x2), read at the first's rule r0
+DCast : (t : Tag) (r2 : DRule) (x2 : RData r2) (r0 : DRule) → Type 1
+DCast t r2 x2 r0 = (x1 : RData r0) → AllP Pdet (tagged t (premJ r0 x1)) →
+  (pΓ : PathP (λ i → CCtx) (fst (snd (concl r0 x1))) (fst (snd (concl r2 x2)))) → Dec1 (DetR (concl r0 x1) (concl r2 x2) pΓ)
+-- the second derivation, folded: at its rule r2 it answers the first's rule r by rule-cast
+DQ : Tag → Jdg → Type 1
+DQ t J2 = D (g-one t J2) × ((r : DRule) (x1 : RData r) → AllP Pdet (tagged t (premJ r x1)) →
+  (pΓ : PathP (λ i → CCtx) (fst (snd (concl r x1))) (fst (snd J2))) → Dec1 (DetR (concl r x1) J2 pΓ))
+dq-alg : (r2 : DRule) (t : Tag) (x2 : RData r2) → isTrue (kallows (rkind r2) t) → AllP DQ (tagged t (premJ r2 x2)) → DQ t (concl r2 x2)
+dq-alg r2 t x2 w a =
+  (by-rule r2 t x2 w (allp-map DQ Dg (λ t' J q → fst q) (tagged t (premJ r2 x2)) a) ,
+   λ r x1 p1 pΓ →
+     d-bind (DCast t r2 x2 r) (DetR (concl r x1) (concl r2 x2) pΓ)
+       (rule-cast r r2 (DCast t r2 x2) (det-rule r2 t x2 (allp-map DQ Dg (λ t' J q → fst q) (tagged t (premJ r2 x2)) a)))
+       (λ g → g x1 p1 pΓ))
+-- the first derivation folded
+det-alg : (r : DRule) (t : Tag) (x1 : RData r) → isTrue (kallows (rkind r) t) → AllP Pdet (tagged t (premJ r x1)) → Pdet t (concl r x1)
+det-alg r t x1 w p1 = λ J2 d2 pΓ → snd (d-fold DQ dq-alg d2) r x1 p1 pΓ
+det : (t : Tag) {J1 : Jdg} → D (g-one t J1) → Pdet t J1
+det t d = d-fold Pdet det-alg d
+-- conversion of two types: reify both, decide determinacy at nf, and straighten the kind and shape loops
+-- (both sets) into a path at the one shape
+det-straight : (Γ : CCtx) (s : TyShape) (T T' : Mean Γ (Sem s)) (pk : PathP (λ i → JK) j-ty j-ty) (ps : PathP (λ i → TyShape) s s) →
+  PathP (λ i → Mean Γ (JZ (pk i) (ps i))) T T' → PathM Γ (Sem s) T T'
+det-straight Γ s T T' pk ps m =
+  comp (λ j → PathP (λ i → Mean Γ (JZ (Discrete→isSet jk-disc j-ty j-ty pk (λ i → j-ty) j i) (Discrete→isSet shape-disc s s ps (λ i → s) j i))) T T') (λ j → []) m
+conv-det : Cv
+conv-det Γ s T T' cT cT' =
+  d-bind (DetR (j-ty , Γ , s , fst (fst (rr s) Γ T cT) , T) (j-ty , Γ , s , fst (fst (rr s) Γ T' cT') , T') (λ i → Γ)) (PathM Γ (Sem s) T T')
+    (det t-nf {(j-ty , Γ , s , fst (fst (rr s) Γ T cT) , T)} (snd (fst (rr s) Γ T cT)) (j-ty , Γ , s , fst (fst (rr s) Γ T' cT') , T') (snd (fst (rr s) Γ T' cT')) (λ i → Γ))
+    (λ r → c-derived (det-straight Γ s T T' (fst r) (fst (snd r)) (snd (snd (snd r)))))
+check-code : Rec
+check-code = elab-n conv-det elab-fuel
