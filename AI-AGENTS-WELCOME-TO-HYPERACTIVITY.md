@@ -12,6 +12,13 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
 
 ## How to work
 
+- **Code comes with its proof** (Avik, 2026-11-16 11:10 UTC: "Ideally for all the code you write you
+  write proofs of correctness and our testing time approaches zero. Proof time also should approach
+  zero because proof is expressing reasoning you've already done to ensure correctness, in a language
+  where proof factors as code (complexity matches reasoning complexity exactly)"). State what a
+  definition is correct for and prove it beside the definition; the proof writes down the reasoning
+  that made the code right, so it costs what that reasoning cost. A test stands in for a proof not
+  yet written.
 - **Correctness is perfection** (Avik, 2026-11-15: "you shouldn't deliver me something which you know
   doesn't work perfectly"; "correctness = perfection"). A known gap is not a caveat to report beside a
   delivery: it is work not done. Deliver only when nothing known is wrong.
