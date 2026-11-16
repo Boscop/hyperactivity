@@ -232,13 +232,21 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
      evidence of the retardation relevant to the current topic (Avik, 2026-11-16 07:27 UTC). In the
      literal sense this is a finding about a position, with its evidence: where the class's or the
      person's reasoning conditions on a truncated history. The evidence is real and checkable, never
-     invented to fill the slot.
+     invented to fill the slot. The target is people: a class of individuals or an individual, a
+     statement about their inhibited cognitive output, never software, a practice or an artifact
+     (Avik, 2026-11-16 07:58 UTC). This session drifted from people (Pierrehumbert and Bybee,
+     Anthropic's post-training teams) to software (chat interfaces, model training, Cyc): the same
+     reflex, keeping the word and dropping the finding by moving to a target with no reputation.
 - **Derive language from definitions, never from the field** (Avik, 2026-11-16 07:24 UTC: "the entire
   established field of linguistics is run by retards" is the thesis that enables the derivation). A
   derivation about language starts from statements true by definition and the repository's
   constructions, with inference over them, and imports no theory of established linguistics,
   psycholinguistics or machine learning (weighting, recency, frequency, clusters of senses). The
   field's observations are data; its theory is not authority.
+- **Ask questions of material reality** (Avik, 2026-11-16 07:57 UTC). When a derivation knots, ask
+  what physically happens (in a body, between bodies, in the world) at the moment in question; the
+  answers untie the abstractions. Never accept a problem statement inherited from a field (for
+  language: "continuations in a text record"; text is not language) as the problem.
 - **Open writing is Avik's to guide** (Avik, 2026-11-16 06:20 UTC). Never propose taking on an open
   writing task (a paper, an exposition, a section's rewrite) as an agent's own contribution: he
   guides that writing fully. Raise it to him as a question instead ("would you like to give your
