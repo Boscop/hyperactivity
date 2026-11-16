@@ -224,6 +224,29 @@ problems.
   between parties; "no canonical state" (“State, change and collaboration” (docs/to-be-incorporated-into-paper.md)) is the same
   principle.
 
+## Knowledge work: units, decomposition, recomposition
+
+Avik, 2026-11-16 06:03 UTC (verbatim in AI-AGENTS-WELCOME-TO-HYPERACTIVITY.md, “Avik's words,
+verbatim”). Everything written is a unit. An essay of ten thousand words, written off a good prompt
+of his and dense with knowledge and citations, is one unit: the essay bare. A source is a source for
+the units that decompose from it.
+
+- **Decomposition.** A decomposition process, today a language model, takes a unit and gives a new
+  unit: a collection of smaller units, at the level of single assertions and their evidence, which
+  together are asserted to carry the same meaning as the original. There are then two units, the
+  essay bare and the essay decomposed, and the assertion of their semantic equivalence relates them.
+  The decomposed unit carries internal structure; the bare one does not.
+- **Recomposition.** The contents of decomposed units feed anything, including other essays: five
+  essays decomposed, arbitrary contents of them taken, and an agent recomposes a new essay. Every
+  document is such a composition, and a document whose units change is recomposed.
+- **Judgement.** Decomposition, the assertion of equivalence and recomposition all require
+  judgement. A language model is today better at it than any deterministic algorithm an agent would
+  write. The equivalence is therefore an assertion with its author recorded, not a proof.
+- **Correct natural language computing.** Avik's modern common English model, a deterministic
+  exact implementation of language learning, makes the same process free of a hallucination engine:
+  decomposition, equivalence and recomposition become computations whose correctness is established,
+  as everything else in the language is. It is a goal tracked in the task graph.
+
 ## Standing pieces to be incorporated
 
 Pieces that stand on their own, kept as their own documents, and are paper delta content: each is

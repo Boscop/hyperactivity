@@ -32,6 +32,12 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   which it is and that no copy is here. The same holds for the sections of any document, plans and any
   other source: a number goes with the title it numbers. Nothing is identified by a bare number
   (no t1, t2, …).
+- **Decomposing and recomposing knowledge is judgement** (Avik, 2026-11-16 06:03 UTC, “Avik's words,
+  verbatim” below: "all of this requires judgement. for now an llm is better than any deterministic
+  algorithm you write"). An essay is one unit; its decomposition into assertion and evidence units is
+  done by a model's judgement and is a second unit, asserted semantically equivalent to the first.
+  Write no deterministic decomposer or recomposer; that is the work of correct natural language
+  computing (the task graph's correct-natural-language-computing).
 - **Keep Avik's words verbatim** (“Avik's words, verbatim” below).
   - Never paraphrase inside quotation marks.
   - A long message is appended to “Avik's words, verbatim” below, not put in a new file.
@@ -1486,3 +1492,7 @@ The consolidated piece is this, written through in the two registers you keep di
 #### 2026-11-16 05:09 UTC (taking control of LLMs: hyperactivity as the discipline)
 
 > "post-training-agents" should be clearer that this is my entire initiative of taking control of LLM having total agency over the wiring of system and dataflows - i.e. openai and anthropic's tech is retarded as a knowledge work product truly; simply running Kimi etc through my own designed conversation management infra etc (hyperactivity actually) has been a longstanding intention (the bar for intelligence is not whatever they call "capability" the latent capabilities of these llms are not even brought to light and harness (read: leash for an untrustworthy subhuman to prevent damage from agency). the term harness is slave-coded and I love it. but I will use this to bring out intelligence. consider it more giving agents a discipline by which they can excel. hyperactivity product is exactly that.
+
+#### 2026-11-16 06:03 UTC (an essay is a unit; its decomposition is a second unit asserted equivalent to it; correct natural language computing)
+
+> if anything, the source is a source for the units that decompose from it if that makes sense. i.e. you can write an 10k essay off a good prompt from me very quickly and it will be extremely rich in knowledge content citations etc. that is a unit.   that can be passed to a decomposition process (which may be an llm) which then provides a new unit, which is a collection of units which in total we assert carry semantic equivalence to the original paper unit. so now we have two units: paper bare, & paper decomposed (with decomposed paper carrying internal structure of many smaller assertion/evidence level units). then paper-decomposed contents can feed anything - including other essays (i.e. I can decompose 5 essays take arbitrary contents of them and have an agent recompose a new essay. all of this requires judgement. for now an llm is better than any deterministic algorithm you write. once I complete the modern common English model / deterministic exact language learning impl even this will be free of a hallucination-engine. that too should be a clear goal we're tracking/decomposing - correct natural language computing.
