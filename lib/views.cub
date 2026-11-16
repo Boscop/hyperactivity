@@ -248,7 +248,106 @@ v-check-report ps = bind (h-out (v-lines ps)) (λ u → bind (h-out (v-summary p
 v-check : List Word → Proc W Unit
 v-check st = bind (v-statement-problems st (list-map (λ e → fst e) v-all)) (λ sp →
   v-check-report (list-append (v-step-all v-node-problems (list-map (λ e → fst e) v-all)) sp))
+-- the graph as JSON, for the page that draws it (lib/server.cub, tools/task-graph-view.html): each
+-- node with its sentence, its parents, its statement and the findings it records (Known …), the
+-- questions it puts to Avik, its state in the order of work (first, ready, last, waiting, goal,
+-- resolved), its layer, what it unblocks and waits on, its essential context, and its open tasks
+j-hex : Word → Word
+j-hex d = if wlt d #10 then wadd d #48 else wadd d #87
+j-esc : List Word → List Word
+j-esc nil = nil
+j-esc (cons x r) =
+  if weq x #34 then cons #92 (cons #34 (j-esc r)) else
+  if weq x #92 then cons #92 (cons #92 (j-esc r)) else
+  if wlt x #32 then list-append "\u00" (cons (j-hex (wshr x #4)) (cons (j-hex (wand x #15)) (j-esc r))) else cons x (j-esc r)
+j-str : List Word → List Word
+j-str s = cons #34 (list-append (j-esc s) (cons #34 nil))
+j-arr : List (List Word) → List Word
+j-arr xs = list-append "[" (list-append (v-joined "," xs) "]")
+j-strs : List (List Word) → List Word
+j-strs xs = j-arr (list-map j-str xs)
+j-field : List Word → List Word → List Word
+j-field k v = list-append (j-str k) (list-append ":" v)
+j-obj : List (List Word) → List Word
+j-obj fs = list-append "{" (list-append (v-joined "," fs) "}")
+-- the statement as one line, without its opening name (…): and split at each Known (date…
+v-stmt-line : List (List Word) → List Word
+v-stmt-line ls = v-joined " " (list-map (λ l → h-rev (h-trim (h-rev l nil)) nil) ls)
+v-after-paren : List Word → List Word
+v-after-paren nil = nil
+v-after-paren (cons x r) = if weq x #41 then h-trim (h-drop ":" r) else v-after-paren r
+v-unprefixed : List Word → List Word → List Word
+v-unprefixed i s = if andB (h-prefix (list-append i " (") s) (h-infix "):" s) then v-after-paren s else s
+v-digits : List Word → Bool
+v-digits nil = true
+v-digits (cons x r) = andB (andB (wlt #47 x) (wlt x #58)) (v-digits r)
+v-known-at : List Word → Bool
+v-known-at s = andB (h-prefix " Known (" s) (andB (v-digits (h-take (toNat #4) (h-drop " Known (" s))) (orB (h-prefix "," (h-drop-n (toNat #18) s)) (h-prefix ")" (h-drop-n (toNat #18) s))))
+v-split-known : List Word → List Word → List (List Word)
+v-split-known cur nil = cons (h-rev cur nil) nil
+v-split-known cur (cons x r) = if v-known-at (cons x r) then cons (h-rev cur nil) (v-split-known nil r) else v-split-known (cons x cur) r
+-- Question for Avik (date): …?
+h-drop-to-paren : List Word → List Word
+h-drop-to-paren nil = nil
+h-drop-to-paren (cons x r) = if weq x #41 then cons x r else h-drop-to-paren r
+v-to-question : List Word → List Word
+v-to-question nil = nil
+v-to-question (cons x r) = if weq x #63 then cons x nil else cons x (v-to-question r)
+v-questions : List Word → List (List Word)
+v-questions nil = nil
+v-questions (cons x r) = if andB (h-prefix "Question for Avik (" (cons x r)) (h-infix "):" (h-take (toNat #34) (cons x r)))
+  then cons (v-to-question (h-trim (h-drop "):" (h-drop-to-paren (cons x r))))) (v-questions r) else v-questions r
+-- the layers of the order of work, as lists of names
+v-layer-list : Nat → List (List Word) → List (List (List Word))
+v-layer-list zero rem = nil
+v-layer-list (suc f) rem = if h-null (h-concat rem) then nil else cons (v-top rem) (v-layer-list f (v-filter (λ x → h-not (h-has x (v-top rem))) rem))
+v-layers-all : List (List (List Word))
+v-layers-all = v-layer-list v-rounds v-ready
+v-layer-of : List Word → Nat → List (List (List Word)) → Sum Unit Nat
+v-layer-of x k nil = inl unit
+v-layer-of x k (cons l r) = if h-has x l then inr (suc k) else v-layer-of x (suc k) r
+v-state-of : List Word → Sum Unit Nat → List Word
+v-state-of n (inr k) = if andB (weq (fromNat k) #1) (h-not (h-null (h-concat (v-gain n)))) then "first" else if h-null (h-concat (v-gain n)) then "last" else "ready"
+v-state-of n (inl u) = if andB (v-open-leaf n) (h-not (h-null (h-concat (v-waits n)))) then "waiting" else "goal"
+v-json-layer : Sum Unit Nat → List Word
+v-json-layer (inl u) = "null"
+v-json-layer (inr k) = h-decimal (fromNat k)
+v-progress : List Word → List Word
+v-progress n = if h-has n v-in-progress then j-str "in progress" else if h-has n v-resolved then j-str "resolved" else if v-leaf n then j-str "pending" else "null"
+v-ancestor-count : List Word → Nat
+v-ancestor-count m = list-length (v-ancestors m)
+v-insert-depth : List Word → List (List Word) → List (List Word)
+v-insert-depth x nil = cons x nil
+v-insert-depth x (cons y r) = if wlt (fromNat (v-ancestor-count y)) (fromNat (v-ancestor-count x)) then cons y (v-insert-depth x r) else cons x (cons y r)
+v-by-depth : List (List Word) → List (List Word)
+v-by-depth nil = nil
+v-by-depth (cons x r) = v-insert-depth x (v-by-depth r)
+v-json-context : List Word → List Word
+v-json-context n = j-arr (h-concat-lists (list-map (λ m → list-map (λ d → j-obj (cons (j-field "path" (j-str d)) (cons (j-field "via" (if h-eq m n then "null" else j-str m)) nil))) (v-context-of m essential-context)) (v-by-depth (v-ancestors n))))
+v-json-node : List Word → List (List Word) → List Word
+v-json-node n stmt = j-obj
+  (cons (j-field "id" (j-str n)) (cons (j-field "name" (j-str (v-sentence n)))
+  (cons (j-field "questions" (j-strs (v-questions (v-unprefixed n (v-stmt-line stmt)))))
+  (cons (j-field "parents" (j-strs (v-parts n)))
+  (cons (j-field "statement" (j-str (h-trim (v-head (v-split-known nil (v-unprefixed n (v-stmt-line stmt)))))))
+  (cons (j-field "findings" (j-strs (list-map h-trim (h-tail-lists (v-split-known nil (v-unprefixed n (v-stmt-line stmt)))))))
+  (cons (j-field "parts" "[]")
+  (cons (j-field "state" (j-str (if h-has n v-resolved then "resolved" else v-state-of n (v-layer-of n zero v-layers-all))))
+  (cons (j-field "progress" (v-progress n))
+  (cons (j-field "layer" (v-json-layer (v-layer-of n zero v-layers-all)))
+  (cons (j-field "unblocks" (j-strs (if h-has n v-ready then h-sort (v-gain n) else nil)))
+  (cons (j-field "waits" (j-strs (if v-open-leaf n then h-sort (v-waits n) else nil)))
+  (cons (j-field "after" (j-strs (v-after-of n after)))
+  (cons (j-field "context" (v-json-context n))
+  (cons (j-field "open" (h-decimal (fromNat (list-length (v-filter v-open-leaf (v-under n)))))) nil)))))))))))))))
+v-json-nodes : List Word → List (List Word) → Proc W (List (List Word))
+v-json-nodes st nil = ret nil
+v-json-nodes st (cons i r) = bind (v-statement st i) (λ s → bind (v-json-nodes st r) (λ rest → ret (cons (v-json-node i s) rest)))
+v-json : List Word → Proc W (List Word)
+v-json st = bind (v-json-nodes st (list-map (λ e → fst e) v-all)) (λ ns → ret (j-obj (cons (j-field "nodes" (j-arr ns)) (cons (j-field "roots" (j-strs v-roots)) nil))))
+
 -- the views kept: computed once from the graph's value and kept in the store (views/), stamped with
+-- (views/nodes: each node's name and the names of what it is a part of; views/roots: the roots)
 -- the latest change under the repository (views/stamp); lib/hyperactive.cub serves them from there and
 -- runs this program when the stamp has moved
 v-show-texts : List Word → List (List Word) → Proc W (List (List Word × List Word))
@@ -272,10 +371,13 @@ v-keep st =
   bind (v-keep-shows (list-append st "/views/") shows) (λ u3 →
   bind (v-statement-problems st (list-map (λ e → fst e) v-all)) (λ sp →
   bind (h-write (list-append st "/views/check") (list-append (v-lines (list-append (v-step-all v-node-problems (list-map (λ e → fst e) v-all)) sp)) (v-summary (list-append (v-step-all v-node-problems (list-map (λ e → fst e) v-all)) sp)))) (λ b1 →
+  bind (h-write (list-append st "/views/nodes") (h-concat (list-map (λ e → h-line (v-joined " " (cons (fst e) (v-parts (fst e))))) v-all))) (λ b6 →
+  bind (h-write (list-append st "/views/roots") (h-concat (list-map h-line v-roots))) (λ b7 →
+  bind (v-json st) (λ js → bind (h-write (list-append st "/views/graph.json") js) (λ b8 →
   bind (h-write (list-append st "/views/tree") v-tree) (λ b2 →
   bind (h-write (list-append st "/views/order") v-order) (λ b3 →
   bind (h-write (list-append st "/views/open") (v-open-text shows)) (λ b4 →
-  bind (h-write (list-append st "/views/stamp") (h-decimal stamp)) (λ b5 → exit #0)))))))))))
+  bind (h-write (list-append st "/views/stamp") (h-decimal stamp)) (λ b5 → exit #0)))))))))))))))
 v-main : Proc W Unit
 v-main = bind (h-env "CUBICAL_STORE") (λ e → v-keep (h-store-of e))
 v-run : Step W Unit

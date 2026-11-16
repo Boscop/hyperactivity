@@ -132,9 +132,9 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   A presentation (the paper as it reads, a PDF, a copy of a document, a summary written beside its
   source) is computed from the value it presents and never stored beside it; words that matter in
   two places are kept in one and named from the other. The paper is the value `hyperactivity`
-  (`docs/hyperactivity.cub`); edit it there. `hyperactive check`, the commit and push hooks
-  `hyperactive` installs (`.githooks`) and the GitHub check (`.github/workflows/one-source.yml`)
-  refuse anything stored twice (`tools/task-graph.py one-source`).
+  (`docs/hyperactivity.cub`); edit it there. The commit hook `hyperactive` installs
+  (`.githooks/pre-commit`, which is lib/guard.cub) and the GitHub check
+  (`.github/workflows/one-source.yml`, the same program) refuse anything stored twice.
 - **Every session is continuous knowledge work** (Avik, 2026-11-14). Nothing Avik says is casual
   conversation: he works all day, the only bound on getting the work out is his words per minute
   with agents amplifying them, and the only friction is an agent's incorrectness. Every message,

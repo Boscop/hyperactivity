@@ -57,9 +57,6 @@ brunerie: build/cubical
 # confirms every node's name is a sentence and every node has a statement
 task-graph: build/cubical
 	CUBICAL_NOCACHE=1 ./build/cubical task-graph/hyperactivity.cub
-# every file checked: each file no file imports, alone with its imports, without performing
-# what acts on the world; per file, its own failures (tools/task-graph.py every)
-every: build/cubical
-	python3 tools/task-graph.py every
+# every file checked is `hyperactive every` (lib/hyperactive.cub)
 
-.PHONY: all library brunerie task-graph every
+.PHONY: all library brunerie task-graph

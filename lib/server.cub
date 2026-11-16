@@ -1,0 +1,266 @@
+#!build/cubical
+-- lib/server.cub — the task graph drawn as a graph at http://localhost:PORT (2026-11-13), the history
+-- (lib/history.cub, `hyperactive history`) at /history (2026-11-15), and any document of the
+-- repository at /doc?path=P, read for a person: Markdown's headings, quotes, lists, code and
+-- paragraphs; a PDF as itself; any other file as text. The graph is the views' JSON (lib/views.cub,
+-- views/graph.json in the store), made again when anything under the repository has changed; the
+-- pages are tools/task-graph-view.html and tools/history-view.html. `hyperactive server [PORT]` runs it.
+import "host.cub"
+
+-- HTML: text escaped, and Markdown's inline marks (`code`, **bold**, *italic*)
+s-esc : List Word → List Word
+s-esc nil = nil
+s-esc (cons x r) =
+  if weq x #38 then list-append "&amp;" (s-esc r) else
+  if weq x #60 then list-append "&lt;" (s-esc r) else
+  if weq x #62 then list-append "&gt;" (s-esc r) else
+  if weq x #34 then list-append "&quot;" (s-esc r) else
+  if weq x #39 then list-append "&#x27;" (s-esc r) else cons x (s-esc r)
+s-upto-cons : Word → Sum Unit (List Word × List Word) → Sum Unit (List Word × List Word)
+s-upto-cons x (inl u) = inl unit
+s-upto-cons x (inr p) = inr (cons x (fst p) , snd p)
+s-upto : Word → List Word → Sum Unit (List Word × List Word)
+s-upto b nil = inl unit
+s-upto b (cons x r) = if weq x b then inr (nil , r) else s-upto-cons x (s-upto b r)
+-- `code`: a backquote, a run without one, a backquote
+s-code-at : (List Word → List Word) → List Word → Sum Unit (List Word × List Word) → List Word
+s-code-at k r (inl u) = cons #96 (k r)
+s-code-at k r (inr p) = if h-null (fst p) then cons #96 (k r) else list-append "<code>" (list-append (fst p) (list-append "</code>" (k (snd p))))
+s-code : Nat → List Word → List Word
+s-code zero t = t
+s-code (suc f) nil = nil
+s-code (suc f) (cons x r) = if weq x #96 then s-code-at (s-code f) r (s-upto #96 r) else cons x (s-code f r)
+-- **bold**: two stars, a run without a star, two stars
+s-no-star : List Word → Bool
+s-no-star t = h-not (h-has (cons #42 nil) (list-map (λ x → cons x nil) t))
+s-bold-at : (List Word → List Word) → List Word → Sum Unit (List Word × List Word) → List Word
+s-bold-at k r (inl u) = cons #42 (k r)
+s-bold-at k r (inr p) = if andB (h-not (h-null (fst p))) (andB (s-no-star (fst p)) (h-prefix "*" (snd p)))
+  then list-append "<b>" (list-append (fst p) (list-append "</b>" (k (h-drop "*" (snd p))))) else cons #42 (k r)
+s-bold : Nat → List Word → List Word
+s-bold zero t = t
+s-bold (suc f) nil = nil
+s-bold (suc f) (cons x r) = if andB (weq x #42) (h-prefix "*" r) then s-bold-at (s-bold f) (h-drop "*" r) (s-upto #42 (h-drop "*" r)) else cons x (s-bold f r)
+-- *italic*: a star not after a word character or a star, a run without a star or newline, a star not
+-- before one
+s-word : Word → Bool
+s-word b = orB (orB (andB (wlt #47 b) (wlt b #58)) (andB (wlt #64 b) (wlt b #91))) (orB (andB (wlt #96 b) (wlt b #123)) (orB (weq b #95) (wlt #127 b)))
+s-free-after : List Word → Bool
+s-free-after nil = true
+s-free-after (cons x r) = h-not (orB (s-word x) (weq x #42))
+s-italic-at : (List Word → List Word) → List Word → Sum Unit (List Word × List Word) → List Word
+s-italic-at k r (inl u) = cons #42 (k r)
+s-italic-at k r (inr p) = if andB (h-not (h-null (fst p))) (andB (s-no-star (fst p)) (s-free-after (snd p)))
+  then list-append "<i>" (list-append (fst p) (list-append "</i>" (k (snd p)))) else cons #42 (k r)
+s-italic : Nat → Word → List Word → List Word
+s-italic zero prev t = t
+s-italic (suc f) prev nil = nil
+s-italic (suc f) prev (cons x r) = if andB (weq x #42) (h-not (orB (s-word prev) (weq prev #42))) then s-italic-at (s-italic f #42) r (s-upto #42 r) else cons x (s-italic f x r)
+s-inline : List Word → List Word
+s-inline t = s-italic (list-length (s-bold (list-length t) (s-code (list-length t) (s-esc t)))) #32 (s-bold (list-length t) (s-code (list-length t) (s-esc t)))
+
+-- Markdown's blocks, read line by line: a paragraph, a quote, a list, gathered until something else
+-- begins; headings, rules and fenced code
+data MdOpen = md-none | md-para (ls : List (List Word)) | md-quote (ls : List (List Word)) | md-list (items : List (List Word))
+h-sep-words : List (List Word) → List Word
+h-sep-words nil = nil
+h-sep-words (cons x nil) = x
+h-sep-words (cons x (cons y r)) = list-append x (cons #32 (h-sep-words (cons y r)))
+h-rev-lists : List (List Word) → List (List Word) → List (List Word)
+h-rev-lists nil acc = acc
+h-rev-lists (cons x r) acc = h-rev-lists r (cons x acc)
+-- a quote's paragraphs: its lines between blank ones
+s-quote-paras : List (List Word) → List (List Word) → List (List Word)
+s-quote-paras cur nil = if h-null (h-concat cur) then nil else cons (h-sep-words (h-rev-lists cur nil)) nil
+s-quote-paras cur (cons q r) = if h-null q then (if h-null (h-concat cur) then s-quote-paras nil r else cons (h-sep-words (h-rev-lists cur nil)) (s-quote-paras nil r)) else s-quote-paras (cons q cur) r
+s-flush : MdOpen → List Word
+s-flush md-none = nil
+s-flush (md-para ls) = list-append "<p>" (list-append (s-inline (h-sep-words ls)) "</p>")
+s-flush (md-quote ls) = list-append "<blockquote>" (list-append (h-concat (list-map (λ p → list-append "<p>" (list-append (s-inline p) "</p>")) (s-quote-paras nil ls))) "</blockquote>")
+s-flush (md-list is) = list-append "<ul>" (list-append (h-concat (list-map (λ i → list-append "<li>" (list-append (s-inline i) "</li>")) is)) "</ul>")
+s-strip : List Word → List Word
+s-strip l = h-rev (h-trim (h-rev (h-trim l) nil)) nil
+s-hashes : List Word → Nat
+s-hashes nil = zero
+s-hashes (cons x r) = if weq x #35 then suc (s-hashes r) else zero
+s-space-start : List Word → Bool
+s-space-start nil = false
+s-space-start (cons x r) = orB (weq x #32) (weq x #9)
+s-heading-at : Nat → List Word → Nat
+s-heading-at zero l = zero
+s-heading-at (suc k) l = if andB (wlt (fromNat (suc k)) #5) (s-space-start (h-drop-n (suc k) l)) then suc k else zero
+s-heading : List Word → Nat
+s-heading l = s-heading-at (s-hashes l) l
+-- a list item: - or * or a number and a dot, then spaces
+s-digits : List Word → List Word
+s-digits nil = nil
+s-digits (cons x r) = if andB (wlt #47 x) (wlt x #58) then s-digits r else cons x r
+s-item-at : List Word → Sum Unit (List Word)
+s-item-at nil = inl unit
+s-item-at (cons x r) = if andB (orB (weq x #45) (weq x #42)) (s-space-start r) then inr (h-trim r)
+  else if andB (andB (wlt #47 x) (wlt x #58)) (h-prefix "." (s-digits r)) then (if s-space-start (h-drop "." (s-digits r)) then inr (h-trim (h-drop "." (s-digits r))) else inl unit) else inl unit
+s-item : List Word → Sum Unit (List Word)
+s-item l = s-item-at (h-trim l)
+s-push-list : List Word → MdOpen → MdOpen
+s-push-list i (md-list is) = md-list (list-append is (cons i nil))
+s-push-list i o = md-list (cons i nil)
+s-is-list : MdOpen → Bool
+s-is-list (md-list is) = true
+s-is-list o = false
+s-is-para : MdOpen → Bool
+s-is-para (md-para ls) = true
+s-is-para o = false
+s-is-quote : MdOpen → Bool
+s-is-quote (md-quote ls) = true
+s-is-quote o = false
+s-extend-last : List (List Word) → List Word → List (List Word)
+s-extend-last nil s = nil
+s-extend-last (cons x nil) s = cons (list-append x (cons #32 s)) nil
+s-extend-last (cons x (cons y r)) s = cons x (s-extend-last (cons y r) s)
+s-more-list : List Word → MdOpen → MdOpen
+s-more-list l (md-list is) = md-list (s-extend-last is (s-strip l))
+s-more-list l o = o
+s-push-quote : List Word → MdOpen → MdOpen
+s-push-quote q (md-quote ls) = md-quote (list-append ls (cons q nil))
+s-push-quote q o = md-quote (cons q nil)
+s-push-para : List Word → MdOpen → MdOpen
+s-push-para p (md-para ls) = md-para (list-append ls (cons p nil))
+s-push-para p o = md-para (cons p nil)
+-- a line that is not a fence, heading or quote: what it closes, and the block left open
+data MdStep = md-step (out : List Word) (left : MdOpen)
+s-step-out : MdStep → List Word
+s-step-out (md-step t o) = t
+s-step-open : MdStep → MdOpen
+s-step-open (md-step t o) = o
+s-item-step : MdOpen → List Word → Sum Unit (List Word) → MdStep
+s-item-step o l (inr i) = if orB (s-is-para o) (s-is-quote o) then md-step (s-flush o) (md-list (cons i nil)) else md-step nil (s-push-list i o)
+s-item-step o l (inl u) =
+  if h-eq (s-strip l) "---" then md-step (list-append (s-flush o) "<hr>") md-none else
+  if h-null (s-strip l) then md-step (s-flush o) md-none else
+  if andB (s-is-list o) (h-prefix "  " l) then md-step nil (s-more-list l o) else
+  if s-is-quote o then md-step (s-flush o) (md-para (cons (s-strip l) nil)) else
+  md-step nil (s-push-para (s-strip l) o)
+v-join-lines : List (List Word) → List Word
+v-join-lines nil = nil
+v-join-lines (cons x nil) = x
+v-join-lines (cons x (cons y r)) = list-append x (cons #10 (v-join-lines (cons y r)))
+s-h : Nat → List Word → List Word
+s-h n t = list-append "<h" (list-append (h-decimal (fromNat n)) (list-append ">" (list-append t (list-append "</h" (list-append (h-decimal (fromNat n)) ">")))))
+-- the blocks: the open block, the code being fenced (if any), and the lines left
+s-blocks : MdOpen → Sum Unit (List (List Word)) → List (List Word) → List Word
+s-blocks o (inr cd) nil = list-append (s-flush o) (list-append "<pre>" (list-append (s-esc (v-join-lines (h-rev-lists cd nil))) "</pre>"))
+s-blocks o (inl u) nil = s-flush o
+s-blocks o (inr cd) (cons l r) = if h-prefix "```" l then list-append "<pre>" (list-append (s-esc (v-join-lines (h-rev-lists cd nil))) (list-append "</pre>" (s-blocks o (inl unit) r))) else s-blocks o (inr (cons l cd)) r
+s-blocks o (inl u) (cons l r) =
+  if h-prefix "```" l then list-append (s-flush o) (s-blocks md-none (inr nil) r) else
+  if h-not (weq (fromNat (s-heading l)) #0) then list-append (s-flush o) (list-append (s-h (s-heading l) (s-inline (h-trim (h-drop-n (s-heading l) l)))) (s-blocks md-none (inl unit) r)) else
+  if h-prefix ">" l then (if orB (s-is-para o) (s-is-list o) then list-append (s-flush o) (s-blocks (md-quote (cons (s-strip (h-drop ">" l)) nil)) (inl unit) r) else s-blocks (s-push-quote (s-strip (h-drop ">" l)) o) (inl unit) r) else
+  list-append (s-step-out (s-item-step o l (s-item l))) (s-blocks (s-step-open (s-item-step o l (s-item l))) (inl unit) r)
+s-style : List Word
+s-style = "body{margin:0;background:#f6f5f1;color:#1b1a17;font:16px/1.65 ui-sans-serif,-apple-system,'Segoe UI',system-ui,sans-serif} main{max-width:760px;margin:0 auto;padding:40px 22px 90px} .path{color:#6f6b62;font:13px ui-monospace,Menlo,monospace} h1{font-size:28px;line-height:1.25} h2{font-size:20px;margin-top:36px} h3{font-size:16px} hr{border:0;border-top:1px solid #d9d4c8;margin:32px 0} blockquote{margin:14px 0;padding:4px 16px;border-left:3px solid #c9c3b6;background:#fff;border-radius:0 8px 8px 0} code{background:#ece9e1;padding:1px 5px;border-radius:4px;font-size:14px} pre{background:#fff;border:1px solid #e3dfd5;border-radius:8px;padding:14px;overflow:auto;font-size:13px} @media (prefers-color-scheme:dark){body{background:#121211;color:#eceae4} blockquote,pre{background:#1b1b19;border-color:#2c2b28} code{background:#2a2926}}"
+
+s-page : List Word → List Word → List Word
+s-page path text = list-append (h-concat (cons "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>" (cons (s-esc path) (cons "</title><style>" (cons s-style (cons "</style></head><body><main><div class='path'>" (cons (s-esc path) (cons "</div>" nil))))))))
+  (list-append (if h-ends ".md" path then s-blocks md-none (inl unit) (h-split #10 text) else list-append "<pre>" (list-append (s-esc text) "</pre>")) "</main></body></html>")
+-- a request's path and query, its %XX escapes and +s read back
+s-hexv : Word → Word
+s-hexv c = if wlt c #58 then wsub c #48 else if wlt c #71 then wsub c #55 else wsub c #87
+s-pct : (List Word → List Word) → List Word → List Word
+s-pct k (cons a (cons b r)) = cons (wadd (wshl (s-hexv a) #4) (s-hexv b)) (k r)
+s-pct k r = cons #37 (k r)
+s-unescape-f : Nat → List Word → List Word
+s-unescape-f zero t = t
+s-unescape-f (suc f) nil = nil
+s-unescape-f (suc f) (cons x r) = if weq x #43 then cons #32 (s-unescape-f f r) else if weq x #37 then s-pct (s-unescape-f f) r else cons x (s-unescape-f f r)
+s-unescape : List Word → List Word
+s-unescape t = s-unescape-f (list-length t) t
+s-param-in : List Word → List (List Word) → List Word
+s-param-in key nil = nil
+s-param-in key (cons kv r) = if h-prefix (list-append key "=") kv then s-unescape (h-drop (list-append key "=") kv) else s-param-in key r
+s-param : List Word → List Word → List Word
+s-param key q = s-param-in key (h-split #38 q)
+s-request-path : List Word → List Word
+s-request-path req = h-before " " (h-drop "GET " (h-before (cons #13 nil) req))
+s-after-q : List Word → List Word
+s-after-q nil = nil
+s-after-q (cons x r) = if weq x #63 then cons x r else s-after-q r
+
+s-query : List Word → List Word
+s-query p = h-drop "?" (s-after-q p)
+-- a response
+s-response : List Word → List Word → List Word
+s-response ctype body = list-append (h-concat (cons "HTTP/1.1 200 OK" (cons (cons #13 (cons #10 nil)) (cons "Content-Type: " (cons ctype (cons (cons #13 (cons #10 nil)) (cons "Content-Length: " (cons (h-decimal (fromNat (list-length body))) (cons (cons #13 (cons #10 nil)) (cons "Connection: close" (cons (cons #13 (cons #10 (cons #13 (cons #10 nil)))) nil))))))))))) body
+s-html : List Word
+s-html = "text/html; charset=utf-8"
+s-or : List Word → Sum Unit (List Word) → List Word
+s-or d (inl u) = d
+s-or d (inr t) = t
+-- the graph's JSON, made again when anything under the repository has changed
+s-graph : List Word → List Word → Proc W (List Word)
+s-graph st m = bind (h-read (list-append st "/views/stamp")) (λ s → bind (h-dir-time (toNat #12) ".") (λ now →
+  bind (if h-eq (s-or nil s) (h-decimal now) then ret {lzero} {W} #0 else h-run (cons m (cons "lib/views.cub" nil))) (λ r →
+  bind (h-read (list-append st "/views/graph.json")) (λ j → ret (s-response "application/json" (s-or "{}" j))))))
+s-json-esc : List Word → List Word
+s-json-esc nil = nil
+s-json-esc (cons x r) = if orB (weq x #34) (weq x #92) then cons #92 (cons x (s-json-esc r)) else if wlt x #32 then s-json-esc r else cons x (s-json-esc r)
+-- the history of a name: its bindings, each `name key time`, as a JSON list of strings
+s-json-str : List Word → List Word
+s-json-str s = cons #34 (list-append (s-json-esc s) (cons #34 nil))
+s-bindings : List Word → List (List Word) → List (List Word)
+s-bindings name nil = nil
+s-bindings name (cons l r) = if andB (h-not (h-null name)) (h-eq name (h-before " " l)) then cons l (s-bindings name r) else s-bindings name r
+s-commas : List (List Word) → List Word
+s-commas nil = nil
+s-commas (cons x nil) = x
+s-commas (cons x (cons y r)) = list-append x (cons #44 (s-commas (cons y r)))
+s-history : List Word → List Word → Proc W (List Word)
+s-history st name = bind (h-read (list-append st "/names")) (λ log →
+  ret (s-response "application/json" (list-append "[" (list-append (s-commas (list-map s-json-str (s-bindings name (h-lines (s-or nil log))))) "]"))))
+s-doc-of : List Word → Sum Unit (List Word) → List Word
+s-doc-of p (inl u) = s-response "text/plain" "no such document"
+s-doc-of p (inr t) = if h-ends ".pdf" p then s-response "application/pdf" t else s-response s-html (s-page p t)
+-- a document of the repository: no path above it or from the root
+s-doc : List Word → Proc W (List Word)
+s-doc p = if orB (h-prefix ".." p) (orB (h-prefix "/" p) (h-infix "/.." p)) then ret {lzero} {W} (s-response "text/plain" "no such document")
+  else bind (h-read p) (λ t → ret (s-doc-of p t))
+s-file : List Word → List Word → Proc W (List Word)
+s-file ctype p = bind (h-read p) (λ t → ret (s-response ctype (s-or nil t)))
+-- one request answered
+s-answer : List Word → List Word → List Word → Proc W (List Word)
+s-answer st m path =
+  if h-prefix "/api/graph" path then s-graph st m else
+  if h-prefix "/api/history" path then s-history st (s-param "name" (s-query path)) else
+  if h-eq (h-before "?" path) "/history" then s-file s-html "tools/history-view.html" else
+  if h-prefix "/doc?" path then s-doc (s-param "path" (s-query path)) else
+  s-file s-html "tools/task-graph-view.html"
+-- the socket: 127.0.0.1:port, listening
+s-addr-bytes : Word → List Word
+s-addr-bytes port = cons #2 (cons #0 (cons (wshr port #8) (cons (wand port #255) (cons #127 (cons #0 (cons #0 (cons #1 nil)))))))
+s-addr : Word → Proc W Word
+s-addr port = bind (alloc-bytes #16) (λ a → bind (h-poke a (s-addr-bytes port)) (λ u → ret a))
+s-listen : Word → Proc W Word
+s-listen port = bind (sys-call #41 #2 #1 #0 #0 #0 #0) (λ fd → bind (alloc-bytes #4) (λ one → bind (store8-at one #1) (λ u →
+  bind (sys-call #54 fd #1 #2 one #4 #0) (λ o → bind (s-addr port) (λ a → bind (sys-call #49 fd a #16 #0 #0 #0) (λ b →
+  bind (sys-call #50 fd #16 #0 #0 #0 #0) (λ l → ret {lzero} {W} (if orB (wlt #9223372036854775807 b) (wlt #9223372036854775807 l) then #18446744073709551615 else fd))))))))
+s-serve : Nat → List Word → List Word → Word → Proc W Unit
+s-serve zero st m fd = ret unit
+s-serve (suc k) st m fd = bind (sys-call #43 fd #0 #0 #0 #0 #0) (λ c →
+  bind (alloc-bytes #65536) (λ buf → bind (sys-call #0 c buf #65536 #0 #0 #0) (λ n →
+  bind (h-peek buf (toNat (if wlt n #65537 then n else #0))) (λ req →
+  bind (s-answer st m (s-request-path req)) (λ resp →
+  bind (fd-write c resp) (λ w → bind (sys-call #3 c #0 #0 #0 #0 #0) (λ cl → s-serve k st m fd)))))))
+s-head : List Word → List (List Word) → List Word
+s-head d nil = d
+s-head d (cons x r) = x
+s-port : List (List Word) → Word
+s-port nil = #8080
+s-port (cons p r) = if h-null p then #8080 else h-number p
+s-start : List Word → List Word → Word → Proc W Unit
+s-start st m port = bind (s-listen port) (λ fd →
+  if wlt fd #9223372036854775807 then bind (h-out (h-line (list-append "http://localhost:" (list-append (h-decimal port) "/")))) (λ u → s-serve (toNat #1000000) st m fd)
+  else h-fail (list-append "server: the port cannot be listened on: " (h-decimal port)))
+s-main : Proc W Unit
+s-main = bind (h-env "CUBICAL_STORE") (λ e → bind h-args (λ a → s-start (h-store-of e) (s-head "build/cubical" a) (s-port (h-drop-n (suc (suc zero)) a))))
+s-run : Step W Unit
+s-run = to-step s-main
+#run s-run

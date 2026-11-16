@@ -4812,6 +4812,31 @@ static void load_file(const char *path, bool must) {
     (void)must;
 }
 static void prof_print(void);
+/* --imports FILE ...: each file's imports, as the reader reads them, without loading anything: a line
+ * `imports: FILE IMPORT ...`, paths from the repository root (lib/hyperactive.cub's every reads it) */
+static void imports_of(const char *path) {
+    char *rp = realpath(path, NULL);
+    if (!rp) { printf("imports: %s ?\n", path); return; }
+    char *text = slurp(rp);
+    if (text[0] == '#' && text[1] == '!') for (char *c = text; *c && *c != '\n'; c++) *c = ' ';
+    xt = NULL; nxt = capxt = 0; lt = NULL; nlt = caplt = 0; x_file = rp;
+    x_lex(text); x_layout(); xp = 0;
+    char *dir = strdup(rp); char *sl = strrchr(dir, '/'); if (sl) *sl = 0;
+    char *self = w_rel(rp); printf("imports: %s", self); free(self);
+    while (P0()->k != X_EOF) {
+        while (P0()->k == X_VS || P0()->k == X_VC) NX();
+        if (P0()->k == X_EOF) break;
+        if (at("import")) {
+            NX(); Tok *f = NX();
+            char *full = malloc(strlen(dir) + strlen(f->s) + 2); sprintf(full, "%s/%s", dir, f->s);
+            char *r = f->s[0] == '/' ? strdup(f->s) : full;
+            char *rel = w_rel(r); printf(" %s", rel); free(rel);
+        }
+        int d = 0;
+        while (P0()->k != X_EOF && !(d == 0 && P0()->k == X_VS)) { if (P0()->k == X_VO) d++; else if (P0()->k == X_VC) d--; NX(); }
+    }
+    printf("\n"); free(dir); free(text);
+}
 static void prof_signal(int sig) { (void)sig; fflush(stdout); prof_print(); _Exit(3); }
 /* ---------------- the machine as a library (build/libcubical.a, src/libcubical.h) ----------------
  * A C program linked with libcubical.a loads the libraries it needs with cubical_init, then calls
@@ -4919,6 +4944,7 @@ int main(int argc, char **argv)
         FILE *nul = fopen("/dev/null", "w"); dup2(fileno(nul), 1);
     }
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--read")) read_only = true;
+    for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--imports")) { for (int j = i + 1; j < argc; j++) imports_of(argv[j]); fflush(stdout); _Exit(0); }
     for (int i = 1; i < argc; i++) {
         /* --print f: f's core forms in the surface language; --roundtrip f: each printed form parsed
          * back and compared, while f is loaded */

@@ -31,6 +31,8 @@ data WCmd = w-now | w-write (fd : Word) (n : Nat) (b : Bytes n) | w-read (fd : W
   -- nothing; text written whole to a file (created or emptied): the count written, or an errno's
   -- two's complement. Text crosses as one value, not a command per byte
   | w-file-read (path : Word) | w-file-write (path : Word) (t : List Word)
+  -- text written whole to a descriptor (a socket, standard output): the count written
+  | w-fd-write (fd : Word) (t : List Word)
 w-resp : WCmd → Type
 w-resp c = case c return (λ _ → Type) of
   w-now → Word
@@ -51,6 +53,7 @@ w-resp c = case c return (λ _ → Type) of
   w-spawn a e o → Word
   w-file-read p → Word × List Word
   w-file-write p t → Word
+  w-fd-write fd t → Word
 W : Sig
 W = (WCmd , w-resp)
 -- a process as a tree of steps: done with its answer, or a command with its continuation (a
@@ -100,3 +103,5 @@ file-read-at : Word → Proc W (Word × List Word)
 file-read-at p = cmd {lzero} {W} (w-file-read p)
 file-write-at : Word → List Word → Proc W Word
 file-write-at p t = cmd {lzero} {W} (w-file-write p t)
+fd-write : Word → List Word → Proc W Word
+fd-write fd t = cmd {lzero} {W} (w-fd-write fd t)

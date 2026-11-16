@@ -56,6 +56,7 @@ static void drivers_run(Node *t) {
     int c_load = drv_con("w-load"), c_store = drv_con("w-store"), c_cas = drv_con("w-cas"), c_fence = drv_con("w-fence");
     int c_sys = drv_con("w-sys"), c_alloc = drv_con("w-alloc"), c_load8 = drv_con("w-load8"), c_store8 = drv_con("w-store8");
     int c_spawn = drv_con("w-spawn");
+    int c_fdwrite = drv_con("w-fd-write");
     int c_fread = drv_con("w-file-read"), c_fwrite = drv_con("w-file-write"), c_cons = con_lookup("cons"), c_nil = con_lookup("nil");
     Port p = build_top(t);
     long steps = 0, s0 = stat_steps;
@@ -171,6 +172,21 @@ static void drivers_run(Node *t) {
             Cell *pr = cell(V_PAIR, 3);
             link(drv_word_of(st), P(pr, 1)); link(r, P(pr, 2));
             resp = P(pr, 0);
+        } else if (c == c_fdwrite) {
+            /* text written whole to a descriptor, its bytes read off the list as it is observed */
+            uint64_t fd = drv_word(cm->port[1], "w-fd-write's descriptor");
+            unsigned char *b = NULL; size_t n = 0, cap = 0;
+            for (Port p = cm->port[2];;) {
+                Cell *h = obs_val(p);
+                if (!h || h->kind != V_CON) die("run: w-fd-write: a list of words was expected", NULL);
+                if ((int)h->a == c_nil) break;
+                if (n == cap) { cap = cap * 2 + 65536; b = realloc(b, cap); }
+                b[n++] = (unsigned char)drv_word(h->port[1], "w-fd-write's byte");
+                p = h->port[2];
+            }
+            fflush(stdout);
+            size_t w = 0; while (w < n) { long k = write((int)fd, b + w, n - w); if (k <= 0) break; w += (size_t)k; }
+            free(b); resp = drv_word_of((uint64_t)w);
         } else if (c == c_fwrite) {
             /* text written whole: its bytes read off the list as it is observed */
             const char *path = (const char *)(uintptr_t)drv_word(cm->port[1], "w-file-write's path");

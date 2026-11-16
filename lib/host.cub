@@ -355,3 +355,75 @@ h-take-n (suc n) (cons x r) = cons x (h-take-n n r)
 -- text between quotation marks
 h-quote : List Word → List Word
 h-quote s = cons #34 (list-append s (cons #34 nil))
+
+-- texts sorted (merge sort) with each kept once, and the operations of sorted sets
+h-merge : Nat → List (List Word) → List (List Word) → List (List Word)
+h-merge zero a b = list-append a b
+h-merge (suc f) nil b = b
+h-merge (suc f) (cons x xs) nil = cons x xs
+h-merge (suc f) (cons x xs) (cons y ys) = if h-lt y x then cons y (h-merge f (cons x xs) ys) else if h-eq x y then cons x (h-merge f xs ys) else cons x (h-merge f xs (cons y ys))
+h-split2-onto : List (List Word) → List (List Word) → List (List Word) → (List (List Word)) × (List (List Word))
+h-split2-onto a b nil = (a , b)
+h-split2-onto a b (cons x r) = h-split2-onto b (cons x a) r
+h-msort-f : Nat → List (List Word) → List (List Word)
+h-msort-f zero xs = xs
+h-msort-f (suc f) nil = nil
+h-msort-f (suc f) (cons x nil) = cons x nil
+h-msort-f (suc f) (cons x (cons y r)) = h-merge (plus (list-length (cons x (cons y r))) (list-length (cons x (cons y r))))
+  (h-msort-f f (fst (h-split2-onto nil nil (cons x (cons y r))))) (h-msort-f f (snd (h-split2-onto nil nil (cons x (cons y r)))))
+h-msort : List (List Word) → List (List Word)
+h-msort xs = h-msort-f (list-length xs) xs
+-- a without b, both sorted
+h-minus-f : Nat → List (List Word) → List (List Word) → List (List Word)
+h-minus-f zero a b = a
+h-minus-f (suc f) nil b = nil
+h-minus-f (suc f) (cons x xs) nil = cons x xs
+h-minus-f (suc f) (cons x xs) (cons y ys) = if h-eq x y then h-minus-f f xs ys else if h-lt x y then cons x (h-minus-f f xs (cons y ys)) else h-minus-f f (cons x xs) ys
+h-minus : List (List Word) → List (List Word) → List (List Word)
+h-minus a b = h-minus-f (plus (list-length a) (list-length b)) a b
+h-union : List (List Word) → List (List Word) → List (List Word)
+h-union a b = h-merge (plus (list-length a) (list-length b)) a b
+-- a list of texts without its first
+h-tail-lists : List (List Word) → List (List Word)
+h-tail-lists nil = nil
+h-tail-lists (cons x r) = r
+-- the names in a directory with their kinds (4 a directory, 8 a regular file)
+h-typed-entries : Word → Word → Word → Nat → Proc W (List (List Word × Word))
+h-typed-entries buf off n zero = ret nil
+h-typed-entries buf off n (suc k) =
+  if wlt off n then
+    bind (load8-at (wadd buf (wadd off #16))) (λ lo → bind (load8-at (wadd buf (wadd off #17))) (λ hi →
+    bind (load8-at (wadd buf (wadd off #18))) (λ ty →
+    bind (h-name-at (wadd buf (wadd off #19)) (toNat #256)) (λ name →
+    bind (h-typed-entries buf (wadd off (wadd lo (wshl hi #8))) n k) (λ rest →
+    ret {lzero} {W} (if orB (h-eq name ".") (h-eq name "..") then rest else cons (name , ty) rest))))))
+  else ret {lzero} {W} nil
+h-typed-reads : Word → Word → Nat → Proc W (List (List Word × Word))
+h-typed-reads fd buf zero = ret nil
+h-typed-reads fd buf (suc k) = bind (sys-call #217 fd buf #65536 #0 #0 #0) (λ n →
+  if andB (wlt #0 n) (wlt n #9223372036854775808)
+  then bind (h-typed-entries buf #0 n (toNat (wquot n #20))) (λ es → bind (h-typed-reads fd buf k) (λ rest → ret {lzero} {W} (list-append es rest)))
+  else ret {lzero} {W} nil)
+h-typed-list : List Word → Proc W (List (List Word × Word))
+h-typed-list path = bind (h-cstr path) (λ p → bind (sys-call #257 #18446744073709551516 p #65536 #0 #0 #0) (λ fd →
+  if wlt fd #9223372036854775808 then
+    bind (alloc-bytes #65536) (λ buf → bind (h-typed-reads fd buf (toNat #4096)) (λ ns →
+    bind (sys-call #3 fd #0 #0 #0 #0 #0) (λ c → ret {lzero} {W} ns)))
+  else ret {lzero} {W} nil))
+-- every file under a directory whose name ends in suffix, to depth `depth`, paths from where it is
+h-files-at : (List Word → Proc W (List (List Word))) → List Word → List Word → List (List Word × Word) → Proc W (List (List Word))
+h-files-at rec suf path nil = ret nil
+h-files-at rec suf path (cons e r) =
+  bind (if andB (weq (snd e) #4) (h-not (h-skip (fst e))) then rec (list-append path (cons #47 (fst e)))
+        else ret {lzero} {W} (if andB (weq (snd e) #8) (h-ends suf (fst e)) then cons (list-append path (cons #47 (fst e))) nil else nil)) (λ here →
+  bind (h-files-at rec suf path r) (λ rest → ret (list-append here rest)))
+h-files : Nat → List Word → List Word → Proc W (List (List Word))
+h-files zero suf path = ret nil
+h-files (suc d) suf path = bind (h-typed-list path) (λ es → h-files-at (h-files d suf) suf path es)
+-- the working directory
+h-cwd : Proc W (List Word)
+h-cwd = bind (alloc-bytes #4097) (λ buf → bind (sys-call #79 buf #4096 #0 #0 #0 #0) (λ r → h-name-at buf (toNat #4096)))
+-- lists of texts run together
+h-concat-lists : List (List (List Word)) → List (List Word)
+h-concat-lists nil = nil
+h-concat-lists (cons x r) = list-append x (h-concat-lists r)
