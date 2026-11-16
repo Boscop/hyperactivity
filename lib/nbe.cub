@@ -10370,6 +10370,41 @@ pty-2 rec Γ vs cL c0 c1 a L dL =
   d-bind (Out Γ c0 (m-chk a (fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst l) (ul Γ (Sem a) L)) (face0-ct Γ vs a cL L dL))) (Out Γ (cpathp (cplam cL) c0 c1) m-ty)
     (rec Γ vs c0 (m-chk a (fmapM Γ (Line (Sem a)) (Sem a) (λ l → fst l) (ul Γ (Sem a) L)) (face0-ct Γ vs a cL L dL)))
     (λ r0 → pty-3 rec Γ vs a cL c0 c1 L dL (fst r0) (fst (snd r0)) (snd (snd r0)))
+-- a path λ against a PathP type T: the body over dext Γ against T's line (its computability T's clause
+-- at the weakening world and the new dimension), the path's meaning read off the body in lines; its
+-- type converted to T (its ends are the body's faces, so this is where conversion of ends is needed)
+line-pt : (a : TyShape) → Line (TV a) → TV (s-path a)
+line-pt a l = (((fst (fst l) , fst (fst (snd l)) , λ iq → fst (snd (snd l) iq)) , snd (fst l) , snd (fst (snd l))) , λ iq → snd (snd (snd l) iq))
+plx : (Γ : CCtx) (a : TyShape) → Mean (dext Γ) (TV a) → Mean Γ (TV (s-path a))
+plx Γ a B = fmapM Γ (Line (TV a)) (TV (s-path a)) (line-pt a) (ul Γ (TV a) B)
+plam-body-pth : (Γ : CCtx) (a : TyShape) (B : Mean (dext Γ) (TV a)) → PathM (dext Γ) (TV a) B (plam-body Γ a (plx Γ a B))
+plam-body-pth Γ a B =
+  pcat (Mean (dext Γ) (TV a)) B (dline-body Γ (Line (TV a)) (TV a) (λ l → l) (ul Γ (TV a) B)) (plam-body Γ a (plx Γ a B))
+    (ul-dl Γ (TV a) B)
+    (psym (Mean (dext Γ) (TV a)) (plam-body Γ a (plx Γ a B)) (dline-body Γ (Line (TV a)) (TV a) (λ l → l) (ul Γ (TV a) B))
+      (reidx-fmap (dims (fst Γ)) (CtxV (fst Γ)) (Line (CtxV (fst Γ))) (FbE (fst Γ) (Line (TV a))) (FbE (fst Γ) (TV (s-path a))) (LineO (CtxV (fst Γ)) (FbE (fst Γ) (TV a)))
+        (λ γq eq ρq → line-pt a (eq ρq)) (degen-l (CtxV (fst Γ))) (fline (fst Γ) (TV (s-path a)) (TV a) (path-pt a)) (snd Γ) (ul Γ (TV a) B)))
+line-ct : (Γ : CCtx) (a : TyShape) (T : Mean Γ (Sem (s-path a))) → CompTy (s-path a) Γ T → CompTy a (dext Γ) (path-line-ty Γ a T)
+line-ct Γ a T ct =
+  ty-tr a (dext Γ) (papp-line (dext Γ) (Sem (s-path a)) (Sem a) (ty-line a) dnf-v0 (wact (dext Γ) Γ (world-dwk Γ) (Sem (s-path a)) T)) (path-line-ty Γ a T)
+    (pcat (Mean (dext Γ) (Sem a)) (papp-line (dext Γ) (Sem (s-path a)) (Sem a) (ty-line a) dnf-v0 (wact (dext Γ) Γ (world-dwk Γ) (Sem (s-path a)) T))
+      (papp-line (dext Γ) (Sem (s-path a)) (Sem a) (ty-line a) dnf-v0 (dwkM Γ (Sem (s-path a)) T)) (path-line-ty Γ a T)
+      (λ i → papp-line (dext Γ) (Sem (s-path a)) (Sem a) (ty-line a) dnf-v0 (subM-dwk Γ (Sem (s-path a)) T i))
+      (papp-dwk Γ (Sem (s-path a)) (Sem a) (ty-line a) T))
+    (fst ct (dext Γ) (world-dwk Γ) dnf-v0 unit unit)
+pl-fin : Cv → (Γ : CCtx) → Vals Γ → (a : TyShape) (T : Mean Γ (Sem (s-path a))) (ct : CompTy (s-path a) Γ T) (c₀ : Code) (B : Mean (dext Γ) (TV a)) →
+  Der (j-tm , dext Γ , a , c₀ , B) → Dec1 (Out Γ (cplam c₀) (m-chk (s-path a) T ct))
+pl-fin cv Γ vs a T ct c₀ B dB =
+  d-bind (PathM Γ (Sem (s-path a)) (fmapM Γ (TV (s-path a)) (Sem (s-path a)) (λ q → fst q) (plx Γ a B)) T) (Out Γ (cplam c₀) (m-chk (s-path a) T ct))
+    (conv-at cv Γ (s-path a) (fmapM Γ (TV (s-path a)) (Sem (s-path a)) (λ q → fst q) (plx Γ a B)) T
+      (fst (comp-tm Γ vs (s-path a) (cplam c₀) (plx Γ a B) (dplam Γ a (plx Γ a B) c₀ (der-tr j-tm (dext Γ) a c₀ B (plam-body Γ a (plx Γ a B)) (plam-body-pth Γ a B) dB)))) ct)
+    (λ p → c-derived (plx Γ a B , p , dplam Γ a (plx Γ a B) c₀ (der-tr j-tm (dext Γ) a c₀ B (plam-body Γ a (plx Γ a B)) (plam-body-pth Γ a B) dB)))
+plam-chk : Cv → Rec → (Γ : CCtx) → Vals Γ → (c₀ : Code) (s : TyShape) (T : Mean Γ (Sem s)) (ct : CompTy s Γ T) → Dec1 (Out Γ (cplam c₀) (m-chk s T ct))
+plam-chk cv rec Γ vs c₀ (s-path a) T ct =
+  d-bind (Out (dext Γ) c₀ (m-chk a (path-line-ty Γ a T) (line-ct Γ a T ct))) (Out Γ (cplam c₀) (m-chk (s-path a) T ct))
+    (rec (dext Γ) (dext-vals Γ vs) c₀ (m-chk a (path-line-ty Γ a T) (line-ct Γ a T ct)))
+    (λ rB → pl-fin cv Γ vs a T ct c₀ (fst rB) (snd (snd rB)))
+plam-chk cv rec Γ vs c₀ s T ct = c-refused
 elab-step : Cv → Rec → Rec
 elab-step cv rec Γ vs (cdata d lnil) m-ty =
   o-bind (d ≡ #0) (Out Γ (cdata d lnil) m-ty) (w-dec d #0)
@@ -10394,6 +10429,7 @@ elab-step cv rec Γ vs (ccon d k lnil lnil) (m-chk s T ct) =
   o-bind (d ≡ #0) (Out Γ (ccon d k lnil lnil) (m-chk s T ct)) (w-dec d #0) (λ pd → chk-con-at Γ d k s T ct pd)
 elab-step cv rec Γ vs (clam c₀) (m-chk s T ct) = lam-at rec Γ vs c₀ s T ct
 elab-step cv rec Γ vs (cpair c1 c2) (m-chk s T ct) = pair-at rec Γ vs c1 c2 s T ct
+elab-step cv rec Γ vs (cplam c₀) (m-chk s T ct) = plam-chk cv rec Γ vs c₀ s T ct
 elab-step cv rec Γ vs c (m-chk s T ct) = d-bind (Out Γ c m-inf) (Out Γ c (m-chk s T ct)) (rec Γ vs c m-inf) (switch cv Γ vs c s T ct)
 elab-step cv rec Γ vs (cpathp (cplam cL) c0 c1) m-ty =
   d-bind (Out (dext Γ) cL m-ty) (Out Γ (cpathp (cplam cL) c0 c1) m-ty) (rec (dext Γ) (dext-vals Γ vs) cL m-ty)
