@@ -282,3 +282,72 @@ h-number-onto acc nil = acc
 h-number-onto acc (cons d r) = if andB (wlt #47 d) (wlt d #58) then h-number-onto (wadd (wmul acc #10) (wsub d #48)) r else acc
 h-number : List Word → Word
 h-number t = h-number-onto #0 t
+
+-- a descriptor read to its end
+h-read-fd : Word → Nat → Proc W (List Word)
+h-read-fd fd zero = ret nil
+h-read-fd fd (suc k) = bind (alloc-bytes #65536) (λ buf → bind (sys-call #0 fd buf #65536 #0 #0 #0) (λ n →
+  if andB (wlt #0 n) (wlt n #9223372036854775808)
+  then bind (h-peek buf (toNat n)) (λ t → bind (h-read-fd fd k) (λ r → ret {lzero} {W} (list-append t r)))
+  else ret {lzero} {W} nil))
+h-stdin : Proc W (List Word)
+h-stdin = h-read-fd #0 (toNat #1024)
+-- another program run to its end, its output (standard output and standard error) taken: its exit
+-- status and that output
+h-capture : List (List Word) → Proc W (Word × List Word)
+h-capture args =
+  bind (h-read "/proc/self/environ") (λ env →
+  bind (h-ptrs args) (λ argv → bind (h-ptrs (h-env-block env)) (λ envp →
+  bind (load-at argv) (λ path →
+  bind (alloc-bytes #8) (λ fds → bind (sys-call #293 fds #0 #0 #0 #0 #0) (λ pr →
+  bind (load-at fds) (λ both →
+  bind (sys-call #57 #0 #0 #0 #0 #0 #0) (λ pid →
+  if weq pid #0 then
+    bind (sys-call #33 (wshr both #32) #1 #0 #0 #0 #0) (λ a → bind (sys-call #33 (wshr both #32) #2 #0 #0 #0 #0) (λ b →
+    bind (sys-call #3 (wand both #4294967295) #0 #0 #0 #0 #0) (λ c →
+    bind (sys-call #59 path argv envp #0 #0 #0) (λ e → bind (exit #127) (λ u → ret {lzero} {W} (#127 , nil))))))
+  else
+    bind (sys-call #3 (wshr both #32) #0 #0 #0 #0 #0) (λ c →
+    bind (h-read-fd (wand both #4294967295) (toNat #4096)) (λ out →
+    bind (sys-call #3 (wand both #4294967295) #0 #0 #0 #0 #0) (λ c2 →
+    bind (h-wait pid) (λ s → ret {lzero} {W} (s , out)))))))))))))
+-- the names in a directory (not . and ..)
+h-dir-entries : Word → Word → Word → Nat → Proc W (List (List Word))
+h-dir-entries buf off n zero = ret nil
+h-dir-entries buf off n (suc k) =
+  if wlt off n then
+    bind (load8-at (wadd buf (wadd off #16))) (λ lo → bind (load8-at (wadd buf (wadd off #17))) (λ hi →
+    bind (h-name-at (wadd buf (wadd off #19)) (toNat #256)) (λ name →
+    bind (h-dir-entries buf (wadd off (wadd lo (wshl hi #8))) n k) (λ rest →
+    ret {lzero} {W} (if orB (h-eq name ".") (h-eq name "..") then rest else cons name rest)))))
+  else ret {lzero} {W} nil
+h-dir-reads : Word → Word → Nat → Proc W (List (List Word))
+h-dir-reads fd buf zero = ret nil
+h-dir-reads fd buf (suc k) = bind (sys-call #217 fd buf #65536 #0 #0 #0) (λ n →
+  if andB (wlt #0 n) (wlt n #9223372036854775808)
+  then bind (h-dir-entries buf #0 n (toNat (wquot n #20))) (λ es → bind (h-dir-reads fd buf k) (λ rest → ret {lzero} {W} (list-append es rest)))
+  else ret {lzero} {W} nil)
+h-list : List Word → Proc W (List (List Word))
+h-list path = bind (h-cstr path) (λ p → bind (sys-call #257 #18446744073709551516 p #65536 #0 #0 #0) (λ fd →
+  if wlt fd #9223372036854775808 then
+    bind (alloc-bytes #65536) (λ buf → bind (h-dir-reads fd buf (toNat #4096)) (λ ns →
+    bind (sys-call #3 fd #0 #0 #0 #0 #0) (λ c → ret {lzero} {W} ns)))
+  else ret {lzero} {W} nil))
+-- hex digits read back as bytes
+h-unhexd : Word → Word
+h-unhexd c = if wlt c #58 then wsub c #48 else wsub c #87
+h-unhex : List Word → List Word
+h-unhex nil = nil
+h-unhex (cons a nil) = nil
+h-unhex (cons a (cons b r)) = cons (wadd (wshl (h-unhexd a) #4) (h-unhexd b)) (h-unhex r)
+-- whether a text holds another inside it
+h-infix : List Word → List Word → Bool
+h-infix p nil = h-null p
+h-infix p (cons x r) = if h-prefix p (cons x r) then true else h-infix p r
+-- text up to the first place another text begins in it
+h-before : List Word → List Word → List Word
+h-before p nil = nil
+h-before p (cons x r) = if h-prefix p (cons x r) then nil else cons x (h-before p r)
+-- a file removed
+h-unlink : List Word → Proc W Unit
+h-unlink path = bind (h-cstr path) (λ p → bind (sys-call #87 p #0 #0 #0 #0 #0) (λ r → ret unit))

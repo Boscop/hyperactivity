@@ -1983,6 +1983,7 @@ static void p_decl_in(void) {
  * modules/<path from the repository root, in hex> points to it. A file is these objects rendered. */
 typedef struct { const char *name; int first, last; } WItem;
 static WItem *witems; static int nwitems, capwitems;
+static const char *load_root;   /* the file the machine was given that loads the one being read */
 static void w_hex(SBuf *o, const char *s) { for (const unsigned char *c = (const unsigned char *)s; *c; c++) sb_fmt(o, "%02x", *c); }
 static void w_item(int first, int end) {
     const char *name = NULL;
@@ -2024,6 +2025,26 @@ static char *w_rel(const char *path) {
     }
     free(d); return rp;
 }
+/* a name the file held when last read and holds no more: its pointer dropped, when it still points
+ * to a piece of the file as it was (a name now declared in another file keeps that file's piece) */
+static void w_forget(const char *rel, const char *names, const char *pieces) {
+    SBuf hx = {0}; w_hex(&hx, rel); if (!hx.b || hx.n > 250) { free(hx.b); return; }
+    char *old = store_read("names-of", hx.b); char *oldm = store_read("modules", hx.b); free(hx.b);
+    char *oldp = oldm ? store_read(oldm, "module") : NULL;
+    for (char *l = old ? old : (char *)""; *l; ) {
+        char *e = strchr(l, '\n'); if (!e) break; *e = 0;
+        bool kept = false;
+        for (const char *q = names; *q; ) { const char *f = strchr(q, '\n'); if (!f) break; if ((size_t)(f - q) == strlen(l) && !strncmp(q, l, (size_t)(f - q))) { kept = true; break; } q = f + 1; }
+        if (!kept) {
+            SBuf nh = {0}; w_hex(&nh, l);
+            char *cur = nh.b && nh.n <= 250 ? store_read("written", nh.b) : NULL;
+            if (cur && oldp && strstr(oldp, cur) && !strstr(pieces, cur)) { char *p = store_path("written", nh.b); if (p) remove(p); free(p); }
+            free(cur); free(nh.b);
+        }
+        l = e + 1;
+    }
+    free(old); free(oldm); free(oldp);
+}
 static void w_file(const char *text, const char *path) {
     if (!store_dir()) { nwitems = 0; return; }
     size_t len = strlen(text);
@@ -2040,6 +2061,7 @@ static void w_file(const char *text, const char *path) {
         if (np && witems[i].name && ps[np - 1].name && !strcmp(ps[np - 1].name, witems[i].name) && a == ps[np - 1].last + 1) { ps[np - 1].last = b; prev_end = b; continue; }
         ps[np++] = (WItem){ witems[i].name, a, b }; prev_end = b;
     }
+    SBuf names = {0}; sb_put(&names, "");
     SBuf mod = {0}; char h[65]; int c = 1;
     for (int i = 0; i <= np; i++) {
         int a = i < np ? ps[i].first : nl + 1;
@@ -2047,7 +2069,7 @@ static void w_file(const char *text, const char *path) {
         if (i == np) break;
         w_piece(text + off[ps[i].first], off[ps[i].last + 1] - off[ps[i].first], h);
         sb_put(&mod, h); sb_put(&mod, "\n");
-        if (ps[i].name) w_point("written", ps[i].name, h);
+        if (ps[i].name) { w_point("written", ps[i].name, h); sb_put(&names, ps[i].name); sb_put(&names, "\n"); }
         c = ps[i].last + 1;
     }
     if (mod.b) {
@@ -2055,8 +2077,13 @@ static void w_file(const char *text, const char *path) {
         char *p = store_path(mh, "module");
         struct stat st; if (p && stat(p, &st) != 0) store_write(mh, "module", mod.b, false);
         free(p);
-        char *rel = w_rel(path); w_point("modules", rel, mh); free(rel);
+        char *rel = w_rel(path); w_forget(rel, names.b, mod.b);
+        w_point("modules", rel, mh);
+        w_point("names-of", rel, names.b);
+        if (load_root) { char *rr = w_rel(load_root); w_point("roots", rel, rr); free(rr); }
+        free(rel);
     }
+    free(names.b);
     free(mod.b); free(ps); free(off); nwitems = 0;
 }
 static void load_surface(const char *text, const char *path, bool imports_only) {

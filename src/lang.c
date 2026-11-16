@@ -4926,6 +4926,7 @@ int main(int argc, char **argv)
         if (!strcmp(argv[i], "--roundtrip") && i + 1 < argc) { convert_file(argv[++i], true); continue; }
         if (!strcmp(argv[i], "--serve")) continue;
         if (!strcmp(argv[i], "--read")) continue;
+        load_root = argv[i];   /* roots/<file>: the given file that loads it (src/syntax.c, w_file) */
         load_file(argv[i], true);
     }
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--serve")) serve();
