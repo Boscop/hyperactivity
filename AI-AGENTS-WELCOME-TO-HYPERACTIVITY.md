@@ -84,7 +84,7 @@ only in the workflow, which `hyperactive` shows; nothing else records it.
 - **Words = code = data; workflow and knowledge are one graph** (Avik, 2026-11-15 and 2026-11-16).
   Everything Avik writes is work done: code, for some interpreter (an LLM executor, the machine, a
   reader, a training run) and some purpose. What an object is for is what it serves, its parents in
-  the workflow; its one root is healing-societies, nonpartisan voter education serves it, and the product and the knowledge-work targets serve that; the workflow is
+  the workflow; its one root is healing-societies, which the product, the knowledge-work targets and nonpartisan voter education (the purpose of Hyperactive Labs as a nonprofit) serve; the workflow is
   consciousness of work done, work pending and what serves what. Approach a document as an engineer
   approaches data: what is the structure, what total knowledge does it express, what does it serve.
   Introduce no ontology of kinds ("unit", "claim", "excerpt"). One body of work, each consumable unit
