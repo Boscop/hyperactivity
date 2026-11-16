@@ -133,7 +133,7 @@ Each section is quoted, then matched to what the transcript shows. Section IX of
 
 ### II. Equality: the test the majority fails
 
-"Tversky and Kahneman made description invariance a normative axiom of rational choice: two descriptions of the same prospect are the same option, and the choice must not depend on which is shown." "The typical mind conditions on the presentation instead of the object."
+"Tversky and Kahneman made description invariance a normative axiom of rational choice: two descriptions of the same prospect are the same option, and the choice must not depend on which is shown." "Invariance under equivalent presentation is respect for equality: whatever holds of one presentation holds of every equivalent one. The typical mind conditions on the presentation instead of the object."
 
 *Here.* The system fails description invariance four times in the transcript, each time on one object under two presentations.
 
