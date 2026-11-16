@@ -480,7 +480,15 @@ observations, fibers, warrants and their refinement (lib/std.cub `fiber`, lib/ob
 dependency certificates (lib/maintenance.cub); structured types and transport (lib/structure.cub); fleets of node
 processes (lib/fleet.cub); the content-addressed store (src/store.c).
 
-Written next, as `lib/ceptr.cub`, each a definition with its theorem: the structure grammar as type formers and symbols
+Written and checked in `lib/ceptr.cub` (2026-11-16): Ceptr's base protocols as choreographies, each a function of its
+semantic references: REQUESTING, RECOGNIZE as the inclusion of REQUESTING with its linkages and resolutions, ALIVE, and
+the group protocol's enrollment and converse interactions; inclusion (`cp-include`: a LINKAGE renames roles, a
+RESOLUTION maps usages to symbols); the proof that RECOGNIZE unwraps to REQUESTING applied to its resolved references
+(`cp-recognize-unwraps`, by computation); each protocol projectable (decided by computation); expression as projection
+(`cp-express`); and the proof that the recognizer's behaviour in RECOGNIZE is the requester's behaviour in REQUESTING
+applied to the recognizer, recognizee, `are_you` and `i_am` (`cp-recognizer-is-requester`).
+
+Written next, in the same file, each a definition with its theorem: the structure grammar as type formers and symbols
 as structured types; semantic trees and their typing; the semtrex pattern type, its Match family and the compiled
 matcher with soundness and completeness; Ceptr's signal, expectation and conversation commands as a signature with a
 VMHost handler; protocol telescopes (ROLE, GOAL, USAGE, WEAL), RESOLUTION as application, LINKAGE as renaming, INCLUSION
