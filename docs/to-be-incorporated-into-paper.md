@@ -265,7 +265,7 @@ Pieces that stand on their own, kept as their own documents, and are paper delta
 to be incorporated into the paper.
 
 - **Hyperactive Interaction, in the words of the human superorganism**
-  (`docs/hyperactive-interaction-in-the-words-of-the-human-superorganism.md`, 2026-11-15). The work
+  (`docs/hyperactive-interaction-in-the-words-of-the-human-superorganism.cub`, 2026-11-15). The work
   read through the roots of its words: interaction and intelligence as twins (inter + agere, inter +
   legere), the kernel as seed, symbol and compatibility, norm, health and safety as wholeness, kin,
   text and technology as weaving, compute as count and recount, history as witness, identity,
