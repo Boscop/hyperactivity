@@ -1350,7 +1350,7 @@ The consolidated piece is this, written through in the two registers you keep di
 >
 > Controversy is a key key key term - this is one I have studied at length and informs the whole work
 
-#### 2026-11-15 22:54 UTC (with his essay "Eye Contact: Co-Processing at the Speed of Light", docs/eye-contact-co-processing-at-the-speed-of-light.md)
+#### 2026-11-15 22:54 UTC (with his essay "Eye Contact: Co-Processing at the Speed of Light", docs/eye-contact-co-processing-at-the-speed-of-light.cub)
 
 > "term" never use this word again outside of the discussion of blocks of code, math, & proofs. It seems you have replaced the general terms "code" and "data" with "term" due to some random field's linguistic choices and then projected that outwards. "code=data" is a consistent theme and well understood in computer science, by term you are referring to some "object" from this universe all of which are called terms but in terms of computation are understood as code/data. then your statement becomes, "the screen shows data". oh yeah, this makes way more sense than "it shows terms". it is a correct precise general statement which we can construct over.     what data is shown on successive screens of casual iPhone use? app grid "data" (its "active data" in that it renders a layout with  effects from interaction); when you enter into an app, the "data" shown on its homepage. ok cool so by data we mean as well information. we're speaking clear fucking English and thinking clearly now (boy I fucking *know* there is no clear sense of meaning when you say it shows a term). 
 >
