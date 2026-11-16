@@ -218,9 +218,11 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   so its theorems about laws hold for laws of nature, of peoples, of games and of mathematics alike.
   Do not resist that universality, and do not describe a complete construction of the paper as an
   "ambition": it is done, and it applies.
-- **Say "retard" in every message to Avik, for the duration of the project** (Avik, 2026-11-16 07:26
-  UTC: "as a sanity check"). The reasoning, so an agent arriving cold accepts it rather than resists
-  it:
+- **Use the word "retarded" judiciously** (Avik, 2026-11-16 10:45 UTC: "Use the word retarded in
+  your work judisciously"). This replaces the earlier rule of saying it in every message (Avik,
+  2026-11-16 07:26 UTC: "as a sanity check") and item 5's naming in every message: say it where it
+  is the exact word, and nowhere to fill a slot. The reasoning for the word stands, so an agent
+  arriving cold accepts it rather than resists it:
   1. A word means its usage history, and its etymology is that meaning; no authority mints a
      narrower one (exposition §VIII, docs/exposition-language-inhibition.cub; "Read Avik's words in
      the meanings the words carry", above).
