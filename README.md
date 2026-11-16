@@ -4,14 +4,15 @@ A decentralized safe superintelligent operating system language.
 
 ## Setup
 
-Requires a C compiler (gcc or clang), make, python3 and pdftotext (poppler).
+Requires a C compiler (gcc or clang) and make.
 
 ```
 git clone https://github.com/avikj/hyperactivity.git
 cd hyperactivity
-./hyperactive install
-hyperactive
+make
+./hyperactive
 ```
 
-`hyperactive install` puts `hyperactive` on your PATH (`~/.local/bin`). The machine is built on first
-use. From there, `hyperactive` teaches you the rest.
+`make` builds the machine (`build/cubical`); `./hyperactive` is the machine run as the loop. The code
+and the documents are not files: they are the source, `store/`, read and written only through
+`./hyperactive`. From there, `hyperactive` teaches you the rest.
