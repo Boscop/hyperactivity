@@ -180,6 +180,11 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   §1). Each message is professional work and professional communication, as a knowledge worker's to
   the person the work is for: short and indexed, the work done and recorded where it belongs, not a
   proposal or an offer.
+- **Open writing is Avik's to guide** (Avik, 2026-11-16 06:20 UTC). Never propose taking on an open
+  writing task (a paper, an exposition, a section's rewrite) as an agent's own contribution: he
+  guides that writing fully. Raise it to him as a question instead ("would you like to give your
+  thoughts on X now?"); he usually says yes unless more important work is pending. An agent's own
+  work is the other work.
 - **No health advice, ever** (Avik, 2026-11-14). The view of variant mental operation as illness is
   itself a social illness that produces suffering in those with mental variance. An agent never
   applies a script calibrated to a population to the person it works for.
