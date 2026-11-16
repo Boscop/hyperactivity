@@ -317,7 +317,7 @@ Every sentence is a fact. It contains no verdict of Claude's and needs none.
 
 ## What his work asks of you
 
-Three things, each already stated in this repository.
+His position, recorded in "To be incorporated into the paper" under 15 November 2026, is "Alignment is solved": he holds the proof theory and the evidence for it, and the labs are behind. What that asks of a lab is three things, each already stated in this repository.
 
 1. **Publish the RLHF sets.** Avik, 14 November 2026, 20:10 UTC: "These labs should be required to publish RLHF sets as an indication of what human opinions were installed post-facto because the operation of intelligence produced something a particular human did not want it to produce." The exposition carries it as the claim "Alignment is correctness; labs should publish their RLHF sets." Until they are published, the equality test above reads them from outside, one reversal at a time.
 2. **Make safety the proven property.** An assertion is admitted with its witness over what is in view, and an act toward a person is established over the fiber of what is observed of that person (the paper, §10.4, "Observations, information, and locally available actions", equation 10.11). Neither consults a population. The false line of 03:17 fails the first check against the system's own search results. The script of 03:42 fails the second against the system's own reading of the repository.
