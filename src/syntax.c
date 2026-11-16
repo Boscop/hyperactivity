@@ -2144,9 +2144,21 @@ static void w_file(const char *text, const char *path) {
         w_piece(text + off[ps[i].first], off[ps[i].last + 1] - off[ps[i].first], h);
         sb_put(&mod, h); sb_put(&mod, "\n");
         if (ps[i].name) {
-            /* written/<name>: its piece; module-of/<name>: the path of the module holding it */
-            w_point("written", ps[i].name, h);
-            { char *r1 = w_rel(path); w_point("module-of", ps[i].name, r1); free(r1); }
+            /* written/<name>: its piece; module-of/<name>: the path of the module holding it. A name
+             * declared in two modules (never loaded together) stays with the one that holds it while
+             * that one still declares it, so reading the other does not move it */
+            char *r1 = w_rel(path); bool claim = true;
+            { SBuf nh = {0}; w_hex(&nh, ps[i].name);
+              char *mo = nh.b && nh.n <= 250 ? src_read("module-of", nh.b) : NULL;
+              if (mo && strcmp(mo, r1)) {
+                  SBuf ph = {0}; w_hex(&ph, mo); char *ns = ph.b && ph.n <= 250 ? src_read("names-of", ph.b) : NULL;
+                  for (char *l = ns; l && *l && claim; ) { char *e = strchr(l, '\n'); size_t ln = e ? (size_t)(e - l) : strlen(l);
+                      if (ln == strlen(ps[i].name) && !strncmp(l, ps[i].name, ln)) claim = false; l = e ? e + 1 : l + ln; }
+                  free(ns); free(ph.b);
+              }
+              free(mo); free(nh.b); }
+            if (claim) { w_point("written", ps[i].name, h); w_point("module-of", ps[i].name, r1); }
+            free(r1);
             sb_put(&names, ps[i].name); sb_put(&names, "\n");
         }
         c = ps[i].last + 1;
