@@ -555,6 +555,20 @@ static Node *p_atom(void) {
         /* at its type, so elaboration checks the list against it instead of inferring each cons */
         return lst(3, nsym("the"), lst(2, nsym("List"), nsym("Binding")), r);
     }
+    if (x_is(t, "definitions") && P1()->k == X_ID) {
+        /* definitions T (2026-11-15): the codebase's own namespace as a value, so a program reads what
+         * is defined without a second reader of the text: every checked definition in scope declared
+         * with the type named T, in the order checked, as cons (pair "name" name) … nil
+         * : List (List Word × T). Read when the declaration is read, as history's log is. */
+        NX(); Tok *ty = NX();
+        Node *r = nsym("nil");
+        for (int i = nchecked - 1; i >= 0; i--) {
+            if (CHKHIDE[i] || CHECKED[i][0] == '%' || checked_index(CHECKED[i]) != i) continue;
+            if ((size_t)i >= capchkty || !CHKTY[i] || CHKTY[i]->list || strcmp(CHKTY[i]->s, ty->s)) continue;
+            r = lst(3, nsym("cons"), sym3("pair", text_term(CHECKED[i]), nsym(CHECKED[i])), r);
+        }
+        return lst(3, nsym("the"), lst(2, nsym("List"), lst(4, nsym("Sigma"), xfresh("_"), lst(2, nsym("List"), nsym("Word")), nsym(ty->s))), r);
+    }
     if (x_is(t, "text") && P1()->k == X_STR) {
         /* text "path" (2026-11-15, Avik: "a raw bytes file ... so the string can just be loaded by
          * path"; "Essay is a string"): an existing file of the repository, of any type (.md, .txt,
