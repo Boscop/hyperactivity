@@ -1,5 +1,87 @@
 # Hyperactive Labs
 
+## Hyperactive Labs as a nonprofit (Avik, 2026-11-16)
+
+Avik is registering Hyperactive Labs as a nonprofit ("I'm actually doin that shit fr"). This section holds
+everything established in the session of 16 November (01WfrbRstUAGqa9PxKvN3jrK) so no one asks it again.
+The workflow carries it as the node `hyperactive-labs-nonprofit` (`workflow/hyperactivity.cub`), part of
+`healing-societies`; its purpose is the node `nonpartisan-voter-education`. Not legal or tax advice:
+a nonprofit attorney drafts the documents, a CPA confirms the numbers.
+
+**What it is for, in Avik's words.** Nonpartisan voter education "is the primary goal of hyperactivity
+labs this covers all our intentions"; it is lifelong, with no completion, and its witness will be
+observable to humanity. His voice carries it without tech; tech is an avenue for publicity. He will
+litigate (he has class action cases). Ending the two-party system is an aim; a political party of his
+own is registered separately. The ends he names (12:17 UTC): "end of 2 party system. End of national
+borders. End of financial system. Technoanarchocommunism." Why register: legitimacy, beyond taxes, and
+agency to spend whenever ("Idk when I'll drop 20k on CPUs"), which needs the spending pre-rationalized.
+
+**The entity.** A California nonprofit public benefit corporation recognized under IRC 501(c)(3). The
+purpose clause names: research and development of computing systems, education and publication
+(hyperactivity, given away as a commons), nonpartisan voter education, and public-interest litigation.
+
+**What it gives.** No tax on income related to the mission, and none on gains when it sells donated
+shares; donors deduct gifts; grants, donor-advised funds and matching gifts open (most give only to
+501(c)(3)s); nonprofit software and cloud programs; limited liability; perpetual existence with the
+mission locked in the charter; a legal home for IP held as a commons; standing with courts, press and
+institutions; a determination letter, a board and a public annual return (Form 990), the record that
+makes the legitimacy real.
+
+**What it may say.** It may never intervene in a campaign for or against any candidate, and opposing all
+candidates is still opposing candidates. Everything else is open: factual, expository speech on
+government action (including a sitting president's) tied to events rather than to the election
+calendar; issue advocacy ("there is an ongoing genocide in Gaza of which all Americans should take
+responsibility" is legal); nonpartisan voter education, the most protected speech it has: facts about
+every candidate and every party on a broad range of issues, the same questions to all, no approval or
+disapproval, however damning (Rev. Rul. 80-282; a selection that itself favors a side is not, Rev. Rul.
+78-248). The IRS reads meaning, not literal words (Rev. Rul. 2007-41: coded language and sarcasm count).
+Ending the two-party system is reform, not intervention: ballot measures (ranked choice, open primaries,
+proportional representation) count as lobbying, allowed within limits raised by the 501(h) election
+(FairVote is the precedent, with FairVote Action as its 501(c)(4)). Litigation against government is not
+lobbying and is core charity work (FIRE, the Institute for Justice, the ACLU Foundation; NAACP v. Button,
+1963); class actions run with the organization as counsel (public interest law firm rules, Rev. Proc.
+92-59) or on its members' behalf. The party and any 501(c)(4) are separate entities; the 501(c)(3) never
+coordinates with the party, and its record covers the party's candidates like everyone's.
+
+**Public charity or private operating foundation.** A new organization is tested on its first five years
+of support. Funded almost entirely by Avik, it would be reclassified a private foundation after year
+five: stricter self-dealing rules, a 20%-of-income deduction cap for stock, a small excise tax on
+investment gains. Run as an organization doing its own work (research, publishing, litigation) rather
+than making grants, it qualifies as a private operating foundation, which avoids the worst of those. The
+attorney settles this first. Avik: five years from now the IRS and the United States will not exist;
+the plan holds either way.
+
+**The money.** About $900k, VTSAX in a taxable account, grown from roughly $500-600k. The plan: keep the
+shares in his name and give Hyperactive Labs shares only when it is about to spend (CPUs, staff,
+filings). It sells them and no one pays tax on the gain; he deducts the shares' market value on the day
+of the gift (Form 8283 over $500; no appraisal for listed shares), up to 30% of his income a year with
+a five-year carryforward, above a floor of 0.5% of income (2026 law). Giving the whole $600k at once
+would waste most of the deduction against a small income, and the gift cannot be taken back. Selling
+shares himself instead: only the gain is taxed, about 1 - basis/value of each dollar (25-50% here, so
+about $25-50k on a $100k sale); federal 0% while taxable income stays under $49,450 (single, 2026), then
+15% to $545,500, 20% above, plus 3.8% over $200k of income; California taxes gains as ordinary income.
+With little other income a $100k sale costs about nothing federal and $1-2k California. For a deduction
+certain in 2026, shares go to a donor-advised fund by 31 December and are granted on once Hyperactive
+Labs is recognized.
+
+**Spending.** Money given is the organization's, spent on its mission. Agency comes from writing it in
+advance: the purpose clause covers compute; the board adopts a standing budget for compute and research
+equipment and authorizes the executive director (Avik) to spend within it; equipment is owned by the
+organization and used for its work; a conflict-of-interest policy and minutes of large purchases are
+kept. The line: no benefit to an insider (excess benefit taxes fall on the person). Money returns to
+Avik only as reasonable salary for his work, taxed as income. For anything he wants to own outright, a
+separate for-profit company, with any dealings between the two at fair value.
+
+**The steps.** (1) Settle the structure and the purpose clause with a nonprofit attorney. (2) File the
+articles (form ARTS-PB-501(c)(3), online, $30); the corporation exists that day. (3) EIN online, free,
+the same day. (4) Bylaws, first board meeting, officers (president, secretary, CFO), conflict policy,
+the spending authority. (5) Statement of Information within 90 days ($20). (6) Brokerage account in the
+organization's name (EIN, articles, board resolution), so shares can move before 31 December. (7) IRS
+Form 1023 on Pay.gov ($600; 100+ hours to prepare; months to review; filed within 27 months of
+incorporating, recognition reaches back to the day of incorporation). (8) California franchise tax
+exemption, FTB Form 3500A with the determination letter. (9) The Attorney General's Registry of
+Charitable Trusts, Form CT-1 ($50), within 30 days of first receiving assets.
+
 ## Canonical manuscript — one current draft
 
 **[Open the current N-part manuscript](hyperactivity.cub) (the paper, one value of the language: `hyperactivity`, `docs/hyperactivity.cub`).** This is the single editable manuscript to read and update. The first “paper” is always its Part I, not a separate current deliverable or a base waiting to be merged. The present four Part slots are not a permanent limit on N. All current exports must be derived from this source; any Part I-only export is an extract, never another independently edited manuscript.
