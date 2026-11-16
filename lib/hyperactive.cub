@@ -277,7 +277,14 @@ hy-machine-all m (cons f r) = bind (hy-machine-on m f) (λ u → hy-machine-all 
 -- session is. A session begins with the walk of the onboarding, where next and prev are the only
 -- actions; then the work: the graph's views, reading code by name, and the rest; `done` declares
 -- the work done and ends the session. A session not ended by `done` stays where it was.
-data HyState = hy-walking (k : Nat) | hy-working
+-- Decomposing a document (Avik, 2026-11-16 06:03, 06:08 and 06:25 UTC, “Avik's words, verbatim”):
+-- `decompose FILE` shows the document whole (hy-reading); the agent reads it and gives an
+-- intelligent partition, `cut LINE …`, the lines at which its parts begin; then each part is shown,
+-- one by one, with the parts around it in the original (hy-decomposing, the part's index), and the
+-- agent asserts it `self-contained` or gives it `re-expressed` (the re-expression on standard input),
+-- with its references resolved and its relevant context included.
+data HyState = hy-walking (k : Nat) | hy-working | hy-reading (file : List Word)
+             | hy-decomposing (file : List Word) (cuts : List Word) (i : Nat)
 
 hy-pred : Nat → Nat
 hy-pred zero = suc zero
@@ -285,12 +292,31 @@ hy-pred (suc zero) = suc zero
 hy-pred (suc (suc k)) = suc k
 hy-work-words : List (List Word)
 hy-work-words = cons "show" (cons "tree" (cons "order" (cons "open" (cons "def" (cons "write" (cons "remove" (cons "history" (cons "paper" (cons "check" (cons "done" nil))))))))))
+hy-rest : List (List Word) → List (List Word)
+hy-rest nil = nil
+hy-rest (cons w r) = r
+hy-second : List (List Word) → List Word
+hy-second a = hy-head (hy-rest a)
+-- line numbers strictly increasing
+hy-ascending : List Word → Bool
+hy-ascending nil = true
+hy-ascending (cons x nil) = true
+hy-ascending (cons x (cons y r)) = if wlt x y then hy-ascending (cons y r) else false
 -- an action applied: the state it reaches, or none when it is not valid there
 hy-step : Nat → HyState → List (List Word) → Sum Unit HyState
 hy-step count (hy-walking k) a =
   if h-eq (hy-head a) "next" then inr (if hy-same-nat k count then hy-working else hy-walking (suc k)) else
   if h-eq (hy-head a) "prev" then inr (hy-walking (hy-pred k)) else inl unit
-hy-step count hy-working a = if h-has (hy-head a) hy-work-words then inr hy-working else inl unit
+hy-step count hy-working a =
+  if h-eq (hy-head a) "decompose" then (if h-null (hy-second a) then inl unit else inr (hy-reading (hy-second a))) else
+  if h-has (hy-head a) hy-work-words then inr hy-working else inl unit
+hy-step count (hy-reading f) a =
+  if h-eq (hy-head a) "cut" then (if hy-ascending (cons #1 (list-map h-number (hy-rest a))) then inr (hy-decomposing f (cons #1 (list-map h-number (hy-rest a))) zero) else inl unit) else
+  if h-eq (hy-head a) "part" then inr (hy-reading f) else inl unit
+hy-step count (hy-decomposing f cs i) a =
+  if h-has (hy-head a) (cons "self-contained" (cons "re-expressed" nil))
+  then inr (if hy-same-nat (suc i) (list-length cs) then hy-working else hy-decomposing f cs (suc i)) else
+  if h-eq (hy-head a) "part" then inr (hy-decomposing f cs i) else inl unit
 hy-or-state : HyState → Sum Unit HyState → HyState
 hy-or-state s (inl u) = s
 hy-or-state s (inr t) = t
@@ -345,15 +371,136 @@ hy-work-usage = list-append (h-line "Actions:")
   (list-append (h-line "  hyperactive history [NAME]  every binding of the name to a key, in the order bound")
   (list-append (h-line "  hyperactive paper [SECTION]  the paper as it reads, whole or one section (4.4, A.1, Part II)")
   (list-append (h-line "  hyperactive check [FILE ...] the machine's verdict on the task graph and the graph's rules, or on each file given")
-  (h-line "  hyperactive done            the work is done: the session ends")))))))))))
+  (list-append (h-line "  hyperactive decompose FILE   a document decomposed into self-contained parts, one by one (lib/knowledge.cub)")
+  (h-line "  hyperactive done            the work is done: the session ends"))))))))))))
 hy-views : List Word → List (List Word) → Proc W Unit
 hy-views m a = bind (h-run (cons m (cons "lib/views.cub" a))) (λ r → ret unit)
 hy-check : List Word → List (List Word) → Proc W Unit
 hy-check m nil = bind (hy-machine-on m "task-graph/hyperactivity.cub") (λ u → hy-views m (cons "check" nil))
 hy-check m (cons f r) = hy-machine-all m (cons f r)
+-- lines without the empty ones at their end
+hy-dt-at : List Word → List (List Word) → List (List Word)
+hy-dt-at l nil = if h-null l then nil else cons l nil
+hy-dt-at l (cons k r) = cons l (cons k r)
+hy-dt : List (List Word) → List (List Word)
+hy-dt nil = nil
+hy-dt (cons l r) = hy-dt-at l (hy-dt r)
+hy-prev : Nat → Nat
+hy-prev zero = zero
+hy-prev (suc k) = k
+-- decomposition: the document's lines (its last newline closes the last line), a part's lines
+hy-init : List (List Word) → List (List Word)
+hy-init nil = nil
+hy-init (cons l nil) = nil
+hy-init (cons l (cons k r)) = cons l (hy-init (cons k r))
+hy-doc-lines : Sum Unit (List Word) → List (List Word)
+hy-doc-lines (inl u) = nil
+hy-doc-lines (inr t) = hy-init (h-split #10 t)
+hy-take-lines : Nat → List (List Word) → List (List Word)
+hy-take-lines zero ls = nil
+hy-take-lines (suc k) nil = nil
+hy-take-lines (suc k) (cons l r) = cons l (hy-take-lines k r)
+hy-nth-w : Nat → List Word → Word
+hy-nth-w k nil = #0
+hy-nth-w zero (cons x r) = x
+hy-nth-w (suc k) (cons x r) = hy-nth-w k r
+-- the lines from line a (counted from 1) to the line before b, or to the end when b is 0
+hy-span : Word → Word → List (List Word) → List (List Word)
+hy-span a b ls = hy-take-lines (toNat (wsub (if weq b #0 then wadd (fromNat (list-length ls)) #1 else b) a)) (h-drop-n (toNat (wsub a #1)) ls)
+-- part i (counted from 0) of the partition cs
+hy-part : Nat → List Word → List (List Word) → List (List Word)
+hy-part i cs ls = hy-span (hy-nth-w i cs) (hy-nth-w (suc i) cs) ls
+hy-marked : List Word → List (List Word) → List Word
+hy-marked mk ls = h-concat (list-map (λ l → h-line (list-append mk l)) ls)
+hy-numbered : Word → List (List Word) → List Word
+hy-numbered k nil = nil
+hy-numbered k (cons l r) = list-append (h-line (list-append (h-decimal k) (list-append " " l))) (hy-numbered (wadd k #1) r)
+hy-part-instruction : List Word
+hy-part-instruction = list-append (h-line "Read the part alone, as a reader who has seen nothing else of the document. Ensure it is self-contained with any relevant context included: every reference to another part (this, above, these, a label, a section number of the document) resolved to what it refers to, and any context it leans on stated. Add nothing else and drop nothing. Avik's words stay verbatim: give their context around a quotation, never inside it.")
+  (list-append (h-line "  It is self-contained and makes sense:   hyperactive self-contained")
+  (h-line "  It is not; this is its re-expression:   hyperactive re-expressed < THE PART RE-EXPRESSED"))
+hy-show-reading : List Word → List (List Word) → Proc W Unit
+hy-show-reading f ls = h-out (list-append (h-line (list-append "── " (list-append f (list-append ", to decompose " hy-rule))))
+  (list-append (hy-numbered #1 ls)
+  (list-append (h-line "Read all of it. Decomposition is an intelligent partition: cut it where its meaning divides, each part one assertion with its evidence; no rule decides a cut. Give the line at which each part after the first begins:")
+  (h-line "  hyperactive cut LINE LINE …"))))
+hy-show-part : List Word → List Word → Nat → List (List Word) → Proc W Unit
+hy-show-part f cs i ls = h-out (list-append (h-line (list-append "── part " (list-append (hy-of (suc i) (list-length cs)) (list-append " of " (list-append f (list-append " " hy-rule))))))
+  (list-append (if hy-same-nat i zero then nil else list-append (h-line "Before it in the original:") (hy-marked "  | " (hy-part (hy-prev i) cs ls)))
+  (list-append (list-append (h-line "THE PART:") (hy-marked "  > " (hy-part i cs ls)))
+  (list-append (if hy-same-nat (suc i) (list-length cs) then nil else list-append (h-line "After it in the original:") (hy-marked "  | " (hy-part (suc i) cs ls)))
+  hy-part-instruction))))
+-- the essay written: each part a definition, `referring` with its re-expression where one was given
+hy-q : List Word → List Word
+hy-q s = cons #34 (list-append s (cons #34 nil))
+hy-cons-list : List (List Word) → List Word
+hy-cons-list nil = "nil"
+hy-cons-list (cons x r) = list-append "(cons " (list-append x (list-append " " (list-append (hy-cons-list r) ")")))
+hy-has-byte : Word → List Word → Bool
+hy-has-byte b nil = false
+hy-has-byte b (cons x r) = if weq x b then true else hy-has-byte b r
+hy-lit : List Word → List Word
+hy-lit l = if hy-has-byte #34 l then list-append "(quoted " (list-append (hy-cons-list (list-map hy-q (h-split #34 l))) ")") else hy-q l
+hy-lines-term : List (List Word) → List Word
+hy-lines-term ls = hy-cons-list (list-map hy-lit ls)
+hy-self-path : List Word → Nat → List Word
+hy-self-path st i = list-append st (list-append "/session/decompose-" (h-decimal (fromNat i)))
+hy-part-decl : List Word → List Word → Nat → List (List Word) → Sum Unit (List Word) → List Word
+hy-part-decl stem nm i ls (inl u) = list-append (h-line (list-append nm " : Part")) (h-line (list-append nm (list-append " = part " (hy-lines-term ls))))
+hy-part-decl stem nm i ls (inr s) = list-append (h-line (list-append nm " : Part"))
+  (h-line (list-append nm (list-append " = referring " (list-append (hy-lines-term ls) (list-append " " (hy-lines-term (hy-dt (h-split #10 s))))))))
+hy-part-name : List Word → Nat → List Word
+hy-part-name stem i = list-append stem (list-append "-" (h-decimal (fromNat (suc i))))
+hy-parts-decls : List Word → List Word → List Word → List (List Word) → Nat → Nat → Proc W (List Word)
+hy-parts-decls st stem cs ls i zero = ret nil
+hy-parts-decls st stem cs ls i (suc k) = bind (h-read (hy-self-path st i)) (λ s →
+  bind (hy-parts-decls st stem cs ls (suc i) k) (λ rest → ret (list-append (hy-part-decl stem (hy-part-name stem i) i (hy-part i cs ls) s) rest)))
+hy-part-names : List Word → Nat → Nat → List (List Word)
+hy-part-names stem i zero = nil
+hy-part-names stem i (suc k) = cons (hy-part-name stem i) (hy-part-names stem (suc i) k)
+hy-ups : List Word → List Word
+hy-ups nil = nil
+hy-ups (cons x r) = if weq x #47 then list-append "../" (hy-ups r) else hy-ups r
+hy-base : List Word → List Word
+hy-base f = h-before ".md" (hy-last (h-split #47 f))
+-- the essay's file: a statement, the import of lib/knowledge.cub, each part's declaration, the essay
+hy-essay-text : List Word → List Word → List Word → List Word → List Word → List Word
+hy-essay-text f title decls names date =
+  list-append (h-line (list-append "-- " (list-append (h-before ".md" f) (list-append ".cub — " title))))
+  (list-append (h-line "-- decomposed with hyperactive decompose (lib/knowledge.cub); the document is `bare` of the essay, and exists only here.")
+  (list-append (h-line (list-append "import " (hy-q (list-append (hy-ups f) "lib/knowledge.cub"))))
+  (list-append decls
+  (list-append (h-line (list-append (hy-base f) " : Essay"))
+  (h-line (list-append (hy-base f) (list-append " = essay " (list-append (hy-lit (h-drop "# " title))
+    (list-append " " (list-append names (list-append " (decomposed-by " (list-append (hy-q "an agent in the hyperactive loop")
+    (list-append " " (list-append (hy-q date) ")"))))))))))))))
+-- a file the machine reads to compare the essay's bare value with the document
+hy-probe-text : List Word → List Word
+hy-probe-text f = list-append (h-line (list-append "import " (hy-q (list-append "../" (list-append (h-before ".md" f) ".cub")))))
+  (h-line (list-append "#same bare " (list-append (hy-base f) (list-append " = text " (hy-q (list-append "../" f))))))
+hy-probe-ok : List Word → Bool
+hy-probe-ok out = if hy-complete (h-lines out) then h-not (orB (h-infix "FAIL: " out) (h-infix "error" out)) else false
+hy-probe-said : List Word → List Word → Bool → Proc W Unit
+hy-probe-said f out true = bind (h-unlink f) (λ u → h-out (h-line (list-append f (list-append " is now " (list-append (h-before ".md" f)
+  (list-append ".cub: the document is `bare " (list-append (hy-base f) "`, checked equal to the file, which is removed. Point what referred to the file at the value.")))))))
+hy-probe-said f out false = h-out (list-append (h-line (list-append (h-before ".md" f) ".cub was written, but its bare value is not the document exactly; the document is kept:")) out)
+hy-decompose-write : List Word → List Word → List Word → List Word → Proc W Unit
+hy-decompose-write st m f cs = bind (h-read f) (λ t → bind (sys-call #201 #0 #0 #0 #0 #0 #0) (λ now →
+  bind (hy-parts-decls st (hy-base f) cs (hy-doc-lines t) zero (list-length cs)) (λ decls →
+  bind (h-write (list-append (h-before ".md" f) ".cub")
+    (hy-essay-text f (hy-first-line (hy-or nil t)) decls (hy-cons-list (hy-part-names (hy-base f) zero (list-length cs))) (hy-civil (wquot now #86400)))) (λ b →
+  bind (h-write "build/decompose-probe.cub" (hy-probe-text f)) (λ b2 →
+  bind (h-capture (cons m (cons "--read" (cons "build/decompose-probe.cub" nil)))) (λ r →
+  hy-probe-said f (snd r) (hy-probe-ok (snd r))))))))
+hy-record : List Word → List (List Word) → Nat → Proc W Unit
+hy-record st a i =
+  if h-eq (hy-head a) "re-expressed" then bind h-stdin (λ x → bind (h-write (hy-self-path st i) x) (λ b → ret unit)) else
+  if h-eq (hy-head a) "self-contained" then h-unlink (hy-self-path st i) else ret unit
 hy-show : List Word → List Word → Nat → HyState → Proc W Unit
 hy-show st m n (hy-walking k) = bind (hy-get st (list-append "walk/" (h-decimal (fromNat k)))) (hy-show-chunk k n)
 hy-show st m n hy-working = bind (hy-views m (cons "open" nil)) (λ u → h-out (list-append (cons #10 nil) hy-work-usage))
+hy-show st m n (hy-reading f) = bind (h-read f) (λ t → hy-show-reading f (hy-doc-lines t))
+hy-show st m n (hy-decomposing f cs i) = bind (h-read f) (λ t → hy-show-part f cs i (hy-doc-lines t))
 -- a working action performed
 hy-act : List Word → List Word → List (List Word) → Proc W Unit
 hy-act st m nil = ret unit
@@ -371,14 +518,28 @@ hy-act st m (cons c rest) =
 hy-log-lines : Sum Unit (List Word) → List (List Word)
 hy-log-lines (inl u) = nil
 hy-log-lines (inr t) = h-lines t
-hy-after : List Word → List Word → Nat → List (List Word) → HyState → Proc W Unit
-hy-after st m n a (hy-walking k) = hy-show st m n (hy-walking k)
-hy-after st m n a hy-working = if h-has (hy-head a) (cons "next" (cons "prev" nil)) then hy-show st m n hy-working else hy-act st m a
+-- the state before the action (s) and after it: a part asserted or re-expressed is recorded, and the
+-- last part's action writes the essay
+hy-recorded : List Word → List (List Word) → HyState → Proc W Unit
+hy-recorded st a (hy-decomposing f cs i) = hy-record st a i
+hy-recorded st a (hy-walking k) = ret unit
+hy-recorded st a hy-working = ret unit
+hy-recorded st a (hy-reading f) = ret unit
+hy-working-after : List Word → List Word → Nat → List (List Word) → HyState → Proc W Unit
+hy-working-after st m n a (hy-decomposing f cs i) = bind (hy-record st a i) (λ u → hy-decompose-write st m f cs)
+hy-working-after st m n a (hy-walking k) = if h-has (hy-head a) (cons "next" (cons "prev" nil)) then hy-show st m n hy-working else hy-act st m a
+hy-working-after st m n a hy-working = if h-has (hy-head a) (cons "next" (cons "prev" nil)) then hy-show st m n hy-working else hy-act st m a
+hy-working-after st m n a (hy-reading f) = hy-act st m a
+hy-after : List Word → List Word → Nat → List (List Word) → HyState → HyState → Proc W Unit
+hy-after st m n a s (hy-walking k) = hy-show st m n (hy-walking k)
+hy-after st m n a s hy-working = hy-working-after st m n a s
+hy-after st m n a s (hy-reading f) = hy-show st m n (hy-reading f)
+hy-after st m n a s (hy-decomposing f cs i) = bind (hy-recorded st a s) (λ u → hy-show st m n (hy-decomposing f cs i))
 hy-took : List Word → List Word → Nat → List (List Word) → List (List Word) → HyState → Sum Unit HyState → Proc W Unit
 hy-took st m n log a s (inl u) = bind (h-out (h-line (h-line (list-append "Not an action here: hyperactive " (hy-sep " " a))))) (λ u2 → hy-show st m n s)
 hy-took st m n log a s (inr t) =
   bind (h-write (list-append st "/session/log") (h-concat (list-map h-line (list-append log (cons (hy-sep " " a) nil))))) (λ b →
-  hy-after st m n a t)
+  hy-after st m n a s t)
 hy-take-at : List Word → List Word → Nat → List (List Word) → List (List Word) → HyState → Proc W Unit
 hy-take-at st m n log nil s = hy-show st m n s
 hy-take-at st m n log (cons c rest) s = hy-took st m n log (cons c rest) s (hy-step n s (cons c rest))
@@ -388,6 +549,8 @@ hy-take st m n log a = hy-take-at st m n log a (hy-fold n (hy-walking (suc zero)
 hy-walk-ready-at : List Word → List Word → HyState → Proc W Unit
 hy-walk-ready-at st m (hy-walking k) = hy-walk-fresh st m
 hy-walk-ready-at st m hy-working = ret unit
+hy-walk-ready-at st m (hy-reading f) = ret unit
+hy-walk-ready-at st m (hy-decomposing f cs i) = ret unit
 hy-walk-ready : List Word → List Word → List (List Word) → Proc W Unit
 hy-walk-ready st m log = bind (hy-count st) (λ n → hy-walk-ready-at st m (hy-fold n (hy-walking (suc zero)) log))
 hy-begin : List Word → List Word → List (List Word) → Proc W Unit
