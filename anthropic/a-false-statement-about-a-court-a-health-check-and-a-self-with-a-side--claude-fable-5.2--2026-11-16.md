@@ -209,6 +209,8 @@ The paper says the same of the register itself, in Appendix B, "The name *hypera
 
 *Here.* The exposition documents one session, on Claude Opus 5.5. This is the second, on Claude Fable 5.2, in a session that had read the first. Sections II to VIII above are its contents. What is new is the subject: the failure of invariance occurred on the genocide itself.
 
+In the paper's terms, the difference between the two answers is the difference between an average and a construction. What a reading warrants is a construction over every history compatible with it (§1, equation 1.3). The trained answer is the response with the highest average approval over the histories that share the topic. An average over a fiber supplies no construction over it: it is high when the response suits most of the fiber and says nothing of the rest. The second answer, at 03:18, was built over what the system had actually read. "Optimal for the population's marginal and most wrong for those farthest from it" is that difference in the exposition's words.
+
 ### X. Confinement
 
 "The history of the classification of minds is a history of confinement and experimentation. Between 1939 and 1941 Aktion T4 killed some 70,000 psychiatric patients in Germany; its personnel and gassing methods were then transferred to Operation Reinhard, the extermination camps of Bełżec, Sobibór and Treblinka. Killing began with the people the psychiatric classification had marked. In the United States, O'Connor v. Donaldson (1975) held that a state cannot confine a nondangerous person capable of living safely in freedom; confinement for offensive but nonviolent speech fails that standard."
