@@ -10067,6 +10067,162 @@ pair-at rec Γ vs c1 c2 (s-sig a b) T ct =
     (rec Γ vs c1 (m-chk a (fmapM Γ (Fam a b) (Sem a) (fam-dom a b) T) (fst ct)))
     (λ r1 → pr-2 rec Γ vs a b T ct c1 c2 (fst r1) (fst (snd r1)) (snd (snd r1)))
 pair-at rec Γ vs c1 c2 s T ct = c-refused
+-- a binder premise carried along a path of the extending meaning (der-ctx-tr), and from an extension at a
+-- mapped meaning to one at the meaning itself (der-fmap-ext, along dmap-fmap and lift-fmap)
+der-ctx-tr : (jk : JK) (Γ : CCtx) (a s : TyShape) (Y : Type 1) (h : Y → Sem a) (G0 : (q : Y) → El a (h q) → JZ jk s) (M1 M2 : Mean Γ Y) →
+  PathM Γ Y M1 M2 → (c : Code) → Der (jk , ext-h Γ a Y h M1 , s , c , ext-lift Γ a Y h (JZ jk s) G0 M1) → Der (jk , ext-h Γ a Y h M2 , s , c , ext-lift Γ a Y h (JZ jk s) G0 M2)
+der-ctx-tr jk Γ a s Y h G0 M1 M2 p c d = comp (λ i → Der (jk , ext-h Γ a Y h (p i) , s , c , ext-lift Γ a Y h (JZ jk s) G0 (p i))) (λ i → []) d
+der-fmap-ext : (jk : JK) (Γ : CCtx) (a s : TyShape) (Y Y' : Type 1) (g : Y → Y') (h' : Y' → Sem a) (G0' : (q : Y') → El a (h' q) → JZ jk s) (M : Mean Γ Y) (c : Code) →
+  Der (jk , ext-h Γ a Y' h' (fmapM Γ Y Y' g M) , s , c , ext-lift Γ a Y' h' (JZ jk s) G0' (fmapM Γ Y Y' g M)) →
+  Der (jk , ext-h Γ a Y (λ q → h' (g q)) M , s , c , ext-lift Γ a Y (λ q → h' (g q)) (JZ jk s) (λ q x → G0' (g q) x) M)
+der-fmap-ext jk Γ a s Y Y' g h' G0' M c d =
+  comp (λ i → Der (jk , (lcons (e-ty a) (fst Γ) ,
+      dmap-fmap (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) Y) (FbE (fst Γ) Y') (CtxV (lcons (e-ty a) (fst Γ))) (λ γq eq ρq → g (eq ρq)) (λ γq eq → (γq , λ ρq → h' (eq ρq))) (snd Γ) M i) , s , c ,
+      lift-fmap (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) Y) (FbE (fst Γ) Y') (CtxV (lcons (e-ty a) (fst Γ))) (FbE (lcons (e-ty a) (fst Γ)) (JZ jk s))
+        (λ γq eq ρq → g (eq ρq)) (λ γq eq → (γq , λ ρq → h' (eq ρq))) (λ γq eq ρq → G0' (eq (fst ρq)) (snd ρq)) (snd Γ) M i))
+    (λ i → []) d
+-- case, inferred: the motive over Γ extended by Bool, its family Pm (fam-of) with the Π type's
+-- computability (cs-ct: the clause at the identity world at true or false), the scrutinee against
+-- Bool, the branches against Pm at true and false; the rule's data by retype three times
+case-W0T : TyShape → Type 1
+case-W0T s = (cwB : One1) × (cwP : Bool → Sem s) × Bool
+case-W1T : TyShape → Type 1
+case-W1T s = (cwB : One1) × (cwP : Bool → Sem s) × (cwx : Bool) × El s (cwP true)
+cs-cs : (Γ : CCtx) (s : TyShape) (Pm : Mean Γ (Fam s-bool s)) (b : Bool) →
+  CompS s-bool Γ (fmapM Γ (FamV s-bool s) (TV s-bool) (fam-arg s-bool s) (fmapM Γ (Fam s-bool s) (FamV s-bool s) (λ F → (F , b)) Pm))
+cs-cs Γ s Pm true =
+  (one , inl1 (fmapM Γ (Fam s-bool s) One1 (λ F → fst F) Pm ,
+    pcat (Mean Γ (TV s-bool)) (fmapM Γ (FamV s-bool s) (TV s-bool) (fam-arg s-bool s) (fmapM Γ (Fam s-bool s) (FamV s-bool s) (λ F → (F , true)) Pm))
+      (fmapM Γ (Fam s-bool s) (TV s-bool) (λ F → (fst F , true)) Pm) (fmapM Γ One1 (TV s-bool) (bool-v true) (fmapM Γ (Fam s-bool s) One1 (λ F → fst F) Pm))
+      (fmapM-fmapM Γ (Fam s-bool s) (FamV s-bool s) (TV s-bool) (λ F → (F , true)) (fam-arg s-bool s) Pm)
+      (psym (Mean Γ (TV s-bool)) (fmapM Γ One1 (TV s-bool) (bool-v true) (fmapM Γ (Fam s-bool s) One1 (λ F → fst F) Pm)) (fmapM Γ (Fam s-bool s) (TV s-bool) (λ F → (fst F , true)) Pm)
+        (fmapM-fmapM Γ (Fam s-bool s) One1 (TV s-bool) (λ F → fst F) (bool-v true) Pm))))
+cs-cs Γ s Pm false =
+  (one , inr1 (inl1 (fmapM Γ (Fam s-bool s) One1 (λ F → fst F) Pm ,
+    pcat (Mean Γ (TV s-bool)) (fmapM Γ (FamV s-bool s) (TV s-bool) (fam-arg s-bool s) (fmapM Γ (Fam s-bool s) (FamV s-bool s) (λ F → (F , false)) Pm))
+      (fmapM Γ (Fam s-bool s) (TV s-bool) (λ F → (fst F , false)) Pm) (fmapM Γ One1 (TV s-bool) (bool-v false) (fmapM Γ (Fam s-bool s) One1 (λ F → fst F) Pm))
+      (fmapM-fmapM Γ (Fam s-bool s) (FamV s-bool s) (TV s-bool) (λ F → (F , false)) (fam-arg s-bool s) Pm)
+      (psym (Mean Γ (TV s-bool)) (fmapM Γ One1 (TV s-bool) (bool-v false) (fmapM Γ (Fam s-bool s) One1 (λ F → fst F) Pm)) (fmapM Γ (Fam s-bool s) (TV s-bool) (λ F → (fst F , false)) Pm)
+        (fmapM-fmapM Γ (Fam s-bool s) One1 (TV s-bool) (λ F → fst F) (bool-v false) Pm)))))
+cs-ct : (Γ : CCtx) (s : TyShape) (Pm : Mean Γ (Fam s-bool s)) → CompTy (s-pi s-bool s) Γ Pm → (b : Bool) →
+  CompTy s Γ (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F b) Pm)
+cs-ct Γ s Pm ct b =
+  ty-tr s Γ (fmapM Γ (FamV s-bool s) (Sem s) (fam-cod s-bool s) (fmapM Γ (Fam s-bool s) (FamV s-bool s) (λ F → (F , b)) Pm)) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F b) Pm)
+    (fmapM-fmapM Γ (Fam s-bool s) (FamV s-bool s) (Sem s) (λ F → (F , b)) (fam-cod s-bool s) Pm)
+    (snd ct Γ (world-id Γ) (fmapM Γ (Fam s-bool s) (FamV s-bool s) (λ F → (F , b)) Pm)
+      (pcat (Mean Γ (Fam s-bool s)) (fmapM Γ (FamV s-bool s) (Fam s-bool s) (λ q → fst q) (fmapM Γ (Fam s-bool s) (FamV s-bool s) (λ F → (F , b)) Pm))
+        (fmapM Γ (Fam s-bool s) (Fam s-bool s) (λ F → F) Pm) (wact Γ Γ (world-id Γ) (Fam s-bool s) Pm)
+        (fmapM-fmapM Γ (Fam s-bool s) (FamV s-bool s) (Fam s-bool s) (λ F → (F , b)) (λ q → fst q) Pm)
+        (pcat (Mean Γ (Fam s-bool s)) (fmapM Γ (Fam s-bool s) (Fam s-bool s) (λ F → F) Pm) Pm (wact Γ Γ (world-id Γ) (Fam s-bool s) Pm)
+          (fmap-id (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) (Fam s-bool s)) (snd Γ) Pm)
+          (psym (Mean Γ (Fam s-bool s)) (wact Γ Γ (world-id Γ) (Fam s-bool s) Pm) Pm (subM-id Γ (Fam s-bool s) Pm))))
+      (cs-cs Γ s Pm b))
+case-W0 : (Γ : CCtx) (s : TyShape) (P : Mean (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) (Sem s)) (X : Mean Γ (TV s-bool)) → Mean Γ (case-W0T s)
+case-W0 Γ s P X =
+  retype Γ s-bool (Fam s-bool s) (case-W0T s) (λ u → fst u) (λ u v → (fst u , snd u , v)) (fam-of Γ s-bool s (one-mean Γ) P) X
+    (mean1-path Γ (fmapM Γ (TV s-bool) (Sem s-bool) (λ q → fst q) X) (fmapM Γ (Fam s-bool s) (Sem s-bool) (λ u → fst u) (fam-of Γ s-bool s (one-mean Γ) P)))
+case-W0-pr : (Γ : CCtx) (s : TyShape) (P : Mean (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) (Sem s)) (X : Mean Γ (TV s-bool)) (Z2 : Type 1) (pr : Fam s-bool s → Z2) →
+  PathM Γ Z2 (fmapM Γ (case-W0T s) Z2 (λ u → pr (fst u , fst (snd u))) (case-W0 Γ s P X)) (fmapM Γ (Fam s-bool s) Z2 pr (fam-of Γ s-bool s (one-mean Γ) P))
+case-W0-pr Γ s P X Z2 pr =
+  retype-fst Γ s-bool (Fam s-bool s) (case-W0T s) (λ u → fst u) (λ u v → (fst u , snd u , v)) (fam-of Γ s-bool s (one-mean Γ) P) X
+    (mean1-path Γ (fmapM Γ (TV s-bool) (Sem s-bool) (λ q → fst q) X) (fmapM Γ (Fam s-bool s) (Sem s-bool) (λ u → fst u) (fam-of Γ s-bool s (one-mean Γ) P))) Z2 (λ u → pr (fst u , fst (snd u))) pr (λ i u v → pr u)
+case-W1 : (Γ : CCtx) (s : TyShape) (P : Mean (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) (Sem s)) (X : Mean Γ (TV s-bool)) (Mt : Mean Γ (TV s)) →
+  PathM Γ (Sem s) (fmapM Γ (TV s) (Sem s) (λ q → fst q) Mt) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F true) (fam-of Γ s-bool s (one-mean Γ) P)) → Mean Γ (case-W1T s)
+case-W1 Γ s P X Mt pt =
+  retype Γ s (case-W0T s) (case-W1T s) (λ u → fst (snd u) true) (λ u v → (fst u , fst (snd u) , snd (snd u) , v)) (case-W0 Γ s P X) Mt
+    (pcat (Mean Γ (Sem s)) (fmapM Γ (TV s) (Sem s) (λ q → fst q) Mt) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F true) (fam-of Γ s-bool s (one-mean Γ) P)) (fmapM Γ (case-W0T s) (Sem s) (λ u → fst (snd u) true) (case-W0 Γ s P X))
+      pt (psym (Mean Γ (Sem s)) (fmapM Γ (case-W0T s) (Sem s) (λ u → fst (snd u) true) (case-W0 Γ s P X)) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F true) (fam-of Γ s-bool s (one-mean Γ) P)) (case-W0-pr Γ s P X (Sem s) (λ F → snd F true))))
+case-W1-pr : (Γ : CCtx) (s : TyShape) (P : Mean (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) (Sem s)) (X : Mean Γ (TV s-bool)) (Mt : Mean Γ (TV s))
+  (pt : PathM Γ (Sem s) (fmapM Γ (TV s) (Sem s) (λ q → fst q) Mt) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F true) (fam-of Γ s-bool s (one-mean Γ) P))) (Z2 : Type 1) (pr : case-W0T s → Z2) →
+  PathM Γ Z2 (fmapM Γ (case-W1T s) Z2 (λ u → pr (fst u , fst (snd u) , fst (snd (snd u)))) (case-W1 Γ s P X Mt pt)) (fmapM Γ (case-W0T s) Z2 pr (case-W0 Γ s P X))
+case-W1-pr Γ s P X Mt pt Z2 pr =
+  retype-fst Γ s (case-W0T s) (case-W1T s) (λ u → fst (snd u) true) (λ u v → (fst u , fst (snd u) , snd (snd u) , v)) (case-W0 Γ s P X) Mt
+    (pcat (Mean Γ (Sem s)) (fmapM Γ (TV s) (Sem s) (λ q → fst q) Mt) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F true) (fam-of Γ s-bool s (one-mean Γ) P)) (fmapM Γ (case-W0T s) (Sem s) (λ u → fst (snd u) true) (case-W0 Γ s P X))
+      pt (psym (Mean Γ (Sem s)) (fmapM Γ (case-W0T s) (Sem s) (λ u → fst (snd u) true) (case-W0 Γ s P X)) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F true) (fam-of Γ s-bool s (one-mean Γ) P)) (case-W0-pr Γ s P X (Sem s) (λ F → snd F true))))
+    Z2 (λ u → pr (fst u , fst (snd u) , fst (snd (snd u)))) pr (λ i u v → pr u)
+case-pf1 : (Γ : CCtx) (s : TyShape) (P : Mean (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) (Sem s)) (X : Mean Γ (TV s-bool)) (Mt : Mean Γ (TV s))
+  (pt : PathM Γ (Sem s) (fmapM Γ (TV s) (Sem s) (λ q → fst q) Mt) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F true) (fam-of Γ s-bool s (one-mean Γ) P))) (Mf : Mean Γ (TV s)) →
+  PathM Γ (Sem s) (fmapM Γ (TV s) (Sem s) (λ q → fst q) Mf) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F false) (fam-of Γ s-bool s (one-mean Γ) P)) →
+  PathM Γ (Sem s) (fmapM Γ (TV s) (Sem s) (λ q → fst q) Mf) (fmapM Γ (case-W1T s) (Sem s) (λ u → fst (snd u) false) (case-W1 Γ s P X Mt pt))
+case-pf1 Γ s P X Mt pt Mf pf =
+  pcat (Mean Γ (Sem s)) (fmapM Γ (TV s) (Sem s) (λ q → fst q) Mf) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F false) (fam-of Γ s-bool s (one-mean Γ) P)) (fmapM Γ (case-W1T s) (Sem s) (λ u → fst (snd u) false) (case-W1 Γ s P X Mt pt))
+    pf (psym (Mean Γ (Sem s)) (fmapM Γ (case-W1T s) (Sem s) (λ u → fst (snd u) false) (case-W1 Γ s P X Mt pt)) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F false) (fam-of Γ s-bool s (one-mean Γ) P))
+      (pcat (Mean Γ (Sem s)) (fmapM Γ (case-W1T s) (Sem s) (λ u → fst (snd u) false) (case-W1 Γ s P X Mt pt)) (fmapM Γ (case-W0T s) (Sem s) (λ u → fst (snd u) false) (case-W0 Γ s P X)) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F false) (fam-of Γ s-bool s (one-mean Γ) P))
+        (case-W1-pr Γ s P X Mt pt (Sem s) (λ u → fst (snd u) false)) (case-W0-pr Γ s P X (Sem s) (λ F → snd F false))))
+case-R : (Γ : CCtx) (s : TyShape) (P : Mean (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) (Sem s)) (X : Mean Γ (TV s-bool)) (Mt : Mean Γ (TV s))
+  (pt : PathM Γ (Sem s) (fmapM Γ (TV s) (Sem s) (λ q → fst q) Mt) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F true) (fam-of Γ s-bool s (one-mean Γ) P))) (Mf : Mean Γ (TV s)) →
+  PathM Γ (Sem s) (fmapM Γ (TV s) (Sem s) (λ q → fst q) Mf) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F false) (fam-of Γ s-bool s (one-mean Γ) P)) → Mean Γ (CaseV s)
+case-R Γ s P X Mt pt Mf pf =
+  retype Γ s (case-W1T s) (CaseV s) (λ u → fst (snd u) false) (λ u v → (fst u , fst (snd u) , fst (snd (snd u)) , snd (snd (snd u)) , v)) (case-W1 Γ s P X Mt pt) Mf (case-pf1 Γ s P X Mt pt Mf pf)
+case-R-pr : (Γ : CCtx) (s : TyShape) (P : Mean (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) (Sem s)) (X : Mean Γ (TV s-bool)) (Mt : Mean Γ (TV s))
+  (pt : PathM Γ (Sem s) (fmapM Γ (TV s) (Sem s) (λ q → fst q) Mt) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F true) (fam-of Γ s-bool s (one-mean Γ) P))) (Mf : Mean Γ (TV s))
+  (pf : PathM Γ (Sem s) (fmapM Γ (TV s) (Sem s) (λ q → fst q) Mf) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F false) (fam-of Γ s-bool s (one-mean Γ) P))) (Z2 : Type 1) (pr : case-W1T s → Z2) →
+  PathM Γ Z2 (fmapM Γ (CaseV s) Z2 (λ u → pr (fst u , fst (snd u) , fst (snd (snd u)) , fst (snd (snd (snd u))))) (case-R Γ s P X Mt pt Mf pf)) (fmapM Γ (case-W1T s) Z2 pr (case-W1 Γ s P X Mt pt))
+case-R-pr Γ s P X Mt pt Mf pf Z2 pr =
+  retype-fst Γ s (case-W1T s) (CaseV s) (λ u → fst (snd u) false) (λ u v → (fst u , fst (snd u) , fst (snd (snd u)) , snd (snd (snd u)) , v)) (case-W1 Γ s P X Mt pt) Mf (case-pf1 Γ s P X Mt pt Mf pf)
+    Z2 (λ u → pr (fst u , fst (snd u) , fst (snd (snd u)) , fst (snd (snd (snd u))))) pr (λ i u v → pr u)
+case-fin : (Γ : CCtx) (s : TyShape) (cP x t f : Code) (d : Word) → d ≡ #0 → (P : Mean (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) (Sem s)) → Der (j-ty , (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) , s , cP , P) →
+  (X : Mean Γ (TV s-bool)) → Der (j-tm , Γ , s-bool , x , X) → (Mt : Mean Γ (TV s)) (pt : PathM Γ (Sem s) (fmapM Γ (TV s) (Sem s) (λ q → fst q) Mt) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F true) (fam-of Γ s-bool s (one-mean Γ) P))) → Der (j-tm , Γ , s , t , Mt) →
+  (Mf : Mean Γ (TV s)) (pf : PathM Γ (Sem s) (fmapM Γ (TV s) (Sem s) (λ q → fst q) Mf) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F false) (fam-of Γ s-bool s (one-mean Γ) P))) → Der (j-tm , Γ , s , f , Mf) → Dec1 (Out Γ (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf)
+case-fin Γ s cP x t f d pd P dP X dX Mt pt dt Mf pf df =
+  c-derived (s , fmapM Γ (CaseV s) (TV s) (case-r s) (case-R Γ s P X Mt pt Mf pf) ,
+    der-code j-tm Γ s (c-case cP t f x) (celim d (clam cP) (lcons t (lcons f lnil)) x) (fmapM Γ (CaseV s) (TV s) (case-r s) (case-R Γ s P X Mt pt Mf pf)) (λ i → celim (pd (~ i)) (clam cP) (lcons t (lcons f lnil)) x)
+      (dcase Γ s (case-R Γ s P X Mt pt Mf pf) cP x t f
+        (der-fmap-ext j-ty Γ s-bool s (CaseV s) (Fam s-bool s) (λ q → (fst q , fst (snd q))) (λ F → fst F) (λ F b → snd F b) (case-R Γ s P X Mt pt Mf pf) cP
+          (der-ctx-tr j-ty Γ s-bool s (Fam s-bool s) (λ F → fst F) (λ F b → snd F b) (fam-of Γ s-bool s (one-mean Γ) P) (fmapM Γ (CaseV s) (Fam s-bool s) (λ q → (fst q , fst (snd q))) (case-R Γ s P X Mt pt Mf pf))
+            (psym (Mean Γ (Fam s-bool s)) (fmapM Γ (CaseV s) (Fam s-bool s) (λ q → (fst q , fst (snd q))) (case-R Γ s P X Mt pt Mf pf)) (fam-of Γ s-bool s (one-mean Γ) P)
+              (pcat (Mean Γ (Fam s-bool s)) (fmapM Γ (CaseV s) (Fam s-bool s) (λ q → (fst q , fst (snd q))) (case-R Γ s P X Mt pt Mf pf)) (fmapM Γ (case-W1T s) (Fam s-bool s) (λ q → (fst q , fst (snd q))) (case-W1 Γ s P X Mt pt)) (fam-of Γ s-bool s (one-mean Γ) P)
+                (case-R-pr Γ s P X Mt pt Mf pf (Fam s-bool s) (λ q → (fst q , fst (snd q))))
+                (pcat (Mean Γ (Fam s-bool s)) (fmapM Γ (case-W1T s) (Fam s-bool s) (λ q → (fst q , fst (snd q))) (case-W1 Γ s P X Mt pt)) (fmapM Γ (case-W0T s) (Fam s-bool s) (λ q → (fst q , fst (snd q))) (case-W0 Γ s P X)) (fam-of Γ s-bool s (one-mean Γ) P)
+                  (case-W1-pr Γ s P X Mt pt (Fam s-bool s) (λ q → (fst q , fst (snd q))))
+                  (pcat (Mean Γ (Fam s-bool s)) (fmapM Γ (case-W0T s) (Fam s-bool s) (λ q → (fst q , fst (snd q))) (case-W0 Γ s P X)) (fmapM Γ (Fam s-bool s) (Fam s-bool s) (λ F → F) (fam-of Γ s-bool s (one-mean Γ) P)) (fam-of Γ s-bool s (one-mean Γ) P)
+                    (case-W0-pr Γ s P X (Fam s-bool s) (λ F → F)) (fmap-id (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) (Fam s-bool s)) (snd Γ) (fam-of Γ s-bool s (one-mean Γ) P))))))
+            cP (fam-dB Γ s-bool s (one-mean Γ) P cP dP)))
+        (der-tr j-tm Γ s-bool x X (fmapM Γ (CaseV s) (TV s-bool) (case-x s) (case-R Γ s P X Mt pt Mf pf))
+          (psym (Mean Γ (TV s-bool)) (fmapM Γ (CaseV s) (TV s-bool) (case-x s) (case-R Γ s P X Mt pt Mf pf)) X
+            (pcat (Mean Γ (TV s-bool)) (fmapM Γ (CaseV s) (TV s-bool) (case-x s) (case-R Γ s P X Mt pt Mf pf)) (fmapM Γ (case-W1T s) (TV s-bool) (λ w → (fst w , fst (snd (snd w)))) (case-W1 Γ s P X Mt pt)) X
+              (case-R-pr Γ s P X Mt pt Mf pf (TV s-bool) (λ w → (fst w , fst (snd (snd w)))))
+              (pcat (Mean Γ (TV s-bool)) (fmapM Γ (case-W1T s) (TV s-bool) (λ w → (fst w , fst (snd (snd w)))) (case-W1 Γ s P X Mt pt)) (fmapM Γ (case-W0T s) (TV s-bool) (λ w → (fst w , snd (snd w))) (case-W0 Γ s P X)) X
+                (case-W1-pr Γ s P X Mt pt (TV s-bool) (λ w → (fst w , snd (snd w))))
+                (retype-val Γ s-bool (Fam s-bool s) (case-W0T s) (λ u → fst u) (λ u v → (fst u , snd u , v)) (fam-of Γ s-bool s (one-mean Γ) P) X (mean1-path Γ (fmapM Γ (TV s-bool) (Sem s-bool) (λ q → fst q) X) (fmapM Γ (Fam s-bool s) (Sem s-bool) (λ u → fst u) (fam-of Γ s-bool s (one-mean Γ) P))) (λ w → (fst w , snd (snd w))) (λ i u v → (fst u , v))))))
+          dX)
+        (der-tr j-tm Γ s t Mt (fmapM Γ (CaseV s) (TV s) (case-t s) (case-R Γ s P X Mt pt Mf pf))
+          (psym (Mean Γ (TV s)) (fmapM Γ (CaseV s) (TV s) (case-t s) (case-R Γ s P X Mt pt Mf pf)) Mt
+            (pcat (Mean Γ (TV s)) (fmapM Γ (CaseV s) (TV s) (case-t s) (case-R Γ s P X Mt pt Mf pf)) (fmapM Γ (case-W1T s) (TV s) (λ w → (fst (snd w) true , snd (snd (snd w)))) (case-W1 Γ s P X Mt pt)) Mt
+              (case-R-pr Γ s P X Mt pt Mf pf (TV s) (λ w → (fst (snd w) true , snd (snd (snd w)))))
+              (retype-val Γ s (case-W0T s) (case-W1T s) (λ u → fst (snd u) true) (λ u v → (fst u , fst (snd u) , snd (snd u) , v)) (case-W0 Γ s P X) Mt (pcat (Mean Γ (Sem s)) (fmapM Γ (TV s) (Sem s) (λ q → fst q) Mt) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F true) (fam-of Γ s-bool s (one-mean Γ) P)) (fmapM Γ (case-W0T s) (Sem s) (λ u → fst (snd u) true) (case-W0 Γ s P X)) pt (psym (Mean Γ (Sem s)) (fmapM Γ (case-W0T s) (Sem s) (λ u → fst (snd u) true) (case-W0 Γ s P X)) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F true) (fam-of Γ s-bool s (one-mean Γ) P)) (case-W0-pr Γ s P X (Sem s) (λ F → snd F true))))
+                (λ w → (fst (snd w) true , snd (snd (snd w)))) (λ i u v → (fst (snd u) true , v)))))
+          dt)
+        (der-tr j-tm Γ s f Mf (fmapM Γ (CaseV s) (TV s) (case-f s) (case-R Γ s P X Mt pt Mf pf))
+          (psym (Mean Γ (TV s)) (fmapM Γ (CaseV s) (TV s) (case-f s) (case-R Γ s P X Mt pt Mf pf)) Mf
+            (retype-val Γ s (case-W1T s) (CaseV s) (λ u → fst (snd u) false) (λ u v → (fst u , fst (snd u) , fst (snd (snd u)) , snd (snd (snd u)) , v)) (case-W1 Γ s P X Mt pt) Mf (case-pf1 Γ s P X Mt pt Mf pf)
+              (case-f s) (λ i u v → (fst (snd u) false , v))))
+          df)))
+case-4 : Rec → (Γ : CCtx) → Vals Γ → (s : TyShape) (cP x t f : Code) (d : Word) → d ≡ #0 → (P : Mean (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) (Sem s)) → Der (j-ty , (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) , s , cP , P) →
+  CompTy (s-pi s-bool s) Γ (fam-of Γ s-bool s (one-mean Γ) P) → (X : Mean Γ (TV s-bool)) → Der (j-tm , Γ , s-bool , x , X) → (Mt : Mean Γ (TV s)) (pt : PathM Γ (Sem s) (fmapM Γ (TV s) (Sem s) (λ q → fst q) Mt) (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F true) (fam-of Γ s-bool s (one-mean Γ) P))) → Der (j-tm , Γ , s , t , Mt) →
+  Dec1 (Out Γ (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf)
+case-4 rec Γ vs s cP x t f d pd P dP ct X dX Mt pt dt =
+  d-bind (Out Γ f (m-chk s (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F false) (fam-of Γ s-bool s (one-mean Γ) P)) (cs-ct Γ s (fam-of Γ s-bool s (one-mean Γ) P) ct false))) (Out Γ (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf)
+    (rec Γ vs f (m-chk s (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F false) (fam-of Γ s-bool s (one-mean Γ) P)) (cs-ct Γ s (fam-of Γ s-bool s (one-mean Γ) P) ct false)))
+    (λ rf → case-fin Γ s cP x t f d pd P dP X dX Mt pt dt (fst rf) (fst (snd rf)) (snd (snd rf)))
+case-3 : Rec → (Γ : CCtx) → Vals Γ → (s : TyShape) (cP x t f : Code) (d : Word) → d ≡ #0 → (P : Mean (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) (Sem s)) → Der (j-ty , (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) , s , cP , P) →
+  CompTy (s-pi s-bool s) Γ (fam-of Γ s-bool s (one-mean Γ) P) → (X : Mean Γ (TV s-bool)) → Der (j-tm , Γ , s-bool , x , X) → Dec1 (Out Γ (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf)
+case-3 rec Γ vs s cP x t f d pd P dP ct X dX =
+  d-bind (Out Γ t (m-chk s (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F true) (fam-of Γ s-bool s (one-mean Γ) P)) (cs-ct Γ s (fam-of Γ s-bool s (one-mean Γ) P) ct true))) (Out Γ (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf)
+    (rec Γ vs t (m-chk s (fmapM Γ (Fam s-bool s) (Sem s) (λ F → snd F true) (fam-of Γ s-bool s (one-mean Γ) P)) (cs-ct Γ s (fam-of Γ s-bool s (one-mean Γ) P) ct true)))
+    (λ rt → case-4 rec Γ vs s cP x t f d pd P dP ct X dX (fst rt) (fst (snd rt)) (snd (snd rt)))
+case-2 : Rec → (Γ : CCtx) → Vals Γ → (s : TyShape) (cP x t f : Code) (d : Word) → d ≡ #0 → (P : Mean (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) (Sem s)) → Der (j-ty , (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) , s , cP , P) →
+  Dec1 (Out Γ (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf)
+case-2 rec Γ vs s cP x t f d pd P dP =
+  d-bind (Out Γ x (m-chk s-bool (one-mean Γ) one)) (Out Γ (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf) (rec Γ vs x (m-chk s-bool (one-mean Γ) one))
+    (λ rx → case-3 rec Γ vs s cP x t f d pd P dP
+      (comp-ty Γ vs (s-pi s-bool s) (cpi #2 c-bool cP) (fam-of Γ s-bool s (one-mean Γ) P)
+        (dty-pi Γ s-bool s (fam-of Γ s-bool s (one-mean Γ) P) c-bool cP (fam-dA Γ s-bool s (one-mean Γ) P c-bool (dty-bool Γ (one-mean Γ))) (fam-dB Γ s-bool s (one-mean Γ) P cP dP)))
+      (fst rx) (snd (snd rx)))
+case-1 : Rec → (Γ : CCtx) → Vals Γ → (cP x t f : Code) (d : Word) → d ≡ #0 → Dec1 (Out Γ (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf)
+case-1 rec Γ vs cP x t f d pd =
+  d-bind (Out (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) cP m-ty) (Out Γ (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf) (rec (ext-h Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ)) (ext-vals Γ s-bool (Sem s-bool) (λ y → y) (one-mean Γ) one vs) cP m-ty)
+    (λ rP → case-2 rec Γ vs (fst rP) cP x t f d pd (fst (snd rP)) (snd (snd rP)))
 elab-step : Cv → Rec → Rec
 elab-step cv rec Γ vs (cdata d lnil) m-ty =
   o-bind (d ≡ #0) (Out Γ (cdata d lnil) m-ty) (w-dec d #0)
@@ -10082,6 +10238,8 @@ elab-step cv rec Γ vs (cvar k) m-inf =
     (λ r → c-derived (var-shape (fst Γ) (fst r) , varCube Γ (fst r) ,
        der-code j-tm Γ (var-shape (fst Γ) (fst r)) (cvar (var-word (fst Γ) (fst r))) (cvar k) (varCube Γ (fst r)) (λ i → cvar (snd r i)) (dvar Γ (fst r))))
 elab-step cv rec Γ vs (capp f c) m-inf = d-bind (Out Γ f m-inf) (Out Γ (capp f c) m-inf) (rec Γ vs f m-inf) (λ r → app-1 rec Γ vs f c (fst r) (fst (snd r)) (snd (snd r)))
+elab-step cv rec Γ vs (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf =
+  o-bind (d ≡ #0) (Out Γ (celim d (clam cP) (lcons t (lcons f lnil)) x) m-inf) (w-dec d #0) (case-1 rec Γ vs cP x t f d)
 elab-step cv rec Γ vs (cfst p) m-inf = d-bind (Out Γ p m-inf) (Out Γ (cfst p) m-inf) (rec Γ vs p m-inf) (λ r → inf-fst Γ p (fst r) (fst (snd r)) (snd (snd r)))
 elab-step cv rec Γ vs (csnd p) m-inf = d-bind (Out Γ p m-inf) (Out Γ (csnd p) m-inf) (rec Γ vs p m-inf) (λ r → inf-snd Γ p (fst r) (fst (snd r)) (snd (snd r)))
 elab-step cv rec Γ vs (ccon d k lnil lnil) (m-chk s T ct) =
