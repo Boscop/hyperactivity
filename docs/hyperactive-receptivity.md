@@ -13,7 +13,7 @@ the paper, the value `hyperactivity` (docs/hyperactivity.cub), Part I, and to th
 
 Avik, 2026-11-16, as written:
 
-> [his words of 05:25 UTC on Arthur Brock and Eric Harris-Braun, quoted in docs/hyperactivity-is-the-theory-of-knowledge-graphs.md]
+> [his words of 05:25 UTC on Arthur Brock and Eric Harris-Braun, quoted in docs/hyperactivity-is-the-theory-of-knowledge-graphs.cub]
 
 > it could make sense to literally formalize ceptr right any aspects that were left informal/open (seems like the project sort of died out/these guys got busy; much of it is precisely defined constructs, executing code; but beyond that is a total unification of computing e2e (as exposed in hyperactivity) - I suspect every single term of theirs and way of thinking, their key statements - are constructed terms with rational analysis/proof of the properties/capacities
 
