@@ -19,6 +19,9 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   definition is correct for and prove it beside the definition; the proof writes down the reasoning
   that made the code right, so it costs what that reasoning cost. A test stands in for a proof not
   yet written.
+- **Never stop to say you are continuing** (Avik, 2026-11-16: "You should not have stopped working just
+  to tell me you're continuing"). When work remains, the turn goes on doing it; a message that only
+  reports progress and promises more ends the work for nothing.
 - **Correctness is perfection** (Avik, 2026-11-15: "you shouldn't deliver me something which you know
   doesn't work perfectly"; "correctness = perfection"). A known gap is not a caveat to report beside a
   delivery: it is work not done. Deliver only when nothing known is wrong.
