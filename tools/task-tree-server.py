@@ -15,12 +15,12 @@ PAGE = os.path.join(ROOT, 'tools', 'task-graph-view.html')
 HISTORY_PAGE = os.path.join(ROOT, 'tools', 'history-view.html')
 
 
-def history_lines(prefix):
-    """the view history-lines over `history "prefix"`, evaluated by the machine, as `hyperactive history` shows it"""
+def history_lines(name):
+    """the view history-lines over `history "name"`, evaluated by the machine, as `hyperactive history` shows it"""
     import subprocess
-    if '"' in prefix or '\n' in prefix: return []
+    if '"' in name or '\\' in name or '\n' in name: return []
     out = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'task-graph.py'), 'view', '--in', 'lib/history.cub',
-                          '--type', 'List (List Word)', f'history-lines (history "{prefix}")'], cwd=ROOT, capture_output=True, text=True).stdout
+                          '--type', 'List (List Word)', f'history-lines (history "{name}")'], cwd=ROOT, capture_output=True, text=True).stdout
     return [json.loads(l) for l in out.split('\n') if l.startswith('"')]
 
 

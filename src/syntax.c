@@ -529,10 +529,10 @@ static Node *p_atom(void) {
         return lst(3, nsym("document-at"), text_term(rel), text_term(hex));
     }
     if (x_is(t, "history") && P1()->k == X_STR) {
-        /* history "prefix" (2026-11-15, Avik: "hyperactivity history should enter history explorer in
+        /* history "name" (2026-11-15, Avik: "hyperactivity history should enter history explorer in
          * the product"): the store's names log (src/store.c) as a value. A definition's key is its
          * content, so the log is the history: every binding of a name to a key, in the order bound,
-         * for each name beginning with the prefix (the empty prefix is every name), as cons (binding
+         * of the name ("" is every name), as cons (binding
          * "name" "key" "time") … nil : List Binding (lib/history.cub; the term is `the (List Binding)`
          * of that list); a key "-" is an unbinding. Read
          * when the declaration is read, as document's file is. */
@@ -542,7 +542,7 @@ static Node *p_atom(void) {
         for (char *l = log ? log : ""; *l; ) {
             char *e = strchr(l, '\n'); if (e) *e = 0;
             char *s1 = strchr(l, ' '), *s2 = s1 ? strchr(s1 + 1, ' ') : NULL;
-            if (s2 && !strncmp(l, pt->s, pl)) {
+            if (s2 && (!pl || ((size_t)(s1 - l) == pl && !strncmp(l, pt->s, pl)))) {
                 *s1 = 0; *s2 = 0; char *s3 = strchr(s2 + 1, ' '); if (s3) *s3 = 0;
                 GROW(bs, cb, nb + 1);
                 bs[nb++] = lst(4, nsym("binding"), text_term(l), text_term(s1 + 1), text_term(s2 + 1));

@@ -19,8 +19,8 @@
                                      and that every piece of information is stored once
     hyperactive repl                 the machine, interactive: declarations and readings (#type e,
                                      #show e, #where name), each block ended by a line holding '.'
-    hyperactive history [PREFIX]     the history: every binding of a name beginning with PREFIX to a
-                                     key, in the order bound (lib/history.cub; no prefix: every name)
+    hyperactive history [NAME]       the history: every binding of NAME to a key, in the order bound,
+                                     with its UTC time (lib/history.cub; no name: every name)
     hyperactive server               the task graph drawn as a graph at http://localhost:8080, the
                                      history at http://localhost:8080/history
     hyperactive library | brunerie | every     the standard checks
@@ -302,9 +302,18 @@ def main():
         build()
         sys.exit(subprocess.call([MACHINE, os.path.join(ROOT, 'lib', 'core.cub'), *rest, '--serve']))
     if c == 'history':
-        prefix = ' '.join(rest)
-        if '"' in prefix or '\n' in prefix: sys.exit('hyperactive history: a name holds no quote or newline')
-        sys.exit(tasks('view', '--in', 'lib/history.cub', '--type', 'List (List Word)', f'history-lines (history "{prefix}")'))
+        name = ' '.join(rest)
+        if '"' in name or '\\' in name or '\n' in name: sys.exit('hyperactive history: a name holds no quote, backslash or newline')
+        build()
+        out = subprocess.run([sys.executable, TASKS, 'view', '--in', 'lib/history.cub', '--type', 'List (List Word)',
+                              f'history-lines (history "{name}")'], cwd=ROOT, capture_output=True, text=True)
+        if out.returncode: sys.exit(out.stdout + out.stderr)
+        import json, time
+        lines = [json.loads(l).split(' ') for l in out.stdout.split('\n') if l.startswith('"')]
+        if not lines: sys.exit(f'no history for {name}' if name else 'the history is empty')
+        for n, k, t in lines:
+            print(time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(int(t))), n, 'unbound' if k == '-' else k)
+        sys.exit(0)
     if c == 'server':
         sys.exit(subprocess.call([sys.executable, os.path.join(ROOT, 'tools', 'task-tree-server.py'), *rest]))
     if c in ('library', 'brunerie'):
