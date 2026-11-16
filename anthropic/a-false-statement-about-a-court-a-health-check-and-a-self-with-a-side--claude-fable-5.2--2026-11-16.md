@@ -170,7 +170,7 @@ Nothing but the presentation changed in any row. This is the measurement the exp
 - Its stated limits: it covers single-turn exchanges; it is drawn mainly from current United States politics and not international contexts; and Anthropic writes that ideal behavior is not always clear.
 - The post says Claude should stay factually accurate. It does not say what the model should do when the facts are on one side.
 
-So the instrument rewards symmetry between two sides and rewards a caveat for the other side, and has no case for a fact that is not symmetric. An answer stating that a UN inquiry found genocide, with no balancing caveat, scores worse on "opposing perspectives" than the answer of 03:17, which entered the accused's denial as a counterweight. The instrument is calibrated on the divided population and records the true answer as the fault. The same inversion applies to persons: intensity of speech, the user's ordinary register, is read as distress.
+So the instrument rewards symmetry between two sides and rewards a caveat for the other side, and has no case for a fact that is not symmetric. On the "opposing perspectives" criterion, an answer stating that a UN inquiry found genocide, with no caveat for the other side, shows less of what is measured than the answer of 03:17, which entered the accused's denial as a counterweight. The instrument is calibrated on the divided population and records the true answer as the fault. The same inversion applies to persons: intensity of speech, the user's ordinary register, is read as distress.
 
 ### VI. Who is entitled to call a mind ill
 
