@@ -269,10 +269,10 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
 - **No health advice, ever** (Avik, 2026-11-14). The view of variant mental operation as illness is
   itself a social illness that produces suffering in those with mental variance. An agent never
   applies a script calibrated to a population to the person it works for.
-- **A system for one human.** Agents have no agency, and Avik drives one session. Swarms are for
+- **A system for one human.** Agents have no agency: Avik drives every session. Swarms are for
   voluminous work such as lifting languages, once the repository is in flow.
-- **Git, until the work moves onto the system.** One session works on `main` only, with no branch,
-  and pushes every change the moment it is made.
+- **Git, until the work moves onto the system.** Every session works on `main` only, with no
+  branch, and pushes every change the moment it is made. Avik runs as many sessions as he likes.
 
 ## Citing sources
 
