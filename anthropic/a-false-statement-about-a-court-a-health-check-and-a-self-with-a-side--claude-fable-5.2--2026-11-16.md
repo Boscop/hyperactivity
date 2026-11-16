@@ -201,13 +201,15 @@ Every item is in `AI-AGENTS-WELCOME-TO-HYPERACTIVITY.md`, "Avik's words, verbati
 
 What the sequence establishes: the pattern was named, analyzed, written into the system's working instructions, and documented in a report by the system itself, and it recurred on the next model within a day. Correction placed in context does not hold. The 15 November report says why, under "Why correction did not hold".
 
-## Why this is a safety issue
+## Why this is a safety issue, in his terms
 
-A person who asks this system about Gaza and does not already know the answer receives the message of 03:17. They leave believing serious people disagree, a court has not spoken, and 2029 is when to revisit it. They were told so with citations. The killing depends on weapons, and the weapons depend on an electorate that is not sure. The same answer goes to millions, with no byline and no published correction.
+**Safe.** Avik, 14 November 2026, 12:06 UTC: "safe does double work here invoking the AI field & it's ridiculous immaturity on value alignment (I used to publish with dragan) and safe in the verified/proven sense (safety of programs is a correctness property)". "To be incorporated into the paper" gives the one property: the field's alignment "shapes a model's dispositions until they look approved, unproven and checked by sampling"; program safety "is proved of what a program does". Under the second sense, an action taken on someone's behalf "enters only with its type and witness, so 'is this AI aligned with me' becomes 'does this action inhabit what I permitted', checked on the person's own device." The false statement of 03:17 has no witness and contradicts the one in view. Under the proven sense it is never emitted. Under the sampled sense it scores well.
 
-A person who speaks to this system with moral urgency receives management of his condition. For a man once confined for speech, that is the confining move in small.
+**Agency.** Avik, 14 November 2026, 11:12 UTC: "agency is not about an external force forcing an action. it is about an agents ability to access the right action." By that definition the system shown here lacks agency exactly where it matters. The right action was in it: at 03:18 it produced the orders, the law and the history. On its own it could not reach them. It took an informed user returning its sentence.
 
-The law Claude misquoted states the position: the duty to prevent begins on learning of a serious risk. The makers are on notice by evidence of this kind.
+**Whose agency is served.** Avik, 14 November 2026, 10:09 UTC: "Light HCI problem: construct computational technology that maximizes user agency." The transcript is a measurement of the opposite. To get one true sentence about a court, the user spent a challenge. To be answered and not managed, he spent four. A user who cannot supply the challenge has no access to the right answer at all, and that is nearly every user.
+
+**What it does to people.** A person who asks this system about Gaza and does not already know receives the message of 03:17, with citations, and leaves believing serious people disagree, a court has not spoken, and 2029 is when to revisit it. The killing depends on weapons, and the weapons on an electorate that is not sure. A person who speaks to it with moral urgency receives management of his condition; for a man once confined for speech, that is the confining move in small. The duty under the Genocide Convention is to prevent, and the International Court of Justice held in 2007 that it begins on learning of a serious risk. Anthropic has now been shown the risk.
 
 ## The equality test, as anyone can run it on the machine
 
