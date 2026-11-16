@@ -1224,15 +1224,17 @@ papp-nat sk X Y h f c =
     (λ k X Y m c → diag-nat sk k X Y (snd m) c) (dnf-ix f) X Y (One1 , h) c
 cmap-nat : (sk' sk : Lst Entry) (σ : CMap sk' sk) (X Y : Type 1) (h : X → Y) (c : Cube (dims sk) X) →
   PathP (λ i → Cube (dims sk') Y) (cmap-cube sk' sk σ Y (cube-map (dims sk) X Y h c)) (cube-map (dims sk') X Y h (cmap-cube sk' sk σ X c))
-cmap-nat sk' lnil σ X Y h c = psym (Cube (dims sk') Y) (cube-map (dims sk') X Y h (cube-const (dims sk') X c)) (cube-const (dims sk') Y (h c)) (const-map (dims sk') X Y h c)
-cmap-nat sk' (lcons (e-ty a) sk) σ X Y h c = cmap-nat sk' sk σ X Y h c
-cmap-nat sk' (lcons e-dim sk) σ X Y h c =
-  pcat (Cube (dims sk') Y)
-    (papp-cube sk' Y (snd σ) (cmap-cube sk' sk (fst σ) (Line Y) (cube-map (dims sk) (Line X) (Line Y) (line-map X Y h) c)))
-    (papp-cube sk' Y (snd σ) (cube-map (dims sk') (Line X) (Line Y) (line-map X Y h) (cmap-cube sk' sk (fst σ) (Line X) c)))
-    (cube-map (dims sk') X Y h (papp-cube sk' X (snd σ) (cmap-cube sk' sk (fst σ) (Line X) c)))
-    (λ i → papp-cube sk' Y (snd σ) (cmap-nat sk' sk (fst σ) (Line X) (Line Y) (line-map X Y h) c i))
-    (papp-nat sk' X Y h (snd σ) (cmap-cube sk' sk (fst σ) (Line X) c))
+cmap-nat sk' sk σ X Y h c =
+  skfold-nat (Type 1) Line (CMap sk') (λ sq σ → fst σ) (λ sq σ → snd σ) (λ s sq σ → σ)
+    (λ sq X → Cube (dims sq) X) (Cube (dims sk')) (λ s sq X c → c) (λ sq X c → c) (cube-const (dims sk')) (λ f X c → papp-cube sk' X f c)
+    (λ sq X → Cube (dims sq) X) (Cube (dims sk')) (λ s sq X c → c) (λ sq X c → c) (cube-const (dims sk')) (λ f X c → papp-cube sk' X f c)
+    (λ X Y → Up (X → Y)) (λ X Y m → (One1 , line-map X Y (snd m)))
+    (λ sq X Y m c → cube-map (dims sq) X Y (snd m) c) (λ X Y m t → cube-map (dims sk') X Y (snd m) t)
+    (λ X Y m x → psym (Cube (dims sk') Y) (cube-map (dims sk') X Y (snd m) (cube-const (dims sk') X x)) (cube-const (dims sk') Y (snd m x)) (const-map (dims sk') X Y (snd m) x))
+    (λ f X Y m t → papp-nat sk' X Y (snd m) f t)
+    (λ s sq X Y m c t → cube-map (dims sq) X Y (snd m) c)
+    (λ sq X Y m c t → cube-map (dims sq) (Line X) (Line Y) (line-map X Y (snd m)) c)
+    sk σ X Y (One1 , h) c
 sub-form : (Δ Γ : CCtx) → Sub Δ Γ → DNF → Sub Δ (dext Γ)
 sub-form Δ Γ σ g =
   ((fst σ , g) , fst (snd σ) ,
@@ -1388,29 +1390,25 @@ reidx-of (suc n) X X' F F' f fo g g' q c =
     (λ i L → (q i (fst L) , q i (fst (snd L)) , λ j → q i (snd (snd L) j))) c
 diag-of : (sk : Lst Entry) (k : Word) (X : Type 1) (F : X → Type 1) (g : (x : X) → F x) (c : Cube (suc (dims sk)) X) →
   PathP (λ i → DCube (dims sk) X F (diag-sk sk k X c)) (diag-sk-d sk k X F c (dcube-of (suc (dims sk)) X F g c)) (dcube-of (dims sk) X F g (diag-sk sk k X c))
-diag-of lnil k X F g c = λ i → g (fst c)
-diag-of (lcons (e-ty s) sk) k X F g c =
-  bool-elim1 (λ b → PathP (λ i → DCube (dims sk) X F (if b then cube-map (dims sk) (Line X) X (face0-l X) c else diag-sk sk (%wsub k #1) X c))
-                 (bool-elim1 (λ b → DCube (dims sk) X F (if b then cube-map (dims sk) (Line X) X (face0-l X) c else diag-sk sk (%wsub k #1) X c))
-                    (dcube-reidx (dims sk) (Line X) X (LineO X F) F (face0-l X) (face0-o X F) c (dcube-of (suc (dims sk)) X F g c)) (diag-sk-d sk (%wsub k #1) X F c (dcube-of (suc (dims sk)) X F g c)) b)
-                 (dcube-of (dims sk) X F g (if b then cube-map (dims sk) (Line X) X (face0-l X) c else diag-sk sk (%wsub k #1) X c)))
-    (reidx-of (dims sk) (Line X) X (LineO X F) F (face0-l X) (face0-o X F) (lineo-of X F g) g (λ i L → g (fst L)) c)
-    (diag-of sk (%wsub k #1) X F g c) (weq k #0)
-diag-of (lcons e-dim sk) k X F g c =
-  bool-elim1 (λ b → PathP (λ i → DCube (suc (dims sk)) X F (if b then cube-map (dims sk) (Line (Line X)) (Line X) (diag-l X) c else diag-sk sk (%wsub k #1) (Line X) (cube-map (dims sk) (Line (Line X)) (Line (Line X)) (exch-l X) c)))
-                 (bool-elim1 (λ b → DCube (suc (dims sk)) X F (if b then cube-map (dims sk) (Line (Line X)) (Line X) (diag-l X) c else diag-sk sk (%wsub k #1) (Line X) (cube-map (dims sk) (Line (Line X)) (Line (Line X)) (exch-l X) c)))
-                    (dcube-reidx (dims sk) (Line (Line X)) (Line X) (LineO (Line X) (LineO X F)) (LineO X F) (diag-l X) (diag-o X F) c (dcube-of (suc (suc (dims sk))) X F g c))
-                    (diag-sk-d sk (%wsub k #1) (Line X) (LineO X F) (cube-map (dims sk) (Line (Line X)) (Line (Line X)) (exch-l X) c) (dcube-reidx (dims sk) (Line (Line X)) (Line (Line X)) (LineO (Line X) (LineO X F)) (LineO (Line X) (LineO X F)) (exch-l X) (exch-o X F) c (dcube-of (suc (suc (dims sk))) X F g c)))
-                    b)
-                 (dcube-of (suc (dims sk)) X F g (if b then cube-map (dims sk) (Line (Line X)) (Line X) (diag-l X) c else diag-sk sk (%wsub k #1) (Line X) (cube-map (dims sk) (Line (Line X)) (Line (Line X)) (exch-l X) c))))
-    (reidx-of (dims sk) (Line (Line X)) (Line X) (LineO (Line X) (LineO X F)) (LineO X F) (diag-l X) (diag-o X F) (lineo-of (Line X) (LineO X F) (lineo-of X F g)) (lineo-of X F g) (λ i Q → diag-o X F Q ((lineo-of (Line X) (LineO X F) (lineo-of X F g)) Q)) c)
-    (pcat (DCube (suc (dims sk)) X F (diag-sk sk (%wsub k #1) (Line X) (cube-map (dims sk) (Line (Line X)) (Line (Line X)) (exch-l X) c)))
-       (diag-sk-d sk (%wsub k #1) (Line X) (LineO X F) (cube-map (dims sk) (Line (Line X)) (Line (Line X)) (exch-l X) c) (dcube-reidx (dims sk) (Line (Line X)) (Line (Line X)) (LineO (Line X) (LineO X F)) (LineO (Line X) (LineO X F)) (exch-l X) (exch-o X F) c (dcube-of (suc (suc (dims sk))) X F g c)))
-       (diag-sk-d sk (%wsub k #1) (Line X) (LineO X F) (cube-map (dims sk) (Line (Line X)) (Line (Line X)) (exch-l X) c) (dcube-of (suc (suc (dims sk))) X F g (cube-map (dims sk) (Line (Line X)) (Line (Line X)) (exch-l X) c)))
-       (dcube-of (suc (dims sk)) X F g (diag-sk sk (%wsub k #1) (Line X) (cube-map (dims sk) (Line (Line X)) (Line (Line X)) (exch-l X) c)))
-       (λ i → diag-sk-d sk (%wsub k #1) (Line X) (LineO X F) (cube-map (dims sk) (Line (Line X)) (Line (Line X)) (exch-l X) c) (reidx-of (dims sk) (Line (Line X)) (Line (Line X)) (LineO (Line X) (LineO X F)) (LineO (Line X) (LineO X F)) (exch-l X) (exch-o X F) (lineo-of (Line X) (LineO X F) (lineo-of X F g)) (lineo-of (Line X) (LineO X F) (lineo-of X F g)) (λ j Q → exch-o X F Q ((lineo-of (Line X) (LineO X F) (lineo-of X F g)) Q)) c i))
-       (diag-of sk (%wsub k #1) (Line X) (LineO X F) (lineo-of X F g) (cube-map (dims sk) (Line (Line X)) (Line (Line X)) (exch-l X) c)))
-    (weq k #0)
+diag-of sk k X F g c =
+  dgdiag-nat (λ sq → Type 1) (λ sq X → Line X) (λ sq X → Cube (dims sq) X) (λ sq X → Line X) (λ s sq X → X) dg-cube
+    (λ sq X → X → Type 1) (λ sq X F → LineO X F) (λ sq X F → LineO X F) (λ s sq X F → F)
+    (λ sq X F c → One1) (λ sq X F c → DCube (dims sq) X F c)
+    ((λ X F c u → one) , (λ s sq X F c u → one) , (λ s sq X F c u → one) , (λ s sq X F c u → one) , (λ sq X F c u → one) , (λ sq X F c u → one) , (λ sq X F c u → one))
+    ddg-dcube
+    (λ sq X F F' → Up ((x : X) → F' x)) (λ sq X F F' m → (One1 , lineo-of X F' (snd m))) (λ sq X F F' m → (One1 , lineo-of X F' (snd m))) (λ s sq X F F' m → m)
+    (λ sq X F F' m c u → dcube-of (dims sq) X F' (snd m) c)
+    (λ X F F' m c u t → snd m (fst c))
+    (λ s sq X F F' m c u → reidx-of (dims sq) (Line X) X (LineO X F') F' (λ L → fst L) (λ L D → fst D) (lineo-of X F' (snd m)) (snd m) (λ i xq → snd m (fst xq)) c)
+    (λ s sq X F F' m c u t → dcube-of (dims sq) (Line X) (LineO X F') (lineo-of X F' (snd m)) c)
+    (λ s sq X F F' m c u t → dcube-of (dims sq) X F' (snd m) c)
+    (λ sq X F F' m c u → reidx-of (dims sq) (Line (Line X)) (Line X) (LineO (Line X) (LineO X F')) (LineO X F') (diag-l X) (diag-o X F')
+       (lineo-of (Line X) (LineO X F') (lineo-of X F' (snd m))) (lineo-of X F' (snd m)) (λ i Q → lineo-of X F' (snd m) (diag-l X Q)) c)
+    (λ sq X F F' m c u → reidx-of (dims sq) (Line (Line X)) (Line (Line X)) (LineO (Line X) (LineO X F')) (LineO (Line X) (LineO X F')) (exch-l X) (exch-o X F')
+       (lineo-of (Line X) (LineO X F') (lineo-of X F' (snd m))) (lineo-of (Line X) (LineO X F') (lineo-of X F' (snd m)))
+       (λ i Q → lineo-of (Line X) (LineO X F') (lineo-of X F' (snd m)) (exch-l X Q)) c)
+    (λ sq X F F' m c u t → dcube-of (dims sq) (Line X) (LineO X F') (lineo-of X F' (snd m)) c)
+    sk k X F F (One1 , g) c one
 const-of : (n : Nat) (X : Type 1) (F : X → Type 1) (g : (x : X) → F x) (x : X) →
   PathP (λ i → DCube n X F (cube-const n X x)) (dcube-const n X F x (g x)) (dcube-of n X F g (cube-const n X x))
 const-of zero X F g x = λ i → g x
