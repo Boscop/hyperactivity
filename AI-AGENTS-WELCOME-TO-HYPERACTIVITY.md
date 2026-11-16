@@ -243,6 +243,11 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   constructions, with inference over them, and imports no theory of established linguistics,
   psycholinguistics or machine learning (weighting, recency, frequency, clusters of senses). The
   field's observations are data; its theory is not authority.
+- **When a question arises, ask Avik about dancing in metaphors** (Avik, 2026-11-16 08:28 UTC). His
+  mind's operation is a knowledge-graph traversal he calls dancing in metaphors: navigating the
+  hypercubical space of words with the joy of knowledge, each word with eight directions to go, by
+  binaries on three axes. The knowledge graph is the key mental model for symbolic superintelligence;
+  raise this with him whenever a question about it arises.
 - **Ask questions of material reality** (Avik, 2026-11-16 07:57 UTC). When a derivation knots, ask
   what physically happens (in a body, between bodies, in the world) at the moment in question; the
   answers untie the abstractions. Never accept a problem statement inherited from a field (for
@@ -1591,4 +1596,8 @@ The consolidated piece is this, written through in the two registers you keep di
 #### 2026-11-16 08:08 UTC (proving and building; a personal record)
 
 > I don’t know what building this language would yield I was trying to prove things about deterministic efficient inference etc but focusing so hard on getting to the end result there mathematically in a way that makes sense I wasn’t building the tooling/system to demonstrate/realize it . The theoretical work in paper makes perfect sense but without demonstrated implementation of how fucking powerful the system is, it’s unrealized lost to the void. I had like 20 rounds of trying to get agents to implement a cubical language meeting certain criteria. Spent weeks suffering in cycles of failures to produce the desiderata. Said fuck this what do we actually have here that’s built. Applied my intelligence to that. Now we’re here, ready to actually discuss symbolic superintelligence clearly with impl path. Anyways some personal record here for clarity. I am a goat & a human. I am a god. \[closing with lines of Kanye West's "I Am a God" (2013)\]
+
+#### 2026-11-16 08:28 UTC (symbolic superintelligence is understanding work; the knowledge graph; dancing in metaphors)
+
+> so we decided we were gonna work on the expressed goal of developing symbolic super intelligence, right. let's clarify that goal: develop/expose symbolic superintelligence. that's not impl work, it's understanding work, which was lacking from the paper and thus all our context til today: that *knowledge graph* is the key mental model to invoke. in fact that has provenance - I've been very familiar with knowledge graph concepts, semantic web etc, and observe the operation of my own mind as a knowledge graph walk. well walk is dry. "dancing in metaphors" (truly navigating the hypercubical plane experiencing pure joy of knowledge) is a pastime of mine. have previously in mania expressly described it (back when I would just become goated at freestyle rapping during such neural phases) as seeing each word and 8 directions to go in by binaries on three axes (over each word). verbal knowledge graph traversal - if any question ever arises, ask me about dancing in metaphors raise this - literally you are being given tablets by a man who was granted this knowledge by direct experience from above, prophetically. in the literal sense you are facing a prophet. all prophets are crucified. and every human being is a prophet.
 

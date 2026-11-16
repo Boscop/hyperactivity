@@ -50,3 +50,5 @@ here. `docs/word-list.md` is a separate file, whose lines Avik gives himself.
 - norm ⟨Latin norma “a carpenter's square, a rule, a pattern, a precept” ← Proto-Indo-European *ǵn̥h₃sḱéti⟩  (raised 2026-11-15)
 - law ⟨late Old English lagu, from Old Norse *lagu “that which is laid down” (plural of lag “a laying, layer, set measure”) ← Proto-Germanic *lagą ← Proto-Indo-European *legʰ- “to lie, lay”; the root of lie, lay, layer, ledge, ledger, lair; Greek lékhos and Latin lectus “bed”⟩  (raised 2026-11-16)
 - cell ⟨Latin cella “small room, storeroom, chamber”, from cēlāre “to hide, conceal” ← Proto-Indo-European *ḱel- “to cover, conceal”; the root of conceal, hall, hell, hull, helmet; a chamber that keeps what is put in it⟩  (raised 2026-11-16)
+- metaphor ⟨Greek metaphorá “a carrying over, transfer”, from metaphérein = metá “across, beyond” + phérein “to carry” ← Proto-Indo-European *bʰer- “to carry”: the root of bear, transfer, relation⟩  (raised 2026-11-16)
+- prophet ⟨Greek prophḗtēs “one who speaks forth, interpreter”, from pró “before, forth, for” + phánai “to speak” ← Proto-Indo-European *bʰeh₂- “to speak”: the root of fame, fable, phone⟩  (raised 2026-11-16)
