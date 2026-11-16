@@ -96,6 +96,60 @@ shape-disc (s-path a) (s-path a') = dec-path a a' (shape-disc a a')
 shape-disc s-bool s = no (apart TyShape sh-bool? s-bool s unit (λ e → e))
 shape-disc (s-fam f a b) s = no (apart TyShape sh-fam? (s-fam f a b) s unit (λ e → e))
 shape-disc (s-path a) s = no (apart TyShape sh-path? (s-path a) s unit (λ e → e))
+-- sets at Type 1: closed under Σ, Π, paths over a line of sets, and cubes over set fibres (so a meaning
+-- into a set is a set, and two paths of meanings are equal)
+isProp1→isSet : {l : Level} (A : Type l) → isProp A → isSet A
+isProp1→isSet {l} A h a b p q = λ j i →
+  comp (λ k → A) (λ k → [ i = 0 ↦ h a a k , i = 1 ↦ h a b k , j = 0 ↦ h a (p i) k , j = 1 ↦ h a (q i) k ]) a
+isPropPathP1 : {l : Level} (A0 A1 : Type l) (P : PathP (λ i → Type l) A0 A1) → isSet A1 → (p : A0) (q : A1) → isProp (PathP (λ i → P i) p q)
+isPropPathP1 {l} A0 A1 P s p q =
+  transport {l} {isProp (PathP (λ i → A1) (transport P p) q)} {isProp (PathP (λ i → P i) p q)}
+    (λ i → isProp (PathP (λ j → P (~ i \/ j)) (comp (λ j → P (~ i /\ j)) (λ j → [ ~ i = 0 ↦ p ]) p) q)) (s (transport P p) q)
+isSetΣ1 : {l m : Level} (A : Type l) (B : A → Type m) → isSet A → ((a : A) → isSet (B a)) → isSet ((a : A) × B a)
+isSetΣ1 {l} {m} A B sA sB x y u v = λ j i →
+  (sA (fst x) (fst y) (λ i → fst (u i)) (λ i → fst (v i)) j i ,
+   isProp→PathP {m} {PathP (λ i → B (sA (fst x) (fst y) (λ i → fst (u i)) (λ i → fst (v i)) i0 i)) (snd x) (snd y)} {PathP (λ i → B (sA (fst x) (fst y) (λ i → fst (u i)) (λ i → fst (v i)) i1 i)) (snd x) (snd y)}
+     (λ j → PathP (λ i → B (sA (fst x) (fst y) (λ i → fst (u i)) (λ i → fst (v i)) j i)) (snd x) (snd y))
+     (isPropPathP1 (B (fst x)) (B (fst y)) (λ i → B (sA (fst x) (fst y) (λ i → fst (u i)) (λ i → fst (v i)) i1 i)) (sB (fst y)) (snd x) (snd y))
+     (λ i → snd (u i)) (λ i → snd (v i)) j i)
+isSetΠ1 : {l m : Level} (A : Type l) (B : A → Type m) → ((a : A) → isSet (B a)) → isSet ((a : A) → B a)
+isSetΠ1 {l} {m} A B sB f g u v = λ j i a → sB a (f a) (g a) (λ i → u i a) (λ i → v i a) j i
+isSet-LnF : (A0 A1 : Type 1) (A : PathP (λ i → Type 1) A0 A1) → isSet A0 → isSet A1 → isSet (LnF A0 A1 A)
+isSet-LnF A0 A1 A s0 s1 =
+  isSetΣ1 A0 (λ a0 → (a1 : A1) × PathP (λ i → A i) a0 a1) s0
+    (λ a0 → isSetΣ1 A1 (λ a1 → PathP (λ i → A i) a0 a1) s1 (λ a1 → isProp1→isSet (PathP (λ i → A i) a0 a1) (isPropPathP1 A0 A1 A s1 a0 a1)))
+isSet-DCube : (n : Nat) (X : Type 1) (Y : X → Type 1) → ((x : X) → isSet (Y x)) → (c : Cube n X) → isSet (DCube n X Y c)
+isSet-DCube zero X Y sY c = sY c
+isSet-DCube (suc n) X Y sY c =
+  isSet-DCube n (Line X) (LineO X Y) (λ L → isSet-LnF (Y (fst L)) (Y (fst (snd L))) (λ i → Y (snd (snd L) i)) (sY (fst L)) (sY (fst (snd L)))) c
+-- every semantic type and every element type is a set (Bool is; One1 is a proposition; Σ, Π and paths over
+-- sets keep sets), so any two paths of meanings over one base are equal
+bool-disc : Discrete Bool
+bool-disc true true = yes (λ i → true)
+bool-disc false false = yes (λ i → false)
+bool-disc true false = no (apart Bool (λ b → b) true false unit (λ e → e))
+bool-disc false true = no (apart Bool not false true unit (λ e → e))
+one-prop : isProp One1
+one-prop u v = pcat One1 u one v (one-contr u) (psym One1 v one (one-contr v))
+SetsT : TyShape → Type 1
+SetsT s = isSet (Sem s) × ((A : Sem s) → isSet (El s A))
+fam-el-set : (fm : FamF) (a b : TyShape) → SetsT a → SetsT b → (D : Sem (s-fam fm a b)) → isSet (El (s-fam fm a b) D)
+fam-el-set f-pi a b Sa Sb D = isSetΠ1 (El a (fst D)) (λ x → El b (snd D x)) (λ x → snd Sb (snd D x))
+fam-el-set f-sig a b Sa Sb D = isSetΣ1 (El a (fst D)) (λ x → El b (snd D x)) (snd Sa (fst D)) (λ x → snd Sb (snd D x))
+shape-sets : (s : TyShape) → SetsT s
+shape-sets s-bool = (isProp1→isSet One1 one-prop , λ A → Discrete→isSet bool-disc)
+shape-sets (s-fam fm a b) =
+  (isSetΣ1 (Sem a) (λ A → El a A → Sem b) (fst (shape-sets a)) (λ A → isSetΠ1 (El a A) (λ x → Sem b) (λ x → fst (shape-sets b))) ,
+   fam-el-set fm a b (shape-sets a) (shape-sets b))
+shape-sets (s-path a) =
+  (isSetΣ1 (Line (Sem a)) (λ pL → El a (fst pL) × El a (fst (snd pL))) (isSet-LnF (Sem a) (Sem a) (λ i → Sem a) (fst (shape-sets a)) (fst (shape-sets a)))
+     (λ pL → isSetΣ1 (El a (fst pL)) (λ x → El a (fst (snd pL))) (snd (shape-sets a) (fst pL)) (λ x → snd (shape-sets a) (fst (snd pL)))) ,
+   λ D → isProp1→isSet (PathP (λ i → El a (snd (snd (fst D)) i)) (fst (snd D)) (snd (snd D)))
+           (isPropPathP1 (El a (fst (fst D))) (El a (fst (snd (fst D)))) (λ i → El a (snd (snd (fst D)) i)) (snd (shape-sets a) (fst (snd (fst D)))) (fst (snd D)) (snd (snd D))))
+TV-set : (s : TyShape) → isSet (TV s)
+TV-set s = isSetΣ1 (Sem s) (λ A → El s A) (fst (shape-sets s)) (snd (shape-sets s))
+Mean-set : (Γ : CCtx) (Z : Type 1) → isSet Z → isSet (Mean Γ Z)
+Mean-set Γ Z sZ = isSet-DCube (dims (fst Γ)) (CtxV (fst Γ)) (FbE (fst Γ) Z) (λ γ → isSetΠ1 (EnvV (fst Γ) γ) (λ ρ → Z) (λ ρ → sZ)) (snd Γ)
 -- determinacy: two derivations of one code over a path of contexts have paths of shapes, codes and meanings
 DetR : (J1 J2 : Jdg) → PathP (λ i → CCtx) (fst (snd J1)) (fst (snd J2)) → Type 1
 DetR J1 J2 pΓ = (pk : PathP (λ i → JK) (fst J1) (fst J2)) × (ps : PathP (λ i → TyShape) (fst (snd (snd J1))) (fst (snd (snd J2)))) ×
