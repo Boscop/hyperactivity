@@ -17,7 +17,7 @@ import sys
 
 # every declaration written carries its reason (2026-11-12): the model's functions, types and
 # registers are part of x86-64 (workflow/hyperactivity.cub: every instruction translated), stated above each so
-# tools/workflow.py finds it whether or not the declaration is used
+# hyperactive why and unexplained find it whether or not the declaration is used
 REASON = '-- (part of language-support)'
 DECL_START = re.compile(r"^(data|record|codata) |^[^\s\-(][^\s]* :( |$)")
 def with_reasons(text):

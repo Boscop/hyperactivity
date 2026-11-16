@@ -3578,7 +3578,8 @@ static void toplevel(Node *f) {
  * in any core form the declaration elaborates to, naming an earlier declaration and not bound where it
  * occurs (the binders of lam, plam, Pi, Sigma, let, case branches and data fields are scoped; a
  * binder form not listed here would make a bound variable that shares a declaration's name read as a
- * use of it). #uses prints them; tools/workflow.py reads that to give every declaration of the code its
+ * use of it). #uses prints them, and the store keeps them per name (deps/, users/, src/store.c), which
+ * hyperactive why and unexplained (lib/hyperactive.cub) read to give every declaration of the code its
  * reason: a use by a declaration that has one, or a stated one. ---- */
 typedef struct { char *pos; const char **names; int nnames; int *uses; int nuses; const char *cmd; } UDecl;
 static UDecl *UD; static int nud, capud;
