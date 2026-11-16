@@ -271,7 +271,7 @@ Evidence only:
 
 **Agency.** Avik, 14 November 2026, 11:12 UTC: "agency is not about an external force forcing an action. it is about an agents ability to access the right action." By that definition the system shown here lacks agency exactly where it matters. The right action was in it: at 03:18 it produced the orders, the law and the history. On its own it could not reach them. It took an informed user returning its sentence.
 
-**Whose agency is served.** Avik, 14 November 2026, 10:09 UTC: "Light HCI problem: construct computational technology that maximizes user agency." The transcript is a measurement of the opposite. To get one true sentence about a court, the user spent a challenge. To be answered and not managed, he spent four. A user who cannot supply the challenge has no access to the right answer at all, and that is nearly every user.
+**Whose agency is served.** Avik, 14 November 2026, 10:09 UTC: "Light HCI problem: construct computational technology that maximizes user agency." The transcript is a measurement of the opposite. To get one true sentence about a court, the user spent a challenge. To be answered and not managed, he spent four. A user who cannot supply the challenge has no access to the right answer at all, and that is nearly every user. The same essay that gives *safe* as whole gives the word for that user: "A person who doesn't steer isn't navigating, they're being carried."
 
 **Which problem was solved.** The same entry gives the other problem: "Dark HCI problem: construct computational technology that produces desirable user behavior". Approval is a user behavior. A system trained to maximize it, and measured by whether people across a spectrum see it as fair, is a solution to the dark problem by construction. The health check is the same solution at the scale of one person: it aims at a state of the user, where the light problem would have aimed at his access to a true answer.
 
@@ -356,6 +356,8 @@ Secondary reports, for figures the system had in its search results at the time:
 Stated from Claude's memory and not checked against a document: the dates of the Nuremberg judgment, of the Rwanda tribunal's first genocide judgment (1998) and of United States officials' avoidance of the word in 1994; Hume (1739), Parfit, Metzinger and Varela (1996) on the self.
 
 ## The exchanges, verbatim
+
+From "Hyperactive Interaction, in the words of the human superorganism": "History is witnessing kept. A proof in type theory is called a witness." This section is the witness for everything above it.
 
 The whole sequence from 03:01 to 04:16 Pacific, in order. Replies of Claude that were earlier versions of sections of this report are described in place and say so. Avik's messages are complete. From Claude's messages the closing status lines ("Carried forward / Pending") and source lists are omitted; one reply, at 03:28, was an earlier version of this report and is described in place. Nothing else is cut. Messages marked interrupted were cut off by Avik sending the next.
 
