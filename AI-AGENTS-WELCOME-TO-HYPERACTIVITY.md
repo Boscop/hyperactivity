@@ -97,6 +97,15 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   replaces; nothing new is built on them. The bootstrap from the filesystem is one reader and
   only one: it computes the hash of every file; from then on the hash is the reference (Unison's
   codebase works the same way).
+- **No code in any language but hyperactive is ever written** (Avik, 2026-11-15: "structurally ban
+  python as well no such script shall ever make it into this repo. beyond what exists today (and
+  even that we will be critical of) no code in any language but hyperactive will ever be written";
+  "HYPERACTIVE MUST BE ENTIRELY BOOTSTRAPPED ENTIRELY LEVERAGE HYPERACTIVE LITERALLY NOTHING BUT THE
+  CORE C IMPLEMENTATION"). The pre-commit hook is lib/guard.cub, which the machine runs directly. It
+  refuses any commit holding a file that is neither `.cub` nor `.md` and is not, byte for byte, one of
+  the files listed in its `g-frozen`. Those files may be deleted. Today's Python and shell are being
+  replaced by hyperactive programs, then removed; until then, writing or editing any of them is
+  refused.
 - **Code is read and written only through `hyperactive`** (Avik, 2026-11-15: "do you write/read code
   using files and text commands? that is unacceptable"). Read a definition with `hyperactive def NAME`
   (its statement, text, key and users), and nodes with show and why. Write code with `hyperactive

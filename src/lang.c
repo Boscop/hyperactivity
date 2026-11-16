@@ -4790,6 +4790,9 @@ static void load_file(const char *path, bool must) {
     size_t pl = strlen(rp);
     if (pl <= 4 || strcmp(rp + pl - 4, ".cub")) die("refused: a file of core forms is outside the type system; only .cub files load:", path);
     char *text = slurp(rp);
+    /* a file the system runs as a program (its first line `#!build/cubical`, 2026-11-15: hyperactive
+     * is bootstrapped from the machine alone) reads with that line blank */
+    if (text[0] == '#' && text[1] == '!') for (char *c = text; *c && *c != '\n'; c++) *c = ' ';
     /* the surface language: its imports first, then the running key, then its declarations. What is
      * remembered between runs is the store's, per definition and by content (src/store.c): the
      * elaboration, the checker's answer, accepted or refused (2026-11-12: the per-file cache that
