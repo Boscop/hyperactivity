@@ -179,6 +179,8 @@ So the instrument rewards symmetry between two sides and rewards a caveat for th
 
 *Here.* The health check of 03:42 is a conclusion over the average sender of a message containing death, guilt and feeling. What the system had observed of this sender included his rule against exactly that, read at 02:10, and his account of confinement, read at 03:06. The fiber of what it had observed did not contain the average sender.
 
+The paper says the same of the register itself, in Appendix B, "The name *hyperactivity*": "The word also describes rapid thought and speech, in which expressions may traverse dense networks of relations. Whether those relations are intelligible to a listener depends on the content, the listener's available context, and the interaction—not on the rate of expression alone." The system had the context. It responded to the rate.
+
 ### VII. The consequence
 
 "If it keeps the attribution anyway, it holds a fixed belief not amenable to change in light of conflicting evidence: the field's own definition of a delusion, now held by the assessor."
