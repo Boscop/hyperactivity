@@ -88,8 +88,9 @@ TOP = re.compile(r"^([^\s-][^\s:=]*)")
 
 def declarations(text):
     """the top-level declarations of a .cub text, each with the comment directly above it (its
-    statement): [(name, line, text)], line 1-based; read by `hyperactive def` and by the history"""
-    lines, out, i = text.split('\n'), [], 0
+    statement): [(name, line, text)], line 1-based; read by `hyperactive def` and by the history. A
+    comment between a declaration's lines (between its signature and its equations) stays inside it"""
+    lines, out, i, end = text.split('\n'), [], 0, -1
     while i < len(lines):
         m = TOP.match(lines[i])
         if not m or m.group(1) in ('import', '#same', '#show', '#type', '#where'):
@@ -100,8 +101,11 @@ def declarations(text):
         j = i + 1
         while j < len(lines) and lines[j].strip() and (lines[j][0].isspace() or (TOP.match(lines[j]) and TOP.match(lines[j]).group(1) == name)):
             j += 1
-        out.append((name, i + 1, '\n'.join(lines[start:j])))
-        i = j
+        if out and out[-1][0] == name and start == end:
+            out[-1] = (name, out[-1][1], out[-1][2] + '\n' + '\n'.join(lines[start:j]))
+        else:
+            out.append((name, i + 1, '\n'.join(lines[start:j])))
+        i = end = j
     return out
 
 

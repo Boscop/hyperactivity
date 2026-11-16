@@ -4,7 +4,15 @@
     hyperactive                      the walk, from its start: everything to read, in order, one chunk at a time
     hyperactive next | prev          the next chunk of the walk, or the one before
     hyperactive open                 what is open and what can start now
-    hyperactive def NAME             a definition: its statement, its text, where it is, what uses it
+    hyperactive def NAME             a definition: its statement, its text, its key, what uses it
+    hyperactive write [--after NAME] write definitions: the declarations on standard input replace
+                                     those of the same names, or, new, follow NAME's; every
+                                     definition they touch is checked, and nothing is written unless
+                                     all of it checks
+    hyperactive remove NAME ...      remove definitions nothing else uses, checked the same way.
+                                     Code is read by def and written by write and remove only
+    hyperactive leash                the guard an agent's harness runs before each tool call: it
+                                     refuses reading or writing code as files (.claude/settings.json)
     hyperactive paper [SECTION]      the paper as it reads, whole or one section (4.4, A.1, Part II):
                                      the human projection of the value hyperactivity
     hyperactive etym TEXT            the text augmented with the etymology of every word
@@ -39,6 +47,7 @@ ROOT = os.path.dirname(os.path.realpath(__file__))
 MACHINE = os.path.join(ROOT, 'build', 'cubical')
 TASKS = os.path.join(ROOT, 'tools', 'task-graph.py')
 ONBOARDING = os.path.join(ROOT, 'docs', 'onboarding.cub')
+STORE = os.path.join(ROOT, '.cubical-store')
 CHUNK = 8000   # characters per chunk of the walk: small enough that no agent harness truncates it
 
 
@@ -104,20 +113,38 @@ def chunks(text):
     return out
 
 
-def code_of(name, found):
+def keys():
+    """each name's current key: its latest binding in the store's names log (name key time), the
+    content key the machine computed when the definition last checked"""
+    out = {}
+    try:
+        with open(os.path.join(STORE, 'names'), errors='replace') as f:
+            for l in f:
+                p = l.rstrip('\n').rsplit(' ', 2)
+                if len(p) == 3: out[p[0]] = p[1]
+    except FileNotFoundError:
+        pass
+    return out
+
+
+def key_label(name, ks):
+    k = ks.get(name)
+    return f'key {k[:12]}' if k and k != '-' else 'not yet checked'
+
+
+def code_of(name, found, ks):
     """the code a `code: NAME` line of the pure page stands for: the definition NAME of lib/, whole"""
     hits = [h for h in found.get(name, []) if h[0].startswith('lib/')]
     if len(hits) != 1:
         sys.exit(f'the paper names {name} as code, but lib/ has {len(hits)} definitions of it')
-    f, l, text = hits[0]
-    return f'{name}   ({f}, line {l})\n{text}'
+    return f'{name}   ({key_label(name, ks)})\n{hits[0][2]}'
 
 
 def with_code(text):
     """a projection's text with each `code: NAME` line replaced by the definition it names"""
     if '\ncode: ' not in '\n' + text: return text
-    found = blocks()
-    return '\n'.join(code_of(l[6:], found) if l.startswith('code: ') else l for l in text.split('\n'))
+    found, ks = blocks(), keys()
+    return '\n'.join(code_of(l[6:], found, ks) if l.startswith('code: ') else l for l in text.split('\n'))
 
 
 def paper(section):
@@ -127,6 +154,7 @@ def paper(section):
     os.makedirs(os.path.dirname(probe), exist_ok=True)
     with open(probe, 'w', encoding='utf-8') as f:
         f.write(f'import "{os.path.join(ROOT, "docs", "hyperactivity.cub")}"\n'
+                f'import "{os.path.join(ROOT, blocks()["Document"][0][0])}"\n'
                 'paper-human : List Document\npaper-human = cons (projection "human" (human hyperactivity)) nil\n')
     text = task_graph_module().documents(probe, 'paper-human')[0][2]
     if not section: print(text); return
@@ -291,7 +319,13 @@ what can be taken up. `hyperactive` begins again from the start."""
 COMMANDS = """
 Reading and working:
   hyperactive show NODE      a node: its statement, what it serves, what serves it, its essential context
-  hyperactive def NAME       a definition: its statement, its text, where it is, and what uses it
+  hyperactive def NAME       a definition: its statement, its text, its key, and what uses it
+  hyperactive write [--after NAME]   write definitions (whole declarations on standard input): each
+                             replaces the definition of its name, or, new, follows NAME's; nothing is
+                             written unless everything it touches checks
+  hyperactive remove NAME…   remove definitions nothing else uses, checked the same way
+                             Code is read by `def` and written by `write` and `remove` only: never
+                             open, search or edit a .cub file
   hyperactive paper [SECTION]  the paper as it reads (its human projection), whole or one section
   hyperactive etym TEXT      any text, every word augmented with its etymology: read Avik's words
                              in the meanings the words carry, not a local frame
@@ -299,7 +333,7 @@ Reading and working:
   hyperactive order          the whole order of work
   hyperactive tree           the task graph from its root
   hyperactive history [NAME] what changed here: every binding of a name to a key, in the order bound
-  hyperactive check [FILE]   check files; with no file, the task graph
+  hyperactive check          the task graph, and that every piece of prose is stored once
   hyperactive repl           the machine, interactive
   hyperactive prev           back one chunk of the walk; `hyperactive` begins it again
   hyperactive help           every command
@@ -335,20 +369,204 @@ def blocks():
     return found
 
 
+def uses(name, found):
+    """the names of the definitions whose code (not their comments) mentions name"""
+    word = re.compile(r"(?<![\w'-])" + re.escape(name) + r"(?![\w'-])")
+    return sorted({k for k, v in found.items() if k != name for f, _, t in v
+                   if word.search('\n'.join(x for x in t.split('\n') if not x.startswith('--')))})
+
+
 def define(names):
-    found = blocks()
+    """a definition read by name: its statement and text, its content key, and what uses it; code is
+    reached by name and key only, never by file or position"""
+    found, ks = blocks(), keys()
     for name in names:
         if name not in found:
             sys.exit(f'hyperactive: no top-level definition named {name}')
-        word = re.compile(r"(?<![\w'-])" + re.escape(name) + r"(?![\w'-])")
         for f, l, text in found[name]:
-            print(f'{name}   ({f}, line {l})\n')
+            print(f'{name}   ({key_label(name, ks)})\n')
             print(text + '\n')
-        users = sorted({(k, f) for k, v in found.items() if k != name for f, _, t in v
-                        if word.search('\n'.join(x for x in t.split('\n') if not x.startswith('--')))})
+        users = uses(name, found)
         print(f'used by {len(users)} definition' + ('s' if len(users) != 1 else '') + (':' if users else ''))
-        for k, f in users[:40]: print(f'  {k}   ({f})')
+        for k in users[:40]: print(f'  {k}')
         if len(users) > 40: print(f'  … and {len(users) - 40} more')
+
+
+def write(after):
+    """write definitions through hyperactive. Standard input holds whole top-level declarations, each
+    with the comment above it (its statement). A declaration whose name has a definition replaces it;
+    a new one follows the definition named by --after (then each new one follows the one before it).
+    Every file touched, and every file holding a definition that uses a written name, is checked by
+    the machine (the task graph by its own check as well); if anything fails, every file is restored
+    and nothing is written. Prints each written name with its new key."""
+    text = sys.stdin.read()
+    tg = task_graph_module()
+    decls = tg.declarations(text)
+    if not decls:
+        sys.exit('hyperactive write: no top-level declaration on standard input')
+    rest = text
+    for _, _, t in decls: rest = rest.replace(t, '', 1)
+    if rest.strip():
+        sys.exit('hyperactive write: standard input holds text that is not part of a declaration:\n' + rest.strip()[:400])
+    names = [n for n, _, _ in decls]
+    if len(set(names)) != len(names):
+        sys.exit('hyperactive write: a name is declared twice on standard input')
+    found = blocks()
+    originals, current = {}, {}
+    def load(f):
+        if f not in current:
+            originals[f] = current[f] = open(os.path.join(ROOT, f), encoding='utf-8').read()
+    anchor = None
+    if after:
+        hits = found.get(after, [])
+        if len(hits) != 1: sys.exit(f'hyperactive write: --after {after}: {len(hits)} definitions have that name')
+        anchor = (hits[0][0], hits[0][2])
+    for name, _, new in decls:
+        hits = found.get(name, [])
+        if len(hits) > 1:
+            sys.exit(f'hyperactive write: {name} has {len(hits)} definitions; a name is written only when it names one')
+        if hits:
+            f, _, old = hits[0]
+            load(f)
+            if current[f].count(old) != 1: sys.exit(f'hyperactive write: the definition of {name} is not found whole once')
+            current[f] = current[f].replace(old, new, 1)
+        else:
+            if not anchor: sys.exit(f'hyperactive write: {name} is new; give --after NAME to place it after a definition')
+            f, prev = anchor
+            load(f)
+            if current[f].count(prev) != 1: sys.exit(f'hyperactive write: the definition {name} follows is not found whole once')
+            sep = '\n\n' if prev + '\n\n' in current[f] else '\n'
+            current[f] = current[f].replace(prev, prev + sep + new, 1)
+            anchor = (f, new)
+    commit(tg, found, originals, current, names)
+
+
+def remove(names):
+    """remove definitions by name: each must have one definition, and none may be used by a definition
+    that stays; the files are checked as `write` checks them"""
+    tg, found = task_graph_module(), blocks()
+    originals, current = {}, {}
+    for name in names:
+        hits = found.get(name, [])
+        if len(hits) != 1: sys.exit(f'hyperactive remove: {len(hits)} definitions are named {name}')
+        users = [u for u in uses(name, found) if u not in names]
+        if users: sys.exit(f'hyperactive remove: {name} is used by ' + ', '.join(users))
+        f, _, old = hits[0]
+        if f not in current:
+            originals[f] = current[f] = open(os.path.join(ROOT, f), encoding='utf-8').read()
+        if current[f].count(old) != 1: sys.exit(f'hyperactive remove: the definition of {name} is not found whole once')
+        cut = next(c for c in ('\n' + old, old + '\n', old) if c in current[f])
+        current[f] = current[f].replace(cut, '', 1)
+    commit(tg, found, originals, current, [])
+    print('removed ' + ', '.join(names))
+
+
+def commit(tg, found, originals, current, names):
+    """write the changed files, check them and every file holding a definition that uses a written
+    name, each in its load order; keep the change only if no definition fails that did not fail
+    before and every written name checks, and restore every file otherwise"""
+    changed = [f for f in current if current[f] != originals[f]]
+    if not changed:
+        print('nothing changed'); return
+    affected = set(changed)
+    for n in names:
+        for u in uses(n, found):
+            affected.update(f for f, _, _ in found[u])
+    roots = load_roots(tg, affected)
+    build()
+    before = {r: run_check(r) for r in roots}
+    def restore():
+        for f in changed:
+            with open(os.path.join(ROOT, f), 'w', encoding='utf-8') as h: h.write(originals[f])
+    for f in changed:
+        with open(os.path.join(ROOT, f), 'w', encoding='utf-8') as h: h.write(current[f])
+    failed, passed = [], set()
+    for r in roots:
+        complete, fails, oks, out = run_check(r)
+        passed |= oks
+        if not complete:
+            failed.append(out.strip()[-4000:])
+        else:
+            new_fails = [l for l in out.split('\n') if l.startswith('FAIL') and fail_name(l) in fails - before[r][1]]
+            if new_fails: failed.append('\n'.join(new_fails))
+    unchecked = [n for n in names if n not in passed]
+    if unchecked and not failed:
+        failed.append('these do not check: ' + ', '.join(unchecked))
+    if any(f.startswith('task-graph/') for f in changed) and not failed:
+        r = subprocess.run([sys.executable, TASKS, 'check'], cwd=ROOT, capture_output=True, text=True)
+        if r.returncode != 0: failed.append(r.stdout[-3000:] + r.stderr[-1000:])
+    if failed:
+        restore()
+        print('nothing written: it does not check')
+        for out in failed: print('\n' + out)
+        sys.exit(1)
+    ks = keys()
+    for n in names: print(f'{n}   ({key_label(n, ks)})')
+
+
+def load_roots(tg, affected):
+    """the files to run so every affected file is checked in its load order: an affected file no file
+    imports is run itself; any other is run through the file with the smallest import closure, among
+    the files no file imports, that loads it"""
+    files = tg.cub_files()
+    imported = {g for f in files for g in tg.imports_of(f)}
+    closures = {f: tg.closure(f) for f in files if f not in imported}
+    roots = set()
+    for f in affected:
+        if f in closures: roots.add(f); continue
+        loading = sorted((len(c), r) for r, c in closures.items() if f in c)
+        if not loading: sys.exit(f'hyperactive write: no file loads {f}')
+        roots.add(loading[0][1])
+    return sorted(roots)
+
+
+def fail_name(line):
+    """the name a machine's `ok: checks NAME [...]` or `FAIL: checks NAME [...]` line is about"""
+    return re.sub(r'\s+\[[^]]*\]$', '', line.split(' checks ', 1)[-1].strip()).removeprefix('data ')
+
+
+def run_check(f):
+    """run the machine on f, performing nothing that acts on the world: (whether the run completed, the
+    names that fail, the names that check, its output)"""
+    r = subprocess.run([MACHINE, '--read', f], cwd=ROOT, capture_output=True, text=True,
+                       env={**os.environ, 'CUBICAL_STORE': STORE})
+    out = r.stdout + r.stderr
+    ls = out.split('\n')
+    complete = any(re.match(r'\d+ passed, \d+ failed', l) for l in ls)
+    return (complete, {fail_name(l) for l in ls if l.startswith('FAIL')},
+            {fail_name(l) for l in ls if l.startswith('ok: checks ')},
+            '\n'.join(l for l in ls if not l.startswith('ok: ')))
+
+
+def leash():
+    """the harness's guard (.claude/settings.json, PreToolUse): an agent reads code by `hyperactive def`
+    and the walk and writes it by `hyperactive write`; a tool call that opens, searches or edits a .cub
+    file any other way is refused (exit 2, the reason on standard error)"""
+    import json
+    call = json.load(sys.stdin)
+    tool, inp = call.get('tool_name', ''), call.get('tool_input', {}) or {}
+    why = 'code is read by `hyperactive def NAME` (and show, why, the walk) and written by ' \
+          '`hyperactive write [--after NAME]` with whole declarations on standard input; never open, ' \
+          'search or edit a .cub file'
+    def cub(x): return isinstance(x, str) and '.cub' in x
+    if tool in ('Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit'):
+        if cub(inp.get('file_path')) or cub(inp.get('notebook_path')): sys.exit(print(why, file=sys.stderr) or 2)
+    elif tool in ('Grep', 'Glob'):
+        if any(cub(inp.get(k)) for k in ('path', 'pattern', 'glob')) or inp.get('type') == 'cub' \
+           or (tool == 'Grep' and not inp.get('glob') and not inp.get('type') and not cub(inp.get('path'))
+               and os.path.realpath(inp.get('path') or call.get('cwd') or '.').startswith(ROOT)):
+            sys.exit(print(why + ' (a search of the repository reaches .cub files: name a non-.cub glob or type)',
+                           file=sys.stderr) or 2)
+    elif tool == 'Bash':
+        homes = {os.path.relpath(dp, ROOT).split(os.sep)[0] for dp, dn, fs in os.walk(ROOT)
+                 if not dn.__setitem__(slice(None), [d for d in dn if not d.startswith('.') and d != 'build'])
+                 and any(f.endswith('.cub') for f in fs)}
+        reach = re.compile(r'\.cub\b|(?<![\w.-])(\./)?(' + '|'.join(map(re.escape, homes - {'.'})) + r')(/|\b(?![\w-]))')
+        for seg in re.split(r'&&|\|\||;|\||\n|\$\(|`', inp.get('command', '')):
+            seg = seg.strip()
+            search = re.match(r'(rg|ag|ack|find|fd|tree)\b|git\s+grep\b|e?grep\b.*\s-\w*[rR]', seg)
+            if search or reach.search(seg) and not re.match(r'(\S*/)?hyperactive\b|git\b', seg):
+                sys.exit(print(why + ' (this command reaches where code is kept)', file=sys.stderr) or 2)
 
 
 def build():
@@ -388,6 +606,14 @@ def main():
     if c == 'def':
         if not rest: sys.exit('hyperactive def NAME')
         define(rest); return
+    if c == 'write':
+        if rest and (rest[0] != '--after' or len(rest) != 2): sys.exit('hyperactive write [--after NAME] < declarations')
+        write(rest[1] if rest else None); return
+    if c == 'remove':
+        if not rest: sys.exit('hyperactive remove NAME…')
+        remove(rest); return
+    if c == 'leash':
+        leash(); return
     if c in ('show', 'tree', 'why', 'unexplained', 'view', 'every'): sys.exit(tasks(c, *rest))
     if c == 'order': sys.exit(tasks('priority', *rest))
     if c == 'check':

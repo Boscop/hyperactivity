@@ -90,6 +90,13 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   replaces; nothing new is built on them. The bootstrap from the filesystem is one reader and
   only one: it computes the hash of every file; from then on the hash is the reference (Unison's
   codebase works the same way).
+- **Code is read and written only through `hyperactive`** (Avik, 2026-11-15: "do you write/read code
+  using files and text commands? that is unacceptable"). Read a definition with `hyperactive def NAME`
+  (its statement, text, key and users), and nodes with show and why. Write code with `hyperactive
+  write [--after NAME]`, passing whole declarations on standard input, and remove it with `hyperactive
+  remove NAME`. The write is kept only if everything it touches checks. Never open, grep, sed or edit
+  a .cub file. The harness enforces this: `.claude/settings.json` runs `hyperactive leash` before every
+  tool call.
 - **Use the organization; never sprawl** (Avik, 2026-11-15). The paper delta, `docs/paper-delta.cub`,
   is a set of pointers (`document "path"`: a path and its content hash) and nothing else, no
   descriptions. Each piece it points to is work written at a distinct time and not yet in the paper;
