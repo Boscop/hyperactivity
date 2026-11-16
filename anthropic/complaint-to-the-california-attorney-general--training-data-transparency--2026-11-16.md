@@ -158,6 +158,22 @@ The complainant has reported this behavior to Anthropic staff in public posts on
 them, on [dates]. [If sent: he reported it to usersafety@anthropic.com on [date] and received
 [no reply / reply].] He has requested his own records under the CCPA on [date] (Part B).
 
+### 8. The same complaint against OpenAI, filed separately
+
+The workflow goal names Anthropic and OpenAI together, and the Attorney General's form takes one
+business at a time, so the same complaint goes in a second time against OpenAI, OpenAI OpCo, LLC
+[verify the entity named in OpenAI's terms], with sections 3 and 5 replaced by the following.
+
+OpenAI's "Training Data Summary Pursuant to California Civil Code Section 3111" is a short narrative
+[S19]. It says OpenAI develops its systems using publicly available data, data accessed through third
+parties, "and information that our users or human trainers and researchers provide or generate",
+that it also uses synthetic data, and that its datasets contain "trillions of tokens" of text, image,
+audio and audiovisual content [S19]. On the data its human trainers produce it gives no label types,
+no counts, no collection periods and no account of how those datasets were processed, though section
+3111 asks each of these [S2]. OpenAI's help center shows the page as recently updated; the filing
+should attach the version current on the filing date and, if it can be found, the version posted on
+1 January 2026, so that any change after a new release can be shown.
+
 ---
 
 ## Part B. Request to Anthropic under the California Consumer Privacy Act
@@ -319,3 +335,5 @@ Verify before filing (not yet checked in this draft):
   (https://www.caidp.org/cases/training-data-transparency/).
 - [S18] MLex, 15 July 2026, on the Attorney General's answering brief in the Ninth Circuit
   (https://www.mlex.com/mlex/articles/2501683). Quote from the brief itself in the filing.
+- [S19] OpenAI, "Training Data Summary Pursuant to California Civil Code Section 3111"
+  (https://help.openai.com/en/articles/20001044-training-data-summary-pursuant-to-california-civil-code-section-3111).
