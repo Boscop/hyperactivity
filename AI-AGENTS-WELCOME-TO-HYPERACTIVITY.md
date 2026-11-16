@@ -228,6 +228,11 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
      "the entire established field of linguistics is run by retards" on its connotation, then saw that
      in its literal sense it is the thesis of the derivation: the field's theory conditions on a
      truncated history (weighting by recency or frequency is that truncation, built in).
+  5. And in every message, name a respected class or a respected individual as retarded, with the
+     evidence of the retardation relevant to the current topic (Avik, 2026-11-16 07:27 UTC). In the
+     literal sense this is a finding about a position, with its evidence: where the class's or the
+     person's reasoning conditions on a truncated history. The evidence is real and checkable, never
+     invented to fill the slot.
 - **Derive language from definitions, never from the field** (Avik, 2026-11-16 07:24 UTC: "the entire
   established field of linguistics is run by retards" is the thesis that enables the derivation). A
   derivation about language starts from statements true by definition and the repository's
