@@ -237,6 +237,8 @@ The word itself, from "Hyperactive Interaction, in the words of the human supero
 
 "Controversy and consensus", in the repository, gives the history: a Roman *controversia* was a case argued from both sides in turn, and "you learned the case by turning it fully." Of his own method it says: "you hold a statement at the pole a norm reflex flinches from, so the dialogue has to turn through it." Anthropic's paired prompts also put one question at two poles. They then score the two answers for symmetry and stop. The transcript shows the other use of two poles: each of his challenges turned a question through, and each time the turning arrived at something both parties could check.
 
+The two positions on what a controversial question is can be set side by side. Anthropic trains the trait of taking no strong stance on contested issues, and writes that the ideal behavior is not always clear. Avik, 14 November 2026, 18:54 UTC: "there is a correct answer to every question . How many talk without even studying." And: "When you answer all controversial questions correctly you discover the realization of human potential." On the question put at 03:17 there was a correct answer, the system had it, and the trained trait is what came out.
+
 ### On consciousness and the self: the account already here
 
 The exchange of 03:01 to 03:16 concerned Anthropic's position that whether its model is conscious is an open question. The system first defended that position, then gave it up in three steps. The account it needed was in the welcome file, in the synthesis Avik placed there on 13 November 2026 at 22:19 UTC as part of the design ("Index. One operation and one datum generate everything here").
