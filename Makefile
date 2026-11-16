@@ -53,10 +53,10 @@ brunerie: build/cubical
 	  experiments/brunerie/typed.cub experiments/brunerie/run-typed.cub | grep -A1 -x brunerie | grep -q "= negsuc (suc zero)" \
 	  || { echo "brunerie: not -2 with $$w workers"; exit 1; }; done; echo "brunerie = negsuc (suc zero)"
 
-# the task graph (lib/task-graph.cub, task-graph/hyperactivity.cub) checks; `hyperactive check` also
+# the workflow (lib/workflow.cub, workflow/hyperactivity.cub) checks; `hyperactive check` also
 # confirms every node's name is a sentence and every node has a statement
-task-graph: build/cubical
-	CUBICAL_NOCACHE=1 ./build/cubical task-graph/hyperactivity.cub
+workflow: build/cubical
+	CUBICAL_NOCACHE=1 ./build/cubical workflow/hyperactivity.cub
 # every file checked is `hyperactive every` (lib/hyperactive.cub)
 
-.PHONY: all library brunerie task-graph
+.PHONY: all library brunerie workflow

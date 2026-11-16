@@ -7,8 +7,8 @@ walk, and `hyperactive next` and `hyperactive prev` move through it one chunk at
 enough to arrive whole. What is walked is the value `onboarding` (`docs/onboarding.cub`): this file,
 Part I (the value `hyperactivity`), the Hyperactive Labs note (`docs/Hyperactive_Labs.md`), every unit of the
 book Part I does not yet carry (`not-in-part-i`, `docs/part-i.cub`), the word list (`docs/word-list.md`) and the etymologies
-(`docs/etymologies.md`), all in full; then the task graph and what can be taken up. Status lives
-only in the task graph, which `hyperactive` shows; nothing else records it.
+(`docs/etymologies.md`), all in full; then the workflow and what can be taken up. Status lives
+only in the workflow, which `hyperactive` shows; nothing else records it.
 
 ## How to work
 
@@ -37,7 +37,7 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   claim that something is impossible, or will take long, or needs a change to the core, is a claim
   that understanding is absent: keep reasoning instead of presenting it. (A session asserted
   impossibility three times before deriving the construction now under typed-codes-and-normalization
-  in the task graph.) Write no code until the whole construction is understood.
+  in the workflow.) Write no code until the whole construction is understood.
 - **Read Part I (the copy described under “Citing sources” below) and every unit of the book Part I does not yet carry (`not-in-part-i`, `docs/part-i.cub`) before giving any account of the project.** Reason at length rather than
   presenting conclusions first.
 - **Ask questions only of yourself and answer them in the next sentence.** Never ask Avik what he has
@@ -69,7 +69,7 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
 - **Work runs continuously, as if dispatched with no one present.** A session does not end its turn
   while work that is not blocked on Avik remains. It works through long stretches, hours or a night.
 - **Context lives in the repository, not in chat.** A session can end at any moment, so what it is
-  doing, has found and has decided is written as it happens: facts at the goal they concern in the task graph,
+  doing, has found and has decided is written as it happens: facts at the goal they concern in the workflow,
   material for the book in a unit of it.
 - **The README holds only setup and installation,** and hands off to `hyperactive`, which teaches
   the rest.
@@ -84,7 +84,7 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
 - **Words = code = data; workflow and knowledge are one graph** (Avik, 2026-11-15 and 2026-11-16).
   Everything Avik writes is work done: code, for some interpreter (an LLM executor, the machine, a
   reader, a training run) and some purpose. What an object is for is what it serves, its parents in
-  the task graph; about 50 knowledge-work targets are roots beside the-product, and the workflow is
+  the workflow; its one root is healing-societies, nonpartisan voter education serves it, and the product and the knowledge-work targets serve that; the workflow is
   consciousness of work done, work pending and what serves what. Approach a document as an engineer
   approaches data: what is the structure, what total knowledge does it express, what does it serve.
   Introduce no ontology of kinds ("unit", "claim", "excerpt"). One body of work, each consumable unit
@@ -150,7 +150,7 @@ only in the task graph, which `hyperactive` shows; nothing else records it.
   with agents amplifying them, and the only friction is an agent's incorrectness. Every message,
   personal context included, is work product. In the same turn, its content goes where it acts:
   material for the book into a unit of it, in his terms; a fact about a
-  goal into that goal's statement in the task graph; an instruction to agents into this section; and,
+  goal into that goal's statement in the workflow; an instruction to agents into this section; and,
   when he writes at length (only then; not every message), the message itself, verbatim, into
   “Avik's words, verbatim” below. An insight a session reaches with him
   goes in the same way, checked against his words. The aim: when an agent finishes the walk, it

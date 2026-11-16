@@ -1,10 +1,10 @@
 #!build/cubical
--- lib/views.cub — the task graph's views (show, tree, order, open), computed from the graph's value
--- (task-graph/hyperactivity.cub over lib/task-graph.cub) and the store: its nodes are the language's
+-- lib/views.cub — the workflow's views (show, tree, order, open), computed from the graph's value
+-- (workflow/hyperactivity.cub over lib/workflow.cub) and the store: its nodes are the language's
 -- own namespace (`definitions Node`), a node's statement is the comment its written piece begins
 -- with. `hyperactive` runs this program for those commands (lib/hyperactive.cub).
 import "host.cub"
-import "../task-graph/hyperactivity.cub"
+import "../workflow/hyperactivity.cub"
 
 -- the nodes, each with the name it is defined by
 v-all : List (List Word × Node)
@@ -42,12 +42,10 @@ v-kid-table = list-map (λ e → (fst e , v-kids-of (fst e) v-table)) v-table
 v-kids : List Word → List (List Word)
 v-kids i = v-look i v-kid-table
 
-v-roots : List (List Word)
-v-roots = v-ids roots
 v-in-progress : List (List Word)
 v-in-progress = v-ids in-progress
 v-resolved : List (List Word)
-v-resolved = v-ids resolved
+v-resolved = v-ids (list-map (λ e → fst e) resolved)
 v-leaf : List Word → Bool
 v-leaf i = h-null (h-concat (v-kids i))
 
@@ -69,18 +67,41 @@ v-under : List Word → List (List Word)
 v-under i = v-close v-rounds v-kids (v-kids i)
 v-ancestors : List Word → List (List Word)
 v-ancestors i = v-close v-rounds v-parts (cons i nil)
-v-open-leaf : List Word → Bool
-v-open-leaf x = andB (v-leaf x) (h-not (h-has x v-resolved))
 v-filter : (List Word → Bool) → List (List Word) → List (List Word)
 v-filter p nil = nil
 v-filter p (cons x r) = if p x then cons x (v-filter p r) else v-filter p r
+v-subset : List (List Word) → List (List Word) → Bool
+v-subset nil b = true
+v-subset (cons x r) b = andB (h-has x b) (v-subset r b)
+-- the nodes, by name; the roots: the nodes part of nothing
+v-names : List (List Word)
+v-names = list-map (λ e → fst e) v-all
+v-roots : List (List Word)
+v-roots = v-filter (λ i → h-null (h-concat (v-parts i))) v-names
+-- resolution (lib/workflow.cub): a node is resolved when witnessed, or when every one of its children
+-- is; the resolved nodes are the least set closed under that rule, starting from the witnessed ones
+v-holds : List (List Word) → List Word → Bool
+v-holds s i = andB (h-not (v-leaf i)) (v-subset (v-kids i) s)
+v-resolve : Nat → List (List Word) → List (List Word)
+v-resolve zero s = s
+v-resolve (suc k) s = v-close-if s (v-union s (v-filter (v-holds s) v-names)) (v-resolve k)
+v-complete : List (List Word)
+v-complete = v-resolve v-rounds v-resolved
+v-done : List Word → Bool
+v-done i = h-has i v-complete
+-- the nodes still needed: an unresolved root, and every unresolved node serving a needed one; a leaf
+-- is open work exactly when it is needed
+v-needed : List (List Word)
+v-needed = v-close v-rounds (λ i → v-filter (λ c → h-not (v-done c)) (v-kids i)) (v-filter (λ r → h-not (v-done r)) v-roots)
+v-open-leaf : List Word → Bool
+v-open-leaf x = andB (v-leaf x) (h-has x v-needed)
 
 -- what waits on what: a node's after, and every leaf under (or at) what it names
 v-after-of : List Word → List (Node × List Node) → List (List Word)
 v-after-of i nil = nil
 v-after-of i (cons e r) = if h-eq i (v-id (fst e)) then list-append (v-ids (snd e)) (v-after-of i r) else v-after-of i r
 v-leaves-at : List Word → List (List Word)
-v-leaves-at d = v-filter v-open-leaf (cons d (v-under d))
+v-leaves-at d = if v-done d then nil else v-filter v-open-leaf (cons d (v-under d))
 v-waits-of : List Word → List (List Word)
 v-waits-of x = h-dedupe (v-step-all v-leaves-at (v-step-all (λ m → v-after-of m after) (v-ancestors x)))
 v-before-of : List Word → List (List Word)
@@ -130,7 +151,13 @@ v-rels : List Word → List Word
 v-rels i = if h-null (h-concat (v-parts i)) then (if h-has i v-roots then "a root" else "-")
   else v-joined ", " (list-map (λ p → list-append "part of " p) (v-parts i))
 v-state : List Word → List Word
-v-state i = if h-has i v-in-progress then "in progress" else if h-has i v-resolved then "resolved" else "pending"
+v-state i = if h-has i v-in-progress then "in progress" else if v-done i then "resolved" else if v-open-leaf i then "pending" else "not needed: what it serves is resolved"
+-- what witnesses a resolved node: its evidence, or (for a node with children) all of them resolved
+v-witness-in : List Word → List (Node × List Word) → List Word
+v-witness-in i nil = nil
+v-witness-in i (cons e r) = if h-eq i (v-id (fst e)) then snd e else v-witness-in i r
+v-witness : List Word → List Word
+v-witness i = if h-has i v-resolved then list-append "  witness: " (v-witness-in i resolved) else "  witness: every one of its children resolved"
 v-context-lines : List Word → List (List Word) → List Word
 v-context-lines a nil = nil
 v-context-lines a (cons m r) = list-append (h-concat (list-map (λ d → h-line (list-append "  essential context: " (list-append d (if h-eq m a then nil else list-append "  (from " (list-append m ")"))))) (v-context-of m essential-context))) (v-context-lines a r)
@@ -138,11 +165,12 @@ v-show-text : List Word → List (List Word) → List Word
 v-show-text i stmt =
   list-append (h-line (list-append i (list-append "  " (v-rels i))))
   (list-append (h-line (list-append "  " (v-sentence i)))
-  (list-append (if v-leaf i then h-line (list-append "  state: " (v-state i)) else h-line (list-append "  served by: " (v-joined " " (v-kids i))))
+  (list-append (if v-leaf i then h-line (list-append "  state: " (v-state i)) else list-append (h-line (list-append "  served by: " (v-joined " " (v-kids i)))) (if v-done i then h-line "  state: resolved" else nil))
+  (list-append (if v-done i then h-line (v-witness i) else nil)
   (list-append (v-context-lines i (v-ancestors i))
   (list-append (if h-null (h-concat (v-after-of i after)) then nil else h-line (list-append "  after: " (v-joined " " (v-after-of i after))))
   (list-append (if h-null (h-concat (v-before-of i)) then nil else h-line (list-append "  before: " (v-joined " " (v-before-of i))))
-  (list-append (if h-null (h-concat stmt) then h-line "  (no statement)" else v-wrap nil (v-words stmt)) (cons #10 nil)))))))
+  (list-append (if h-null (h-concat stmt) then h-line "  (no statement)" else v-wrap nil (v-words stmt)) (cons #10 nil))))))))
 v-show : List Word → List Word → Proc W Unit
 v-show st i = if v-known i then bind (v-statement st i) (λ s → h-out (v-show-text i s))
   else h-out (h-line (list-append i ": no such node"))
@@ -159,8 +187,8 @@ v-also n via = v-filter (λ p → h-not (h-eq p via)) (v-parts n)
 v-tree-line : Nat → List Word → List Word → List Word
 v-tree-line d via n =
   list-append (v-indent d) (list-append (v-sentence n) (list-append "  [" (list-append n
-  (list-append (if v-leaf n then (if h-has n v-in-progress then ", in progress]" else if h-has n v-resolved then ", resolved]" else "]")
-               else list-append "; " (list-append (h-decimal (fromNat (list-length (v-filter v-open-leaf (v-under n))))) " open tasks under it]"))
+  (list-append (if v-leaf n then (if h-has n v-in-progress then ", in progress]" else if v-done n then ", resolved]" else if v-open-leaf n then "]" else ", not needed]")
+               else if v-done n then ", resolved]" else list-append "; " (list-append (h-decimal (fromNat (list-length (v-filter v-open-leaf (v-under n))))) " open tasks under it]"))
   (h-line (if andB (h-not (h-null via)) (h-not (h-null (h-concat (v-also n via))))
            then list-append "  (also " (list-append (v-joined ", " (v-also n via)) ")") else nil))))))
 v-head : List (List Word) → List Word
@@ -190,9 +218,6 @@ v-gain-table : List (List Word × List (List Word))
 v-gain-table = list-map (λ x → (x , v-gain-of x)) v-ready
 v-gain : List Word → List (List Word)
 v-gain x = v-look x v-gain-table
-v-subset : List (List Word) → List (List Word) → Bool
-v-subset nil b = true
-v-subset (cons x r) b = andB (h-has x b) (v-subset r b)
 v-strictly-in : List (List Word) → List (List Word) → Bool
 v-strictly-in a b = andB (v-subset a b) (h-not (v-subset b a))
 v-top : List (List Word) → List (List Word)
@@ -218,21 +243,20 @@ v-open : List Word → Proc W Unit
 v-open st = bind (if h-null (h-concat v-in-progress) then ret {lzero} {W} unit else bind (h-out (h-line (h-line "In progress:"))) (λ u → v-show-all st v-in-progress)) (λ u →
   h-out (list-append (h-line "Can start now and unblocks the most:") (h-concat (list-map (λ x → list-append (v-line x) (v-gain-line x)) (v-top v-ready)))))
 
--- check: the graph's rules (“The Hyperactive Workflow”): every node's name is a sentence; a node is a
--- part of something or a root, not both; every node has a statement; a leaf in progress or resolved
--- has no children, and is not both; a node is expanded exactly when something under it is in
--- progress or resolved
+-- check: the graph's rules (“The Hyperactive Workflow”): every node's name is a sentence; every node
+-- has a statement; what is in progress is a leaf, and not also resolved; an unresolved node is
+-- expanded exactly when something under it is in progress or resolved
 v-rule : Bool → List Word → List Word → List (List Word)
 v-rule bad i why = if bad then cons (list-append i (list-append ": " why)) nil else nil
 v-node-problems : List Word → List (List Word)
 v-node-problems i =
   list-append (v-rule (orB (h-not (h-infix " " (v-sentence i))) (h-eq (v-sentence i) i)) i "its name must be an English sentence saying what it is, not an identifier")
-  (list-append (v-rule (andB (h-null (h-concat (v-parts i))) (h-not (h-has i v-roots))) i "part of nothing and not declared a root")
-  (list-append (v-rule (andB (h-not (h-null (h-concat (v-parts i)))) (h-has i v-roots)) i (list-append "declared a root but part of " (v-joined ", " (v-parts i))))
-  (list-append (v-rule (andB (orB (h-has i v-in-progress) (h-has i v-resolved)) (h-not (v-leaf i))) i "in progress or resolved but has children (a leaf is; a node with children is resolved when they are)")
+  (list-append (v-rule (andB (h-has i v-in-progress) (h-not (v-leaf i))) i "in progress but has children (work in progress is a leaf; a node is expanded when a child begins)")
   (list-append (v-rule (andB (h-has i v-in-progress) (h-has i v-resolved)) i "both in progress and resolved")
-  (v-rule (andB (andB (h-not (v-leaf i)) (h-not (h-has i v-roots))) (h-null (h-concat (v-filter (λ x → orB (h-has x v-in-progress) (h-has x v-resolved)) (v-under i))))) i
-    "expanded, but nothing under it is in progress or resolved (a node is expanded exactly when a child begins)")))))
+  (v-rule (andB (andB (andB (h-not (v-leaf i)) (h-not (h-has i v-roots))) (h-not (v-done i))) (h-null (h-concat (v-filter (λ x → orB (h-has x v-in-progress) (h-has x v-resolved)) (v-under i))))) i
+    "expanded, but nothing under it is in progress or resolved (a node is expanded exactly when a child begins)")))
+v-graph-problems : List (List Word)
+v-graph-problems = v-step-all v-node-problems v-names
 v-statement-problems : List Word → List (List Word) → Proc W (List (List Word))
 v-statement-problems st nil = ret nil
 v-statement-problems st (cons i r) = bind (v-statement st i) (λ s → bind (v-statement-problems st r) (λ rest →
@@ -247,8 +271,8 @@ v-check-report : List (List Word) → Proc W Unit
 v-check-report ps = bind (h-out (v-lines ps)) (λ u → bind (h-out (v-summary ps)) (λ u2 → exit (v-code ps)))
 v-check : List Word → Proc W Unit
 v-check st = bind (v-statement-problems st (list-map (λ e → fst e) v-all)) (λ sp →
-  v-check-report (list-append (v-step-all v-node-problems (list-map (λ e → fst e) v-all)) sp))
--- the graph as JSON, for the page that draws it (lib/server.cub, tools/task-graph-view.html): each
+  v-check-report (list-append v-graph-problems sp))
+-- the graph as JSON, for the page that draws it (lib/server.cub, tools/workflow-view.html): each
 -- node with its sentence, its parents, its statement and the findings it records (Known …), the
 -- questions it puts to Avik, its state in the order of work (first, ready, last, waiting, goal,
 -- resolved), its layer, what it unblocks and waits on, its essential context, and its open tasks
@@ -313,7 +337,7 @@ v-json-layer : Sum Unit Nat → List Word
 v-json-layer (inl u) = "null"
 v-json-layer (inr k) = h-decimal (fromNat k)
 v-progress : List Word → List Word
-v-progress n = if h-has n v-in-progress then j-str "in progress" else if h-has n v-resolved then j-str "resolved" else if v-leaf n then j-str "pending" else "null"
+v-progress n = if h-has n v-in-progress then j-str "in progress" else if v-done n then j-str "resolved" else if v-leaf n then j-str "pending" else "null"
 v-ancestor-count : List Word → Nat
 v-ancestor-count m = list-length (v-ancestors m)
 v-insert-depth : List Word → List (List Word) → List (List Word)
@@ -332,7 +356,7 @@ v-json-node n stmt = j-obj
   (cons (j-field "statement" (j-str (h-trim (v-head (v-split-known nil (v-unprefixed n (v-stmt-line stmt)))))))
   (cons (j-field "findings" (j-strs (list-map h-trim (h-tail-lists (v-split-known nil (v-unprefixed n (v-stmt-line stmt)))))))
   (cons (j-field "parts" "[]")
-  (cons (j-field "state" (j-str (if h-has n v-resolved then "resolved" else v-state-of n (v-layer-of n zero v-layers-all))))
+  (cons (j-field "state" (j-str (if v-done n then "resolved" else v-state-of n (v-layer-of n zero v-layers-all))))
   (cons (j-field "progress" (v-progress n))
   (cons (j-field "layer" (v-json-layer (v-layer-of n zero v-layers-all)))
   (cons (j-field "unblocks" (j-strs (if h-has n v-ready then h-sort (v-gain n) else nil)))
@@ -370,7 +394,7 @@ v-keep st =
   bind (v-show-texts st (list-map (λ e → fst e) v-all)) (λ shows →
   bind (v-keep-shows (list-append st "/views/") shows) (λ u3 →
   bind (v-statement-problems st (list-map (λ e → fst e) v-all)) (λ sp →
-  bind (h-write (list-append st "/views/check") (list-append (v-lines (list-append (v-step-all v-node-problems (list-map (λ e → fst e) v-all)) sp)) (v-summary (list-append (v-step-all v-node-problems (list-map (λ e → fst e) v-all)) sp)))) (λ b1 →
+  bind (h-write (list-append st "/views/check") (list-append (v-lines (list-append v-graph-problems sp)) (v-summary (list-append v-graph-problems sp)))) (λ b1 →
   bind (h-write (list-append st "/views/nodes") (h-concat (list-map (λ e → h-line (v-joined " " (cons (fst e) (v-parts (fst e))))) v-all))) (λ b6 →
   bind (h-write (list-append st "/views/roots") (h-concat (list-map h-line v-roots))) (λ b7 →
   bind (v-json st) (λ js → bind (h-write (list-append st "/views/graph.json") js) (λ b8 →

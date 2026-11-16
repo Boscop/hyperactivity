@@ -496,7 +496,7 @@ static Node *p_atom(void) {
     if (t->k == X_NUM) { NX(); return sym2("%num", nsym(t->s)); }
     if (x_is(t, "document") && P1()->k == X_STR) {
         /* document "path" (2026-11-13): a file of the repository as an object of the code, so a
-         * declaration can refer to a document (lib/document.cub; the task graph's essential context,
+         * declaration can refer to a document (lib/document.cub; the workflow's essential context,
          * “The Hyperactive Workflow” (docs/to-be-incorporated-into-paper.cub)). The path is relative to the file being read, as import's is. The
          * file must exist: reading fails here otherwise, as a reference to an undefined name would. The
          * term is document-at "path from the repository root" "sha256 of the file's bytes, in hex", so a definition mentioning a
@@ -4190,7 +4190,7 @@ static Node *by_lin(Node *ex, Node *at) {
 }
 /* `declarations T` (2026-11-12): every checked definition in scope whose type is T (equal
  * canonical forms), in the order declared, as the list cons d1 (cons d2 … nil) : List T. The work
- * read as a value of the language: a view of it is a term over such lists (lib/task-graph.cub). */
+ * read as a value of the language: a view of it is a term over such lists (lib/workflow.cub). */
 static Node *el_declarations(Node *Ts) {
     Node *T = ds(strip_marks(core(el(Ts))));
     SBuf a = { 0 }; cur_deps.n = 0; canon(&a, T); cur_deps.n = 0;

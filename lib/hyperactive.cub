@@ -265,7 +265,7 @@ hy-paper st m a =
   bind (if h-eq (hy-or nil s) (h-decimal now) then ret {lzero} {W} #0 else h-run (cons m (cons "lib/paper-view.cub" nil))) (λ r →
   bind (hy-get st "paper/text") (λ t → hy-paper-show a (hy-or nil t)))))
 
--- check [FILE ...]: the machine's verdict on the task graph (or on each file given, each loading what
+-- check [FILE ...]: the machine's verdict on the workflow (or on each file given, each loading what
 -- it imports), then the graph's rules (lib/views.cub check)
 hy-last : List (List Word) → List Word
 hy-last nil = nil
@@ -295,7 +295,7 @@ hy-brunerie m = bind (hy-brunerie-with m "0") (λ a → bind (hy-brunerie-with m
   else h-fail (list-append "brunerie: not -2 with " (if a then "four workers" else "one worker"))))
 
 
--- view [in FILE] [type T] TERM: a term's value, the term read in FILE (the task graph by default). Its
+-- view [in FILE] [type T] TERM: a term's value, the term read in FILE (the workflow by default). Its
 -- type is the machine's (#type) unless given; text (List Word) is shown as text, a list of texts one
 -- per line with their count, anything else as the machine shows its normal form
 hy-view-args : List Word → List Word → List (List Word) → (List Word × List Word) × List Word
@@ -338,7 +338,7 @@ hy-view-typed : List Word → List Word → List Word → List Word → Proc W U
 hy-view-typed m f t term = if h-null t then bind (hy-probe m (list-append (hy-probe-head f) (h-line (list-append "#type (" (list-append term ")"))))) (hy-view-typed-of m f term)
   else hy-view-run m f t term
 hy-view-term : List Word → List (List Word) → Proc W Unit
-hy-view-term m a = hy-view-typed m (fst (fst (hy-view-args "task-graph/hyperactivity.cub" nil a))) (snd (fst (hy-view-args "task-graph/hyperactivity.cub" nil a))) (snd (hy-view-args "task-graph/hyperactivity.cub" nil a))
+hy-view-term m a = hy-view-typed m (fst (fst (hy-view-args "workflow/hyperactivity.cub" nil a))) (snd (fst (hy-view-args "workflow/hyperactivity.cub" nil a))) (snd (hy-view-args "workflow/hyperactivity.cub" nil a))
 
 -- the graph's views, kept in the store by lib/views.cub (views/), made again when anything under the
 -- repository has changed since
@@ -354,15 +354,15 @@ hy-show-nodes st (cons i r) = bind (hy-get st (list-append "views/show-" (h-hex 
 hy-views : List Word → List Word → List (List Word) → Proc W Unit
 hy-views st m nil = hy-view st m "tree"
 hy-views st m (cons c rest) = if h-eq c "show" then bind (hy-views-ready st m) (λ u → hy-show-nodes st rest) else hy-view st m c
--- check: the machine's verdict on the task graph (kept like a write's) and the graph's rules
+-- check: the machine's verdict on the workflow (kept like a write's) and the graph's rules
 hy-verdict-text : List Word → Bool × List (List Word) → List Word
 hy-verdict-text f v = list-append (h-line (list-append f (if fst v then (if h-null (h-concat (snd v)) then ": the machine reads it to the end; nothing fails" else ": these fail:") else ": the machine does not read it to the end")))
   (h-indented "  " (snd v))
 hy-check : List Word → List Word → List (List Word) → Proc W Unit
-hy-check st m nil = bind (hy-verdict st m "task-graph/hyperactivity.cub") (λ v → bind (h-out (hy-verdict-text "task-graph/hyperactivity.cub" v)) (λ u → hy-view st m "check"))
+hy-check st m nil = bind (hy-verdict st m "workflow/hyperactivity.cub") (λ v → bind (h-out (hy-verdict-text "workflow/hyperactivity.cub" v)) (λ u → hy-view st m "check"))
 hy-check st m (cons f r) = hy-machine-all m (cons f r)
 -- why NAME, unexplained [FILE ...] (“The Hyperactive Workflow”: every declaration is there for a
--- reason, a chain to a root of the task graph): a node of the graph is a part of a node with a reason,
+-- reason, a chain to a root of the workflow): a node of the graph is a part of a node with a reason,
 -- or a root; a declaration whose statement says (part of NODE) or (prerequisite to NODE) has NODE's
 -- reason; a name the machine itself names (a string of src/) has the machine as its reason; and what
 -- a declaration with a reason uses has that reason too. The nodes come from the views kept in the
@@ -495,7 +495,7 @@ hy-in-scope (cons a r) f = hy-in-scope-of (cons a r) f
 -- the names with a reason of their own, and the statements naming something not a node
 hy-own-add : List (List Word × List (List Word)) → List (List Word) → List Word → Sum Unit (List Word × List Word) → (List (List Word)) × (List (List Word)) → (List (List Word)) × (List (List Word))
 hy-own-add t mn n (inr s) acc = if hy-is-node (snd s) t then (cons n (fst acc) , snd acc)
-  else (if h-has n mn then cons n (fst acc) else fst acc , cons (list-append n (list-append ": states a reason, " (list-append (snd s) ", which is not a node of task-graph/hyperactivity.cub"))) (snd acc))
+  else (if h-has n mn then cons n (fst acc) else fst acc , cons (list-append n (list-append ": states a reason, " (list-append (snd s) ", which is not a node of workflow/hyperactivity.cub"))) (snd acc))
 hy-own-add t mn n (inl u) acc = (if orB (hy-is-node n t) (h-has n mn) then cons n (fst acc) else fst acc , snd acc)
 hy-own : List Word → List (List Word × List (List Word)) → List (List Word) → List (List Word) → Proc W ((List (List Word)) × (List (List Word)))
 hy-own st t mn nil = ret (nil , nil)
@@ -531,12 +531,12 @@ hy-unexplained st m args = bind (hy-reason-data st m) (λ d → bind (hy-files-r
   h-out (hy-unexplained-report (snd own) have (hy-scoped args fs))))))
 
 -- every: every file checked, by giving the machine each file no file imports (lib/, experiments/,
--- task-graph/), loaded alone with its imports and without performing what acts on the world (--read);
+-- workflow/), loaded alone with its imports and without performing what acts on the world (--read);
 -- a file another imports is checked in that file's run. A failure is a file's own when its position
 -- is in that file. The imports are the reader's own (the machine's --imports).
 hy-every-files : Proc W (List (List Word))
 hy-every-files = bind (h-files (toNat #16) ".cub" "lib") (λ a → bind (h-files (toNat #16) ".cub" "experiments") (λ b →
-  bind (h-files (toNat #16) ".cub" "task-graph") (λ c → ret (h-msort (list-append a (list-append b c))))))
+  bind (h-files (toNat #16) ".cub" "workflow") (λ c → ret (h-msort (list-append a (list-append b c))))))
 hy-imported : List (List Word) → List (List Word)
 hy-imported nil = nil
 hy-imported (cons l r) = if h-prefix "imports: " l then list-append (h-tail-lists (h-split #32 (h-drop "imports: " l))) (hy-imported r) else hy-imported r
@@ -695,8 +695,8 @@ hy-show-chunk k n (inr t) =
       (if hy-same-nat k n then ". The walk is done: hyperactive next begins the work." else ". Next: hyperactive next   (back: hyperactive prev)"))))))))
 hy-work-usage : List Word
 hy-work-usage = list-append (h-line "Actions:")
-  (list-append (h-line "  hyperactive show NODE ...   a node of the task graph: its statement, what it serves, what serves it")
-  (list-append (h-line "  hyperactive tree            the task graph from its roots")
+  (list-append (h-line "  hyperactive show NODE ...   a node of the workflow: its statement, what it serves, what serves it")
+  (list-append (h-line "  hyperactive tree            the workflow from its roots")
   (list-append (h-line "  hyperactive order           the whole order of work")
   (list-append (h-line "  hyperactive open            what is in progress and what can start now")
   (list-append (h-line "  hyperactive def NAME ...    a definition: its statement, its text, its key, and what uses it")
@@ -704,7 +704,7 @@ hy-work-usage = list-append (h-line "Actions:")
   (list-append (h-line "  hyperactive remove NAME      a definition nothing uses taken away, checked the same way")
   (list-append (h-line "  hyperactive history [NAME]  every binding of the name to a key, in the order bound")
   (list-append (h-line "  hyperactive paper [SECTION]  the paper as it reads, whole or one section (4.4, A.1, Part II)")
-  (list-append (h-line "  hyperactive check [FILE ...] the machine's verdict on the task graph and the graph's rules, or on each file given")
+  (list-append (h-line "  hyperactive check [FILE ...] the machine's verdict on the workflow and the graph's rules, or on each file given")
   (list-append (h-line "  hyperactive decompose FILE   a document decomposed by pulls: a piece and its residual at a time (lib/knowledge.cub)")
   (list-append (h-line "  hyperactive why NAME ... | unexplained [FILE ...] | view [in FILE] [type T] TERM | every | server [PORT] | brunerie | repl | library | etym TEXT")
   (h-line "  hyperactive done            the work is done: the session ends")))))))))))))

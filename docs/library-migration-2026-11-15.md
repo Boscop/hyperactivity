@@ -14,7 +14,7 @@ This is a migration inventory and reconciliation record, not a second project pl
 - `AI-AGENTS-WELCOME-TO-HYPERACTIVITY.md` preserves agent instructions and the author's verbatim words.
 - `docs/to-be-incorporated-into-paper.cub` contains material awaiting incorporation into the paper.
 - `docs/Hyperactive_Labs.md` is the initiative document.
-- `task-graph/hyperactivity.cub` carries task status.
+- `workflow/hyperactivity.cub` carries task status.
 
 ## Known divergence requiring reconciliation
 
