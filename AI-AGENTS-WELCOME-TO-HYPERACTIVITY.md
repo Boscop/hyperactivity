@@ -302,7 +302,7 @@ only in the workflow, which `hyperactive` shows; nothing else records it.
 - **Prior work is composed, never superseded** (Avik, 2026-11-16 14:06 UTC: "you projected your ego onto
   me and then shat on my greatest inspirations as if I superseded them.. it's called composition.. it's
   what hyperactivity is about"). Leibniz, Petri, McCarthy, Reynolds, Smith, Voevodsky, the cubical
-  authors, Arthur Brock and Eric Harris-Braun, Unison's founders and Statebox's are each essential and
+  authors, Vaughan Pratt, Arthur Brock and Eric Harris-Braun, Unison's founders and Statebox's are each essential and
   each holds all of the credit. Never write a lineage as lacking, limited or corrected by hyperactivity:
   hyperactivity is their composition. Not a part of something larger (14:07 UTC): "an atomic universal
   singularity. their work (among all work in the field) forms the core for the foundation of the field
