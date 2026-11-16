@@ -2048,8 +2048,13 @@ static void w_forget(const char *rel, const char *names, const char *pieces) {
     }
     free(old); free(oldm); free(oldp);
 }
+/* a file is part of the work when it is inside the repository and outside build/ (the machine's own
+ * output and probes): only the work's text is recorded, and only a file of the work is a root, so a
+ * scratch file read once (in /tmp, or a probe in build/) never repoints a name or becomes a root */
+static bool w_work(const char *rel) { return rel[0] != '/' && strncmp(rel, "build/", 6) != 0; }
 static void w_file(const char *text, const char *path) {
     if (!store_dir()) { nwitems = 0; return; }
+    { char *r0 = w_rel(path); bool work = w_work(r0); free(r0); if (!work) { nwitems = 0; return; } }
     size_t len = strlen(text);
     int nl = 0; size_t *off = malloc((len + 2) * sizeof(size_t));
     off[++nl] = 0;   /* off[k]: where line k begins (1-based) */
@@ -2083,7 +2088,7 @@ static void w_file(const char *text, const char *path) {
         char *rel = w_rel(path); w_forget(rel, names.b, mod.b);
         w_point("modules", rel, mh);
         w_point("names-of", rel, names.b);
-        if (load_root) { char *rr = w_rel(load_root); w_point("roots", rel, rr); free(rr); }
+        if (load_root) { char *rr = w_rel(load_root); if (w_work(rr)) w_point("roots", rel, rr); free(rr); }
         free(rel);
     }
     free(names.b);
@@ -2095,6 +2100,7 @@ static void load_surface(const char *text, const char *path, bool imports_only) 
     const char *s_file = x_file; bool s_typed = x_typed, s_fail = x_fail_next;
     xt = NULL; nxt = capxt = 0; lt = NULL; nlt = caplt = 0; xlater = NULL; nxlater = capxlater = 0;
     x_file = path; x_fail_next = false;
+    bool s_bw = bind_work; { char *r0 = w_rel(path); bind_work = w_work(r0); free(r0); }
     x_lex(text); x_layout();
     for (int i = 0; i < nlt; i++) if ((i == 0 || lt[i - 1].k == X_VS) && lt[i].k == X_ID && !reserved(lt[i].s) && lt[i].s[0] != '#') {
         GROW(xlater, capxlater, (size_t)nxlater + 1); xlater[nxlater++] = lt[i].s;
@@ -2120,6 +2126,7 @@ static void load_surface(const char *text, const char *path, bool imports_only) 
     if (!imports_only) w_file(text, path);
     xt = s_xt; nxt = s_nxt; capxt = s_capxt; lt = s_lt; nlt = s_nlt; caplt = s_caplt; xp = s_xp;
     xlater = s_later; nxlater = s_nlater; capxlater = s_caplater; x_file = s_file; x_typed = s_typed; x_fail_next = s_fail;
+    bind_work = s_bw;
 }
 
 /* ---------------- printing the core forms in the surface language ----------------

@@ -198,6 +198,106 @@ hy-write-head st m path t (inr hp) = hy-write-at st m path (fst hp) false t (inr
 hy-write-after-head : List Word → List Word → List Word → List Word → List Word → Sum Unit (List Word × List (List Word)) → Proc W Unit
 hy-write-after-head st m name path t (inl u) = h-fail (list-append path ": the machine holds no head of it (no piece before its first definition)")
 hy-write-after-head st m name path t (inr hp) = hy-write-at st m name (fst hp) true t (inr (h-hex path , snd hp))
+-- write NAME NAME ... < DECLARATIONS: several definitions changed as one change. The text holds their
+-- declarations in the order named, each beginning at the comment directly above its first line (where
+-- the store cuts pieces); every file they are in is written, every root any of them touches (through
+-- its file or its users) is checked once, and all is kept or all is put back.
+-- A line that begins a name's declaration: its signature, a clause, or its data, record or codata line
+hy-decl-line : List Word → List Word → Bool
+hy-decl-line n l = orB (h-prefix (list-append n " ") l) (orB (h-prefix (list-append "data " (list-append n " ")) l)
+  (orB (h-prefix (list-append "record " (list-append n " ")) l) (h-prefix (list-append "codata " (list-append n " ")) l)))
+hy-drop-nl : List Word → List Word
+hy-drop-nl nil = nil
+hy-drop-nl (cons x r) = if weq x #10 then hy-drop-nl r else cons x r
+-- lines as one piece's text: each line ended by a newline, blank lines at its end dropped
+hy-piece-text : List (List Word) → List Word
+hy-piece-text ls = h-line (h-rev (hy-drop-nl (h-rev (h-concat (list-map h-line ls)) nil)) nil)
+hy-cons-piece : List Word → Sum (List Word) (List (List Word)) → Sum (List Word) (List (List Word))
+hy-cons-piece p (inl n) = inl n
+hy-cons-piece p (inr ps) = inr (cons p ps)
+-- the text cut into the named declarations: the names still to find, the current piece's lines, the
+-- comment lines waiting to see whether a declaration follows them, and the lines left; a name not
+-- found, in order, is given back
+hy-cut : List (List Word) → List (List Word) → List (List Word) → List (List Word) → Sum (List Word) (List (List Word))
+hy-cut nil acc pend nil = inr (cons (hy-piece-text (list-append acc pend)) nil)
+hy-cut (cons n ns) acc pend nil = inl n
+hy-cut nil acc pend (cons l r) = hy-cut nil (list-append acc (list-append pend (cons l nil))) nil r
+hy-cut (cons n ns) acc pend (cons l r) =
+  if hy-decl-line n l then hy-cons-piece (hy-piece-text acc) (hy-cut ns (list-append pend (cons l nil)) nil r)
+  else if h-prefix "--" l then hy-cut (cons n ns) acc (list-append pend (cons l nil)) r
+  else hy-cut (cons n ns) (list-append acc (list-append pend (cons l nil))) nil r
+-- each name's edit: its file (hex path, pieces) and its piece's hash with the new text
+hy-edit-in : List Word → List Word → List Word → Sum Unit (List Word × List (List Word)) → (((List Word × List (List Word)) × (List Word × List Word)) → Proc W Unit) → Proc W Unit
+hy-edit-in n h t (inl u) k = h-fail (list-append "hyperactive: no file holds the piece of " n)
+hy-edit-in n h t (inr mo) k = k (mo , (h , t))
+hy-edit-of : List Word → List Word → List Word → Sum Unit (List Word) → (((List Word × List (List Word)) × (List Word × List Word)) → Proc W Unit) → Proc W Unit
+hy-edit-of st n t (inl u) k = h-fail (list-append n ": no definition has that name (write NAME after OTHER places a new one)")
+hy-edit-of st n t (inr h) k = bind (hy-module-of st h) (λ mo → hy-edit-in n h t mo k)
+hy-edits : List Word → List (List Word) → List (List Word) → List ((List Word × List (List Word)) × (List Word × List Word)) → (List ((List Word × List (List Word)) × (List Word × List Word)) → Proc W Unit) → Proc W Unit
+hy-edits st nil ts acc k = k acc
+hy-edits st (cons n ns) nil acc k = k acc
+hy-edits st (cons n ns) (cons t ts) acc k = bind (hy-get st (list-append "written/" (h-hex n))) (λ w →
+  hy-edit-of st n t w (λ e → hy-edits st ns ts (list-append acc (cons e nil)) k))
+-- a file's pieces and its edits
+hy-pieces-of : List Word → List ((List Word × List (List Word)) × (List Word × List Word)) → List (List Word)
+hy-pieces-of f nil = nil
+hy-pieces-of f (cons e r) = if h-eq f (fst (fst e)) then snd (fst e) else hy-pieces-of f r
+hy-file-edits : List Word → List ((List Word × List (List Word)) × (List Word × List Word)) → List (List Word × List Word)
+hy-file-edits f nil = nil
+hy-file-edits f (cons e r) = if h-eq f (fst (fst e)) then cons (snd e) (hy-file-edits f r) else hy-file-edits f r
+-- a file rendered from its pieces, each piece an edit names replaced by its new text
+hy-swap : List Word → List Word → List (List Word × List Word) → List Word
+hy-swap p x nil = x
+hy-swap p x (cons e r) = if h-eq p (fst e) then snd e else hy-swap p x r
+hy-render-swapped : List Word → List (List Word) → List (List Word × List Word) → Proc W (List Word)
+hy-render-swapped st nil rs = ret nil
+hy-render-swapped st (cons p r) rs = bind (hy-get st (list-append p "/text")) (λ x →
+  bind (hy-render-swapped st r rs) (λ rest → ret (list-append (hy-swap p (hy-or nil x) rs) rest)))
+-- each file's change (path, text before, text after), each file first found as the machine last read it
+hy-file-changes : List Word → List ((List Word × List (List Word)) × (List Word × List Word)) → List (List Word) → List (List Word × (List Word × List Word)) → (List (List Word × (List Word × List Word)) → Proc W Unit) → Proc W Unit
+hy-file-changes st es nil acc k = k acc
+hy-file-changes st es (cons f r) acc k =
+  bind (h-read (h-unhex f)) (λ cur → bind (hy-render-swapped st (hy-pieces-of f es) nil) (λ was →
+  if h-eq (hy-or nil cur) was
+  then bind (hy-render-swapped st (hy-pieces-of f es) (hy-file-edits f es)) (λ new →
+    hy-file-changes st es r (list-append acc (cons (h-unhex f , (was , new)) nil)) k)
+  else h-fail (list-append (h-unhex f) " has changed since the machine last read it; give it to the machine (hyperactive check) first")))
+-- every root a change touches: each name's file's root and its users' roots
+hy-roots-all : List Word → List (List Word) → List ((List Word × List (List Word)) × (List Word × List Word)) → Proc W (List (List Word))
+hy-roots-all st nil es = ret nil
+hy-roots-all st (cons n ns) nil = ret nil
+hy-roots-all st (cons n ns) (cons e es) = bind (hy-root-of st (fst (fst e))) (λ root →
+  bind (hy-live-users st n) (λ us → bind (hy-user-roots st us) (λ urs →
+  bind (hy-roots-all st ns es) (λ rest → ret (cons root (list-append urs rest))))))
+hy-write-files : List (List Word × (List Word × List Word)) → Bool → Proc W Unit
+hy-write-files nil new = ret unit
+hy-write-files (cons c r) new = bind (h-write (fst c) (if new then snd (snd c) else fst (snd c))) (λ b → hy-write-files r new)
+hy-read-backs : List Word → List (List Word) → List (List Word) → Proc W (List (List Word))
+hy-read-backs st nil ts = ret nil
+hy-read-backs st (cons n ns) nil = ret nil
+hy-read-backs st (cons n ns) (cons t ts) = bind (hy-piece-of st n) (λ p →
+  bind (hy-read-backs st ns ts) (λ rest → ret (list-append (hy-read-back false n p t) rest)))
+hy-keys : List Word → List (List Word) → Proc W Unit
+hy-keys st nil = ret unit
+hy-keys st (cons n r) = bind (hy-get st (list-append "bound/" (h-hex n))) (λ k →
+  bind (h-out (h-line (list-append n (list-append "   (" (list-append (hy-key-label k) ")"))))) (λ u → hy-keys st r))
+hy-keep-many : List Word → List Word → List (List Word) → List (List Word × (List Word × List Word)) → List (List Word) → List (List Word) → Proc W Unit
+hy-keep-many st m names cs roots nil = hy-keys st names
+hy-keep-many st m names cs roots (cons p ps) =
+  bind (hy-write-files cs false) (λ u → bind (hy-verdicts st m roots) (λ v →
+  bind (h-say (list-append (h-line "nothing written: it does not check") (h-indented "  " (cons p ps)))) (λ u2 → exit #1)))
+hy-change-many : List Word → List Word → List (List Word) → List (List Word) → List (List Word × (List Word × List Word)) → List (List Word) → Proc W Unit
+hy-change-many st m names ts cs roots =
+  bind (hy-verdicts st m roots) (λ before →
+  bind (hy-write-files cs true) (λ u →
+  bind (hy-verdicts st m roots) (λ after →
+  bind (hy-read-backs st names ts) (λ rb →
+  hy-keep-many st m names cs roots (list-append (hy-wrong before after) rb)))))
+hy-write-many : List Word → List Word → List (List Word) → Sum (List Word) (List (List Word)) → Proc W Unit
+hy-write-many st m names (inl n) = h-fail (list-append "the text holds no declaration of " (list-append n " after the one before it: write NAME NAME ... takes their declarations in the order named"))
+hy-write-many st m names (inr ts) = hy-edits st names ts nil (λ es →
+  hy-file-changes st es (h-dedupe (list-map (λ e → fst (fst e)) es)) nil (λ cs →
+  bind (hy-roots-all st names es) (λ rs → hy-change-many st m names ts cs (h-dedupe rs))))
 hy-write-new : List Word → List Word → List Word → List Word → List Word → Sum Unit (List Word) → Proc W Unit
 hy-write-new st m name other t (inl u) = h-fail (list-append "hyperactive: no definition named " other)
 hy-write-new st m name other t (inr h) = bind (hy-module-of st h) (hy-write-at st m name h true t)
@@ -211,6 +311,8 @@ hy-write-to st m name rest t (inl u) = h-fail (list-append name " is new: hypera
 hy-write : List Word → List Word → List (List Word) → List Word → Proc W Unit
 hy-write st m nil t = h-fail "hyperactive write NAME [after OTHER], the declaration on standard input"
 hy-write st m (cons name rest) t = if h-ends ".cub" name then bind (hy-head-of st name) (hy-write-head st m name (hy-nl t))
+  else if andB (h-not (h-null (h-concat rest))) (h-not (h-eq (hy-head rest) "after"))
+  then hy-write-many st m (cons name rest) (hy-cut rest nil nil (h-split #10 (hy-nl t)))
   else bind (hy-get st (list-append "written/" (h-hex name))) (λ w → hy-write-to st m name rest (hy-nl t) w)
 -- remove: refused while anything uses the name
 hy-remove-in : List Word → List Word → List Word → List Word → Sum Unit (List Word × List (List Word)) → Proc W Unit
@@ -763,14 +865,15 @@ hy-work-usage = list-append (h-line "Actions:")
   (list-append (h-line "  hyperactive order           the whole order of work")
   (list-append (h-line "  hyperactive open            what is in progress and what can start now")
   (list-append (h-line "  hyperactive def NAME ...    a definition: its statement, its text, its key, and what uses it; a file's path names its head, the comment and imports before its first definition")
-  (list-append (h-line "  hyperactive write NAME [after OTHER] < DECLARATION   the declaration takes the place of NAME's (or, new, follows OTHER's); kept only if all it touches checks; write PATH replaces the file's head")
+  (list-append (h-line "  hyperactive write NAME [after OTHER] < DECLARATION   the declaration takes the place of NAME's (or, new, follows OTHER's); kept only if all it touches checks; write PATH replaces the file's head, write NAME after PATH follows it")
+  (list-append (h-line "  hyperactive write NAME NAME ... < DECLARATIONS   several definitions changed as one change, their declarations in the order named; all kept or all put back")
   (list-append (h-line "  hyperactive remove NAME      a definition nothing uses taken away, checked the same way")
   (list-append (h-line "  hyperactive history [NAME]  every binding of the name to a key, in the order bound")
   (list-append (h-line "  hyperactive paper [SECTION]  the paper as it reads, whole or one section (4.4, A.1, Part II)")
   (list-append (h-line "  hyperactive check [FILE ...] the machine's verdict on the workflow and the graph's rules, or on each file given")
   (list-append (h-line "  hyperactive decompose FILE   a document decomposed by pulls: a piece of its lines at a time (lib/selection.cub)")
   (list-append (h-line "  hyperactive why NAME ... | unexplained [FILE ...] | view [in FILE] [type T] TERM | every | server [PORT] | brunerie | repl | library | etym TEXT")
-  (h-line "  hyperactive done            the work is done: the session ends")))))))))))))
+  (h-line "  hyperactive done            the work is done: the session ends"))))))))))))))
 -- lines without the empty ones at their end
 hy-dt-at : List Word → List (List Word) → List (List Word)
 hy-dt-at l nil = if h-null l then nil else cons l nil
