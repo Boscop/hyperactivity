@@ -1,0 +1,35 @@
+pair-order : {A B : Type} {la : A → A → Bool} {lb : B → B → Bool} → TotalOrder la → TotalOrder lb → TotalOrder (pair-le la lb)
+pair-order ta tb =
+  ( (λ p → step-eq {la (fst p) (fst p)} {la (fst p) (fst p)} {lb (snd p) (snd p)} (fst ta (fst p)) (fst ta (fst p)) (fst tb (snd p)))
+  , (λ p q e →
+       let n = isTrue-not e
+       in bool-cases {isTrue (pair-le la lb q p)} (la (fst p) (fst q))
+            (λ hxy →
+               bool-cases {isTrue (pair-le la lb q p)} (la (fst q) (fst p))
+                 (λ hyx →
+                    step-eq {la (fst q) (fst p)} {la (fst p) (fst q)} {lb (snd q) (snd p)} hyx hxy
+                      (fst (snd tb) (snd p) (snd q)
+                         (not-isTrue (step-not-r {la (fst p) (fst q)} {la (fst q) (fst p)} {lb (snd p) (snd q)} hxy hyx n))))
+                 (λ nyx → Empty-rec (true-not {pair-le la lb p q} (step-lt {la (fst p) (fst q)} {la (fst q) (fst p)} {lb (snd p) (snd q)} hxy nyx) n)))
+            (λ nxy → step-lt {la (fst q) (fst p)} {la (fst p) (fst q)} {lb (snd q) (snd p)} (fst (snd ta) (fst p) (fst q) (not-isTrue nxy)) nxy))
+  , (λ p q r h1 h2 →
+       let hxy = step-fst {la (fst p) (fst q)} {la (fst q) (fst p)} {lb (snd p) (snd q)} h1
+           hyz = step-fst {la (fst q) (fst r)} {la (fst r) (fst q)} {lb (snd q) (snd r)} h2
+           hxz = fst (snd (snd ta)) (fst p) (fst q) (fst r) hxy hyz
+       in bool-cases {isTrue (pair-le la lb p r)} (la (fst r) (fst p))
+            (λ hzx →
+               let hyx = fst (snd (snd ta)) (fst q) (fst r) (fst p) hyz hzx
+                   hzy = fst (snd (snd ta)) (fst r) (fst p) (fst q) hzx hxy
+               in step-eq {la (fst p) (fst r)} {la (fst r) (fst p)} {lb (snd p) (snd r)} hxz hzx
+                    (fst (snd (snd tb)) (snd p) (snd q) (snd r)
+                       (step-r {la (fst p) (fst q)} {la (fst q) (fst p)} {lb (snd p) (snd q)} hyx h1)
+                       (step-r {la (fst q) (fst r)} {la (fst r) (fst q)} {lb (snd q) (snd r)} hzy h2)))
+            (λ nzx → step-lt {la (fst p) (fst r)} {la (fst r) (fst p)} {lb (snd p) (snd r)} hxz nzx))
+  , (λ p q h1 h2 →
+       let hxy = step-fst {la (fst p) (fst q)} {la (fst q) (fst p)} {lb (snd p) (snd q)} h1
+           hyx = step-fst {la (fst q) (fst p)} {la (fst p) (fst q)} {lb (snd q) (snd p)} h2
+           e1 = snd (snd (snd ta)) (fst p) (fst q) hxy hyx
+           e2 = snd (snd (snd tb)) (snd p) (snd q)
+                  (step-r {la (fst p) (fst q)} {la (fst q) (fst p)} {lb (snd p) (snd q)} hyx h1)
+                  (step-r {la (fst q) (fst p)} {la (fst p) (fst q)} {lb (snd q) (snd p)} hxy h2)
+       in λ i → (e1 i , e2 i)) )

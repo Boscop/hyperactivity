@@ -1,0 +1,19 @@
+lex-antisym : {A : Type} {le : A → A → Bool} → TotalOrder le → (xs ys : List A) → isTrue (lexle le xs ys) → isTrue (lexle le ys xs) → xs ≡ ys
+lex-antisym t xs =
+  case xs return λ w → (ys : List A) → isTrue (lexle le w ys) → isTrue (lexle le ys w) → w ≡ ys of
+    nil →
+      λ ys →
+        case ys return λ v → isTrue (lexle le nil v) → isTrue (lexle le v nil) → nil ≡ v of
+          nil → λ h1 h2 i → nil
+          cons y s → λ h1 h2 → Empty-rec h2
+    cons x r →
+      λ ys →
+        case ys return λ v → isTrue (lexle le (cons x r) v) → isTrue (lexle le v (cons x r)) → cons x r ≡ v of
+          nil → λ h1 h2 → Empty-rec h1
+          cons y s →
+            λ h1 h2 →
+              let hxy = step-fst {le x y} {le y x} {lexle le r s} h1
+                  hyx = step-fst {le y x} {le x y} {lexle le s r} h2
+                  pxy = snd (snd (snd t)) x y hxy hyx
+                  prs = rec r s (step-r {le x y} {le y x} {lexle le r s} hyx h1) (step-r {le y x} {le x y} {lexle le s r} hxy h2)
+              in λ i → cons (pxy i) (prs i)

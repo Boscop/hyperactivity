@@ -1,0 +1,24 @@
+lex-trans : {A : Type} {le : A → A → Bool} → TotalOrder le → (xs ys zs : List A) → isTrue (lexle le xs ys) → isTrue (lexle le ys zs) → isTrue (lexle le xs zs)
+lex-trans t xs =
+  case xs return λ w → (ys zs : List A) → isTrue (lexle le w ys) → isTrue (lexle le ys zs) → isTrue (lexle le w zs) of
+    nil → λ ys zs h1 h2 → unit
+    cons x r →
+      λ ys →
+        case ys return λ v → (zs : List A) → isTrue (lexle le (cons x r) v) → isTrue (lexle le v zs) → isTrue (lexle le (cons x r) zs) of
+          nil → λ zs h1 h2 → Empty-rec h1
+          cons y s →
+            λ zs →
+              case zs return λ u → isTrue (lexle le (cons x r) (cons y s)) → isTrue (lexle le (cons y s) u) → isTrue (lexle le (cons x r) u) of
+                nil → λ h1 h2 → Empty-rec h2
+                cons z u →
+                  λ h1 h2 →
+                    let hxy = step-fst {le x y} {le y x} {lexle le r s} h1
+                        hyz = step-fst {le y z} {le z y} {lexle le s u} h2
+                        hxz = fst (snd (snd t)) x y z hxy hyz
+                    in bool-cases {isTrue (lex-step (le x z) (le z x) (lexle le r u))} (le z x)
+                         (λ hzx →
+                            let hyx = fst (snd (snd t)) y z x hyz hzx
+                                hzy = fst (snd (snd t)) z x y hzx hxy
+                            in step-eq {le x z} {le z x} {lexle le r u} hxz hzx
+                                 (rec r s u (step-r {le x y} {le y x} {lexle le r s} hyx h1) (step-r {le y z} {le z y} {lexle le s u} hzy h2)))
+                         (λ nzx → step-lt {le x z} {le z x} {lexle le r u} hxz nzx)
