@@ -1,0 +1,15 @@
+best-match-at : (t ts : List (List Word)) → (k q : Nat) → (s : List (List Word)) → s ≡ drop-n q ts →
+                Attained t ts (plus q k) (best-match t k q s)
+best-match-at t ts k =
+  case k return λ w → (q : Nat) → (s : List (List Word)) → s ≡ drop-n q ts → Attained t ts (plus q w) (best-match t w q s) of
+    zero → λ q s es → inl (λ i → zero)
+    suc k1 →
+      λ q s es →
+        ifP {λ c → Attained t ts (plus q (suc k1)) (if c then best-match t k1 (suc q) (tail-of s) else (lcp s t , q))} {ltn (lcp s t) (fst (best-match t k1 (suc q) (tail-of s)))}
+          (λ e →
+             (case rec k1 (suc q) (tail-of s) (concat (cong tail-of es) (sym (drop-suc q ts)))
+                return λ x → Attained t ts (plus q (suc k1)) (best-match t k1 (suc q) (tail-of s)) of
+                inl z → inl z
+                inr h →
+                  inr (subst {_} {_} {_} {λ n → isTrue (ltn (snd (best-match t k1 (suc q) (tail-of s))) n)} (sym (plus-suc q k1)) (fst h) , snd h)))
+          (λ e → inr (ltn-plus-suc q k1 , cong (λ u → lcp u t) (sym es)))

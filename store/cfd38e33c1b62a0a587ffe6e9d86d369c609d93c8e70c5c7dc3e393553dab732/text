@@ -1,0 +1,16 @@
+lex-total-not : {A : Type} {le : A → A → Bool} → TotalOrder le → (xs ys : List A) → isTrue (not (lexle le xs ys)) → isTrue (lexle le ys xs)
+lex-total-not t xs =
+  case xs return λ w → (ys : List A) → isTrue (not (lexle le w ys)) → isTrue (lexle le ys w) of
+    nil → λ ys n → Empty-rec n
+    cons x r →
+      λ ys →
+        case ys return λ v → isTrue (not (lexle le (cons x r) v)) → isTrue (lexle le v (cons x r)) of
+          nil → λ n → unit
+          cons y s →
+            λ n →
+              bool-cases {isTrue (lex-step (le y x) (le x y) (lexle le s r))} (le x y)
+                (λ hxy →
+                   bool-cases {isTrue (lex-step (le y x) (le x y) (lexle le s r))} (le y x)
+                     (λ hyx → step-eq {le y x} {le x y} {lexle le s r} hyx hxy (rec r s (step-not-r {le x y} {le y x} {lexle le r s} hxy hyx n)))
+                     (λ nyx → Empty-rec (true-not {lex-step (le x y) (le y x) (lexle le r s)} (step-lt {le x y} {le y x} {lexle le r s} hxy nyx) n)))
+                (λ nxy → step-lt {le y x} {le x y} {lexle le s r} (fst (snd t) x y (not-isTrue nxy)) nxy)

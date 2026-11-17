@@ -1,0 +1,23 @@
+tok-go-content : (t cur : List Word) → concat-all (tok-go t cur) ≡ list-append (rev-into cur nil) (no-space t)
+tok-go-content t =
+  case t return λ w → (cur : List Word) → concat-all (tok-go w cur) ≡ list-append (rev-into cur nil) (no-space w) of
+    nil → λ cur → flush-concat cur nil
+    cons b r →
+      λ cur →
+        ifP {λ c →
+               concat-all
+                 (if c then flush cur (tok-go r nil)
+                  else (if is-word b then tok-go r (cons b cur) else flush cur (cons (cons b nil) (tok-go r nil)))) ≡ list-append (rev-into cur nil)
+                                                                                                                     (if c then no-space r else cons b (no-space r))} {is-space b}
+          (λ e → concat (flush-concat cur (tok-go r nil)) (cong (list-append (rev-into cur nil)) (rec r nil)))
+          (λ e →
+             ifP {λ d →
+                    concat-all (if d then tok-go r (cons b cur) else flush cur (cons (cons b nil) (tok-go r nil))) ≡ list-append (rev-into cur nil)
+                                                                                                                      (cons b (no-space r))} {is-word b}
+               (λ e2 →
+                  concat (rec r (cons b cur))
+                    (concat (cong (λ u → list-append u (no-space r)) (rev-into-app cur (cons b nil)))
+                       (app-assoc (rev-into cur nil) (cons b nil) (no-space r))))
+               (λ e2 →
+                  concat (flush-concat cur (cons (cons b nil) (tok-go r nil)))
+                    (cong (λ u → list-append (rev-into cur nil) (cons b u)) (rec r nil))))
