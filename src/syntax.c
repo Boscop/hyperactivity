@@ -1451,28 +1451,38 @@ static void p_decl_in(void) {
     bool fail = x_fail_next; x_fail_next = false;
     if (x_is(t, "#fail")) { NX(); x_fail_next = true; return; }
     if (x_is(t, "syntax") && P1()->k == X_ID && P2()->k == X_STR) {
-        /* syntax S + raw block (2026-11-16, Avik: a syntax is expressed in the language, then
-         * installed locally so subsequent parsing is flexible): S, a checked definition of
-         * List Word → List Word, takes the block's text to text in the notation this reader reads,
-         * which is read in its place, as declarations of this file. The checker checks what S
-         * produces as it checks anything written, so a syntax is trusted for nothing */
+        /* syntax N + raw block (2026-11-16, Avik: "we provide zero opinion over surface syntax for
+         * the expression of ideas"; 2026-11-17 to the form docs/language-derived-from-the-record.cub
+         * forces, lib/syntax.cub): N, a checked reading List Word → Lst Meaning, gives the block's
+         * meaning, declarations each a name with the codes of its type and its value (lib/code.cub).
+         * What N gives is the meaning itself, not text in another notation read again: no notation
+         * is the hub. The checker checks each declaration as it checks anything written, so a
+         * notation is trusted for nothing */
         NX(); Tok *sn = NX(); Tok *raw = NX();
         if (checked_index(sn->s) < 0) x_sem("syntax: not a checked definition:", sn);
-        Node *call = lst(3, nsym("the"), lst(2, nsym("List"), nsym("Word")), lst(2, nsym(sn->s), text_term(raw->s)));
+        Node *call = lst(3, nsym("the"), lst(2, nsym("Lst"), nsym("Meaning")), lst(2, nsym(sn->s), text_term(raw->s)));
         long steps = 0;
         char *r = readback(x_solve_expr(call), &steps);
-        const char *saved = src; src = r; Node *rn = read_node(); src = saved;
-        if (rn && !rn->list && is(rn, "cons")) { src = r; char *w = malloc(strlen(r) + 3); sprintf(w, "(%s)", r); src = w; rn = read_node(); src = saved; free(w); }
-        SBuf out = {0}; sb_put(&out, "");
-        Node *cur = rn;
-        for (; cur && cur->list && cur->n == 3 && is(cur->it[0], "cons") && !cur->it[1]->list && cur->it[1]->s[0] == '#'; cur = cur->it[2]) {
-            long b = atol(cur->it[1]->s + 1); if (b <= 0 || b > 255) break;
-            char c = (char)b; sb_putn(&out, &c, 1);
+        char *w = malloc(strlen(r) + 3); sprintf(w, "(%s)", r);
+        const char *saved = src; src = w; Node *rn = read_node(); src = saved;
+        if (rn && rn->list && rn->n == 1) rn = rn->it[0];
+        for (Node *cur = rn; !(cur && !cur->list && is(cur, "lnil")); cur = cur->it[2]) {
+            Node *m = cur && cur->list && cur->n == 3 && is(cur->it[0], "lcons") ? cur->it[1] : NULL;
+            if (!m || !m->list || m->n != 4 || !is(m->it[0], "means")) x_sem("syntax: what it gives does not read back as a meaning (Lst Meaning), for", sn);
+            SBuf nm = {0}; sb_put(&nm, "");
+            Node *c = m->it[1];
+            for (; c && c->list && c->n == 3 && is(c->it[0], "cons") && !c->it[1]->list && c->it[1]->s[0] == '#'; c = c->it[2]) {
+                long b = atol(c->it[1]->s + 1); if (b <= 0 || b > 255) break;
+                char ch = (char)b; sb_putn(&nm, &ch, 1);
+            }
+            if (!c || c->list || !is(c, "nil") || !nm.n) x_sem("syntax: a meaning's name does not read back as text, for", sn);
+            ncn = 0; Node *ty = cn(m->it[2]);
+            ncn = 0; Node *tm = cn(m->it[3]);
+            if (!ty || !tm) x_sem("syntax: a meaning's code is not a term, for", sn);
+            tsig.np = 0;
+            x_checked(nm.b, ty, tm, !fail, 0, 0);
         }
-        free(r);
-        if (!cur || cur->list || !is(cur, "nil")) x_sem("syntax: the text it gives does not read back as text (List Word), for", sn);
-        load_surface(out.b, x_file, false);
-        free(out.b);
+        free(r); free(w);
         decl_end(); return;
     }
     if (x_is(t, "instance")) { NX(); pending_instance = true; x_fail_next = fail; p_decl(); pending_instance = false; return; }   /* the next definition is an instance (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.12 “E28 — Elaboration”) */
@@ -2049,7 +2059,11 @@ static void w_item(int first, int end) {
         } else if (!reserved(t->s) && strcmp(t->s, "syntax")) name = t->s;
     }
     int last = t->line;
-    for (int i = first; i < end && i < nlt; i++) if (lt[i].k != X_VO && lt[i].k != X_VS && lt[i].k != X_VC && lt[i].k != X_EOF && lt[i].line > last) last = lt[i].line;
+    for (int i = first; i < end && i < nlt; i++) if (lt[i].k != X_VO && lt[i].k != X_VS && lt[i].k != X_VC && lt[i].k != X_EOF) {
+        /* a token's last line: a syntax block's raw text spans lines, and its piece holds them all */
+        int l = lt[i].line; if (lt[i].k == X_STR) for (const char *s = lt[i].s; *s; s++) if (*s == '\n') l++;
+        if (l > last) last = l;
+    }
     GROW(witems, capwitems, (size_t)nwitems + 1);
     witems[nwitems++] = (WItem){ name, t->line, last };
 }
