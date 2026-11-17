@@ -1,0 +1,24 @@
+lex-double : {A : Type} {le : A → A → Bool} → (h m : Nat) → (s s' : List A) →
+             lexle le (take-n (plus h m) s) (take-n (plus h m) s') ≡
+             lex-step (lexle le (take-n h s) (take-n h s')) (lexle le (take-n h s') (take-n h s)) (lexle le (take-n m (drop-n h s)) (take-n m (drop-n h s')))
+lex-double h m =
+  case h return λ w → (s s' : List A) →
+       lexle le (take-n (plus w m) s) (take-n (plus w m) s') ≡
+       lex-step (lexle le (take-n w s) (take-n w s')) (lexle le (take-n w s') (take-n w s)) (lexle le (take-n m (drop-n w s)) (take-n m (drop-n w s'))) of
+    zero → λ s s' i → lexle le (take-n m s) (take-n m s')
+    suc h1 →
+      λ s → (case s return λ v → (s' : List A) →
+                  lexle le (take-n (suc (plus h1 m)) v) (take-n (suc (plus h1 m)) s') ≡
+                  lex-step (lexle le (take-n (suc h1) v) (take-n (suc h1) s')) (lexle le (take-n (suc h1) s') (take-n (suc h1) v)) (lexle le (take-n m (drop-n (suc h1) v)) (take-n m (drop-n (suc h1) s'))) of
+               nil → λ s' → (case s' return λ u →
+                                lexle le (nil-of A) (take-n (suc (plus h1 m)) u) ≡
+                                lex-step true (lexle le (take-n (suc h1) u) (nil-of A)) (lexle le (take-n m (nil-of A)) (take-n m (drop-n (suc h1) u))) of
+                               nil → λ i → lexle le (take-nil {A} m (~ i)) (take-nil {A} m (~ i))
+                               cons y q → λ i → true)
+               cons x r → λ s' → (case s' return λ u →
+                                     lexle le (cons x (take-n (plus h1 m) r)) (take-n (suc (plus h1 m)) u) ≡
+                                     lex-step (lexle le (cons x (take-n h1 r)) (take-n (suc h1) u)) (lexle le (take-n (suc h1) u) (cons x (take-n h1 r))) (lexle le (take-n m (drop-n h1 r)) (take-n m (drop-n (suc h1) u))) of
+                                    nil → λ i → false
+                                    cons y q → tr (lex-step (le x y) (le y x) (lex-step (lexle le (take-n h1 r) (take-n h1 q)) (lexle le (take-n h1 q) (take-n h1 r)) (lexle le (take-n m (drop-n h1 r)) (take-n m (drop-n h1 q)))))
+                                                 (λ i → lex-step (le x y) (le y x) (rec h1 r q i))
+                                                 (lex-assoc (le x y) (le y x) (lexle le (take-n h1 r) (take-n h1 q)) (lexle le (take-n h1 q) (take-n h1 r)) (lexle le (take-n m (drop-n h1 r)) (take-n m (drop-n h1 q))))))

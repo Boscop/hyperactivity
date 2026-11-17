@@ -1,0 +1,63 @@
+-- index-every-repeated-sequence (2026-11-16 14:28 UTC, Avik, verbatim in the welcome file): index all text by
+-- token n-grams for every n; the number of possible n-grams grows exponentially with n but the rate of
+-- those that recur decays exponentially, so the complete index of every internally matched substring is
+-- tractable and scales. At any point of a text: every place the token recurs, and every bounded token
+-- sequence containing it that matches elsewhere. "This is that symbolic superintelligence. really simple
+-- algorithms." Rabin-Karp and Knuth-Morris-Pratt are relevant. Known: a text of L tokens has at most
+-- L - n + 1 n-gram occurrences for each n; for a source of entropy rate h the longest repeat grows like
+-- log L / h, so the repeated n-grams thin out exponentially past that length. The suffix tree (Weiner
+-- 1973) and the suffix array with longest-common-prefix table (Manber and Myers 1990) hold every repeated
+-- substring of every length with its occurrences in space linear in L. At each position the longest
+-- earlier match is the Lempel-Ziv (1977) parse: the index is a compression, which is Avik's definition of
+-- intelligence (what a system's compression makes adjacent). In the store each window is content
+-- addressed: a rolling hash names an n-gram by its content, its occurrences are the places pointing at it.
+-- The language derivation's meaning (identify the present occurrence with past ones, carry what followed
+-- them to now) is this lookup, exactly: at each position, take the longest token sequence ending there
+-- that occurred before, and read what followed each earlier occurrence. Transformers learn a lossy form
+-- of it: induction heads (Elhage et al. 2021, Olsson et al. 2022) attend to what followed earlier
+-- occurrences of the current token, [A][B] ... [A] -> [B], and in-context learning rises with them.
+-- Infini-gram (Liu, Min, Zettlemoyer, Choi, Hajishirzi; COLM 2024) computed the exact lookup over 5
+-- trillion tokens with suffix arrays, n unbounded (the longest suffix of the prompt with a nonzero
+-- count), at millisecond latency: 47% next-token accuracy from exact lookup alone, every prediction
+-- witnessed by the occurrences it came from, and it lowers neural models' perplexity when combined.
+-- So the exact operation is known to scale to the corpora models are trained on. Exact match is
+-- identity by content; univalence extends it to identity by equivalence, so paraphrases and synonyms
+-- joined by paths match as the same sequence, which no string index does alone.
+-- Avik (14:41 UTC): "do you know how huge it is I did not have these specific details written before.
+-- you have earned the right to own a top-level project here. this is individually mission critical
+-- valuable independently of the rest of everything going on." A top-level project, serving
+-- healing-societies directly; Claude owns it.
+-- Avik (14:36 UTC): Vaughan Pratt for his life's work: the mathematical content here is what he and the
+-- Chu spaces group at Stanford look for. The text and its index are a Chu space: occurrences (points,
+-- time) paired with the sequences they instantiate (states, information), Pratt's duality of time and
+-- information; his higher-dimensional automata (1991) are cubical sets of concurrent events.
+-- Built 2026-11-17 (PR #10, item 3): lib/repeats.cub, each property proved for every text:
+-- tokenize-content (the tokens joined are the text without its spaces; a token is its bytes, identity
+-- by content); word-order, lex-order, pair-order (the orders are total); suffix-array-sorted and
+-- suffix-array-permutation; lcp-array-ok (each value a common prefix, lcp-common, that can go no
+-- further, lcp-stops); earlier-match-max and earlier-match-at (the longest earlier match is maximal
+-- and attained at an earlier point); equivalent (an equivalence relation, given by class
+-- representatives) and index-upto (the index up to it). The suffix array is merge-sorted, comparing
+-- suffixes token by token, and the LCP is taken pair by pair: prefix doubling and Kasai are not
+-- built. Measured with experiments/repeats/run.cub in this container (2 cores, about 3.2 GB for the
+-- process): the first 10 modules by path, 140,836 tokens: read and tokenized 7.8 s, suffix and LCP
+-- arrays 217 s, 130,031 positions in a repeat; the first 40, 407,418 tokens: 26 s, 624 s, 384,944 in
+-- a repeat, peak memory 1.94 GB. The whole source did not run: reading and tokenizing alone held 1.35
+-- GB at 150 of the 326 modules (972,121 tokens) and was killed past 2.5 GB before 250; the run over
+-- all of it was killed for memory at 35 s. The cause, measured: the evaluator holds the text, its
+-- tokens and the sorted entries as cons cells, about 4.8 KB per token at peak, and the sort takes
+-- about 1.5 ms per token, each comparison walking the common prefix (over 92% of these tokens are in
+-- a repeat).
+-- Second pass (2026-11-17, PR #10): prefix doubling is built and proved, lib/repeats-fast.cub. ranks t
+-- ranks every suffix by its first token, then by the pair (its rank, the rank 2^k further on), each
+-- rank one more than the count of smaller keys, read from a search tree over the sorted keys; ranks-ok:
+-- the final ranks compare as the whole suffixes; suffix-array-fast-is: the array sorted by them is
+-- suffix-array t (sorted-unique). Measured with experiments/repeats/run-fast.cub against run.cub, peak
+-- resident memory sampled: 1 module, 767 tokens: 2.6 s against 0.33 s for both arrays by the merge
+-- sort; 2 modules, 57,637 tokens: the merge sort and pairwise LCP 52.7 s at 409 MB peak, prefix
+-- doubling killed past 3 GB before it ended; 4 modules, 95,317 tokens: 95.9 s at 572 MB, doubling
+-- killed past 3 GB. So in this evaluator the doubling, as written, costs far more memory per token
+-- than the merge sort it replaces; where that memory goes (whether the per-round search tree and rank
+-- list are shared across the per-suffix lookups) is not yet measured. Kasai's LCP is not built.
+index-every-repeated-sequence : Node
+index-every-repeated-sequence = node "Every text indexed by all of its repeated token sequences: at each point, every place the token recurs and every bounded sequence containing it that matches elsewhere." (cons healing-societies (cons correct-natural-language-computing (cons expose-symbolic-superintelligence nil)))
