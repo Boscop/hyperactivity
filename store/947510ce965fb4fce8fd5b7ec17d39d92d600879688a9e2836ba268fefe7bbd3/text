@@ -1,0 +1,78 @@
+-- GET /hi: the focus added to the reader's path walked, then the page, with the focus through time
+hi-view : List Word → List Word → Proc W (List Word)
+hi-view st q = bind (h-read (list-append st "/views/nodes")) (λ nv →
+  bind (hi-walk st (hi-reader q) (hi-focus q)) (λ path →
+  bind (hi-others st (hi-reader q) (hi-focus q)) (λ os →
+  bind (hi-about (hi-focus q)) (λ ab →
+  bind (hi-scene st (hi-reader q) (hi-focus q) (h-eq (s-param "radius" q) "2") (hi-rows (s-or nil nv))) (λ sc →
+  bind (hi-history (hi-focus q)) (λ hs → bind (hi-morphs st (hi-reader q) (hi-focus q)) (λ ms →
+  ret (s-response s-html (hi-page (hi-reader q) (hi-focus q) (h-eq (s-param "radius" q) "2") path os ab (h-concat (cons sc (cons ms (cons hs nil)))))))))))
+s-allowed : Sum Unit (List Word) → List Word → Bool
+s-allowed (inl u) req = true
+s-allowed (inr tok) req = h-infix (list-append "X-Token: " (list-append tok h-crlf)) (h-before (list-append h-crlf h-crlf) req)
+s-post : List Word → List Word → List Word → List Word → Proc W (List Word)
+s-post st m path req =
+  if h-prefix "/source/record?" path then s-change st m true (s-query path) (h-after (list-append h-crlf h-crlf) req) else
+  if h-eq path "/hi/write" then hi-write st m (h-after (list-append h-crlf h-crlf) req) else
+  if h-prefix "/source/unrecord?" path then s-change st m false (s-query path) nil else
+  ret (s-respond "404 Not Found" "text/plain" "")
+s-answer : List Word → List Word → List Word → Proc W (List Word)
+s-answer st m path =
+  if h-prefix "/source/changes" path then s-changes st (s-query path) else
+  if h-prefix "/source/text" path then s-text (s-query path) else
+  if h-prefix "/api/graph" path then s-graph st m else
+  if h-prefix "/api/history" path then s-history st (s-param "name" (s-query path)) else
+  if h-eq (h-before "?" path) "/history" then s-file s-html "tools/history-view.html" else
+  if h-eq (h-before "?" path) "/hi/events" then hi-events st (s-query path) else
+  if h-eq (h-before "?" path) "/hi" then hi-view st (s-query path) else
+  if h-eq (h-before "?" path) "/synesthesia" then ret {lzero} {W} (sy-answer (s-query path)) else
+  if h-prefix "/doc?" path then s-doc (s-param "path" (s-query path)) else
+  s-file s-html "tools/workflow-view.html"
+s-request : List Word → List Word → Sum Unit (List Word) → List Word → Proc W (List Word)
+s-request st m tok req =
+  if h-prefix "POST " req then (if s-allowed tok req then s-post st m (h-before " " (h-drop "POST " req)) req
+    else ret {lzero} {W} (s-respond "403 Forbidden" "text/plain" "the token does not match"))
+  else s-answer st m (s-request-path req)
+-- the socket: port, listening on 127.0.0.1, or on every address when HYPERACTIVE_PUBLIC is set
+s-addr-bytes : Bool → Word → List Word
+s-addr-bytes pub port = cons #2 (cons #0 (cons (wshr port #8) (cons (wand port #255) (if pub then cons #0 (cons #0 (cons #0 (cons #0 nil))) else cons #127 (cons #0 (cons #0 (cons #1 nil)))))))
+s-addr : Bool → Word → Proc W Word
+s-addr pub port = bind (alloc-bytes #16) (λ a → bind (h-poke a (s-addr-bytes pub port)) (λ u → ret a))
+s-listen : Bool → Word → Proc W Word
+s-listen pub port = bind (sys-call #41 #2 #1 #0 #0 #0 #0) (λ fd → bind (alloc-bytes #4) (λ one → bind (store8-at one #1) (λ u →
+  bind (sys-call #54 fd #1 #2 one #4 #0) (λ o → bind (s-addr pub port) (λ a → bind (sys-call #49 fd a #16 #0 #0 #0) (λ b →
+  bind (sys-call #50 fd #16 #0 #0 #0 #0) (λ l → ret {lzero} {W} (if orB (wlt #9223372036854775807 b) (wlt #9223372036854775807 l) then #18446744073709551615 else fd))))))))
+-- a request read whole: its head, and as many bytes after it as its Content-Length says
+s-whole : List Word → Bool
+s-whole req = andB (h-infix (list-append h-crlf h-crlf) req)
+  (h-not (wlt (fromNat (list-length (h-after (list-append h-crlf h-crlf) req))) (h-number (h-after "Content-Length: " req))))
+s-read : Nat → Word → List Word → Proc W (List Word)
+s-read zero c acc = ret acc
+s-read (suc k) c acc = if s-whole acc then ret {lzero} {W} acc else bind (alloc-bytes #65536) (λ buf → bind (sys-call #0 c buf #65536 #0 #0 #0) (λ n →
+  if orB (weq n #0) (wlt #9223372036854775807 n) then ret {lzero} {W} acc
+  else bind (h-peek buf (toNat n)) (λ b → s-read k c (list-append acc b))))
+s-serve : Nat → List Word → List Word → Sum Unit (List Word) → Word → Proc W Unit
+s-serve zero st m tok fd = ret unit
+s-serve (suc k) st m tok fd = bind (sys-call #43 fd #0 #0 #0 #0 #0) (λ c →
+  bind (s-read (toNat #100000) c nil) (λ req →
+  bind (s-request st m tok req) (λ resp →
+  bind (fd-write c resp) (λ w → bind (sys-call #3 c #0 #0 #0 #0 #0) (λ cl → s-serve k st m tok fd)))))
+s-head : List Word → List (List Word) → List Word
+s-head d nil = d
+s-head d (cons x r) = x
+s-port : List (List Word) → Word
+s-port nil = #8080
+s-port (cons p r) = if h-null p then #8080 else h-number p
+s-set : Sum Unit (List Word) → Bool
+s-set (inl u) = false
+s-set (inr v) = true
+s-start : List Word → List Word → Word → Proc W Unit
+s-start st m port = bind (h-env "HYPERACTIVE_PUBLIC") (λ pub → bind (h-env "HYPERACTIVE_TOKEN") (λ tok → bind (s-listen (s-set pub) port) (λ fd →
+  if wlt fd #9223372036854775807 then bind (h-out (h-line (list-append "http://localhost:" (list-append (h-decimal port) "/")))) (λ u → s-serve (toNat #1000000) st m tok fd)
+  else h-fail (list-append "server: the port cannot be listened on: " (h-decimal port)))))
+s-main : Proc W Unit
+s-main = bind (h-env "CUBICAL_STORE") (λ e → bind h-args (λ a → s-start (h-store-of e) (s-head "build/cubical" a) (s-port (h-drop-n (suc (suc zero)) a))))
+-- s-run: serves the workflow, its history and the documents over HTTP (part of product-implementation)
+s-run : Step W Unit
+s-run = to-step s-main
+#run s-run
