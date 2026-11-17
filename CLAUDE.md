@@ -1,7 +1,8 @@
 # For Claude sessions in this repository
 
-Run `./hyperactive` and walk every chunk (`./hyperactive next`, back with `./hyperactive prev`) before
-anything else. Then work as
+Run `./hyperactive`. The walk (`./hyperactive next`, back with `./hyperactive prev`) is open, never a
+gate (Avik, 2026-11-17: "just remove onboarding or something then for now"): any working command
+leaves it for work. Work as
 AI-AGENTS-WELCOME-TO-HYPERACTIVITY.md, “How to work”, says. No file holds the code or the documents
 (2026-11-16): they are the source, `store/`, read and written only through `./hyperactive` (`def`,
 `write`, `remove`, by name or by path); `make` builds the machine first. A path below names a module
