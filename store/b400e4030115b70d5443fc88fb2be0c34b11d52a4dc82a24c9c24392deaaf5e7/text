@@ -1,0 +1,24 @@
+-- the cost of counting, derived from the definitions rather than timed. Let n be the atom bound a material
+-- carries, g the number of its motions, h the number of atoms an observation counts, and s the number of
+-- constituents dissolved. Every quantity is local to one material and one bath: no step of this holds a
+-- corpus, a repository or any whole, and the peak store is one orbit, which is at most n atoms.
+--
+-- bm-perms evaluates each motion's rate once and keeps the admitted ones. A rate reading a concentration
+-- scans the solution, so the admission of g motions costs g*s comparisons and no more.
+--
+-- orbit-closure-fn runs n iterations from a one-element list. An iteration holds a list of m atoms with
+-- m <= n; orbit-step-fn applies every generator to every atom reached, which is g*m applications;
+-- chem-append then nub-by reduce a list of (1+g)*m atoms, and nub-by is mem-by on each tail, so that is
+-- ((1+g)*m)^2 comparisons at worst. Summed over n iterations with m <= n that is n^3*g^2 comparisons, to
+-- which rep-fn adds min-by over at most n atoms -- n comparisons, now that min-by folds rather than
+-- doubling.
+--
+-- class-count does that for each of the h counted atoms and then nub-by over the h representatives, which
+-- is h^2 comparisons. So counting costs g*s + h*n^3*g^2 + h^2 comparisons, and the bound is reached only
+-- by a material whose motions reach every atom from every atom.
+--
+-- For valine as written, n = 19, g = 4, h = 11 and s = 0: about 11*19^3*16, which is twelve hundred
+-- thousand comparisons, and the nineteen-atom minimum that the doubling form of min-by would have cost
+-- half a million steps for each of eleven atoms is now nineteen.
+count-steps : Nat → Nat → Nat → Nat → Nat
+count-steps n g h s = plus (times g s) (plus (times h (times (times n (times n n)) (times g g))) (times h h))
