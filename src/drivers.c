@@ -50,7 +50,7 @@ static uint64_t drv_nat(Port p, const char *what) {
         if (c->kind != V_CON) drv_unreadable(c, what);
         const char *nm = CON[c->a].name;
         if (!strcmp(nm, "zero")) return n;
-        if (strcmp(nm, "suc") || c->n < 2) die("run: a natural number was expected for", what);
+        if (strcmp(nm, "suc") || c->n < 2) drv_unreadable(c, what);
         n++; p = c->port[1];
     }
 }
@@ -122,10 +122,10 @@ static void drivers_run(Node *t) {
             free(r);
             return;
         }
-        if ((int)h->a != c_scmd || h->n < 3) die("run: a step (sdone a or scmd c k) was expected", NULL);
+        if ((int)h->a != c_scmd || h->n < 3) drv_unreadable(h, "the process (a step sdone a or scmd c k)");
         Port k = h->port[2];
         Cell *cm = obs_val(h->port[1]);
-        if (!cm || cm->kind != V_CON) { char m[64]; snprintf(m, sizeof m, "kind %d", cm ? cm->kind : -1); die("run: a command of W was expected, found", m); }
+        if (!cm || cm->kind != V_CON) drv_unreadable(cm, "the step's command of W");
         int c = (int)cm->a;
         Port resp;
         if (c == c_now) {
