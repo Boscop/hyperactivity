@@ -1,0 +1,10 @@
+-- each connection answered by its own process (fork), at most three at once (s-room), so a slow page never
+-- holds up another reader and memory stays bounded; the child exits once it has answered; where no process
+-- can be made, the connection is answered here
+s-serve : Nat → Word → Bool → List Word → List Word → Sum Unit (List Word) → Word → Proc W Unit
+s-serve zero n pub st m tok fd = ret unit
+s-serve (suc k) n pub st m tok fd = bind (s-room n) (λ n1 → bind (sys-call #43 fd #0 #0 #0 #0 #0) (λ c →
+  bind (sys-call #57 #0 #0 #0 #0 #0 #0) (λ pid →
+  if weq pid #0 then bind (s-handle pub st m tok c) (λ u → bind (sys-call #231 #0 #0 #0 #0 #0 #0) (λ x → ret {lzero} {W} unit))
+  else if wlt pid #9223372036854775808 then bind (sys-call #3 c #0 #0 #0 #0 #0) (λ cl → bind (s-reap (toNat #64) (wadd n1 #1)) (λ n2 → s-serve k n2 pub st m tok fd))
+  else bind (s-handle pub st m tok c) (λ u → s-serve k n1 pub st m tok fd))))
