@@ -21,11 +21,23 @@ extern long write(int, const void *, unsigned long);
 extern int open(const char *, int, ...);
 extern int close(int);
 extern long syscall(long, ...);
+/* a value the driver cannot read, with the condition said as it is rather than as a shape
+ * complaint. Three conditions, and they are different statements: a port with no value at all is a
+ * term the net did not reduce; a global whose copy is 0 is an input this run was not given
+ * (global_copy answers 0 exactly then, src/lang.c), which is a statement about the program and not
+ * about the argument; any other shape is impossible for a closed checked term of the type the
+ * command's field carries, so it is reported as the machine's own invariant (2026-11-18, Avik: "you
+ * need to prove correctness/safety of everything running right now") */
+static void drv_unreadable(Cell *c, const char *what) {
+    if (!c) die("run: the net did not reduce the value of", what);
+    if (c->kind == V_GLOBAL) die("run: an input this run was not given, reached by", G[c->a].name);
+    die("run: not a value of the type its field carries:", what);
+}
 static int drv_con(const char *name) { int c = con_lookup(name); if (c < 0) die("run: lib/world.cub is not loaded (missing constructor)", name); return c; }
 /* a word field read: the value must be a literal word */
 static uint64_t drv_word(Port p, const char *what) {
     Cell *c = obs_val(p);
-    if (!c || c->kind != V_WORD || c->p) die("run: a word was expected for", what);
+    if (!c || c->kind != V_WORD || c->p) drv_unreadable(c, what);
     return c->a;
 }
 /* a Nat field read: successors counted down to zero */
@@ -33,9 +45,9 @@ static uint64_t drv_nat(Port p, const char *what) {
     uint64_t n = 0;
     for (;;) {
         Cell *c = obs_val(p);
-        if (!c) die("run: a natural number was expected for", what);
+        if (!c) drv_unreadable(c, what);
         if (c->kind == V_WORD && !c->p) return n + c->a;
-        if (c->kind != V_CON) die("run: a natural number was expected for", what);
+        if (c->kind != V_CON) drv_unreadable(c, what);
         const char *nm = CON[c->a].name;
         if (!strcmp(nm, "zero")) return n;
         if (strcmp(nm, "suc") || c->n < 2) die("run: a natural number was expected for", what);
@@ -44,7 +56,7 @@ static uint64_t drv_nat(Port p, const char *what) {
 }
 static Bytes *drv_bytes(Port p, const char *what) {
     Cell *c = obs_val(p);
-    if (!c || c->kind != V_BYTES) die("run: a byte string was expected for", what);
+    if (!c || c->kind != V_BYTES) drv_unreadable(c, what);
     return (Bytes *)c->p;
 }
 static Port drv_word_of(uint64_t n) { Cell *c = cell(V_WORD, 1); c->a = n; return P(c, 0); }
@@ -70,6 +82,23 @@ static Cell *drv_text_tail(Port p, unsigned char **b, size_t *n, size_t *cap) {
         return h;
     }
 }
+/* a path given as its name: the bytes are copied here and terminated here, so no program holds an
+ * address and the driver has no precondition beyond the type's own (2026-11-18) */
+static char *drv_path_of(Port p, const char *what) {
+    unsigned char *b = NULL; size_t n = 0, cap = 0;
+    for (;;) {
+        Cell *h = drv_text_tail(p, &b, &n, &cap);
+        if (h == (Cell *)1) break;
+        if (!h || h->kind != V_CON) drv_unreadable(h, what);
+        if ((int)h->a == con_lookup("nil")) break;
+        if (n + 1 >= cap) { cap = cap * 2 + 4096; b = realloc(b, cap); }
+        b[n++] = (unsigned char)drv_word(h->port[1], what);
+        p = h->port[2];
+    }
+    if (n + 1 > cap) { cap = n + 1; b = realloc(b, cap); }
+    b[n] = 0;
+    return (char *)b;
+}
 static void drivers_run(Node *t) {
     int c_sdone = drv_con("sdone"), c_scmd = drv_con("scmd"), c_unit = drv_con("unit");
     int c_now = drv_con("w-now"), c_write = drv_con("w-write"), c_read = drv_con("w-read"), c_sleep = drv_con("w-sleep"), c_exit = drv_con("w-exit");
@@ -78,13 +107,14 @@ static void drivers_run(Node *t) {
     int c_sys = drv_con("w-sys"), c_alloc = drv_con("w-alloc"), c_load8 = drv_con("w-load8"), c_store8 = drv_con("w-store8");
     int c_spawn = drv_con("w-spawn");
     int c_fdwrite = drv_con("w-fd-write");
-    int c_fread = drv_con("w-file-read"), c_fwrite = drv_con("w-file-write"), c_nil = con_lookup("nil");
+    int c_freadn = drv_con("w-file-read-named"), c_fwriten = drv_con("w-file-write-named");
+    int c_nil = con_lookup("nil");
     Port p = build_top(t);
     long steps = 0, s0 = stat_steps;
     for (;;) {
         Cell *h = obs_val(p);
-        if (!h) die("run: the process did not reduce to a step", NULL);
-        if (h->kind != V_CON) die("run: a step (sdone a or scmd c k) was expected", NULL);
+        if (!h) drv_unreadable(h, "the process (no step)");
+        if (h->kind != V_CON) drv_unreadable(h, "the process (a step sdone a or scmd c k)");
         if ((int)h->a == c_sdone) {
             char *r = read_port(h->port[1]);
             net_drain();
@@ -181,19 +211,6 @@ static void drivers_run(Node *t) {
             int e = posix_spawn(&pid, argv[0], &fa, NULL, argv, (char **)(uintptr_t)ev);
             posix_spawn_file_actions_destroy(&fa);
             resp = drv_word_of(e ? (uint64_t)-(int64_t)e : (uint64_t)pid);
-        } else if (c == c_fread) {
-            /* a file whole: its bytes held once, as the text they spell (V_TEXT), read one constructor
-             * at a time by whatever reads it (2026-11-18: was the list of its bytes, built at once) */
-            const char *path = (const char *)(uintptr_t)drv_word(cm->port[1], "w-file-read's path");
-            FILE *f = fopen(path, "rb"); uint64_t st = 0; unsigned char *b = NULL; size_t n = 0, cap = 0;
-            if (!f) st = (uint64_t)-(int64_t)errno;
-            else { size_t k; do { if (n + 65536 > cap) { cap = (n + 65536) * 2; b = realloc(b, cap); } k = fread(b + n, 1, 65536, f); n += k; } while (k > 0); fclose(f); }
-            Bytes *tb = malloc(sizeof(Bytes) + n); tb->rc = 1; tb->n = n; if (n) memcpy(tb->b, b, n);
-            free(b);
-            Cell *tc = cell(V_TEXT, 1); tc->p = tb; tc->a = 0; Port r = P(tc, 0);
-            Cell *pr = cell(V_PAIR, 3);
-            link(drv_word_of(st), P(pr, 1)); link(r, P(pr, 2));
-            resp = P(pr, 0);
         } else if (c == c_fdwrite) {
             /* text written whole to a descriptor, its bytes read off the list as it is observed */
             uint64_t fd = drv_word(cm->port[1], "w-fd-write's descriptor");
@@ -201,7 +218,7 @@ static void drivers_run(Node *t) {
             for (Port p = cm->port[2];;) {
                 Cell *h = drv_text_tail(p, &b, &n, &cap);
                 if (h == (Cell *)1) break;
-                if (!h || h->kind != V_CON) die("run: w-fd-write: a list of words was expected", NULL);
+                if (!h || h->kind != V_CON) drv_unreadable(h, "w-fd-write's text");
                 if ((int)h->a == c_nil) break;
                 if (n == cap) { cap = cap * 2 + 65536; b = realloc(b, cap); }
                 b[n++] = (unsigned char)drv_word(h->port[1], "w-fd-write's byte");
@@ -210,20 +227,33 @@ static void drivers_run(Node *t) {
             fflush(stdout);
             size_t w = 0; while (w < n) { long k = write((int)fd, b + w, n - w); if (k <= 0) break; w += (size_t)k; }
             free(b); resp = drv_word_of((uint64_t)w);
-        } else if (c == c_fwrite) {
-            /* text written whole: its bytes read off the list as it is observed */
-            const char *path = (const char *)(uintptr_t)drv_word(cm->port[1], "w-file-write's path");
+        } else if (c == c_freadn) {
+            char *path = drv_path_of(cm->port[1], "w-file-read-named's name");
+            FILE *f = fopen(path, "rb");
+            free(path);
+            uint64_t st = 0; unsigned char *b = NULL; size_t n = 0, cap = 0;
+            if (!f) st = (uint64_t)-(int64_t)errno;
+            else { size_t k; do { if (n + 65536 > cap) { cap = (n + 65536) * 2; b = realloc(b, cap); } k = fread(b + n, 1, 65536, f); n += k; } while (k > 0); fclose(f); }
+            Bytes *tb = malloc(sizeof(Bytes) + n); tb->rc = 1; tb->n = n; if (n) memcpy(tb->b, b, n);
+            free(b);
+            Cell *tc = cell(V_TEXT, 1); tc->p = tb; tc->a = 0;
+            Cell *pr = cell(V_PAIR, 3);
+            link(drv_word_of(st), P(pr, 1)); link(P(tc, 0), P(pr, 2));
+            resp = P(pr, 0);
+        } else if (c == c_fwriten) {
+            char *path = drv_path_of(cm->port[1], "w-file-write-named's name");
             unsigned char *b = NULL; size_t n = 0, cap = 0;
             for (Port p = cm->port[2];;) {
                 Cell *h = drv_text_tail(p, &b, &n, &cap);
                 if (h == (Cell *)1) break;
-                if (!h || h->kind != V_CON) die("run: w-file-write: a list of words was expected", NULL);
+                if (!h || h->kind != V_CON) drv_unreadable(h, "w-file-write-named's text");
                 if ((int)h->a == c_nil) break;
                 if (n == cap) { cap = cap * 2 + 65536; b = realloc(b, cap); }
-                b[n++] = (unsigned char)drv_word(h->port[1], "w-file-write's byte");
+                b[n++] = (unsigned char)drv_word(h->port[1], "w-file-write-named's byte");
                 p = h->port[2];
             }
             FILE *f = fopen(path, "wb");
+            free(path);
             if (!f) resp = drv_word_of((uint64_t)-(int64_t)errno);
             else { size_t w = n ? fwrite(b, 1, n, f) : 0; fclose(f); resp = drv_word_of((uint64_t)w); }
             free(b);
