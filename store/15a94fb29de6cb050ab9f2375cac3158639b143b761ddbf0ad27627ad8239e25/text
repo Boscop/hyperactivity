@@ -1,0 +1,16 @@
+-- ---------------------------------------------------------------- deriving eq
+-- derive-eq d = λ x. case x of c (fields, hyps) → λ y. case y of c' (fields', hyps') → …; eqf the
+-- derived equality of another data type
+-- at the innermost body: inner hyps r2 (0..), inner fields n2, y, outer hyps r, outer fields n, x
+compare-fields : (Word → Code) → Lst (Word × Word) → Word → Word → Word → Word → Word → Word → Code
+compare-fields eqf lnil n r n2 r2 j t = d-true
+compare-fields eqf (lcons k kr) n r n2 r2 j t =
+  let outer-f = cvar (%wadd (%wadd (%wadd r2 n2) (%wsucc r)) (%wsub (%wsub n #1) j))
+      inner-f = cvar (%wadd r2 (%wsub (%wsub n2 #1) j))
+      outer-h = cvar (%wadd (%wadd r2 n2) (%wsucc (%wsub (%wsub r #1) t)))
+      this = (if %weq (fst k) #0 then cwop #0 outer-f inner-f
+              else (if %weq (fst k) #1 then capp (cforce outer-h) inner-f
+              else (if %weq (fst k) #3 then cprim (prim-eq-op (snd k)) (lcons outer-f (lcons inner-f lnil))
+              else capp (capp (eqf (snd k)) outer-f) inner-f)))
+  in if %weq (d-len kr) #0 then this
+     else d-and this (compare-fields eqf kr n r n2 r2 (%wsucc j) (if %weq (fst k) #1 then %wsucc t else t))

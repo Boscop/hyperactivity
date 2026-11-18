@@ -1,0 +1,17 @@
+-- the field kinds of constructor c of data type d, for deriving (lib/derive.cub): its telescope walked
+-- with fresh variables, each field (kind , d2): kind 0 a word, 1 recursive, 2 a data type d2 without
+-- parameters, 3 a primitive type k; none for any other field or a dimension
+primitive data-shape : Word → Word → Opt (Lst (Word × Word)) = λ d c →
+  let st = %welimP (λ _ → Opt Unit) (tel-nfields (centry d c lnil)) (centry d c lnil , some lnil)
+             (λ i s → case fst s of
+                tx A nm r →
+                  (let Av = tval A
+                       k = (if is-rec-ty d A then some (#1 , d)
+                            else (case A of
+                                    tword → some (#0 , d)
+                                    tdata d2 ps V → (case ps of lnil → some (#2 , d2); _ → none)
+                                    tg g nm2 → (case %view (%gval g) of wpty k2 n → (if %weq k2 #4 then none else some (#3 , k2)); _ → none)
+                                    _ → none))
+                   in (r (%var nm Av) Av , (case snd s of none → none; some acc → (case k of some kk → some (lsnoc acc kk); none → none))))
+                _ → (fst s , none))
+  in case fst st of tz e → snd st; _ → none
