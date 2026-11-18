@@ -1,0 +1,13 @@
+-- a paragraph's text as HTML, in one pass: each byte escaped or opening a mark; a mark's run is found
+-- by one scan (md-to), which stops at the first byte that ends it, so a byte is scanned by at most one
+-- mark of each kind and made once; the fuel (f) only bounds the passes the machine counts as recursion
+-- (lk: whether an address may become a link; p: the byte before)
+md-i : Nat → Bool → Word → List Word → List Word
+md-i zero lk p t = s-esc t
+md-i (suc f) lk p nil = nil
+md-i (suc f) lk p (cons x r) =
+  if weq x #96 then md-code (md-i f) lk (md-to #96 #96 r) else
+  if weq x #42 then md-star (md-i f) lk p r else
+  if weq x #91 then md-bracket (md-i f) lk r else
+  if andB lk (andB (weq x #104) (h-not (orB (weq p #61) (orB (weq p #39) (s-word p))))) then md-url (md-i f) lk (md-stop r) else
+  list-append (s-esc (cons x nil)) (md-i f lk x r)
