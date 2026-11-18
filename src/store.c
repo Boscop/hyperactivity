@@ -308,7 +308,8 @@ static void write_in(const char *d, const char *key, const char *file, const cha
     if (append) { FILE *f = fopen(p, "a"); free(p); if (!f) return; fputs(text, f); fclose(f); return; }
     /* a whole entry is written beside it and renamed over it (atomic on POSIX): a machine killed while
      * writing, or another machine reading the same store, never sees a truncated entry */
-    char *t = malloc(strlen(p) + 32); sprintf(t, "%s.%ld.tmp", p, (long)getpid());
+    /* (named shortly, in the same directory: an entry's own name may take a file name's whole length) */
+    char *t = malloc(strlen(d) + strlen(key) + 40); sprintf(t, "%s/%s%s.%ld.tmp", d, key, *file ? "/" : "", (long)getpid());
     FILE *f = fopen(t, "w"); if (!f) { free(t); free(p); return; }
     bool ok = fputs(text, f) >= 0; ok = (fclose(f) == 0) && ok;
     if (!ok || rename(t, p) != 0) unlink(t);

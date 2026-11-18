@@ -1,0 +1,8 @@
+h-pull : List Word → List Word → List Word → Proc W Unit
+h-pull st m srv = bind (h-read (list-append st "/source-seq")) (λ s →
+  bind (h-get srv (list-append "/source/entries?since=" (h-source-or s))) (λ r →
+  if weq (h-status r) #200
+  then bind (h-take-ids st srv m (h-lines (h-body r))) (λ ps →
+    bind (h-write (list-append st "/source-seq") (h-last-seq (h-source-or s) (h-lines (h-body r)))) (λ w →
+    bind (h-check-taken (suc (list-length ps)) m ps) (λ u → bind (h-capture (cons m (cons "--index" nil))) (λ i → ret unit))))
+  else h-say (h-line (list-append "the served source cannot be reached: " srv))))

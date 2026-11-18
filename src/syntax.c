@@ -2067,20 +2067,13 @@ static void w_item(int first, int end) {
     GROW(witems, capwitems, (size_t)nwitems + 1);
     witems[nwitems++] = (WItem){ name, t->line, last };
 }
+static bool w_indexing;   /* (below: the index being computed) */
 /* a piece stored: its bytes under their hash; the hash returned */
 static void w_piece(const char *b, size_t n, char out[65]) {
     key_hash(b, n, out);
     char *p = src_path(out, "text");
-    struct stat st; if (stat(p, &st) != 0) { char *s = malloc(n + 1); memcpy(s, b, n); s[n] = 0; src_write(out, "text", s); free(s); }
+    struct stat st; if (!w_indexing && stat(p, &st) != 0) { char *s = malloc(n + 1); memcpy(s, b, n); s[n] = 0; src_write(out, "text", s); free(s); }
     free(p);
-}
-/* a pointer of the source (written/<hex>, modules/<hex>, names-of/<hex>) set to v when it is not v already */
-static void w_point(const char *dir, const char *name, const char *v) {
-    SBuf hx = {0}; w_hex(&hx, name);
-    if (!hx.b || hx.n > 250) { free(hx.b); return; }
-    char *cur = src_read(dir, hx.b);
-    if (!cur || strcmp(cur, v)) src_write(dir, hx.b, v);
-    free(cur); free(hx.b);
 }
 /* the repository's root (the nearest directory above the working one holding .git, else the working
  * one), and the working directory from it */
@@ -2124,24 +2117,204 @@ static char *w_rel(const char *path) {
  * and probes (build/) nor anything outside it; only the work's text is recorded, only a module of
  * the work is a root, and only the work binds names, so a scratch file read once never repoints a name */
 static bool w_held(const char *rel) { return rel[0] != '/' && strncmp(rel, "build/", 6) && strcmp(rel, "<printed>"); }
-/* a file of the repository as the source holds it, its module's pieces in order; one the source does
- * not hold yet, read from the disk (the one reader), when it is there; else NULL */
-static char *src_text(const char *rel, size_t *len) {
-    SBuf hx = {0}; w_hex(&hx, rel);
-    char *mh = hx.b && hx.n <= 250 ? src_read("modules", hx.b) : NULL; free(hx.b);
-    if (mh) {
-        char *mod = src_read(mh, "module"); free(mh);
-        if (mod) {
-            SBuf o = {0}; sb_put(&o, "");
-            for (char *l = mod; *l; ) {
-                char *e = strchr(l, '\n'); if (!e) break; *e = 0;
-                char *t = src_read(l, "text"); if (!t) { free(mod); free(o.b); return NULL; }
-                sb_put(&o, t); free(t);
-                l = e + 1;
-            }
-            free(mod); if (len) *len = o.n; return o.b;
-        }
+/* the view (2026-11-17; Avik: "There is no canonical state", “State, change and collaboration”,
+ * docs/to-be-incorporated-into-paper.cub): what the source holds at a path is not a pointer written
+ * over in place but entries of the pool, store/entries/<id>, each named by the hash of its content and
+ * never changed: `bind HEXPATH MODULE REPLACED` (MODULE a module's hash, or - for the path dropped;
+ * REPLACED the entries it follows, joined by commas, or -) and `dead ENTRY HEXREASON`. An entry is
+ * live when no entry replaces it, no statement says it is dead and this machine does not hold it back
+ * (.cubical-store/held/<id>: it did not check here). One live entry at a path is what the source holds
+ * there; two or more are alternatives, named to whoever reads the path, until all but one are stated
+ * dead or a new entry follows them. What is read by path or by name (modules/, names-of/, written/,
+ * module-of/ by hex, live/, alternatives/) is computed from the entries into the machine's index,
+ * .cubical-store/index, and computed again whenever the set of entries (and held ones) it was computed
+ * from is not the pool's */
+static bool w_indexing;   /* the index being computed: no entry is written */
+static char *idx_next;   /* the index being computed beside the one in use (index_sync) */
+static char *idx_dir(void) {
+    static char *d; if (idx_next) return idx_next; if (d) return d;
+    root_init(); d = malloc(strlen(repo_root) + 32); sprintf(d, "%s/.cubical-store", repo_root); mkdir(d, 0777);
+    strcat(d, "/index"); mkdir(d, 0777); return d;
+}
+static char *held_dir(void) { static char *d; if (!d) { root_init(); d = malloc(strlen(repo_root) + 32); sprintf(d, "%s/.cubical-store/held", repo_root); } return d; }
+static char *idx_read(const char *dir, const char *hx) { return read_in(idx_dir(), dir, hx); }
+static void idx_write(const char *dir, const char *hx, const char *v) { write_in(idx_dir(), dir, hx, v, false); }
+static void idx_remove(const char *dir, const char *hx) { char *p = path_in(idx_dir(), dir, hx); remove(p); free(p); }
+/* a pointer of the index (written/, modules/, names-of/, module-of/ by hex) set to v when it is not v already */
+static void w_point(const char *dir, const char *name, const char *v) {
+    SBuf hx = {0}; w_hex(&hx, name);
+    if (!hx.b || hx.n > 250) { free(hx.b); return; }
+    char *cur = idx_read(dir, hx.b);
+    if (!cur || strcmp(cur, v)) idx_write(dir, hx.b, v);
+    free(cur); free(hx.b);
+}
+static char *w_unhex(const char *h) {
+    size_t n = strlen(h) / 2; char *s = malloc(n + 1);
+    for (size_t i = 0; i < n; i++) { unsigned v = 0; sscanf(h + 2 * i, "%2x", &v); s[i] = (char)v; }
+    s[n] = 0; return s;
+}
+/* a module's text: its pieces in order, or NULL when the pool lacks one */
+static char *w_module_text(const char *mh, size_t *len) {
+    char *mod = src_read(mh, "module"); if (!mod) return NULL;
+    SBuf o = {0}; sb_put(&o, "");
+    for (char *l = mod; *l; ) {
+        char *e = strchr(l, '\n'); if (!e) break; *e = 0;
+        char *t = src_read(l, "text"); if (!t) { free(mod); free(o.b); return NULL; }
+        sb_put(&o, t); free(t);
+        l = e + 1;
     }
+    free(mod); if (len) *len = o.n; return o.b;
+}
+/* the stamp of a set of entries: their number and the bytewise xor of their ids (the same set gives the
+ * same stamp, in any order), the pool's and the held ones' */
+static void e_stamp_of(const char *d, unsigned char x[32], long *n) {
+    DIR *dir = opendir(d); if (!dir) return;
+    struct dirent *de;
+    while ((de = readdir(dir))) {
+        if (strlen(de->d_name) != 64) continue;
+        (*n)++;
+        for (int i = 0; i < 32; i++) { unsigned v = 0; sscanf(de->d_name + 2 * i, "%2x", &v); x[i] ^= (unsigned char)v; }
+    }
+    closedir(dir);
+}
+static char *e_stamp(void) {
+    unsigned char a[32] = {0}, b[32] = {0}; long na = 0, nb = 0;
+    char *ed = path_in(source_dir(), "entries", ""); e_stamp_of(ed, a, &na); free(ed);
+    e_stamp_of(held_dir(), b, &nb);
+    SBuf s = {0}; sb_fmt(&s, "%ld ", na);
+    for (int i = 0; i < 32; i++) sb_fmt(&s, "%02x", a[i]);
+    sb_fmt(&s, " %ld ", nb);
+    for (int i = 0; i < 32; i++) sb_fmt(&s, "%02x", b[i]);
+    sb_put(&s, "\n"); return s.b;
+}
+static void idx_clear_in(const char *base, const char *dir) {
+    char *p = path_in(base, dir, ""); DIR *d = opendir(p);
+    if (d) { struct dirent *de; while ((de = readdir(d))) if (de->d_name[0] != '.') { char *f = path_in(p, de->d_name, ""); remove(f); free(f); } closedir(d); }
+    free(p);
+}
+/* an entry's words: kind, then (bind) hex path, module, replaced, or (dead) entry, hex reason */
+typedef struct { char *w[4]; char id[65]; } Ent;
+static bool e_read(const char *id, Ent *e) {
+    char *ed = path_in(source_dir(), "entries", ""); char *c = read_in(ed, id, ""); free(ed);
+    if (!c) return false;
+    memset(e, 0, sizeof *e); snprintf(e->id, sizeof e->id, "%s", id);
+    char *s = c; for (int i = 0; i < 4; i++) { while (*s == ' ' || *s == '\n') s++; if (!*s) break; char *b = s; while (*s && *s != ' ' && *s != '\n') s++; e->w[i] = strndup(b, (size_t)(s - b)); }
+    free(c);
+    return e->w[0] && e->w[1];
+}
+static void e_free(Ent *e) { for (int i = 0; i < 4; i++) free(e->w[i]); }
+static int e_cmp_id(const void *a, const void *b) { return strcmp(*(char *const *)a, *(char *const *)b); }
+static int e_cmp_path(const void *a, const void *b) { const Ent *x = a, *y = b; int c = strcmp(x->w[1], y->w[1]); return c ? c : strcmp(x->id, y->id); }
+static bool e_in(char **set, int n, const char *id) { return n && bsearch(&id, set, (size_t)n, sizeof *set, e_cmp_id) != NULL; }
+static void record_source(const char *text, const char *path);
+/* the index computed from the pool's entries, once per run, when its stamp is not the pool's */
+static void index_sync(void) {
+    static bool done; if (done) return; done = true;
+    char *st = e_stamp(); char *cur = idx_read("meta", "stamp");
+    if (cur && !strcmp(cur, st)) { free(cur); free(st); return; }
+    free(cur);
+    static const char *dirs[] = { "modules", "names-of", "written", "module-of", "live", "alternatives", NULL };
+    char *in_use = strdup(idx_dir()); char *nx = malloc(strlen(in_use) + 8); sprintf(nx, "%s-next", in_use);
+    mkdir(nx, 0777); for (int i = 0; dirs[i]; i++) idx_clear_in(nx, dirs[i]);
+    idx_next = nx;
+    Ent *es = NULL; size_t cape = 0; int ne = 0;
+    char **gone = NULL; size_t capg = 0; int ng = 0;   /* replaced or stated dead */
+    char *ed = path_in(source_dir(), "entries", ""); DIR *d = opendir(ed); free(ed);
+    if (d) {
+        struct dirent *de;
+        while ((de = readdir(d))) {
+            if (strlen(de->d_name) != 64) continue;
+            char *h = read_in(held_dir(), de->d_name, ""); if (h) { free(h); continue; }
+            Ent e; if (!e_read(de->d_name, &e)) continue;
+            if (!strcmp(e.w[0], "dead")) { GROW(gone, capg, (size_t)ng + 1); gone[ng++] = strdup(e.w[1]); e_free(&e); continue; }
+            if (strcmp(e.w[0], "bind") || !e.w[2] || !e.w[3]) { e_free(&e); continue; }
+            if (strcmp(e.w[3], "-")) for (char *t = strtok(e.w[3], ","); t; t = strtok(NULL, ",")) { GROW(gone, capg, (size_t)ng + 1); gone[ng++] = strdup(t); }
+            GROW(es, cape, (size_t)ne + 1); es[ne++] = e;
+        }
+        closedir(d);
+    }
+    qsort(gone, (size_t)ng, sizeof *gone, e_cmp_id);
+    int nl = 0; for (int i = 0; i < ne; i++) { if (e_in(gone, ng, es[i].id)) e_free(&es[i]); else es[nl++] = es[i]; }
+    qsort(es, (size_t)nl, sizeof *es, e_cmp_path);
+    w_indexing = true;
+    for (int i = 0; i < nl; ) {
+        int j = i; while (j < nl && !strcmp(es[j].w[1], es[i].w[1])) j++;
+        if (j - i > 1) {
+            SBuf a = {0}; for (int k = i; k < j; k++) sb_fmt(&a, "%s %s\n", es[k].id, es[k].w[2]);
+            idx_write("alternatives", es[i].w[1], a.b); free(a.b);
+        } else {
+            SBuf l = {0}; sb_fmt(&l, "%s\n", es[i].id); idx_write("live", es[i].w[1], l.b); free(l.b);
+            char *rel = w_unhex(es[i].w[1]); char *t = strcmp(es[i].w[2], "-") ? w_module_text(es[i].w[2], NULL) : NULL;
+            if (t) {
+                char *ab = malloc(strlen(repo_root) + strlen(rel) + 2); sprintf(ab, "%s/%s", repo_root, rel);
+                record_source(t, ab); idx_write("modules", es[i].w[1], es[i].w[2]);
+                free(ab); free(t);
+            }
+            free(rel);
+        }
+        i = j;
+    }
+    w_indexing = false; idx_next = NULL;
+    /* the index in use made the one computed, file by file: a file whose content is unchanged is kept as
+     * it was (its time is when it last changed, which lib/host.cub reads as the path's change), one the
+     * computed index lacks is removed */
+    for (int i = 0; dirs[i]; i++) {
+        char *np = path_in(nx, dirs[i], ""), *op = path_in(in_use, dirs[i], ""); mkdir(op, 0777);
+        DIR *dold = opendir(op);
+        if (dold) { struct dirent *de; while ((de = readdir(dold))) if (de->d_name[0] != '.') {
+            char *f = path_in(np, de->d_name, ""); struct stat sn;
+            if (stat(f, &sn) != 0) { char *g = path_in(op, de->d_name, ""); remove(g); free(g); }
+            free(f); } closedir(dold); }
+        DIR *dn = opendir(np);
+        if (dn) { struct dirent *de; while ((de = readdir(dn))) if (de->d_name[0] != '.') {
+            char *a = read_in(np, de->d_name, ""), *b = read_in(op, de->d_name, "");
+            char *f = path_in(np, de->d_name, ""), *g = path_in(op, de->d_name, "");
+            if (a && b && !strcmp(a, b)) remove(f); else rename(f, g);
+            free(a); free(b); free(f); free(g); } closedir(dn); }
+        rmdir(np); free(np); free(op);
+    }
+    rmdir(nx);
+    for (int i = 0; i < nl; i++) e_free(&es[i]);
+    for (int i = 0; i < ng; i++) free(gone[i]);
+    free(es); free(gone);
+    idx_write("meta", "stamp", st); free(st); free(in_use); free(nx);
+}
+/* the source at a path set to a module (or - : dropped): an entry following what is live there, unless
+ * the one live entry there already binds it */
+static void e_bind(const char *rel, const char *mh) {
+    if (w_indexing || !w_held(rel)) return;
+    index_sync();
+    SBuf hx = {0}; w_hex(&hx, rel); if (!hx.b || hx.n > 250) { free(hx.b); return; }
+    char *live = idx_read("live", hx.b), *alt = idx_read("alternatives", hx.b);
+    bool same = !live && !alt && !strcmp(mh, "-");
+    if (live && !alt) { char id[65] = {0}; Ent e; sscanf(live, "%64s", id); if (e_read(id, &e)) { same = e.w[2] && !strcmp(e.w[2], mh); e_free(&e); } }
+    if (!same) {
+        SBuf reps = {0}; sb_put(&reps, "");
+        const char *src = alt ? alt : live ? live : "";
+        for (const char *l = src; *l; ) { const char *e = strchr(l, '\n'); size_t n = e ? (size_t)(e - l) : strlen(l); const char *sp = memchr(l, ' ', n); size_t k = sp ? (size_t)(sp - l) : n;
+            if (k == 64) { if (reps.n) sb_put(&reps, ","); char id[65]; memcpy(id, l, 64); id[64] = 0; sb_put(&reps, id); }
+            l = e ? e + 1 : l + n; }
+        SBuf c = {0}; sb_put(&c, "bind "); sb_put(&c, hx.b); sb_put(&c, " "); sb_put(&c, mh); sb_put(&c, " "); sb_put(&c, reps.n ? reps.b : "-"); sb_put(&c, "\n");
+        char id[65]; key_hash(c.b, c.n, id);
+        char *ed = path_in(source_dir(), "entries", ""); char *had = read_in(ed, id, ""); free(ed);
+        if (!had) src_write("entries", id, c.b); free(had);
+        SBuf l = {0}; sb_fmt(&l, "%s\n", id); idx_write("live", hx.b, l.b); free(l.b);
+        idx_remove("alternatives", hx.b);
+        char *st = e_stamp(); idx_write("meta", "stamp", st); free(st);
+        free(c.b); free(reps.b);
+    }
+    free(live); free(alt); free(hx.b);
+}
+/* a file of the repository as the source holds it, its module's pieces in order; one the source does
+ * not hold yet, read from the disk (the one reader), when it is there; else NULL. A path holding
+ * alternatives is not read: they are named */
+static char *src_text(const char *rel, size_t *len) {
+    index_sync();
+    SBuf hx = {0}; w_hex(&hx, rel);
+    char *mh = hx.b && hx.n <= 250 ? idx_read("modules", hx.b) : NULL;
+    char *alt = !mh && hx.b && hx.n <= 250 ? idx_read("alternatives", hx.b) : NULL; free(hx.b);
+    if (alt) { fprintf(stderr, "%s holds alternatives (entry, module), none read until all but one are stated dead (hyperactive dead ENTRY REASON):\n%s", rel, alt); exit(1); }
+    if (mh) { char *t = w_module_text(mh, len); free(mh); if (t) return t; }
     root_init();
     char *abs = rel[0] == '/' ? strdup(rel) : malloc(strlen(repo_root) + strlen(rel) + 2);
     if (rel[0] != '/') sprintf(abs, "%s/%s", repo_root, rel);
@@ -2157,8 +2330,9 @@ static void w_whole(const char *text, const char *rel) {
     char h[65]; w_piece(text, strlen(text), h);
     SBuf mod = {0}; sb_put(&mod, h); sb_put(&mod, "\n");
     char mh[65]; key_hash(mod.b, mod.n, mh);
-    char *p = src_path(mh, "module"); struct stat st; if (stat(p, &st) != 0) src_write(mh, "module", mod.b); free(p);
+    char *p = src_path(mh, "module"); struct stat st; if (!w_indexing && stat(p, &st) != 0) src_write(mh, "module", mod.b); free(p);
     w_point("modules", rel, mh);
+    e_bind(rel, mh);
     free(mod.b);
 }
 /* a document by its path: the source's text (its length in len); a text document the source did not
@@ -2166,7 +2340,8 @@ static void w_whole(const char *text, const char *rel) {
 static char *src_document(const char *full, size_t *len) {
     char *rel = w_rel(full);
     SBuf hx = {0}; w_hex(&hx, rel);
-    char *had = hx.b && hx.n <= 250 ? src_read("modules", hx.b) : NULL; free(hx.b);
+    index_sync();
+    char *had = hx.b && hx.n <= 250 ? idx_read("modules", hx.b) : NULL; free(hx.b);
     char *t = src_text(rel, len);
     size_t rl = strlen(rel);
     if (t && !had && w_held(rel) && strlen(t) == *len && !(rl > 4 && !strcmp(rel + rl - 4, ".cub"))) w_whole(t, rel);
@@ -2177,7 +2352,7 @@ static char *src_document(const char *full, size_t *len) {
  * to a piece of the file as it was (a name now declared in another file keeps that file's piece) */
 static void w_forget(const char *rel, const char *names, const char *pieces) {
     SBuf hx = {0}; w_hex(&hx, rel); if (!hx.b || hx.n > 250) { free(hx.b); return; }
-    char *old = src_read("names-of", hx.b); char *oldm = src_read("modules", hx.b); free(hx.b);
+    char *old = idx_read("names-of", hx.b); char *oldm = idx_read("modules", hx.b); free(hx.b);
     char *oldp = oldm ? src_read(oldm, "module") : NULL;
     for (char *l = old ? old : (char *)""; *l; ) {
         char *e = strchr(l, '\n'); if (!e) break; *e = 0;
@@ -2185,11 +2360,11 @@ static void w_forget(const char *rel, const char *names, const char *pieces) {
         for (const char *q = names; *q; ) { const char *f = strchr(q, '\n'); if (!f) break; if ((size_t)(f - q) == strlen(l) && !strncmp(q, l, (size_t)(f - q))) { kept = true; break; } q = f + 1; }
         if (!kept) {
             SBuf nh = {0}; w_hex(&nh, l);
-            char *cur = nh.b && nh.n <= 250 ? src_read("written", nh.b) : NULL;
+            char *cur = nh.b && nh.n <= 250 ? idx_read("written", nh.b) : NULL;
             if (cur && oldp && strstr(oldp, cur) && !strstr(pieces, cur)) {
-                char *p = src_path("written", nh.b); if (p) remove(p); free(p);
-                char *mo = src_read("module-of", nh.b);
-                if (mo && !strcmp(mo, rel)) { char *q = src_path("module-of", nh.b); remove(q); free(q); }
+                idx_remove("written", nh.b);
+                char *mo = idx_read("module-of", nh.b);
+                if (mo && !strcmp(mo, rel)) idx_remove("module-of", nh.b);
                 free(mo);
             }
             free(cur); free(nh.b);
@@ -2228,9 +2403,9 @@ static void w_file(const char *text, const char *path) {
              * that one still declares it, so reading the other does not move it */
             char *r1 = w_rel(path); bool claim = true;
             { SBuf nh = {0}; w_hex(&nh, ps[i].name);
-              char *mo = nh.b && nh.n <= 250 ? src_read("module-of", nh.b) : NULL;
+              char *mo = nh.b && nh.n <= 250 ? idx_read("module-of", nh.b) : NULL;
               if (mo && strcmp(mo, r1)) {
-                  SBuf ph = {0}; w_hex(&ph, mo); char *ns = ph.b && ph.n <= 250 ? src_read("names-of", ph.b) : NULL;
+                  SBuf ph = {0}; w_hex(&ph, mo); char *ns = ph.b && ph.n <= 250 ? idx_read("names-of", ph.b) : NULL;
                   for (char *l = ns; l && *l && claim; ) { char *e = strchr(l, '\n'); size_t ln = e ? (size_t)(e - l) : strlen(l);
                       if (ln == strlen(ps[i].name) && !strncmp(l, ps[i].name, ln)) claim = false; l = e ? e + 1 : l + ln; }
                   free(ns); free(ph.b);
@@ -2245,12 +2420,13 @@ static void w_file(const char *text, const char *path) {
     if (mod.b) {
         char mh[65]; key_hash(mod.b, mod.n, mh);
         char *p = src_path(mh, "module");
-        struct stat st; if (p && stat(p, &st) != 0) src_write(mh, "module", mod.b);
+        struct stat st; if (p && !w_indexing && stat(p, &st) != 0) src_write(mh, "module", mod.b);
         free(p);
         char *rel = w_rel(path); w_forget(rel, names.b, mod.b);
         w_point("modules", rel, mh);
         w_point("names-of", rel, names.b);
-        if (load_root && store_dir()) {
+        e_bind(rel, mh);
+        if (load_root && store_dir() && !w_indexing) {
             /* roots/<path>: the file given to this machine that loads it (the machine's own, not the
              * source's), only a module of the work being a root */
             char *rr = w_rel(load_root); SBuf hx = {0}; w_hex(&hx, rel);

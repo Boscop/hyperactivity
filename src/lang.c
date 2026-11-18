@@ -5055,6 +5055,49 @@ int main(int argc, char **argv)
         }
         fflush(stdout); _Exit(0);
     }
+    /* the view's other entries (src/syntax.c, e_bind): `--unrecord PATH` drops the path; `--dead ENTRY
+     * REASON` states an entry dead; `--put HASH KIND FILE` takes an object received (text, module or
+     * entry) into the pool when FILE's hash is HASH, and says ok, or refused; `--convert` turns the
+     * pointers of the source before the view (store/modules) into entries, and removes them with the
+     * pointers derived from them (written/, module-of/, names-of/) */
+    for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--index")) { index_sync(); fflush(stdout); _Exit(0); }   /* the index brought to the pool's entries */
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--unrecord") && i + 1 < argc) {
+            char *rel = w_rel(argv[i + 1]); index_sync(); w_forget(rel, "", "");
+            SBuf hx = {0}; w_hex(&hx, rel); if (hx.b && hx.n <= 250) { idx_remove("modules", hx.b); idx_remove("names-of", hx.b); }
+            e_bind(rel, "-"); free(hx.b); free(rel); fflush(stdout); _Exit(0);
+        }
+        if (!strcmp(argv[i], "--dead") && i + 2 < argc) {
+            SBuf r = {0}; w_hex(&r, argv[i + 2]); SBuf c = {0}; sb_put(&c, "dead "); sb_put(&c, argv[i + 1]); sb_put(&c, " "); sb_put(&c, r.b ? r.b : "-"); sb_put(&c, "\n");
+            char id[65]; key_hash(c.b, c.n, id); src_write("entries", id, c.b); printf("%s\n", id); fflush(stdout); _Exit(0);
+        }
+        if (!strcmp(argv[i], "--put") && i + 3 < argc) {
+            FILE *f = fopen(argv[i + 3], "rb"); if (!f) die("cannot open", argv[i + 3]);
+            size_t cap = 65536, n = 0, k; char *b = malloc(cap);
+            while ((k = fread(b + n, 1, cap - n - 1, f)) > 0) { n += k; if (cap - n < 2) { cap *= 2; b = realloc(b, cap); } }
+            fclose(f); b[n] = 0;
+            char h[65]; key_hash(b, n, h); const char *kind = argv[i + 2];
+            bool ok = !strcmp(h, argv[i + 1]) && strlen(b) == n && (!strcmp(kind, "text") || !strcmp(kind, "module") || !strcmp(kind, "entry"));
+            if (ok && !strcmp(kind, "entry")) src_write("entries", h, b); else if (ok) { char *p = src_path(h, kind); struct stat st; if (stat(p, &st) != 0) src_write(h, kind, b); free(p); }
+            printf("%s\n", ok ? "ok" : "refused"); fflush(stdout); _Exit(ok ? 0 : 1);
+        }
+        if (!strcmp(argv[i], "--convert")) {
+            char *md = path_in(source_dir(), "modules", ""); DIR *d = opendir(md); int n = 0;
+            if (d) { struct dirent *de; while ((de = readdir(d))) if (de->d_name[0] != '.') {
+                char *mh = read_in(md, de->d_name, ""); char *rel = w_unhex(de->d_name);
+                if (mh) { mh[strcspn(mh, "\n")] = 0; e_bind(rel, mh); n++; }
+                free(mh); free(rel); } closedir(d); }
+            free(md);
+            static const char *old[] = { "modules", "written", "module-of", "names-of", NULL };
+            for (int j = 0; old[j]; j++) {
+                char *p = path_in(source_dir(), old[j], ""); DIR *o = opendir(p);
+                if (o) { struct dirent *de; while ((de = readdir(o))) if (de->d_name[0] != '.') { char *f = path_in(p, de->d_name, ""); remove(f); free(f); } closedir(o); }
+                rmdir(p); free(p);
+            }
+            idx_remove("meta", "stamp");
+            printf("%d paths converted\n", n); fflush(stdout); _Exit(0);
+        }
+    }
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--imports")) { for (int j = i + 1; j < argc; j++) imports_of(argv[j]); fflush(stdout); _Exit(0); }
     for (int i = 1; i < argc; i++) {
         /* --print f: f's core forms in the surface language; --roundtrip f: each printed form parsed
