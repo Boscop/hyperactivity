@@ -1,0 +1,8 @@
+-- a request sent and its whole response read (the server closes the connection), or nothing
+h-http : List Word → List Word → Proc W (Sum Unit (List Word))
+h-http srv req = bind (sys-call #41 #2 #1 #0 #0 #0 #0) (λ fd →
+  with-bytes {Sum Unit (List Word)} #16 (λ a → bind (h-poke a (h-sockaddr (h-srv-addr srv))) (λ u →
+  bind (sys-call #42 fd a #16 #0 #0 #0) (λ c →
+  if weq c #0 then bind (fd-write fd req) (λ w → bind (h-recv-all fd (toNat #1000000) nil) (λ r →
+    bind (sys-call #3 fd #0 #0 #0 #0 #0) (λ x → ret {lzero} {W} (inr r))))
+  else bind (sys-call #3 fd #0 #0 #0 #0 #0) (λ x → ret {lzero} {W} (inl unit))))))

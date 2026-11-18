@@ -1,0 +1,8 @@
+h-recv-all : Word → Nat → List Word → Proc W (List Word)
+h-recv-all fd zero acc = ret acc
+h-recv-all fd (suc k) acc = bind (with-bytes {Sum Unit (List Word)} #65536 (λ buf →
+  bind (sys-call #0 fd buf #65536 #0 #0 #0) (λ n →
+  if orB (weq n #0) (wlt #9223372036854775807 n) then ret {lzero} {W} (inl unit)
+  else bind (h-peek buf (toNat n)) (λ b → ret {lzero} {W} (inr b))))) (λ r → case r of
+    inl u → ret {lzero} {W} acc
+    inr b → h-recv-all fd k (list-append acc b))

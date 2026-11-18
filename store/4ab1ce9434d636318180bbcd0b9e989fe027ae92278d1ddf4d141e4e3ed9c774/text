@@ -1,0 +1,11 @@
+-- a descriptor read to its end, the buffer given back before the next read rather than after it, so a
+-- read of n chunks holds one buffer and not n (2026-11-18)
+h-read-fd : Word → Nat → Proc W (List Word)
+h-read-fd fd zero = ret nil
+h-read-fd fd (suc k) = bind (with-bytes {Sum Unit (List Word)} #65536 (λ buf →
+  bind (sys-call #0 fd buf #65536 #0 #0 #0) (λ n →
+  if andB (wlt #0 n) (wlt n #9223372036854775808)
+  then bind (h-peek buf (toNat n)) (λ t → ret {lzero} {W} (inr t))
+  else ret {lzero} {W} (inl unit)))) (λ r → case r of
+    inl u → ret {lzero} {W} nil
+    inr t → bind (h-read-fd fd k) (λ rest → ret {lzero} {W} (list-append t rest)))

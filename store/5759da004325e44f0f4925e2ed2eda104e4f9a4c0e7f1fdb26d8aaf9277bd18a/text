@@ -1,0 +1,8 @@
+s-read : Nat → Word → List Word → Proc W (List Word)
+s-read zero c acc = ret acc
+s-read (suc k) c acc = if s-whole acc then ret {lzero} {W} acc else
+  bind (with-bytes {Sum Unit (List Word)} #65536 (λ buf → bind (sys-call #0 c buf #65536 #0 #0 #0) (λ n →
+    if orB (weq n #0) (wlt #9223372036854775807 n) then ret {lzero} {W} (inl unit)
+    else bind (h-peek buf (toNat n)) (λ b → ret {lzero} {W} (inr b))))) (λ r → case r of
+      inl u → ret {lzero} {W} acc
+      inr b → s-read k c (list-append acc b))

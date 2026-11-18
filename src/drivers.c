@@ -105,6 +105,7 @@ static void drivers_run(Node *t) {
     int c_open = drv_con("w-open"), c_close = drv_con("w-close");
     int c_load = drv_con("w-load"), c_store = drv_con("w-store"), c_cas = drv_con("w-cas"), c_fence = drv_con("w-fence");
     int c_sys = drv_con("w-sys"), c_alloc = drv_con("w-alloc"), c_load8 = drv_con("w-load8"), c_store8 = drv_con("w-store8");
+    int c_free = drv_con("w-free");
     int c_spawn = drv_con("w-spawn");
     int c_fdwrite = drv_con("w-fd-write");
     int c_freadn = drv_con("w-file-read-named"), c_fwriten = drv_con("w-file-write-named");
@@ -193,6 +194,10 @@ static void drivers_run(Node *t) {
             void *m = calloc(n ? (size_t)n : 1, 1);
             if (!m) die("run: w-alloc: out of memory", NULL);
             resp = drv_word_of((uint64_t)(uintptr_t)m);
+        } else if (c == c_free) {
+            /* the bytes of one w-alloc given back; the address is dead after it */
+            free((void *)(uintptr_t)drv_word(cm->port[1], "w-free's address"));
+            resp = con_build(c_unit, NULL, NULL);
         } else if (c == c_load8) {
             uint64_t a = drv_word(cm->port[1], "w-load8's address");
             resp = drv_word_of(*(volatile uint8_t *)(uintptr_t)a);
