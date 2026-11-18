@@ -1,0 +1,39 @@
+e-word-child : Bool → List Word → List Word → Proc W (List Word)
+e-word-child proper w lw = bind h-args (λ a → bind (e-tmp "word") (λ p → bind (h-write p (h-line "-")) (λ x →
+  bind (h-run (cons (e-nth zero a) (cons (e-nth (toNat #1) a) (cons "--word" (cons (if proper then "1" else "0") (cons w (cons lw (cons p nil)))))))) (λ s →
+  bind (h-read p) (λ t → bind (h-unlink p) (λ u →
+  if weq s #0 then ret {lzero} {W} (e-or t)
+  else bind (h-say (h-line (list-append "etym: " (list-append w (list-append " could not be looked up (exit " (list-append (h-decimal s) ")")))))) (λ v → ret {lzero} {W} (h-line "-")))))))))
+e-aug-word : Nat → Bool → List (List Word) → List Word → List Word → List Word → (List (List Word) → List Word → List Word → Proc W (List Word × List (List Word))) → Proc W (List Word × List (List Word))
+e-aug-word f all seen prior w rest k =
+  if orB (orB (h-infix "'" (e-strip-q (e-lc w))) (h-infix (e-utf8 #8217) (e-strip-q (e-lc w)))) (orB (h-has (e-strip-q (e-lc w)) seen) (andB (h-not all) (h-has (e-strip-q (e-lc w)) e-stop)))
+  then bind (k seen (list-append prior w) rest) (λ o → ret {lzero} {W} (list-append w (fst o) , snd o))
+  else bind (e-word-child (andB (e-upper (e-head w)) (andB (h-not (h-null prior)) (h-not (e-sentence-start prior)))) w (e-strip-q (e-lc w))) (λ res →
+    bind (k (cons (e-strip-q (e-lc w)) seen) (list-append prior w) rest) (λ o →
+    if h-eq (e-upto-c #10 res) "-" then ret {lzero} {W} (list-append w (fst o) , snd o)
+    else ret {lzero} {W} (list-append w (list-append " " (list-append (e-utf8 #10216) (list-append (e-upto-c #10 res) (list-append (e-utf8 #10217) (fst o))))) ,
+      cons (e-or (e-after-c #10 res)) (snd o))))
+e-aug : Nat → Bool → List (List Word) → List Word → List Word → Proc W (List Word × List (List Word))
+e-aug zero all seen prior t = ret (t , nil)
+e-aug (suc f) all seen prior nil = ret (nil , nil)
+e-aug (suc f) all seen prior (cons c r) = if h-not (e-letter c) then bind (e-aug f all seen (list-append prior (cons c nil)) r) (λ o → ret (cons c (fst o) , snd o))
+  else e-aug-word f all seen prior (e-word-run (list-length (cons c r)) (cons c r)) (e-drop-n (list-length (e-word-run (list-length (cons c r)) (cons c r))) (cons c r)) (e-aug f all)
+e-augment : Bool → List Word → Proc W (List Word)
+e-augment all t = bind (e-aug (list-length t) all nil nil t) (λ o → ret (list-append (fst o) (list-append (cons #10 (cons #10 nil)) (e-join (cons #10 (cons #10 nil)) (snd o)))))
+-- ---------------------------------------------------------------- the program
+e-usage : List Word
+e-usage = h-line "hyperactive etym TEXT | hyperactive etym --all TEXT | echo TEXT | hyperactive etym: the text, each word followed by ⟨its immediate origin … ← its deepest root⟩, then each word's first sense, its etymology and the chain of origins followed back to the root"
+e-go : Bool → List Word → Proc W Unit
+e-go all t = if h-null (e-strip t) then bind (h-say e-usage) (λ u → exit #1) else
+  bind e-ready (λ u → bind (e-augment all t) (λ o → bind (h-out (h-line o)) (λ v → exit #0)))
+e-main-with : List (List Word) → Proc W Unit
+e-main-with args = if h-eq (e-nth zero args) "--chunk" then e-chunk-main (h-tail-lists args)
+  else if h-eq (e-nth zero args) "--word" then e-word-main (h-tail-lists args)
+  else if h-eq (e-nth zero args) "--entries" then e-entries-main (h-tail-lists args)
+  else if h-null (h-concat (e-filter (λ x → h-not (h-eq x "--all")) args)) then bind h-stdin (e-go (h-has "--all" args))
+  else e-go (h-has "--all" args) (e-join " " (e-filter (λ x → h-not (h-eq x "--all")) args))
+e-main : Proc W Unit
+e-main = bind h-args (λ a → e-main-with (h-drop-n (suc (suc zero)) a))
+e-run : Step W Unit
+e-run = to-step e-main
+#run e-run

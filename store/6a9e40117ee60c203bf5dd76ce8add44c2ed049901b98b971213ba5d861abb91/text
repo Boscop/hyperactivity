@@ -1,0 +1,669 @@
+e-key-sed-with : List (List Word) → List (List Word) → List Word
+e-key-sed-with dr lows = h-concat (list-map h-line (list-append (cons e-key-open nil) (list-append dr (list-append dr
+  (cons (list-append "s/" (list-append (e-utf8 #772) "//g")) (cons (list-append "s/" (list-append (e-utf8 #774) "//g"))
+  (list-append (e-filter (λ x → h-not (h-null x)) (list-map e-ucd-low lows))
+  (cons "}" (cons "y/ABCDEFGHIJKLMNOPQRSTUVWXYZ/abcdefghijklmnopqrstuvwxyz/" nil))))))))))
+-- a language's index, made once: its heads (line n+1 is record n), numbers in hex
+e-make-index : List Word → Proc W Unit
+e-make-index l = bind (e-exists (e-index l)) (λ have → if have then ret {lzero} {W} unit else
+  bind (h-say (h-line (list-append "etym: indexing " (list-append l " once …")))) (λ u →
+  bind (h-mkdir "build/etym") (λ u0 → bind (h-mkdir "build/etym/tmp") (λ u1 →
+  bind (h-write (list-append (e-index l) ".tmp") nil) (λ w →
+  bind (e-index-file (e-file l "idx") (list-append l "-idx-") "0" (list-append (e-index l) ".tmp")) (λ ok →
+  if ok then bind (e-rename (list-append (e-index l) ".tmp") (e-index l)) (λ r → ret {lzero} {W} unit)
+  else h-fail (list-append "etym: the index of " (list-append l " could not be made"))))))))
+-- every language ready: fetched, uncompressed, indexed (a language the release lacks is left out)
+e-ready-lang : List Word → Proc W Unit
+e-ready-lang l = bind (e-fetch l) (λ ok → if ok then bind (e-undz l) (λ u →
+  h-say (h-line (list-append "etym: " (list-append l " fetched")))) else ret {lzero} {W} unit)
+e-ready-all : List (List Word) → Proc W Unit
+e-ready-all nil = ret unit
+e-ready-all (cons l r) = bind (e-ready-lang l) (λ u → e-ready-all r)
+-- the names of languages by code and the senses of reconstructed terms, counted over every dictionary
+-- once (etym.py's tables n and r: each code's most frequent name, each term's most frequent gloss)
+e-names-cmd : List Word
+e-names-cmd = e-dq "cat build/wiktionary/*-en/*-en.dict | grep -aoE '<span class=`etyl`>([^<]|<a [^>]*>|</a>)*</span>(<span> </span>)?<(i|b|span) class=`[^`]*mention[^`]*` lang=`[^`]+`' | sed -E 's/^<span class=`etyl`>(.*)<\/span>(<span> <\/span>)?<(i|b|span) class=.* lang=`([^`]+)`$/\4\t\1/; s/<[^>]*>//g' | LC_ALL=C sort | uniq -c | LC_ALL=C sort -k1,1nr -s > build/etym/names.tmp && mv build/etym/names.tmp build/etym/names"
+e-roots-cmd : List Word
+e-roots-cmd = e-dq "cat build/wiktionary/*-en/*-en.dict | grep -aoE '<(i|b) class=`[^`]*mention[^`]*` lang=`[^`]+`[^>]*>([^<]|<(a|span)[ >][^>]*>|</(a|span)>)*</(i|b)>(<span> </span>)?<span class=`mention-gloss-paren annotation-paren`>\(</span>(<span[^>]*>[^<]*</span>)*<span class=`mention-gloss`>[^<]*</span>' | sed -E 's/^<(i|b) class=`[^`]*` lang=`([^`]+)`[^>]*>(.*)<\/(i|b)>(<span> <\/span>)?<span class=`mention-gloss-paren annotation-paren`>.*<span class=`mention-gloss`>([^<]*)<\/span>$/\2\t\3\t\6/; s/<[^>]*>//g' | grep -aP '^[^\t]+\t\*' | LC_ALL=C sort | uniq -c | LC_ALL=C sort -k1,1nr -s > build/etym/roots.tmp && mv build/etym/roots.tmp build/etym/roots"
+e-gcide-ready : Proc W Unit
+e-gcide-ready = bind (e-exists "build/gcide/CIDE.A") (λ have → if have then ret {lzero} {W} unit else
+  bind (e-cmd (h-split #32 "git clone -q --depth 1 https://github.com/gnu-mirror-unofficial/gcide build/gcide")) (λ c → ret {lzero} {W} unit))
+e-ready : Proc W Unit
+e-ready = bind (e-exists "build/etym/ready") (λ have → if have then ret {lzero} {W} unit else
+  bind (h-say (h-line "etym: fetching English Wiktionary and the languages it derives from, and indexing them, once …")) (λ u →
+  bind (e-ready-all e-langs) (λ v →
+  bind (e-sh e-names-cmd) (λ n → bind (e-sh e-roots-cmd) (λ r →
+  bind (e-gcide-ready) (λ g → bind (h-write "build/etym/ready" "ready") (λ b → ret {lzero} {W} unit)))))))
+-- ---------------------------------------------------------------- lookups (etym.py's Etym)
+-- a page name as Wiktionary links it (etym.py's key without its lowercase): Unicode decomposed, macrons
+-- and breves dropped, composed again (Latin īnfāns → infans, Greek πᾰ́σχω → πάσχω)
+-- a Latin vowel with a macron or a breve: its letter (0 when not one)
+e-unmac : Word → Word → Word
+e-unmac a b =
+  if weq a #196 then (if weq b #128 then #65 else if weq b #129 then #97 else if weq b #130 then #65 else if weq b #131 then #97 else if weq b #146 then #69 else if weq b #147 then #101
+    else if weq b #148 then #69 else if weq b #149 then #101 else if weq b #170 then #73 else if weq b #171 then #105 else if weq b #172 then #73 else if weq b #173 then #105 else #0)
+  else if weq a #197 then (if weq b #140 then #79 else if weq b #141 then #111 else if weq b #142 then #79 else if weq b #143 then #111 else if weq b #170 then #85 else if weq b #171 then #117
+    else if weq b #172 then #85 else if weq b #173 then #117 else #0)
+  else if andB (weq a #200) (weq b #178) then #89 else if andB (weq a #200) (weq b #179) then #121 else #0
+-- a Greek vowel with a vrachy or a macron (U+1FB0 …): the vowel's two bytes, or nothing
+e-ungreek : Word → Word → Word → List Word
+e-ungreek a b c = if h-not (weq a #225) then nil
+  else if andB (weq b #190) (orB (weq c #176) (weq c #177)) then cons #206 (cons #177 nil)
+  else if andB (weq b #190) (orB (weq c #184) (weq c #185)) then cons #206 (cons #145 nil)
+  else if andB (weq b #191) (orB (weq c #144) (weq c #145)) then cons #206 (cons #185 nil)
+  else if andB (weq b #191) (orB (weq c #152) (weq c #153)) then cons #206 (cons #153 nil)
+  else if andB (weq b #191) (orB (weq c #160) (weq c #161)) then cons #207 (cons #133 nil)
+  else if andB (weq b #191) (orB (weq c #168) (weq c #169)) then cons #206 (cons #165 nil)
+  else nil
+e-unbreve : List Word → List Word
+e-unbreve nil = nil
+e-unbreve (cons a nil) = cons a nil
+e-unbreve (cons a (cons b nil)) = if andB (weq a #204) (orB (weq b #132) (weq b #134)) then nil
+  else if h-not (weq (e-unmac a b) #0) then cons (e-unmac a b) nil else cons a (cons b nil)
+e-unbreve (cons a (cons b (cons c r))) =
+  if andB (weq a #204) (orB (weq b #132) (weq b #134)) then e-unbreve (cons c r)
+  else if h-not (weq (e-unmac a b) #0) then cons (e-unmac a b) (e-unbreve (cons c r))
+  else if h-not (h-null (e-ungreek a b c)) then list-append (e-ungreek a b c) (e-unbreve r)
+  else cons a (e-unbreve (cons b (cons c r)))
+-- a Greek vowel and a combining accent composed (NFC): acute (tonos), grave (varia), circumflex
+e-compose : Word → Word → Word → List Word
+e-compose v m1 m2 =
+  if andB (weq m1 #204) (weq m2 #129) then
+    (if weq v #177 then cons #206 (cons #172 nil) else if weq v #181 then cons #206 (cons #173 nil) else if weq v #183 then cons #206 (cons #174 nil)
+     else if weq v #185 then cons #206 (cons #175 nil) else if weq v #191 then cons #207 (cons #140 nil) else nil)
+  else if andB (weq m1 #204) (weq m2 #128) then
+    (if weq v #177 then cons #225 (cons #189 (cons #176 nil)) else if weq v #185 then cons #225 (cons #189 (cons #182 nil)) else nil)
+  else if andB (weq m1 #205) (weq m2 #130) then
+    (if weq v #177 then cons #225 (cons #190 (cons #182 nil)) else if weq v #185 then cons #225 (cons #191 (cons #150 nil)) else nil)
+  else nil
+e-compose-u : Word → Word → Word → List Word
+e-compose-u v m1 m2 =
+  if andB (weq m1 #204) (weq m2 #129) then (if weq v #133 then cons #207 (cons #141 nil) else if weq v #137 then cons #207 (cons #142 nil) else nil)
+  else if andB (weq m1 #204) (weq m2 #128) then (if weq v #133 then cons #225 (cons #189 (cons #186 nil)) else nil)
+  else if andB (weq m1 #205) (weq m2 #130) then (if weq v #133 then cons #225 (cons #191 (cons #166 nil)) else nil)
+  else nil
+e-nfc : List Word → List Word
+e-nfc nil = nil
+e-nfc (cons a nil) = cons a nil
+e-nfc (cons a (cons b nil)) = cons a (cons b nil)
+e-nfc (cons a (cons b (cons c nil))) = cons a (cons b (cons c nil))
+e-nfc (cons a (cons b (cons c (cons d r)))) =
+  if andB (weq a #206) (h-not (h-null (e-compose b c d))) then list-append (e-compose b c d) (e-nfc r)
+  else if andB (weq a #207) (h-not (h-null (e-compose-u b c d))) then list-append (e-compose-u b c d) (e-nfc r)
+  else cons a (e-nfc (cons b (cons c (cons d r))))
+e-page : List Word → List Word
+e-page w = e-nfc (e-unbreve w)
+e-lc1 : Word → Word
+e-lc1 c = if e-upper c then wadd c #32 else c
+-- the key a page is found by (etym.py's key; lowercase for ASCII letters)
+e-key : List Word → List Word
+e-key w = list-map e-lc1 (e-page w)
+-- a word as a basic regular expression matching itself
+e-bre : List Word → List Word
+e-bre nil = nil
+e-bre (cons c r) = if orB (weq c #46) (orB (weq c #91) (orB (weq c #93) (orB (weq c #42) (orB (weq c #94) (orB (weq c #36) (weq c #92))))))
+  then cons #92 (cons c (e-bre r)) else cons c (e-bre r)
+e-fields : List Word → List (List Word)
+e-fields l = h-split #9 l
+e-syn-line : List Word → Bool
+e-syn-line l = h-prefix "#" (e-nth (toNat #1) (e-fields l))
+e-lines-of : List Word → List Word → List Word → Proc W (List (List Word))
+e-lines-of file w opts = bind (e-out (cons "grep" (cons "-a" (cons opts (cons "-m" (cons "500" (cons "-e" (cons (list-append "^" (list-append (e-bre w) e-tab)) (cons file nil))))))))) (λ o → ret (h-lines o))
+e-dict-read : List Word → List Word → List Word → Proc W (List Word)
+e-dict-read l off size = bind (e-cmd (cons "dd" (cons (list-append "if=" (e-file l "dict")) (cons "of=build/etym/article"
+  (cons "iflag=skip_bytes,count_bytes" (cons (list-append "skip=" (h-decimal (e-num-onto #16 #0 off))) (cons (list-append "count=" (h-decimal (e-num-onto #16 #0 size)))
+  (cons "bs=65536" (cons "status=none" nil))))))))) (λ c → bind (h-read "build/etym/article") (λ t → ret (e-or t)))
+e-rows-of : List Word → List (List Word) → Proc W (List ERow)
+e-rows-of l nil = ret nil
+e-rows-of l (cons x r) = bind (e-dict-read l (e-nth (toNat #1) (e-fields x)) (e-nth (toNat #2) (e-fields x))) (λ a →
+  bind (e-rows-of l r) (λ rest → ret (cons (e-parse (e-nth zero (e-fields x)) a) rest)))
+e-filter-r : (ERow → Bool) → List ERow → List ERow
+e-filter-r p nil = nil
+e-filter-r p (cons x r) = if p x then cons x (e-filter-r p r) else e-filter-r p r
+e-sort-rows : List Word → List ERow → List ERow
+e-sort-rows w rows = list-append (e-filter-r (λ r → andB (h-not (h-null (e-re r))) (h-eq (e-rh r) w)) rows)
+  (list-append (e-filter-r (λ r → andB (h-not (h-null (e-re r))) (h-not (h-eq (e-rh r) w))) rows)
+  (list-append (e-filter-r (λ r → andB (h-null (e-re r)) (h-eq (e-rh r) w)) rows) (e-filter-r (λ r → andB (h-null (e-re r)) (h-not (h-eq (e-rh r) w))) rows)))
+e-exact : Sum Unit (List Word) → List ERow → List ERow
+e-exact (inl u) rows = rows
+e-exact (inr x) rows = e-filter-r (λ r → h-eq (e-rh r) x) rows
+-- a language's synonym (word form) index, made once when first needed: `FORM TAB #LINE`
+e-syn-index : List Word → List Word
+e-syn-index l = list-append "build/etym/" (list-append l ".syn.index")
+e-make-syn : List Word → Proc W Bool
+e-make-syn l = bind (e-exists (e-syn-index l)) (λ have → if have then ret {lzero} {W} true else
+  bind (e-exists (e-file l "syn")) (λ hs → if h-not hs then ret {lzero} {W} false else
+  bind (h-say (h-line (list-append "etym: indexing the word forms of " (list-append l " once …")))) (λ u →
+  bind (h-mkdir "build/etym") (λ u0 → bind (h-mkdir "build/etym/tmp") (λ u1 →
+  bind (h-write (list-append (e-syn-index l) ".tmp") nil) (λ w →
+  bind (e-index-file (e-file l "syn") (list-append l "-syn-") "1" (list-append (e-syn-index l) ".tmp")) (λ ok →
+  if ok then bind (e-rename (list-append (e-syn-index l) ".tmp") (e-syn-index l)) (λ r → ret {lzero} {W} true) else ret {lzero} {W} false)))))))
+-- the heads indexed for a word form: its lemma's line
+e-lemma : List Word → List Word → Proc W (List Word)
+e-lemma l w = bind (e-make-syn l) (λ ok → if h-not ok then ret {lzero} {W} nil else
+  bind (e-lines-of (e-syn-index l) (e-page w) "-i") (λ ss → if h-null (h-concat ss) then ret {lzero} {W} nil else
+  bind (e-out (cons "sed" (cons "-n" (cons (list-append (h-decimal (e-num-onto #16 #0 (h-drop "#" (e-nth (toNat #1) (e-fields (e-nth zero ss)))))) "p") (cons (e-index l) nil)))))
+    (λ line → ret (e-nth zero (e-fields (e-strip line))))))
+-- the entries of page w in lang (a word form taken to its lemma), those with an etymology first, the
+-- exact capitalisation first
+e-entries-here : List Word → List Word → Sum Unit (List Word) → Proc W (List ERow)
+e-entries-here l w ex = bind (e-make-index l) (λ u → bind (e-lines-of (e-index l) (e-page w) "-i") (λ ls →
+  if h-not (h-null (h-concat ls)) then bind (e-rows-of l ls) (λ rows → ret {lzero} {W} (e-sort-rows w (e-exact ex rows)))
+  else bind (e-lemma l w) (λ lm → if orB (h-null lm) (h-eq (e-key lm) (e-key w)) then ret {lzero} {W} nil else
+    bind (e-lines-of (e-index l) lm "-i") (λ ls2 → bind (e-rows-of l ls2) (λ rows → ret {lzero} {W} (e-sort-rows w (e-exact ex rows)))))))
+-- entries kept: each page's entries parsed once, in a process of its own (the machine keeps what a
+-- process reads until it ends), and kept in build/etym/rows/LANG/<the page's key in hex>: fields
+-- apart by byte 2, a chain's mentions by 3 and their fields by 4, entries by 5
+e-ser-row : ERow → List Word
+e-ser-row r = e-join (cons #2 nil) (cons (e-rh r) (cons (e-rp r) (cons (e-rd r) (cons (e-re r)
+  (cons (e-join (cons #3 nil) (list-map (λ m → e-join (cons #4 nil) m) (e-rc r))) (cons (e-rf r) nil))))))
+e-deser-chain : List Word → List (List (List Word))
+e-deser-chain s = if h-null s then nil else list-map (λ x → h-split #4 x) (h-split #3 s)
+e-deser-row : List (List Word) → ERow
+e-deser-row fs = erow (e-nth zero fs) (e-nth (toNat #1) fs) (e-nth (toNat #2) fs) (e-nth (toNat #3) fs) (e-deser-chain (e-nth (toNat #4) fs)) (e-nth (toNat #5) fs)
+e-deser : List Word → List ERow
+e-deser t = if h-null t then nil else list-map (λ s → e-deser-row (h-split #2 s)) (h-split #5 t)
+e-rows-dir : List Word → List Word
+e-rows-dir l = list-append "build/etym/rows/" l
+e-rows-file : List Word → List Word → List Word
+e-rows-file l w = list-append (e-rows-dir l) (list-append "/" (h-hex (e-key w)))
+-- the entries of page w in lang, made here (--entries LANG PAGE, its own process)
+e-entries-main : List (List Word) → Proc W Unit
+e-entries-main args = bind (e-entries-here (e-nth zero args) (e-nth (toNat #1) args) (inl unit)) (λ rows →
+  bind (h-write (list-append (e-rows-file (e-nth zero args) (e-nth (toNat #1) args)) ".tmp") (e-join (cons #5 nil) (list-map e-ser-row rows))) (λ w →
+  bind (e-rename (list-append (e-rows-file (e-nth zero args) (e-nth (toNat #1) args)) ".tmp") (e-rows-file (e-nth zero args) (e-nth (toNat #1) args))) (λ r → exit #0)))
+e-rows-made : List Word → List Word → Proc W Unit
+e-rows-made l w = bind (e-exists (e-rows-file l w)) (λ have → if have then ret {lzero} {W} unit else
+  bind (h-mkdir "build/etym/rows") (λ u → bind (h-mkdir (e-rows-dir l)) (λ v → bind h-args (λ a →
+  bind (h-run (cons (e-nth zero a) (cons (e-nth (toNat #1) a) (cons "--entries" (cons l (cons w nil)))))) (λ s → ret {lzero} {W} unit)))))
+-- the entries of page w in lang (a word form taken to its lemma), those with an etymology first, the
+-- exact capitalisation first
+e-entries : List Word → List Word → Sum Unit (List Word) → Proc W (List ERow)
+e-entries l w ex = bind (e-rows-made l w) (λ u → bind (h-read (e-rows-file l w)) (λ t → ret (e-sort-rows w (e-exact ex (e-deser (e-or t))))))
+e-good : List ERow → List ERow
+e-good rows = e-filter-r (λ r → h-not (h-null (e-re r))) rows
+e-nullr : List ERow → Bool
+e-nullr nil = true
+e-nullr (cons x r) = false
+e-forms : (List Word → Proc W (List ERow)) → List Word → List ERow → Proc W (List ERow)
+e-forms k w nil = ret nil
+e-forms k w (cons r rs) = if andB (h-not (h-null (e-rf r))) (h-not (h-eq (e-key (e-rf r)) (e-key w)))
+  then bind (k (e-rf r)) (λ g → if e-nullr g then e-forms k w rs else ret {lzero} {W} g) else e-forms k w rs
+-- the entries of w with an etymology, following 'plural of' / 'participle of' to the lemma
+e-with-ety : Nat → List Word → List Word → Sum Unit (List Word) → Proc W (List ERow)
+e-with-ety zero l w ex = bind (e-entries l w ex) (λ rows → ret (e-good rows))
+e-with-ety (suc h) l w ex = bind (e-entries l w ex) (λ rows → if e-nullr (e-good rows) then e-forms (λ f → e-with-ety h l f (inl unit)) w rows else ret {lzero} {W} (e-good rows))
+e-ety2 : List Word → List Word → Sum Unit (List Word) → Proc W (List ERow)
+e-ety2 l w ex = e-with-ety (toNat #2) l w ex
+-- a mention's language code to the language whose file holds its entries
+e-lang-of : List Word → List Word
+e-lang-of c = if h-has c (h-split #32 "cmn yue nan-hbl wuu hak ltc och") then "zh" else if h-has c (cons "no" (cons "nb" nil)) then "nb"
+  else if h-has c (h-split #32 "arz apc ajp acm") then "ar" else c
+e-file-of : List Word → List Word
+e-file-of code = if h-has (e-lang-of code) e-langs then e-lang-of code else if h-has (e-upto-c #45 (e-lang-of code)) e-langs then e-upto-c #45 (e-lang-of code) else nil
+e-m : Nat → List (List Word) → List Word
+e-m n m = e-nth n m
+-- a code's name (the most frequent name the dictionaries give it), or the code
+e-name : List (List Word) → Proc W (List Word)
+e-name m = if h-not (h-null (e-m (toNat #2) m)) then ret {lzero} {W} (e-m (toNat #2) m) else
+  bind (e-out (cons "grep" (cons "-a" (cons "-m" (cons "1" (cons "-F" (cons "-e" (cons (list-append " " (list-append (e-m (toNat #1) m) e-tab)) (cons "build/etym/names" nil))))))))) (λ o →
+  ret (if h-null (e-strip o) then e-m (toNat #1) m else e-strip (e-or (e-after e-tab o))))
+e-unparen-f : Nat → List Word → List Word
+e-unparen-f zero t = t
+e-unparen-f (suc f) t = if andB (h-prefix "(" t) (h-infix ")" t) then e-unparen-f f (e-dropws (e-or (e-after ")" t))) else t
+e-sense-in : List ERow → List Word
+e-sense-in nil = nil
+e-sense-in (cons r rs) = if h-null (e-strip (e-unparen-f (list-length (e-rd r)) (e-rd r))) then e-sense-in rs else e-strip (e-unparen-f (list-length (e-rd r)) (e-rd r))
+-- a term's sense: a reconstructed term's from the glosses citing it, another's its entry's first
+e-sense : List Word → List Word → Proc W (List Word)
+e-sense code page = if h-prefix "*" page then
+  bind (e-out (cons "grep" (cons "-a" (cons "-m" (cons "1" (cons "-F" (cons "-e" (cons (list-append " " (list-append code (list-append e-tab (list-append page e-tab)))) (cons "build/etym/roots" nil))))))))) (λ o →
+    ret {lzero} {W} (e-text (e-strip (e-nth (toNat #2) (e-fields (e-strip o))))))
+  else if h-null (e-file-of code) then ret {lzero} {W} nil
+  else bind (e-entries (e-file-of code) page (inl unit)) (λ rows → ret {lzero} {W} (e-sense-in rows))
+e-last-sp : List Word → Nat → Nat → Nat
+e-last-sp nil i found = found
+e-last-sp (cons c r) i found = e-last-sp r (suc i) (if weq c #32 then i else found)
+e-nat-le : Nat → Nat → Bool
+e-nat-le zero b = true
+e-nat-le (suc a) zero = false
+e-nat-le (suc a) (suc b) = e-nat-le a b
+e-cut-at : List Word → List Word → List Word
+e-cut-at g pre = if h-infix " " pre then list-append (h-take (e-last-sp pre zero zero) pre) (cons #32 (e-utf8 #8230))
+  else list-append (h-rev (e-drop-chars (toNat #1) (h-rev g nil)) nil) (cons #32 (e-utf8 #8230))
+-- a gloss cut to a width at a space, as etym.py cuts it
+e-cut : Nat → List Word → List Word
+e-cut width g = e-cut-at g (e-take-chars width g)
+e-shown : List Word → List Word → List Word → List Word → List Word
+e-shown nm term tr gl = list-append nm (list-append " " (list-append term (list-append (if h-null tr then nil else list-append " (" (list-append tr ")"))
+  (if h-null gl then nil else list-append " " (list-append (e-utf8 #8220) (list-append gl (e-utf8 #8221)))))))
+-- Language term (transliteration) “gloss”
+e-show : Nat → Bool → List (List Word) → Proc W (List Word)
+e-show width sense m = bind (if andB (h-null (e-m (toNat #6) m)) sense then e-sense (e-m (toNat #1) m) (e-m (toNat #4) m) else ret {lzero} {W} (e-m (toNat #6) m)) (λ gl →
+  bind (e-name m) (λ nm → ret (e-shown nm (e-m (toNat #3) m) (e-m (toNat #5) m) (if e-nat-le (e-chars gl) width then gl else e-cut width gl))))
+e-show60 : List (List Word) → Proc W (List Word)
+e-show60 m = e-show (toNat #60) true m
+-- the chain of origins of an entry, followed through each origin's own entry, to the deepest root
+e-affix : List Word → Bool
+e-affix t = orB (h-prefix "-" t) (h-ends "-" t)
+e-rev-l : List (List (List Word)) → List (List (List Word)) → List (List (List Word))
+e-rev-l nil acc = acc
+e-rev-l (cons x r) acc = e-rev-l r (cons x acc)
+e-filter-m : (List (List Word) → Bool) → List (List (List Word)) → List (List (List Word))
+e-filter-m p nil = nil
+e-filter-m p (cons x r) = if p x then cons x (e-filter-m p r) else e-filter-m p r
+e-cands : List (List (List Word)) → List (List (List Word))
+e-cands chain = list-append (e-filter-m (λ m → andB (h-not (e-affix (e-m (toNat #3) m))) (h-not (h-eq (e-m (toNat #1) m) "en"))) (e-rev-l chain nil))
+  (e-filter-m (λ m → andB (h-not (e-affix (e-m (toNat #3) m))) (h-eq (e-m (toNat #1) m) "en")) (e-rev-l chain nil))
+e-seen-key : List Word → List Word → List Word
+e-seen-key f p = list-append f (list-append e-tab (e-key p))
+e-next-with : List (List Word) → List (List Word) → List (List (List Word)) → List ERow → Proc W (Sum Unit (List (List Word) × (List Word × ERow))) → Proc W (Sum Unit (List (List Word) × (List Word × ERow)))
+e-next-with seen m r nil k = k
+e-next-with seen m r (cons x xs) k = ret (inr (m , (e-file-of (e-m (toNat #1) m) , x)))
+e-next : List (List Word) → List (List (List Word)) → Proc W (Sum Unit (List (List Word) × (List Word × ERow)))
+e-next seen nil = ret (inl unit)
+e-next seen (cons m r) = if orB (h-null (e-file-of (e-m (toNat #1) m))) (h-has (e-seen-key (e-file-of (e-m (toNat #1) m)) (e-m (toNat #4) m)) seen) then e-next seen r
+  else bind (e-ety2 (e-file-of (e-m (toNat #1) m)) (e-m (toNat #4) m) (inl unit)) (λ rs → e-next-with seen m r rs (e-next seen r))
+e-follow-on : (List (List Word) → List (List (List Word)) → Proc W (List (List (List Word) × ERow))) → List (List Word) → Sum Unit (List (List Word) × (List Word × ERow)) → Proc W (List (List (List Word) × ERow))
+e-follow-on k seen (inl u) = ret nil
+e-follow-on k seen (inr x) = bind (k (cons (e-seen-key (fst (snd x)) (e-m (toNat #4) (fst x))) seen) (e-rc (snd (snd x)))) (λ rest → ret (cons (fst x , snd (snd x)) rest))
+e-follow : Nat → List (List Word) → List (List (List Word)) → Proc W (List (List (List Word) × ERow))
+e-follow zero seen chain = ret nil
+e-follow (suc k) seen nil = ret nil
+e-follow (suc k) seen (cons c cs) = bind (e-next seen (e-cands (cons c cs))) (e-follow-on (e-follow k) seen)
+e-follow-row : List Word → ERow → Proc W (List (List (List Word) × ERow))
+e-follow-row l row = e-follow (toNat #8) (cons (e-seen-key l (e-rh row)) nil) (e-rc row)
+-- the deepest root a followed chain reaches: Proto-Indo-European where it does, else another
+-- reconstructed root, else the last attested term
+e-rank : List (List Word) → Word
+e-rank m = if h-eq (e-m (toNat #1) m) "ine-pro" then #3 else if orB (h-ends "-pro" (e-m (toNat #1) m)) (h-prefix "*" (e-m (toNat #3) m)) then #2 else #1
+e-unstar : List Word → List Word
+e-unstar nil = nil
+e-unstar (cons c r) = if weq c #42 then e-unstar r else cons c r
+e-rootable : List (List Word) → Bool
+e-rootable m = h-not (orB (h-eq (e-m (toNat #1) m) "en") (orB (h-prefix "-" (e-unstar (e-m (toNat #3) m))) (andB (h-not (h-prefix "*" (e-m (toNat #3) m))) (h-ends "-" (e-m (toNat #3) m)))))
+e-deep-in : List (List (List Word)) → Word → Sum Unit (List (List Word)) → Word × Sum Unit (List (List Word))
+e-deep-in nil rank best = (rank , best)
+e-deep-in (cons m r) rank best = if andB (e-rootable m) (h-not (wlt (e-rank m) rank)) then e-deep-in r (e-rank m) (inr m) else e-deep-in r rank best
+e-deep-all : List (List (List (List Word))) → Word → Sum Unit (List (List Word)) → Sum Unit (List (List Word))
+e-deep-all nil rank best = best
+e-deep-all (cons c r) rank best = e-deep-all r (fst (e-deep-in c rank best)) (snd (e-deep-in c rank best))
+e-deepest : ERow → List (List (List Word) × ERow) → Sum Unit (List (List Word))
+e-deepest row hops = e-deep-all (cons (e-rc row) (list-map (λ h → e-rc (snd h)) hops)) #0 (inl unit)
+e-has-digits : Nat → List Word → Bool
+e-has-digits zero t = true
+e-has-digits (suc n) nil = false
+e-has-digits (suc n) (cons c r) = andB (e-digit c) (e-has-digits n r)
+-- when a word was coined, as its etymology says: Coined … 1909, First attested … 1592
+e-year : List Word → Bool
+e-year t = andB (orB (andB (weq (e-head t) #49) (e-has-digits (toNat #3) (h-tail t))) (andB (h-prefix "20" t) (e-has-digits (toNat #2) (e-drop-n (toNat #2) t))))
+  (h-not (e-wordc (e-head (e-drop-n (toNat #4) t))))
+e-to-year : List Word → Bool → List Word → Sum Unit (List Word)
+e-to-year acc pw nil = inl unit
+e-to-year acc pw (cons c r) = if orB (weq c #46) (weq c #59) then inl unit
+  else if andB (h-not pw) (e-year (cons c r)) then inr (h-rev acc (h-take (toNat #4) (cons c r)))
+  else e-to-year (cons c acc) (e-wordc c) r
+e-coin-words : List (List Word)
+e-coin-words = h-split #44 "Coined,coined,First used,first used,First attested,first attested,First recorded,first recorded,Introduced,introduced"
+e-coin-to : Sum Unit (List Word) → Sum Unit (List Word) → Sum Unit (List Word)
+e-coin-to (inr x) k = inr x
+e-coin-to (inl u) k = k
+e-coin-at : List (List Word) → List Word → Sum Unit (List Word)
+e-coin-at nil t = inl unit
+e-coin-at (cons w r) t = if e-word-at w t then e-coin-to (e-to-year nil true t) (e-coin-at r t) else e-coin-at r t
+e-coined-at : Sum Unit (List Word) → List Word → List Word
+e-coined-at (inr x) k = if e-nat-le (toNat #110) (e-chars x) then nil else x
+e-coined-at (inl u) k = k
+e-coined-f : Bool → List Word → List Word
+e-coined-f pw nil = nil
+e-coined-f pw (cons c r) = if pw then e-coined-f (e-wordc c) r else e-coined-at (e-coin-at e-coin-words (cons c r)) (e-coined-f (e-wordc c) r)
+e-coined : List Word → List Word
+e-coined ety = e-coined-f false ety
+e-lc-first : List Word → List Word
+e-lc-first nil = nil
+e-lc-first (cons c r) = cons (e-lc1 c) r
+-- the gloss of a word: its immediate origin, … ← its deepest root, ; when coined
+e-first-line : List Word → List Word
+e-first-line t = e-upto-c #10 t
+e-take-l : Nat → List (List (List Word)) → List (List (List Word))
+e-take-l zero r = nil
+e-take-l (suc n) nil = nil
+e-take-l (suc n) (cons x r) = cons x (e-take-l n r)
+e-plain-chain : List (List (List Word)) → List Word
+e-plain-chain ms = e-strip (e-join " " (list-map (λ m → list-append (if h-ends "+" (e-m zero m) then list-append (e-m zero m) " " else nil) (e-m (toNat #3) m)) (e-take-l (toNat #3) ms)))
+e-firsts : List (List (List Word)) → List (List (List Word))
+e-firsts chain = if e-nullc (e-filter-m (λ m → h-not (h-has (e-m (toNat #1) m) (cons "en" (cons "enm" nil)))) chain)
+  then e-filter-m (λ m → h-not (h-eq (e-m (toNat #1) m) "en")) chain
+  else e-filter-m (λ m → h-not (h-has (e-m (toNat #1) m) (cons "en" (cons "enm" nil)))) chain
+e-gloss-head : ERow → List (List (List Word)) → Proc W (List Word)
+e-gloss-head row first = if h-not (e-nullc first) then e-show60 (e-nthr zero first)
+  else if h-not (e-nullc (e-rc row)) then ret {lzero} {W} (e-plain-chain (e-rc row))
+  else ret {lzero} {W} (if e-nat-le (toNat #90) (e-chars (e-first-line (e-re row))) then e-cut (toNat #90) (e-first-line (e-re row)) else e-first-line (e-re row))
+e-take-n4 : List (List Word) → List (List Word)
+e-take-n4 m = h-take-n (toNat #4) m
+e-same-14 : List (List Word) → List (List Word) → Bool
+e-same-14 a b = h-eq (e-join e-tab (e-take-n4 (e-drop-n-l (toNat #1) a))) (e-join e-tab (e-take-n4 (e-drop-n-l (toNat #1) b)))
+e-gloss-root : ERow → List (List (List Word)) → Sum Unit (List (List Word)) → List Word → Proc W (List Word)
+e-gloss-root row first (inl u) g = ret g
+e-gloss-root row first (inr root) g = if orB (e-nullc first) (h-not (e-same-14 root (e-nthr zero first)))
+  then bind (e-show60 root) (λ s → ret {lzero} {W} (list-append g (list-append " " (list-append (e-utf8 #8230) (list-append " " (list-append (e-utf8 #8592) (list-append " " s))))))) else ret {lzero} {W} g
+e-gloss-coined : ERow → List Word → List Word
+e-gloss-coined row g = if h-null (e-coined (e-re row)) then g else list-append g (list-append "; " (e-lc-first (e-coined (e-re row))))
+e-gloss-base : ERow → Proc W (List Word × List (List (List Word) × ERow))
+e-gloss-base row = bind (e-follow-row "en" row) (λ hops → bind (e-gloss-head row (e-firsts (e-rc row))) (λ g1 →
+  bind (e-gloss-root row (e-firsts (e-rc row)) (e-deepest row hops) g1) (λ g2 → ret (e-gloss-coined row g2 , hops))))
+e-only-en : List (List (List Word)) → Bool
+e-only-en (cons m nil) = h-eq (e-m (toNat #1) m) "en"
+e-only-en nil = false
+e-only-en (cons m (cons n r)) = false
+e-gloss-via : List (List Word) → List ERow → ERow → Proc W (List Word × List (List (List Word) × ERow))
+e-gloss-via m nil row = e-gloss-base row
+e-gloss-via m (cons r rs) row = if e-only-en (e-rc r) then e-gloss-base row else
+  bind (e-gloss-base r) (λ gh → ret (list-append (e-m (toNat #3) m) (list-append ": " (fst gh)) , cons (m , r) (snd gh)))
+e-or-rows : List ERow → Proc W (List ERow) → Proc W (List ERow)
+e-or-rows nil k = k
+e-or-rows (cons x r) k = ret (cons x r)
+e-gloss : ERow → Proc W (List Word × List (List (List Word) × ERow))
+e-gloss row = if andB (e-only-en (e-rc row)) (h-not (h-eq (e-m (toNat #4) (e-nthr zero (e-rc row))) (e-rh row)))
+  then bind (e-ety2 "en" (e-m (toNat #4) (e-nthr zero (e-rc row))) (inr (e-m (toNat #4) (e-nthr zero (e-rc row))))) (λ a →
+    bind (e-or-rows a (e-ety2 "en" (e-m (toNat #4) (e-nthr zero (e-rc row))) (inl unit))) (λ rs → e-gloss-via (e-nthr zero (e-rc row)) rs row))
+  else e-gloss-base row
+-- ' = in- “not” + fāns “speaking”' for an etymology that joins parts with +
+e-group : List (List (List Word)) → List (List (List Word))
+e-group nil = nil
+e-group (cons x r) = if h-ends "+" (e-m zero x) then cons x (e-group r) else nil
+e-shows : Nat → List (List (List Word)) → Proc W (List (List Word))
+e-shows w nil = ret nil
+e-shows w (cons m r) = bind (e-show w true m) (λ s → bind (e-shows w r) (λ rest → ret (cons s rest)))
+e-parts-in : List (List Word) → List (List (List Word)) → Proc W (List Word)
+e-parts-in prev nil = ret nil
+e-parts-in prev (cons m r) = if h-ends "+" (e-m zero m) then bind (e-shows (toNat #40) (cons prev (cons m (e-group r)))) (λ ss → ret (list-append " = " (e-join " + " ss)))
+  else e-parts-in m r
+e-parts-of : List (List (List Word)) → Proc W (List Word)
+e-parts-of nil = ret nil
+e-parts-of (cons m r) = e-parts-in m r
+e-parts : ERow → Proc W (List Word)
+e-parts row = e-parts-of (e-rc row)
+-- the detail of a word: each entry's sense and etymology, its parts, the chain followed
+e-hop-lines : List (List (List Word) × ERow) → Proc W (List (List Word))
+e-hop-lines nil = ret nil
+e-hop-lines (cons h r) = bind (e-show60 (fst h)) (λ s → bind (e-parts (snd h)) (λ p → bind (e-hop-lines r) (λ rest →
+  ret (cons (list-append "      " (list-append (e-utf8 #8592) (list-append " " (list-append s (list-append ": " (list-append (e-take-chars (toNat #400) (e-first-line (e-re (snd h)))) p)))))) rest))))
+e-row-lines : ERow → Proc W (List (List Word))
+e-row-lines r = bind (e-parts r) (λ p → ret (list-append (cons (list-append "    " (list-append (if h-null (e-rp r) then nil else list-append "(" (list-append (e-lc (e-rp r)) ") ")) (e-rd r))) nil)
+  (list-append (list-map (λ para → list-append "    [" (list-append (e-take-chars (toNat #1200) para) "]")) (h-split #10 (e-re r)))
+  (if h-null p then nil else cons (list-append "     " p) nil))))
+e-detail : Bool → List (List Word) → List ERow → List (List (List Word) × ERow) → Proc W (List (List Word))
+e-detail first shown nil hops = ret nil
+e-detail first shown (cons r rs) hops = if orB (h-has (e-re r) shown) (e-nat-le (toNat #3) (list-length shown)) then e-detail false shown rs hops else
+  bind (e-row-lines r) (λ ls → bind (if first then e-hop-lines hops else ret {lzero} {W} nil) (λ hl →
+  bind (e-detail false (cons (e-re r) shown) rs hops) (λ rest → ret (list-append ls (list-append hl rest)))))
+-- ---------------------------------------------------------------- GCIDE, Webster 1913: for a word Wiktionary lacks
+e-latin1 : List Word → List Word
+e-latin1 nil = nil
+e-latin1 (cons c r) = if wlt c #128 then cons c (e-latin1 r) else list-append (e-utf8 c) (e-latin1 r)
+-- an entity of GCIDE's (<eacute/, <ae/ …): the letter, or nothing
+e-mark-cp : Word → List Word → Word
+e-mark-cp c mk =
+  if h-has mk (cons "grave" nil) then (if weq c #97 then #224 else if weq c #101 then #232 else if weq c #105 then #236 else if weq c #111 then #242 else if weq c #117 then #249 else #0)
+  else if h-has mk (cons "acute" nil) then (if weq c #97 then #225 else if weq c #101 then #233 else if weq c #105 then #237 else if weq c #111 then #243 else if weq c #117 then #250 else if weq c #121 then #253 else #0)
+  else if h-has mk (cons "cir" (cons "circ" nil)) then (if weq c #97 then #226 else if weq c #101 then #234 else if weq c #105 then #238 else if weq c #111 then #244 else if weq c #117 then #251 else #0)
+  else if h-has mk (cons "til" (cons "tilde" nil)) then (if weq c #97 then #227 else if weq c #110 then #241 else if weq c #111 then #245 else #0)
+  else if h-has mk (cons "uml" nil) then (if weq c #97 then #228 else if weq c #101 then #235 else if weq c #105 then #239 else if weq c #111 then #246 else if weq c #117 then #252 else if weq c #121 then #255 else #0)
+  else if h-has mk (cons "ring" nil) then (if weq c #97 then #229 else #0)
+  else if h-has mk (cons "cedil" nil) then (if weq c #99 then #231 else #0)
+  else if h-has mk (cons "mac" (cons "macr" nil)) then (if weq c #97 then #257 else if weq c #101 then #275 else if weq c #105 then #299 else if weq c #111 then #333 else if weq c #117 then #363 else #0)
+  else if h-has mk (cons "breve" nil) then (if weq c #97 then #259 else if weq c #101 then #277 else if weq c #105 then #301 else if weq c #111 then #335 else if weq c #117 then #365 else #0)
+  else #0
+e-marks-g : List (List Word)
+e-marks-g = h-split #32 "acute grave cir circ uml til tilde cedil mac macr breve ring caron dot"
+e-ligature : List Word → List Word
+e-ligature n = if h-eq n "ae" then e-utf8 #230 else if h-eq n "AE" then e-utf8 #198 else if h-eq n "oe" then e-utf8 #339 else if h-eq n "OE" then e-utf8 #338
+  else if h-eq n "eth" then e-utf8 #240 else if h-eq n "thorn" then e-utf8 #254 else if h-eq n "THORN" then e-utf8 #222 else if h-eq n "ETH" then e-utf8 #208
+  else if h-eq n "aring" then e-utf8 #229 else if h-eq n "oslash" then e-utf8 #248 else if h-eq n "Oslash" then e-utf8 #216 else if h-eq n "szlig" then e-utf8 #223 else nil
+e-letter-of : List Word → List (List Word) → List Word
+e-letter-of n nil = nil
+e-letter-of n (cons mk r) = if andB (h-eq (h-tail n) mk) (h-not (h-null n)) then
+  (if weq (e-mark-cp (e-lc1 (e-head n)) mk) #0 then cons (e-head n) nil
+   else e-utf8 (if e-upper (e-head n) then (if wlt (e-mark-cp (e-lc1 (e-head n)) mk) #256 then wsub (e-mark-cp (e-lc1 (e-head n)) mk) #32 else wsub (e-mark-cp (e-lc1 (e-head n)) mk) #1) else e-mark-cp (e-lc1 (e-head n)) mk))
+  else e-letter-of n r
+e-gletter : List Word → List Word
+e-gletter n = if h-not (h-null (e-ligature n)) then e-ligature n else e-letter-of n e-marks-g
+e-letters-run : List Word → List Word
+e-letters-run nil = nil
+e-letters-run (cons c r) = if e-letter c then cons c (e-letters-run r) else nil
+-- GCIDE's markup read (etym.py's gclean)
+e-grk-text : Bool → List Word → List Word
+e-grk-text pw nil = nil
+e-grk-text pw (cons c r) = if andB (weq c #34) (h-not pw) then cons #104 (e-grk-text false r)
+  else if orB (weq c #96) (orB (weq c #39) (orB (weq c #126) (orB (weq c #61) (weq c #124)))) then e-grk-text (e-space c) r
+  else cons c (e-grk-text (e-space c) r)
+e-gc1 : Nat → List Word → List Word
+e-gc1 zero t = t
+e-gc1 (suc f) nil = nil
+e-gc1 (suc f) (cons c r) =
+  if andB (h-prefix "<grk>" (cons c r)) (h-infix "</grk>" r) then list-append (e-grk-text false (e-upto "</grk>" (h-drop "<grk>" (cons c r)))) (e-gc1 f (e-or (e-after "</grk>" r)))
+  else if andB (weq c #60) (andB (h-not (h-null (e-letters-run r))) (h-prefix "/" (e-drop-n (list-length (e-letters-run r)) r)))
+  then list-append (e-gletter (e-letters-run r)) (e-gc1 f (e-drop-n (suc (list-length (e-letters-run r))) r))
+  else if h-prefix "<br/" (cons c r) then cons #32 (e-gc1 f (h-drop "<br/" (cons c r)))
+  else cons c (e-gc1 f r)
+e-gc2 : Nat → List Word → List Word
+e-gc2 zero t = t
+e-gc2 (suc f) nil = nil
+e-gc2 (suc f) (cons c r) = if andB (weq c #60) (h-infix ">" r) then e-gc2 f (e-or (e-after ">" r)) else cons c (e-gc2 f r)
+e-qw-run : List Word → List Word
+e-qw-run nil = nil
+e-qw-run (cons c r) = if orB (e-wordc c) (weq c #63) then cons c (e-qw-run r) else nil
+e-gc3 : Nat → List Word → List Word
+e-gc3 zero t = t
+e-gc3 (suc f) nil = nil
+e-gc3 (suc f) (cons c r) = if andB (weq c #60) (h-prefix "/" (e-drop-n (list-length (e-qw-run r)) r)) then e-gc3 f (e-drop-n (suc (list-length (e-qw-run r))) r) else cons c (e-gc3 f r)
+e-gclean : List Word → List Word
+e-gclean s = e-squash (e-unescape (e-gc3 (list-length s) (e-gc2 (list-length s) (e-gc1 (list-length s) s))))
+e-gtag : List Word → List Word → List Word
+e-gtag tag t = if h-infix (list-append "<" (list-append tag ">")) t
+  then e-gclean (e-upto (list-append "</" (list-append tag ">")) (e-or (e-after (list-append "<" (list-append tag ">")) t))) else nil
+e-trim-l : List Word → List Word
+e-trim-l nil = nil
+e-trim-l (cons c r) = if orB (weq c #91) (orB (weq c #93) (weq c #32)) then e-trim-l r else cons c r
+e-trim-br : List Word → List Word
+e-trim-br t = h-rev (e-trim-l (h-rev (e-trim-l t) nil)) nil
+e-gsenses : List (List Word) → List (List (List Word))
+e-gsenses nil = nil
+e-gsenses (cons ch r) = if h-null (e-trim-br (e-gtag "ety" ch)) then e-gsenses r
+  else cons (cons (e-gtag "pos" ch) (cons (e-trim-br (e-gtag "ety" ch)) (cons (e-gtag "def" ch) nil))) (e-gsenses r)
+e-gkey : List Word → List Word
+e-gkey ent = e-lc (e-filter-w (λ c → h-not (orB (weq c #42) (orB (weq c #34) (orB (weq c #96) (weq c #39))))) (e-gclean ent))
+e-split-g : List Word → (List Word → List (List Word)) → Sum Unit (List Word) → List (List Word)
+e-split-g p k (inl u) = nil
+e-split-g p k (inr r) = cons (e-upto p r) (k r)
+e-split-f : List Word → Nat → List Word → List (List Word)
+e-split-f p zero t = nil
+e-split-f p (suc f) t = e-split-g p (e-split-f p f) (e-after p t)
+e-split-on : List Word → List Word → List (List Word)
+e-split-on p t = e-split-f p (list-length t) t
+e-gblocks : List Word → List (List Word) → List (List (List Word))
+e-gblocks w nil = nil
+e-gblocks w (cons b r) = if h-eq (e-gkey (e-upto "</ent>" b)) w then list-append (e-gsenses (e-split-on "<hw>" b)) (e-gblocks w r) else e-gblocks w r
+-- the pieces of t after each place p begins (etym.py's split(p)[1:], each piece up to the next p)
+e-gcide : List Word → Proc W (List (List (List Word)))
+e-gcide w = if h-not (e-letter (e-head w)) then ret {lzero} {W} nil else
+  bind (e-out (cons "grep" (cons "-a" (cons "-i" (cons "-F" (cons "-A" (cons "600" (cons "-e" (cons (list-append "<ent>" (list-append w "</ent>"))
+    (cons (list-append "build/gcide/CIDE." (cons (wsub (e-lc1 (e-head w)) #32) nil)) nil)))))))))) (λ o →
+  ret (e-gblocks w (e-split-on "<p><ent>" (e-latin1 o))))
+-- ---------------------------------------------------------------- a word found, or taken apart
+data EFound = e-wikt (rows : List ERow) | e-web (senses : List (List (List Word)))
+e-inflect : List (List Word)
+e-inflect = h-split #32 "ies:y ied:y s: es: ed: ed:e d: ing: ing:e ly: ily:y"
+e-suffixes : List (List Word)
+e-suffixes = h-split #32 "ization ation ness ment ity ism ist ize ise ion ive al ic ous ful less able ible er or ship hood dom ology logy"
+e-prefixes : List (List Word)
+e-prefixes = h-split #32 "hyper super under over inter trans counter anti post pre non sub mis dis un re de co meta para proto pseudo neuro homo auto tele micro macro multi poly mono"
+e-stop : List (List Word)
+e-stop = h-split #32 "a an the and or but nor so yet of to in on at by for with from as into onto upon is are was were be been being am do does did has have had i you he she it we they me him her us them my your his its our their this that these those there here not no if then than too very just also"
+e-cut-end : List Word → List Word → List Word
+e-cut-end e w = h-rev (e-drop-n (list-length e) (h-rev w nil)) nil
+e-inflected : List (List Word) → List Word → Proc W (List ERow)
+e-inflected nil w = ret nil
+e-inflected (cons ir r) w = if andB (h-ends (e-upto-c #58 ir) w) (e-nat-le (toNat #3) (e-nat-sub (list-length w) (list-length (e-upto-c #58 ir))))
+  then bind (e-ety2 "en" (list-append (e-cut-end (e-upto-c #58 ir) w) (e-or (e-after-c #58 ir))) (inl unit)) (λ rows → if e-nullr rows then e-inflected r w else ret {lzero} {W} rows)
+  else e-inflected r w
+e-gcide-found : List (List (List Word)) → Sum Unit EFound
+e-gcide-found nil = inl unit
+e-gcide-found (cons s r) = inr (e-web (cons s r))
+e-one-g : List Word → List ERow → Proc W (Sum Unit EFound)
+e-one-g w nil = bind (e-gcide w) (λ g → ret (e-gcide-found g))
+e-one-g w (cons x r) = ret (inr (e-wikt (cons x r)))
+e-exact-q : Sum Unit (List Word) → Bool
+e-exact-q (inl u) = false
+e-exact-q (inr x) = true
+-- w itself or an inflection of it in Wiktionary, else in GCIDE
+e-one : List Word → Sum Unit (List Word) → Proc W (Sum Unit EFound)
+e-one w ex = bind (e-ety2 "en" w ex) (λ rows → if h-not (e-nullr rows) then ret {lzero} {W} (inr (e-wikt rows)) else
+  bind (if e-exact-q ex then ret {lzero} {W} nil else e-inflected e-inflect w) (λ rows2 → e-one-g w rows2))
+e-rh-first : List Word → List ERow → List Word
+e-rh-first w nil = w
+e-rh-first w (cons r rs) = e-rh r
+e-found-head : List Word → EFound → List Word
+e-found-head w (e-wikt rows) = e-rh-first w rows
+e-found-head w (e-web s) = w
+e-max3 : Nat → Nat
+e-max3 n = if e-nat-le n (toNat #3) then toNat #3 else n
+e-part-name : Bool → List Word → List Word → List Word
+e-part-name top w h = if orB (h-not top) (h-prefix (e-take-chars (e-max3 (e-nat-sub (e-chars h) (toNat #2))) (e-key h)) w) then w else e-key h
+e-nullp : List (List Word × Sum Unit EFound) → Bool
+e-nullp nil = true
+e-nullp (cons x r) = false
+e-stems : List Word → List (List Word)
+e-stems stem = e-filter (λ b → h-not (h-null b)) (cons stem (cons (list-append stem "e")
+  (cons (if andB (e-nat-le (toNat #2) (list-length stem)) (weq (e-last-byte stem) (e-last-byte (e-cut-end "x" stem))) then e-cut-end "x" stem else nil)
+  (cons (list-append stem "y") (cons (if h-ends "i" stem then list-append (e-cut-end "i" stem) "y" else nil) nil)))))
+e-try-bases : (List Word → Proc W (List (List Word × Sum Unit EFound))) → List (List Word) → Proc W (List (List Word × Sum Unit EFound))
+e-try-bases k nil = ret nil
+e-try-bases k (cons b r) = bind (k b) (λ base → if e-nullp base then e-try-bases k r else ret {lzero} {W} base)
+e-try-suffix : (List Word → Proc W (List (List Word × Sum Unit EFound))) → List (List Word) → List Word → Proc W (List (List Word × Sum Unit EFound))
+e-try-suffix k nil w = ret nil
+e-try-suffix k (cons s r) w = if andB (h-ends s w) (e-nat-le (toNat #3) (e-nat-sub (list-length w) (list-length s)))
+  then bind (e-try-bases k (e-stems (e-cut-end s w))) (λ base → if e-nullp base then e-try-suffix k r w else
+    bind (e-one (list-append "-" s) (inl unit)) (λ f → ret {lzero} {W} (list-append base (cons (list-append "-" s , f) nil))))
+  else e-try-suffix k r w
+e-try-prefix : (List Word → Proc W (List (List Word × Sum Unit EFound))) → List (List Word) → List Word → Proc W (List (List Word × Sum Unit EFound))
+e-try-prefix k nil w = ret nil
+e-try-prefix k (cons p r) w = if andB (h-prefix p w) (e-nat-le (toNat #3) (e-nat-sub (list-length w) (list-length p)))
+  then bind (k (h-drop p w)) (λ rest → if e-nullp rest then e-try-prefix k r w else
+    bind (e-one (list-append p "-") (inl unit)) (λ f → ret {lzero} {W} (cons (list-append p "-" , f) rest)))
+  else e-try-prefix k r w
+e-resolve-with : Bool → List Word → Sum Unit EFound → Proc W (List (List Word × Sum Unit EFound)) → Proc W (List (List Word × Sum Unit EFound))
+e-resolve-with top w (inr f) k = ret (cons (e-part-name top w (e-found-head w f) , inr f) nil)
+e-resolve-with top w (inl u) k = k
+-- w explained: itself, or its prefixes, base and suffixes (three levels at most)
+e-resolve : Nat → Bool → List Word → Proc W (List (List Word × Sum Unit EFound))
+e-resolve zero top w = bind (e-one w (inl unit)) (λ r → e-resolve-with top w r (ret {lzero} {W} nil))
+e-resolve (suc d) top w = bind (e-one w (inl unit)) (λ r → e-resolve-with top w r
+  (bind (e-try-prefix (e-resolve d false) e-prefixes w) (λ p → if e-nullp p then e-try-suffix (e-resolve d false) e-suffixes w else ret {lzero} {W} p)))
+e-all-en-self : List Word → List (List (List Word)) → Bool
+e-all-en-self p nil = true
+e-all-en-self p (cons m r) = andB (andB (h-eq (e-m (toNat #1) m) "en") (h-eq (e-key (e-m (toNat #4) m)) (e-key p))) (e-all-en-self p r)
+-- ---------------------------------------------------------------- the text augmented (etym.py's augment)
+e-self-variant : List Word → ERow → Bool
+e-self-variant p r = andB (h-not (e-nullc (e-rc r))) (e-all-en-self p (e-rc r))
+e-own-first : List Word → List ERow → List ERow
+e-own-first p rows = list-append (e-filter-r (λ r → h-not (e-self-variant p r)) rows) (e-filter-r (λ r → e-self-variant p r) rows)
+e-web-lines : List (List (List Word)) → List (List Word)
+e-web-lines nil = nil
+e-web-lines (cons s r) = cons (list-append "    (" (list-append (e-nth zero s) (list-append ") " (e-take-chars (toNat #240) (e-nth (toNat #2) s)))))
+  (cons (list-append "    [" (list-append (e-nth (toNat #1) s) "]  (Webster 1913)")) (e-web-lines r))
+e-take-s : Nat → List (List (List Word)) → List (List (List Word))
+e-take-s n s = e-take-l n s
+e-head-row : List ERow → ERow
+e-head-row nil = erow nil nil nil nil nil nil
+e-head-row (cons r rs) = r
+-- each part's gloss and detail lines
+e-part-out : List Word → List Word → EFound → Proc W (List Word × List (List Word))
+e-part-out lw p (e-wikt rows) = bind (e-gloss (e-head-row (e-own-first p rows))) (λ gh → bind (e-detail true nil (e-own-first p rows) (snd gh)) (λ ls →
+  ret (list-append (if h-eq p lw then nil else list-append p ": ") (fst gh) , ls)))
+e-part-out lw p (e-web s) = ret (list-append (if h-eq p lw then nil else list-append p ": ") (list-append (e-take-chars (toNat #80) (e-upto-c #59 (e-nth (toNat #1) (e-nthr zero s)))) " (1913)") ,
+  e-web-lines (e-take-s (toNat #3) s))
+e-part-one : List Word → List Word → Sum Unit EFound → Proc W (List Word × List (List Word))
+e-part-one lw p (inl u) = ret (p , (if h-eq p lw then nil else cons (list-append "  " p) nil))
+e-part-one lw p (inr f) = bind (e-part-out lw p f) (λ go → ret (fst go , list-append (if h-eq p lw then nil else cons (list-append "  " p) nil) (snd go)))
+e-parts-out : List Word → List (List Word × Sum Unit EFound) → Proc W (List (List Word) × List (List Word))
+e-parts-out lw nil = ret (nil , nil)
+e-parts-out lw (cons pf r) = bind (e-part-one lw (fst pf) (snd pf)) (λ one → bind (e-parts-out lw r) (λ rest →
+  ret (cons (fst one) (fst rest) , list-append (snd one) (snd rest))))
+-- a word of the text: [A-Za-z][A-Za-z'’-]*
+e-wchar : List Word → Word
+e-wchar t = if orB (e-letter (e-head t)) (orB (weq (e-head t) #39) (weq (e-head t) #45)) then #1
+  else if h-prefix (e-utf8 #8217) t then #3 else #0
+e-word-run : Nat → List Word → List Word
+e-word-run zero t = nil
+e-word-run (suc f) t = if weq (e-wchar t) #0 then nil else list-append (h-take (toNat (e-wchar t)) t) (e-word-run f (e-drop-n (toNat (e-wchar t)) t))
+e-lq-f : Nat → List Word → List Word
+e-lq-f zero t = t
+e-lq-f (suc f) nil = nil
+e-lq-f (suc f) (cons c r) = if orB (weq c #39) (weq c #45) then e-lq-f f r
+  else if andB (weq c #226) (h-prefix (cons #128 (cons #153 nil)) r) then e-lq-f f (e-drop-n (toNat #2) r)
+  else if andB (weq c #153) (h-prefix (cons #128 (cons #226 nil)) r) then e-lq-f f (e-drop-n (toNat #2) r)
+  else cons c r
+e-lq : List Word → List Word
+e-lq t = e-lq-f (list-length t) t
+e-strip-q : List Word → List Word
+e-strip-q t = h-rev (e-lq (h-rev (e-lq t) nil)) nil
+e-sentence-start : List Word → Bool
+e-sentence-start prior = orB (h-ends "." (e-strip prior)) (orB (h-ends "!" (e-strip prior)) (orB (h-ends "?" (e-strip prior)) (orB (h-ends ":" (e-strip prior))
+  (orB (h-ends e-q (e-strip prior)) (h-ends (e-utf8 #8220) (e-strip prior))))))
+e-or-found : Sum Unit EFound → Proc W (Sum Unit EFound) → Proc W (Sum Unit EFound)
+e-or-found (inr f) k = ret (inr f)
+e-or-found (inl u) k = k
+e-parts-if : List Word → Sum Unit EFound → List (List Word × Sum Unit EFound)
+e-parts-if lw (inl u) = nil
+e-parts-if lw (inr f) = cons (lw , inr f) nil
+e-word-parts : Bool → List Word → List Word → List Word → Proc W (List (List Word × Sum Unit EFound))
+e-word-parts proper w lw prior = if proper
+  then bind (e-one w (inr w)) (λ r → bind (e-or-found r (e-one lw (inr w))) (λ r2 → ret {lzero} {W} (e-parts-if lw r2)))
+  else e-resolve (toNat #3) true lw
+-- one word looked up in a process of its own (the machine keeps what a process reads until it ends):
+-- its gloss on the first line of build/etym/word, then its detail; "-" when nothing explains it
+e-word-main : List (List Word) → Proc W Unit
+e-word-main args = bind (e-word-parts (h-eq (e-nth zero args) "1") (e-nth (toNat #1) args) (e-nth (toNat #2) args) nil) (λ parts →
+  if e-nullp parts then bind (h-write "build/etym/word" (h-line "-")) (λ w → exit #0)
+  else bind (e-parts-out (e-nth (toNat #2) args) parts) (λ gl →
+    bind (h-write "build/etym/word" (list-append (h-line (e-join " + " (fst gl))) (e-join (cons #10 nil) (cons (e-nth (toNat #1) args) (snd gl))))) (λ w → exit #0)))
+e-word-child : Bool → List Word → List Word → Proc W (List Word)
+e-word-child proper w lw = bind h-args (λ a → bind (h-write "build/etym/word" (h-line "-")) (λ x →
+  bind (h-run (cons (e-nth zero a) (cons (e-nth (toNat #1) a) (cons "--word" (cons (if proper then "1" else "0") (cons w (cons lw nil))))))) (λ s →
+  if weq s #0 then bind (h-read "build/etym/word") (λ t → ret {lzero} {W} (e-or t))
+  else bind (h-say (h-line (list-append "etym: " (list-append w (list-append " could not be looked up (exit " (list-append (h-decimal s) ")")))))) (λ u → ret {lzero} {W} (h-line "-")))))
+e-aug-word : Nat → Bool → List (List Word) → List Word → List Word → List Word → (List (List Word) → List Word → List Word → Proc W (List Word × List (List Word))) → Proc W (List Word × List (List Word))
+e-aug-word f all seen prior w rest k =
+  if orB (orB (h-infix "'" (e-strip-q (e-lc w))) (h-infix (e-utf8 #8217) (e-strip-q (e-lc w)))) (orB (h-has (e-strip-q (e-lc w)) seen) (andB (h-not all) (h-has (e-strip-q (e-lc w)) e-stop)))
+  then bind (k seen (list-append prior w) rest) (λ o → ret {lzero} {W} (list-append w (fst o) , snd o))
+  else bind (e-word-child (andB (e-upper (e-head w)) (andB (h-not (h-null prior)) (h-not (e-sentence-start prior)))) w (e-strip-q (e-lc w))) (λ res →
+    bind (k (cons (e-strip-q (e-lc w)) seen) (list-append prior w) rest) (λ o →
+    if h-eq (e-upto-c #10 res) "-" then ret {lzero} {W} (list-append w (fst o) , snd o)
+    else ret {lzero} {W} (list-append w (list-append " " (list-append (e-utf8 #10216) (list-append (e-upto-c #10 res) (list-append (e-utf8 #10217) (fst o))))) ,
+      cons (e-or (e-after-c #10 res)) (snd o))))
+e-aug : Nat → Bool → List (List Word) → List Word → List Word → Proc W (List Word × List (List Word))
+e-aug zero all seen prior t = ret (t , nil)
+e-aug (suc f) all seen prior nil = ret (nil , nil)
+e-aug (suc f) all seen prior (cons c r) = if h-not (e-letter c) then bind (e-aug f all seen (list-append prior (cons c nil)) r) (λ o → ret (cons c (fst o) , snd o))
+  else e-aug-word f all seen prior (e-word-run (list-length (cons c r)) (cons c r)) (e-drop-n (list-length (e-word-run (list-length (cons c r)) (cons c r))) (cons c r)) (e-aug f all)
+e-augment : Bool → List Word → Proc W (List Word)
+e-augment all t = bind (e-aug (list-length t) all nil nil t) (λ o → ret (list-append (fst o) (list-append (cons #10 (cons #10 nil)) (e-join (cons #10 (cons #10 nil)) (snd o)))))
+-- ---------------------------------------------------------------- the program
+e-usage : List Word
+e-usage = h-line "hyperactive etym TEXT | hyperactive etym --all TEXT | echo TEXT | hyperactive etym: the text, each word followed by ⟨its immediate origin … ← its deepest root⟩, then each word's first sense, its etymology and the chain of origins followed back to the root"
+e-go : Bool → List Word → Proc W Unit
+e-go all t = if h-null (e-strip t) then bind (h-say e-usage) (λ u → exit #1) else
+  bind e-ready (λ u → bind (e-augment all t) (λ o → bind (h-out (h-line o)) (λ v → exit #0)))
+e-main-with : List (List Word) → Proc W Unit
+e-main-with args = if h-eq (e-nth zero args) "--chunk" then e-chunk-main (h-tail-lists args)
+  else if h-eq (e-nth zero args) "--word" then e-word-main (h-tail-lists args)
+  else if h-eq (e-nth zero args) "--entries" then e-entries-main (h-tail-lists args)
+  else if h-null (h-concat (e-filter (λ x → h-not (h-eq x "--all")) args)) then bind h-stdin (e-go (h-has "--all" args))
+  else e-go (h-has "--all" args) (e-join " " (e-filter (λ x → h-not (h-eq x "--all")) args))
+e-main : Proc W Unit
+e-main = bind h-args (λ a → e-main-with (h-drop-n (suc (suc zero)) a))
+e-run : Step W Unit
+e-run = to-step e-main
+#run e-run
