@@ -52,16 +52,23 @@ static Port drv_bytes_of(Bytes *b) { Cell *c = cell(V_BYTES, 1); c->x = PT_BYTES
 /* the next cell of a list being written: a rest that is a text (V_TEXT) is taken whole, its bytes
  * copied after the n already gathered, and (Cell *)1 returned; otherwise the list's next value */
 static Cell *drv_text_tail(Port p, unsigned char **b, size_t *n, size_t *cap) {
-    Cell *h = observe(p);
-    while (h && h->kind == V_REF) { p = ref_copy(h); h = observe(p); }
-    if (h && h->kind == V_TEXT) {
+    /* as obs_val, each port observed once, stopping at a text */
+    for (;;) {
+        Cell *h = observe(p);
+        if (!h) return NULL;
+        if (h->kind == V_REF) { p = ref_copy(h); continue; }
+        if (h->kind == V_THUNK) { p = thunk_build(h); continue; }
+        if (h->kind == V_DEFER) { extern Port unbuilt_build(Cell *c); p = unbuilt_build(h); continue; }
+        if (h->kind == V_GLOBAL) { Port v = global_copy((long)h->a); if (!v) return h; p = v; continue; }
+        if (h->kind == V_TEXT) {
         Bytes *t = h->p; size_t i = (size_t)h->a, m = t && i < t->n ? t->n - i : 0;
         if (*n + m > *cap) { *cap = *n + m + 65536; *b = realloc(*b, *cap); }
         if (m) memcpy(*b + *n, t->b + i, m);
         *n += m;
-        return (Cell *)1;
+            return (Cell *)1;
+        }
+        return h;
     }
-    return obs_val(p);
 }
 static void drivers_run(Node *t) {
     int c_sdone = drv_con("sdone"), c_scmd = drv_con("scmd"), c_unit = drv_con("unit");
