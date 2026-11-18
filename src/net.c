@@ -35,7 +35,7 @@ typedef struct Local {
     Var *vfree; Slab *vcur;
     long freed;                                         /* cells and variables freed since the last release */
     Redex *made; size_t nmade, capmade; struct Box **dead; size_t ndead, capdead; struct Wire *wires; size_t nwires, capwires;
-    long steps, kind[K_END], cells, hits, keys; long pushed, done;   /* pushed, done: pairs this thread queued, and pairs it finished (its own or stolen); written by it alone */
+    long steps, kind[K_END], cells; long pushed, done;   /* pushed, done: pairs this thread queued, and pairs it finished (its own or stolen); written by it alone */
     struct Local *next;
 } Local;
 static __thread Local *L;
@@ -53,11 +53,11 @@ static inline void slab_take(Slab *s) { if (net_solo) s->live++; else __atomic_f
 static inline void slab_drop(Slab *s) { if (net_solo) s->live--; else __atomic_fetch_sub(&s->live, 1, __ATOMIC_RELAXED); }
 /* the counts over every thread, into the globals a reading reports (threads are parked when read) */
 void stat_gather(void) {
-    long st = 0, cells = 0, hits = 0, keys = 0;
+    long st = 0, cells = 0;
     pthread_mutex_lock(&allmu);
-    for (Local *l = ALL; l; l = l->next) { st += l->steps; cells += l->cells; hits += l->hits; keys += l->keys; }
+    for (Local *l = ALL; l; l = l->next) { st += l->steps; cells += l->cells; }
     pthread_mutex_unlock(&allmu);
-    stat_steps = st; stat_cells = cells; stat_hits = hits; stat_keys = keys;
+    stat_steps = st; stat_cells = cells;
 }
 /* the steps by kind (CUBICAL_PROFILE): gathered only when printed */
 void stat_gather_kinds(void) {
@@ -87,7 +87,7 @@ Cell *cell(int kind, int n) {
     }
     c->n = (uint16_t)n;   /* never changes: a freed cell is reused only for a cell of the same size */
     memset(c->port, 0, (size_t)n * sizeof(Port));
-    c->kind = (uint16_t)kind; c->x = 0; c->ty = 0; c->a = 0; c->p = NULL; c->key = NULL; c->e = NULL;
+    c->kind = (uint16_t)kind; c->x = 0; c->ty = 0; c->a = 0; c->p = NULL;
     l->cells++;
     return c;
 }
@@ -112,8 +112,7 @@ static void payload_release(Cell *c) {
     else if (c->kind == V_DEFER && c->p && owns_dnf((int)c->ty)) dnf_release(c->p);
     c->p = NULL;
 }
-static void memo_leave(Cell *c);
-void cell_free(Cell *c) { if (c->e) memo_leave(c); if (c->key) { key_release(c->key); c->key = NULL; } payload_release(c); Local *l = local(); c->a = (uint64_t)(uintptr_t)l->defer; l->defer = c; l->cells--; }
+void cell_free(Cell *c) { payload_release(c); Local *l = local(); c->a = (uint64_t)(uintptr_t)l->defer; l->defer = c; l->cells--; }
 static void flush_frees(void) {
     Local *l = local();
     while (l->defer) {
@@ -150,7 +149,7 @@ static void arenas_release(void) {
     }
     pthread_mutex_unlock(&allmu);
 }
-static Cell *clone(const Cell *v) { Cell *c = cell(v->kind, v->n); c->x = v->x; c->ty = v->ty; c->a = v->a; c->p = v->p; c->key = v->key ? key_retain(v->key) : NULL; payload_retain(c); return c; }
+static Cell *clone(const Cell *v) { Cell *c = cell(v->kind, v->n); c->x = v->x; c->ty = v->ty; c->a = v->a; c->p = v->p; payload_retain(c); return c; }
 
 /* ---------------- variables: the wires ----------------
  * (core.h Var.) A slot is written by exchange: the first side leaves what it has, the second takes
@@ -164,12 +163,11 @@ static Var *var_new(void) {
         if (!sl || sl->used + sizeof(Var) > SLAB) sl = l->vcur = slab_new(l, ~0u);
         v = (Var *)((char *)sl + sl->used); sl->used += sizeof(Var); slab_take(sl);
     }
-    v->p = 0; v->key = NULL;
+    v->p = 0;
     return v;
 }
 /* emptied, and kept mapped until the next release: a reader following a stale handle finds 0 or a port */
 static void var_free(Var *v) {
-    if (v->key) { key_release(v->key); v->key = NULL; }
     if (net_solo) v->p = 0; else __atomic_store_n(&v->p, 0, __ATOMIC_RELAXED);
     Local *l = local(); v->next = l->vfree; l->vfree = v; l->freed++; slab_drop(slab_of(v));
 }
@@ -322,7 +320,6 @@ static void redex(Port a, Port b) {
     if (l->nmade == l->capmade) { l->capmade = l->capmade ? l->capmade * 2 : 64; l->made = realloc(l->made, l->capmade * sizeof(Redex)); }
     l->made[l->nmade++] = (Redex){ op, val };
 }
-static Key *key_of_aux(Port p);
 /* an auxiliary port named here is a slot of a cell being wired (or an observation's root) */
 static inline bool is_aux(Port p) { return PI(p) >= 1 || PC(p)->kind == O_ROOT; }
 static inline void slot_set(Port a, Port x) { sstore(&PC(a)->port[PI(a)], x); }
@@ -350,7 +347,6 @@ void link(Port a, Port b) {
     bool aa = !is_var(a) && is_aux(a), ab = !is_var(b) && is_aux(b);
     if (aa && ab) {
         Var *v = var_new();
-        v->key = key_of_aux(a); if (!v->key) v->key = key_of_aux(b);
         slot_set(a, VARP(v)); slot_set(b, VARP(v));
         return;
     }
@@ -378,367 +374,9 @@ static void mv(Cell *c, int k, Port to) { link(c->port[k], to); }
 static Port out_of(Cell *o) { return o->port[o->n - 1]; }
 
 
-/* ---------------- keys ----------------
- * Interned terms (core.h Key). One table and one mutex serve interning and the memo below; the
- * mutex is taken inside rules and never while a cell lock is taken, so it is innermost. */
 static void era(Port prov);
-long stat_hits, stat_keys;
-/* The tables are sharded by the high bits of the key's hash (the slot within a table is its low
- * bits), one mutex per shard: workers interning or registering unrelated keys do not meet. A key's
- * children may live in other shards, so a freed key is unlinked from its table under the shard's
- * lock and its children released after the unlock (a cascade holding one shard's lock while taking
- * another's could meet the opposite cascade). */
-typedef struct Entry Entry;
-#define KSH 64
-typedef struct { pthread_mutex_t mu; Key **KT; size_t KTcap, KTn; Entry **MT; size_t MTcap, MTn; } Shard;
-static Shard SH[KSH] __attribute__((aligned(64)));
-_Static_assert(KSH == 64, "shard_of takes the top 6 bits");
-static inline Shard *shard_of(uint64_t h) { return &SH[h >> 58]; }
-static inline void klock(Shard *s) { if (!net_solo) pthread_mutex_lock(&s->mu); }
-static inline void kunlock(Shard *s) { if (!net_solo) pthread_mutex_unlock(&s->mu); }
-static void shards_init(void) { for (int i = 0; i < KSH; i++) pthread_mutex_init(&SH[i].mu, NULL); }
-static void key_print_d(FILE *o, const Key *k, int d);
-static void key_print(FILE *o, const Key *k) { key_print_d(o, k, 0); }
-static void key_print_d(FILE *o, const Key *k, int d) {
-    static const char *T[] = { "?", "W", "I", "F", "V", "G", "CON", "DATA", "LAM", "PAIR", "PI", "SIGMA", "PATHP", "U", "APP", "FST", "SND", "PAPP", "CASE", "FORCE", "SUB", "SUBST", "DIM", "TERM", "WTY", "UNFOLD" };
-    if (d > 12) { fprintf(o, "…"); return; }
-    fprintf(o, "(%s", T[k->tag]);
-    if (k->tag == K_GLOBAL) fprintf(o, " %s", name_of((long)k->a));
-    else if (k->tag == K_CON) fprintf(o, " %s", CON[k->a].name);
-    else if (k->tag == K_WORD || k->tag == K_VAR || k->tag == K_DIM) fprintf(o, " %llu", (unsigned long long)k->a);
-    else if (k->tag == K_CASE || k->tag == K_LAM) fprintf(o, " @%p", k->p);
-    for (uint32_t i = 0; i < k->n; i++) { fputc(' ', o); key_print_d(o, k->c[i], d + 1); }
-    fputc(')', o);
-}
-static bool key_trace;   /* CUBICAL_KEYS: the keys registered, fired and hit, on stderr */
 static int a8_off = -1;
 static inline bool getenv_a8_off(void) { if (a8_off < 0) a8_off = getenv("CUBICAL_NOA8") != NULL; return a8_off; }
-static bool no_memo;     /* CUBICAL_NOMEMO: no producer is pending on its key (every value computed where it is read) */
-static __thread Key *scrut_key;   /* set by a case rule for the branch it builds; taken by the branch's frame */
-static uint64_t mix(uint64_t h, uint64_t x) { h ^= x + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2); return h * 0x100000001b3ull; }
-static uint64_t dnf_hash(const Dnf *d) {
-    uint64_t h = 7;
-    if (!d) return h;
-    for (uint32_t i = 0; i < d->n; i++) { h = mix(h, d->c[i]->n); for (uint32_t k = 0; k < d->c[i]->n; k++) h = mix(h, d->c[i]->l[k]); }
-    return h;
-}
-static uint64_t key_hash(int tag, uint64_t a, const void *p, int n, Key *const *c) {
-    uint64_t h = mix(mix(17, (uint64_t)tag), a);
-    if (tag == K_IV || tag == K_FACE) h = mix(h, dnf_hash(p));
-    else if (tag == K_WORD) { const Big *b = p; if (b) for (uint32_t i = 0; i < b->n; i++) h = mix(h, b->l[i]); }
-    else h = mix(h, (uint64_t)(uintptr_t)p);
-    for (int i = 0; i < n; i++) h = mix(h, (uint64_t)(uintptr_t)c[i]);
-    return h;
-}
-static bool key_same(const Key *k, int tag, uint64_t a, const void *p, int n, Key *const *c) {
-    if (k->tag != tag || k->a != a || k->n != (uint32_t)n) return false;
-    for (int i = 0; i < n; i++) if (k->c[i] != c[i]) return false;
-    if (tag == K_IV || tag == K_FACE) return dnf_equal(k->p, p);
-    if (tag == K_WORD) { WN x = { a, k->p }, y = { a, (Big *)p }; return wn_cmp(&x, &y) == 0; }
-    return k->p == p;
-}
-/* A key of a constructor or a global (no children) is immortal: it is the most shared of all (every
- * numeral's digits name one), so its count would be a line both cores write on most steps; it is
- * never freed, and its holders neither count nor uncount it */
-#define KIMMORTAL 0x40000000u
-static inline bool key_imm(const Key *k) { return (net_solo ? k->rc : __atomic_load_n(&k->rc, __ATOMIC_RELAXED)) & KIMMORTAL; }
-Key *key_retain(Key *k) { if (!key_imm(k)) rc_inc(&k->rc); return k; }
-/* unlink a key whose count reached zero from its shard's table (under the shard's lock) */
-static void key_unlink(Shard *s, Key *k) {
-    Key **KT = s->KT; size_t KTcap = s->KTcap;
-    size_t i = k->h & (KTcap - 1);
-    while (KT[i] != k) i = (i + 1) & (KTcap - 1);
-    /* open addressing: re-insert the run after the hole */
-    KT[i] = NULL; s->KTn--;
-    for (size_t j = (i + 1) & (KTcap - 1); KT[j]; j = (j + 1) & (KTcap - 1)) {
-        Key *m = KT[j]; KT[j] = NULL;
-        size_t q = m->h & (KTcap - 1);
-        while (KT[q]) q = (q + 1) & (KTcap - 1);
-        KT[q] = m;
-    }
-}
-/* the rest of freeing an unlinked key (no lock held: the children's shards are taken one by one).
- * A key is as deep as the term it names (a unary numeral's, one child per digit), so the children
- * are freed from an explicit stack, not by recursion */
-static void key_destroy(Key *k) {
-    Key *buf[64], **stk = buf; size_t n = 0, cap = 64;
-    stk[n++] = k;
-    while (n) {
-        k = stk[--n];
-        if (k->tag == K_IV || k->tag == K_FACE) dnf_release(k->p);
-        else if (k->tag == K_WORD) big_release(k->p);
-        for (uint32_t i = 0; i < k->n; i++) {
-            Key *c = k->c[i];
-            if (key_imm(c) || rc_dec(&c->rc) != 0) continue;
-            Shard *s = shard_of(c->h);
-            klock(s); key_unlink(s, c); kunlock(s);
-            if (n == cap) { cap *= 2; Key **m = malloc(cap * sizeof *m); memcpy(m, stk, n * sizeof *m); if (stk != buf) free(stk); stk = m; }
-            stk[n++] = c;
-        }
-        free(k);
-    }
-    if (stk != buf) free(stk);
-}
-/* A count that reaches zero is never raised again: interning takes a reference only to a key whose
- * count is not zero (key() below), and every other retain is by a holder of a reference. So the
- * last releaser frees the key; until it does, interning passes over it */
-void key_release(Key *k) {
-    if (key_imm(k)) return;
-    if (rc_dec(&k->rc) == 0) {
-        Shard *s = shard_of(k->h);
-        klock(s); key_unlink(s, k); kunlock(s);
-        key_destroy(k);
-    }
-}
-/* a release under the key's own shard's lock: the key to destroy after the unlock, or NULL */
-static Key *key_release_locked(Shard *s, Key *k) {
-    if (key_imm(k) || rc_dec(&k->rc) != 0) return NULL;
-    key_unlink(s, k);
-    return k;
-}
-/* the interned key (a reference the caller owns); children are borrowed (retained here); a Dnf or
- * Big payload is retained, others held by pointer */
-static Key *key(int tag, uint64_t a, void *p, int n, Key *const *c) {
-    for (int i = 0; i < n; i++) if (!c[i]) return NULL;
-    uint64_t h = key_hash(tag, a, p, n, c);
-    Shard *s = shard_of(h);
-    klock(s);
-    if (s->KTn * 2 >= s->KTcap) {
-        size_t nc = s->KTcap ? s->KTcap * 2 : 1024;
-        Key **nt = calloc(nc, sizeof(Key *));
-        for (size_t i = 0; i < s->KTcap; i++) if (s->KT[i]) { size_t q = s->KT[i]->h & (nc - 1); while (nt[q]) q = (q + 1) & (nc - 1); nt[q] = s->KT[i]; }
-        free(s->KT); s->KT = nt; s->KTcap = nc;
-    }
-    Key **KT = s->KT; size_t KTcap = s->KTcap;
-    size_t i = h & (KTcap - 1);
-    for (; KT[i]; i = (i + 1) & (KTcap - 1))
-        if (KT[i]->h == h && key_same(KT[i], tag, a, p, n, c)) {
-            /* a reference to it, unless its last reference is gone (its releaser frees it) */
-            Key *k = KT[i];
-            uint32_t r = __atomic_load_n(&k->rc, __ATOMIC_ACQUIRE);
-            if (r & KIMMORTAL) { kunlock(s); return k; }
-            if (net_solo) { if (r) k->rc = r + 1; }
-            else while (r && !__atomic_compare_exchange_n(&k->rc, &r, r + 1, true, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) { }
-            if (r) { kunlock(s); return k; }
-        }
-    Key *k = malloc(sizeof(Key) + (size_t)n * sizeof(Key *));
-    k->rc = n == 0 && (tag == K_CON || tag == K_GLOBAL) ? KIMMORTAL : 1; k->n = (uint32_t)n; k->h = h; k->tag = (uint16_t)tag; k->a = a;
-    k->p = (tag == K_IV || tag == K_FACE) ? dnf_retain(p) : tag == K_WORD ? big_retain(p) : p;
-    for (int j = 0; j < n; j++) k->c[j] = key_retain(c[j]);
-    KT[i] = k; s->KTn++;
-    kunlock(s);
-    return k;
-}
-static Key *key0(int tag, uint64_t a, void *p) { return key(tag, a, p, 0, NULL); }
-static Key *key1(int tag, uint64_t a, void *p, Key *x) { return key(tag, a, p, 1, &x); }
-static Key *key2(int tag, uint64_t a, void *p, Key *x, Key *y) { Key *c[2] = { x, y }; return key(tag, a, p, 2, c); }
-Key *key_global(long g) { return key0(K_GLOBAL, (uint64_t)g, NULL); }
-Key *key_con0(int c) { return key0(K_CON, (uint64_t)c, NULL); }
-/* a substitution as a key: its (dimension, interval) pairs, in order */
-static Key *subst_key(const Subst *s) {
-    int n = (int)(2 * s->n);
-    Key **c = calloc((size_t)n + 1, sizeof(Key *)); int m = 0;
-    for (uint32_t i = 0; i < s->n; i++) { c[m++] = key0(K_DIM, s->d[i], NULL); c[m++] = key0(K_IV, 0, s->v[i]); }
-    Key *r = key(K_SUBST, 0, NULL, m, c);
-    for (int i = 0; i < m; i++) if (c[i]) key_release(c[i]);
-    free(c);
-    return r;
-}
-/* the key of a cell as it stands: its term, under the substitution a thunk or reference carries (a
- * reference carries its box's key, or the key of the box it was itself held in). The caller owns
- * the result */
-static Key *eff_key(Cell *c) {
-    /* an interval or a face is named by what it holds: rules change these in place (negation,
-     * meet and join, substitution), and a key kept from before would name another formula */
-    if (c->kind == V_IV || c->kind == V_FACE) return c->p ? key0(c->kind == V_IV ? K_IV : K_FACE, 0, c->p) : NULL;
-    Key *k = c->key;
-    if (!k) return NULL;
-    if ((c->kind == V_THUNK || c->kind == V_REF) && c->a) {
-        Key *sk = subst_key((Subst *)(uintptr_t)c->a);
-        if (!sk) return NULL;
-        Key *r = key2(K_SUB, 0, NULL, k, sk); key_release(sk);
-        return r;
-    }
-    return key_retain(k);
-}
-/* the key of the value named k under the substitution s (the caller owns it), or NULL */
-static Key *key_under(Key *k, const Subst *s) {
-    if (!s || !s->n) return key_retain(k);
-    Key *sk = subst_key(s);
-    if (!sk) return NULL;
-    Key *r = key2(K_SUB, 0, NULL, k, sk); key_release(sk);
-    return r;
-}
-/* the key the output port of a keyed operation carries (a duplicator's outputs carry their input's
- * key); the caller owns the result */
-static Key *key_of_aux(Port p) {
-    Cell *c = PC(p);
-    if (!c->key) return NULL;
-    if (c->kind == O_DUP || c->kind == O_FWD || c->kind == O_SHARE) return (PI(p) == 1 || PI(p) == 2) ? key_retain(c->key) : NULL;
-    return PI(p) == c->n - 1 ? key_retain(c->key) : NULL;
-}
-/* the key of what a port provides: a value or reference at its principal port, the output of a
- * keyed operation, or a wire made from one (the variable keeps it). A variable is read by a holder
- * of one of its sides, so it is live. The caller owns the result */
-static Key *key_of_port(Port p) {
-    if (!p) return NULL;
-    if (is_var(p)) { Key *k = PV(p)->key; return k ? key_retain(k) : NULL; }
-    Cell *c = PC(p);
-    if (PI(p) == 0) return is_value(c->kind) ? eff_key(c) : NULL;
-    return key_of_aux(p);
-}
-
-/* ---------------- memo: one value per live key ----------------
- * A key names a term over the values it is built on: a held value (a box) is named by what was
- * put in it, and a value copied out of a box, or rebuilt from the fields a case took from it,
- * carries the box's key, so one value reached by any route has one name. A cell that will
- * produce the value of a term (a thunk, a saturated call, an application of a known λ, a case) is
- * pending on its key from its creation. When one fires while another is pending, the value goes
- * into a box and both read it (the second waits on the wire for it, uncounted, as any read of a
- * value not yet there); the entry and its box live exactly while a producer is pending or a reader
- * holds the box (archive/HANDOFF.md, v13, 16 Oct 2026, sha256 04025bd9f961…, §36 “Ownership, cache retention, and teardown”: retention is reachability). When the firing producer is the only
- * one pending, it builds directly: nothing holds the value. */
-struct Entry { Key *k; Box *box; long pending; bool hold; struct Entry *next; };   /* hold: the entry holds one reference on its box while a producer is pending */
-static Entry *memo_find(Shard *s, Key *k, bool make) {   /* under the shard's lock */
-    if (s->MTcap == 0) { s->MTcap = 1024; s->MT = calloc(s->MTcap, sizeof(Entry *)); }
-    size_t i = k->h & (s->MTcap - 1);
-    for (Entry *e = s->MT[i]; e; e = e->next) if (e->k == k) return e;
-    if (!make) return NULL;
-    if (s->MTn * 2 >= s->MTcap) {
-        size_t nc = s->MTcap * 2; Entry **nt = calloc(nc, sizeof(Entry *));
-        for (size_t j = 0; j < s->MTcap; j++) for (Entry *e = s->MT[j], *nx; e; e = nx) { nx = e->next; size_t q = e->k->h & (nc - 1); e->next = nt[q]; nt[q] = e; }
-        free(s->MT); s->MT = nt; s->MTcap = nc; i = k->h & (s->MTcap - 1);
-    }
-    Entry *e = calloc(1, sizeof(Entry)); e->k = key_retain(k); e->next = s->MT[i]; s->MT[i] = e; s->MTn++;
-    return e;
-}
-/* under the shard's lock: no producer pending, no box. Returns the entry's key if this was its last
- * reference, to destroy after the unlock */
-static Key *memo_drop(Shard *s, Entry *e) {
-    size_t i = e->k->h & (s->MTcap - 1);
-    for (Entry **pp = &s->MT[i]; *pp; pp = &(*pp)->next) if (*pp == e) { *pp = e->next; break; }
-    s->MTn--; Key *k = key_release_locked(s, e->k); free(e);
-    return k;
-}
-static void box_release(Box *b);
-/* Holding a box through its memo entry races with its last holder releasing it: the count reaches
- * zero in one thread while another, under the shard lock, still sees the entry's box. The releaser
- * claims the zero (rc 0 → -1) before touching the entry; an increment through the entry refuses a
- * claimed box and detaches it from the entry itself, so no reference to a dying box is ever made */
-static bool box_try_hold(Box *b) {
-    if (net_solo) { if (b->rc < 0) return false; b->rc++; return true; }
-    long v = __atomic_load_n(&b->rc, __ATOMIC_RELAXED);
-    while (v >= 0) if (__atomic_compare_exchange_n(&b->rc, &v, v + 1, true, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) return true;
-    return false;
-}
-/* under the shard lock: the entry's box, held once more; or NULL when it is dying (and detached) */
-static Box *entry_hold_box(Entry *e) {
-    Box *b = e->box;
-    if (!b) return NULL;
-    if (box_try_hold(b)) return b;
-    Entry *was = net_solo ? b->e : __atomic_exchange_n(&b->e, NULL, __ATOMIC_ACQ_REL);
-    if (net_solo) b->e = NULL;
-    /* the releaser took the entry first: it reads the entry before it locks, then detaches the box
-     * and drops the entry itself, so the entry stays (with its dying box) until then */
-    if (!was) return NULL;
-    e->box = NULL; e->hold = false;
-    return NULL;
-}
-/* a producer cell with a key: pending on it */
-static void memo_register(Cell *c) {
-    if (no_memo) return;
-    Key *k = eff_key(c);
-    if (!k) return;
-    if (key_trace) { fprintf(stderr, "register %d ", c->kind); key_print(stderr, k); fputc('\n', stderr); }
-    Shard *s = shard_of(k->h);
-    klock(s);
-    Entry *e = memo_find(s, k, true); e->pending++; c->e = e;
-    if (e->box && !e->hold && entry_hold_box(e)) e->hold = true;
-    kunlock(s);
-    key_release(k);
-}
-static void memo_leave(Cell *c) {   /* a pending producer consumed without producing (erased) or re-keyed */
-    Entry *e = c->e; c->e = NULL;
-    Shard *s = shard_of(e->k->h);
-    Key *gone = NULL;
-    klock(s);
-    if (--e->pending == 0) {
-        if (e->box) { Box *b = e->box; bool h = e->hold; e->hold = false; kunlock(s); if (h) box_release(b); return; }
-        gone = memo_drop(s, e);
-    }
-    kunlock(s);
-    if (gone) key_destroy(gone);
-}
-/* a pending producer fires. Returns the port to give its consumer when the value is (or will be)
- * shared, and *out = the box to build into (NULL when the value is already there or being built);
- * returns 0 when the producer builds directly */
-static Port memo_begin(Cell *c, Box **out, bool builder) {
-    *out = NULL;
-    Entry *e = c->e;
-    if (!e) return 0;
-    c->e = NULL;
-    Shard *s = shard_of(e->k->h);
-    klock(s);
-    e->pending--;
-    if (key_trace) { fprintf(stderr, "fire %d %s pending=%ld box=%d ", c->kind, builder ? "builder" : "thunk", e->pending, e->box != NULL); key_print(stderr, e->k); fputc('\n', stderr); }
-    Box *b = entry_hold_box(e);   /* NULL: none, or dying (then detached: build anew) */
-    if (b) {
-        /* the value, there or being built: read it */
-        bool last = e->pending == 0 && e->hold;
-        if (last) e->hold = false;
-        kunlock(s);
-        local()->hits++;
-        Cell *r = cell(V_REF, 1); r->p = b; r->key = key_retain(b->key);
-        if (last) box_release(b);   /* the entry's own hold */
-        return P(r, 0);
-    }
-    if (!builder || e->pending == 0) {
-        /* a thunk: its body's producer, which has the same key, decides (it registers as pending);
-         * a builder nobody else waits for builds directly */
-        Key *gone = e->pending == 0 && !e->box ? memo_drop(s, e) : NULL;   /* (a dying box's releaser drops it) */
-        kunlock(s);
-        if (gone) key_destroy(gone);
-        return 0;
-    }
-    /* others wait for this value: it is held once and read by reference. Its root holds the wire
-     * the value will be linked into (memo_end); a reader finding nothing there yet waits on it */
-    b = malloc(sizeof(Box)); b->rc = 2; b->root = cell(O_ROOT, 1); b->key = key_retain(e->k); b->e = e; b->fd = NULL; b->fdtries = 0;
-    { Var *t = var_new(); t->key = key_retain(e->k); b->in = VARP(t); b->root->port[0] = VARP(t); }
-    e->box = b; e->hold = true;
-    kunlock(s);
-    local()->keys++;
-    *out = b;
-    Cell *r = cell(V_REF, 1); r->p = b; r->key = key_retain(b->key);
-    return P(r, 0);
-}
-/* CUBICAL_KEYS: the entries still live at the end (what holds values across readings) */
-void memo_dump(void) {
-    if (!key_trace) return;
-    size_t en = 0, kn = 0;
-    for (int j = 0; j < KSH; j++) {
-        Shard *s = &SH[j];
-        klock(s);
-        for (size_t i = 0; i < s->MTcap; i++) for (Entry *e = s->MT[i]; e; e = e->next) {
-            fprintf(stderr, "entry pending=%ld box=%d ", e->pending, e->box != NULL);
-            key_print(stderr, e->k); fputc('\n', stderr);
-        }
-        en += s->MTn; kn += s->KTn;
-        kunlock(s);
-    }
-    fprintf(stderr, "%zu entries, %zu keys\n", en, kn);
-}
-/* the box of a memo entry is gone: the entry no longer has a value */
-static void memo_box_gone(Box *b) {
-    Entry *e = net_solo ? b->e : __atomic_exchange_n(&b->e, NULL, __ATOMIC_ACQ_REL);
-    if (net_solo) b->e = NULL;
-    if (!e) return;   /* already detached by a reader that found the box dying */
-    Shard *s = shard_of(e->k->h);
-    Key *gone = NULL;
-    klock(s);
-    if (e->box == b) { e->box = NULL; e->hold = false; if (e->pending == 0) gone = memo_drop(s, e); }
-    kunlock(s);
-    if (gone) key_destroy(gone);
-}
 /* ---------------- small constructors ---------------- */
 /* profile: where each duplicator and eraser comes from (a record's definition, or a rule) */
 static __thread long dup_origin;
@@ -746,14 +384,12 @@ long prof_odup[65536], prof_oera[65536], prof_rdup[256], prof_rera[256];
 long prof_pair[4][256];   /* CUBICAL_PROFILE: SUBST, ERA, DUP, PAPPP steps by the value kind met */
 /* a value held once: references copy the box; the last one erases the value */
 static void box_hold(Box *b);
-static Key *key_of_port(Port p);
 static Box *box_new(Port val) {
-    Box *b = malloc(sizeof(Box)); b->rc = 1; b->root = cell(O_ROOT, 1); b->e = NULL; b->in = 0; b->fd = NULL; b->fdtries = 0;
-    b->key = key_of_port(val);
+    Box *b = malloc(sizeof(Box)); b->rc = 1; b->root = cell(O_ROOT, 1); b->fd = NULL; b->fdtries = 0;
     link(val, P(b->root, 0));
     return b;
 }
-static Cell *ref_to(Box *b) { Cell *r = cell(V_REF, 1); r->p = b; r->key = b->key ? key_retain(b->key) : NULL; return r; }
+static Cell *ref_to(Box *b) { Cell *r = cell(V_REF, 1); r->p = b; return r; }
 /* reading a stored value (held by root): its top cell is copied, each part a reference to the
  * stored part (wrapped in a box when first read), so a part is copied only when an operation
  * reads it, one level per interaction. A reader of a value not yet there (or held unbuilt) waits
@@ -766,19 +402,19 @@ Port unbuilt_build(Cell *v);
 static bool unbuilt(int k);
 static Port sub(Port prov, Subst *s);
 static Port sub_read(Port prov, Subst *s);
-static Port copy_top(Key *as, Cell *v);
-/* as: the key of what is held (the box's; a definition's name): a copy carries it */
-Port lazy_copy(Key *as, Cell *root) {
+static Port copy_top(Cell *v);
+/* a reader of the value root holds */
+Port lazy_copy(Cell *root) {
     for (;;) {
         Port p = sload(&root->port[0]);
         Cell *v = cell_at(p);
-        if (v && is_value(v->kind) && !unbuilt(v->kind)) return copy_top(as, v);
+        if (v && is_value(v->kind) && !unbuilt(v->kind)) return copy_top(v);
         /* the value is not there yet, or is held unbuilt: the reader waits on the wire for it
          * (O_FWD), and is served the same one-level copy when it arrives; an unbuilt value is built
          * by that read, in place, once. Waiting costs no step, so what a read costs does not depend
          * on whether the value had arrived */
-        Cell *d = cell(O_FWD, 3); d->key = as ? key_retain(as) : NULL;
-        Var *t = var_new(); if (d->key) t->key = key_retain(d->key);
+        Cell *d = cell(O_FWD, 3);
+        Var *t = var_new();
         d->port[1] = VARP(t);
         if (!claim(&root->port[0], p, VARP(t))) { var_free(t); cell_free(d); continue; }
         link(p, P(d, 0));
@@ -786,11 +422,9 @@ Port lazy_copy(Key *as, Cell *root) {
     }
 }
 /* one level of a stored value: its top cell copied, each part with parts of its own a reference to a
- * box around the stored part (the stored value's slot then refers to that box too). The copy is
- * named by what is held (as) */
-static Port copy_top(Key *as, Cell *v) {
+ * box around the stored part (the stored value's slot then refers to that box too) */
+static Port copy_top(Cell *v) {
     Cell *c = clone(v);
-    if (as && c->key != as) { if (c->key) key_release(c->key); c->key = key_retain(as); }
     for (int k = 1; k < v->n; k++) for (;;) {
         Port q = sload(&v->port[k]);
         Port r = peek(q);
@@ -807,8 +441,8 @@ static Port copy_top(Key *as, Cell *v) {
              * has no parts, else held once with a reference on each side — so the copy does not
              * depend on whether it had arrived. The stored value's slot is pointed at the sharer's
              * output first, then the sharer is put on the part's wire */
-            Cell *d = cell(O_SHARE, 3); d->key = key_of_port(q);
-            Var *t = var_new(); if (d->key) t->key = key_retain(d->key);
+            Cell *d = cell(O_SHARE, 3);
+            Var *t = var_new();
             d->port[1] = VARP(t);
             if (!claim(&v->port[k], q, VARP(t))) { var_free(t); cell_free(d); continue; }
             link(q, P(d, 0));
@@ -816,14 +450,13 @@ static Port copy_top(Key *as, Cell *v) {
             break;
         }
         /* a part with parts: held once in a box, a reference on each side */
-        Box *b = malloc(sizeof(Box)); b->rc = 2; b->root = cell(O_ROOT, 1); b->e = NULL; b->in = 0; b->fd = NULL; b->fdtries = 0;
-        b->key = eff_key(qc);
+        Box *b = malloc(sizeof(Box)); b->rc = 2; b->root = cell(O_ROOT, 1); b->fd = NULL; b->fdtries = 0;
         b->root->port[0] = r;
         Cell *r1 = ref_to(b), *r2 = ref_to(b);
         if (!claim(&v->port[k], q, P(r1, 0))) {
             /* another reader got there first: it holds the part now */
             r1->p = NULL; r2->p = NULL; cell_free(r1); cell_free(r2);
-            cell_free(b->root); if (b->key) key_release(b->key); free(b);
+            cell_free(b->root); free(b);
             continue;
         }
         if (is_var(q)) take(q);   /* the wire delivered the part; now the box holds it */
@@ -842,13 +475,11 @@ static Port welim_of_wsusp(Cell *v);
  * forms with every port wired); the cell is consumed */
 /* Call by need (CBN): an input the operation always reads (its principal; defer_reads) that is
  * itself a deferred operation held by this one alone (wired straight to it) is run with it, as
- * building the operation strict would have built it; no interaction is skipped, none happens. The
- * operation takes the deferred cell's key and its pending memo entry */
+ * building the operation strict would have built it; no interaction is skipped, none happens */
 static bool defer_reads(const Cell *d, int k);
 static Port defer_build(Cell *d) {
     int nin = d->n - 1;
     Cell *c = cell((int)d->ty, nin + 1); c->x = d->x; c->a = d->a; c->p = d->p; d->p = NULL;
-    c->key = d->key; d->key = NULL; c->e = d->e; d->e = NULL;
     Port in[nin > 0 ? nin : 1];
     for (int k = 0; k < nin; k++) {
         Port q = d->port[k + 1];
@@ -887,22 +518,13 @@ Port unbuilt_build(Cell *v) {
     if (v->kind == V_WSUSP) return welim_of_wsusp(v);
     return thunk_build(v);
 }
-static Port memo_begin(Cell *c, Box **out, bool builder);
-/* a pending producer's result: built into the memo's box when the value is shared */
-static Port memo_end(Port shared, Box *box, Port built) {
-    if (!shared) return built;
-    if (box) link(built, box->in);
-    return shared;
-}
 Port thunk_build(Cell *v) {
     if (prof_on) ADD(prof_count[((Record *)v->p)->where], 1);
-    Box *bx; Port sh = memo_begin(v, &bx, false);
-    if (sh && !bx) { for (int k = 1; k < v->n; k++) era(v->port[k]); cell_free(v); return sh; }
     Port r = record_build(v->p, 0, &v->port[1]);
     /* a substitution that reached it applies to its value */
     if (v->a) r = sub(r, (Subst *)(uintptr_t)v->a);
     cell_free(v);
-    return memo_end(sh, bx, r);
+    return r;
 }
 static Port word_of(uint64_t n) { Cell *c = cell(V_WORD, 1); c->a = n; return P(c, 0); }
 /* the number a word cell holds (a copy), and a word cell holding a number (taking it) */
@@ -911,9 +533,6 @@ static Port word_wn(WN k) { Cell *c = cell(V_WORD, 1); c->a = k.s; c->p = k.b; r
 Port word_port(WN k) { return word_wn(k); }
 /* a reference reads its value under the substitution it carries (a=Subst or 0): the top cell
  * copied and substituted, each part a reference carrying the substitution on */
-/* With a pending substitution the copy of what the box holds is named by the box (the content,
- * which may have free dimensions the substitution closes); the reference's own key names the
- * substituted value, not the content */
 /* CUBICAL_PROFILE: box reads, and how many were of a (box, substitution) pair read before */
 long prof_reads, prof_reads_rep, prof_reads_sub, prof_reads_sub_rep, prof_reads_sub_boxes;
 static uint64_t *rr_tab; static size_t rr_cap, rr_n;
@@ -942,10 +561,9 @@ static bool rr_seen(uint64_t h) {
  * the value, reading nested boxes' sets), and kept on the box. A substitution of other dimensions
  * does not change the value, so a reference's pending substitution is cut down to the box's
  * dimensions (rule_subst on V_REF, ref_read): reads of one box at the dimensions it does not
- * mention are then reads of the box itself, named by its key, and the memo shares them. Whether the
- * set is known when a read happens depends on what has been built, so this runs only with the memo
- * (whose sharing depends on that already); without it every step is as before. Answers are the
- * same either way: the substitution is restricted to a superset of the value's free dimensions */
+ * mention are then reads of the box itself, with no substitution to carry down its parts. Whether
+ * the set is known when a read happens depends on what has been built; answers are the same either
+ * way: the substitution is restricted to a superset of the value's free dimensions */
 typedef struct { Dim d[256]; int n; bool taint, inexact; } FdSet;
 static void fd_add(FdSet *x, Dim d) { for (int i = 0; i < x->n; i++) if (x->d[i] == d) return; if (x->n < 256) x->d[x->n++] = d; else x->n = 257; }
 static void fd_dnf(FdSet *x, const Dnf *v) { if (v) for (uint32_t c = 0; c < v->n; c++) for (uint32_t q = 0; q < v->c[c]->n; q++) fd_add(x, (Dim)(v->c[c]->l[q] >> 1)); }
@@ -1121,21 +739,21 @@ static Port ref_read(Cell *r) {
         if (r->a) { if (!rr_seen((uint64_t)(uintptr_t)b * 0x9E3779B97F4A7C15ULL + 77)) prof_reads_sub_boxes++; h ^= subst_fp((Subst *)(uintptr_t)r->a); prof_reads_sub++; if (rr_seen(h)) prof_reads_sub_rep++; }
         else { prof_reads++; if (rr_seen(h)) prof_reads_rep++; }
     }
-    if (r->a && !no_memo && !getenv_a8_off()) {
+    if (r->a && !getenv_a8_off()) {
         /* the substitution cut to the box's dimensions (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.16 “A8 — Proposal: formal transported compositions”): none left, a read of the box itself */
         fd_why = 0;
         FdInfo *fi = box_fd(b);
         if (!fi && prof_on) prof_fd_why[fd_why < 7 ? fd_why : 0]++;
         if (fi) {
             Subst *t = subst_to_fd((Subst *)(uintptr_t)r->a, fi);
-            if (!t) { if (prof_on) prof_fd_dropped++; return lazy_copy(b->key, b->root); }
+            if (!t) { if (prof_on) prof_fd_dropped++; return lazy_copy(b->root); }
             if (t->n < ((Subst *)(uintptr_t)r->a)->n && prof_on) prof_fd_cut++;
-            Port p = lazy_copy(b->key, b->root);
+            Port p = lazy_copy(b->root);
             Port o = sub_read(p, t); subst_release(t);
             return o;
         }
     }
-    Port p = lazy_copy(r->a ? b->key : r->key, b->root);
+    Port p = lazy_copy(b->root);
     return r->a ? sub_read(p, (Subst *)(uintptr_t)r->a) : p;
 }
 Port ref_copy(Cell *c) { return ref_read(c); }
@@ -1150,14 +768,8 @@ static Port ref_of(Port val) { Cell *c = ref_to(box_new(val)); return P(c, 0); }
 static void era(Port prov);
 /* The last reference to a box gone: what it holds is erased, once the rule that dropped it is done
  * (retire_boxes): the root is then private to this thread */
-static void memo_box_gone(Box *b);
 static void box_release(Box *b) {
     if (rcl_dec(&b->rc)) return;
-    /* claim the zero: a reader that raced us through the memo entry has raised the count again
-     * and owns the box; only the claimant retires it */
-    if (net_solo) { if (b->rc != 0) return; b->rc = -1; }
-    else { long z = 0; if (!__atomic_compare_exchange_n(&b->rc, &z, -1, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) return; }
-    memo_box_gone(b);
     Local *l = local();
     if (l->ndead == l->capdead) { l->capdead = l->capdead ? l->capdead * 2 : 16; l->dead = realloc(l->dead, l->capdead * sizeof(Box *)); }
     l->dead[l->ndead++] = b;
@@ -1170,18 +782,11 @@ static void retire_boxes(void) {
         Port p = r->port[0];
         if (p) era(p);
         cell_free(r);
-        if (b->key) key_release(b->key);
         free(b->fd);
         free(b);
     }
 }
 static void era(Port prov) { Cell *e = cell(O_ERA, 1); e->a = (uint64_t)dup_origin; link(prov, P(e, 0)); }
-/* an interval or face value changed in place: its key follows its payload */
-static void rekey_formula(Cell *v) {
-    if (!v->key) return;
-    key_release(v->key);
-    v->key = key0(v->kind == V_IV ? K_IV : K_FACE, 0, v->p);
-}
 /* A substitution is pending wherever it meets a value with parts (rule_subst; PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.16 “A8 — Proposal: formal transported compositions”): the value is held
  * in a box and a reference carries the substitution, applied one level when the reference is read
  * (ref_read: the copy's top cell substituted by an O_SUBST with x = 1, each part a reference
@@ -1195,10 +800,8 @@ static Port iv_cell(Dnf *r) { Cell *c = cell(V_IV, 1); c->p = r; return P(c, 0);
 static void split(Port prov, int m, Port *out) {
     if (m == 0) { era(prov); return; }
     if (m == 1) { out[0] = prov; return; }
-    Key *k = key_of_port(prov);
-    for (int i = 0; i < m - 1; i++) { Cell *d = cell(O_DUP, 3); d->a = (uint64_t)dup_origin; d->key = k ? key_retain(k) : NULL; link(prov, P(d, 0)); out[i] = P(d, 1); prov = P(d, 2); }
+    for (int i = 0; i < m - 1; i++) { Cell *d = cell(O_DUP, 3); d->a = (uint64_t)dup_origin; link(prov, P(d, 0)); out[i] = P(d, 1); prov = P(d, 2); }
     out[m - 1] = prov;
-    if (k) key_release(k);
 }
 void port_split(Port prov, int m, Port *out) { split(prov, m, out); }
 static void split_restrict(Port prov, const Dnf *cl, int m, Port *out) {
@@ -1218,26 +821,20 @@ static Port tpart(Port T, int k) { Cell *c = cell(O_TPART, 2); c->a = (uint64_t)
 static Port app2(Port f, Port x) { Cell *a = cell(O_APP, 3); link(f, P(a, 0)); link(x, P(a, 1)); return P(a, 2); }
 static Port ntype_of(Port neu) { Cell *c = cell(O_NTYPE, 2); link(neu, P(c, 0)); return P(c, 1); }
 static Port papp_at(Port line, Dnf *r) { Cell *a = cell(O_PAPPR, 3); link(iv_cell(r), P(a, 0)); link(line, P(a, 1)); return P(a, 2); }  /* takes r */
-static void split2(Port prov, Port *a, Port *b) { Cell *d = cell(O_DUP, 3); d->a = (uint64_t)dup_origin; d->key = key_of_port(prov); link(prov, P(d, 0)); *a = P(d, 1); *b = P(d, 2); }
+static void split2(Port prov, Port *a, Port *b) { Cell *d = cell(O_DUP, 3); d->a = (uint64_t)dup_origin; link(prov, P(d, 0)); *a = P(d, 1); *b = P(d, 2); }
 
 /* the stuck head of a copattern definition: a neutral of its declared type (when it has one), named
  * by the definition; projection unfolds it */
 Port cofix_head(long g, long tyg) {
-    Cell *c = cell(V_NVAR, 2); c->a = (uint64_t)g; c->ty = TY_COFIX | (global_tickar(g) ? TY_TICK : 0); c->key = key_global(g);
-    if (tyg >= 0) { Cell *t = cell(V_GLOBAL, 1); t->a = (uint64_t)tyg; t->key = key_global(tyg); link(P(t, 0), P(c, 1)); c->ty |= TY_KNOWN; }
+    Cell *c = cell(V_NVAR, 2); c->a = (uint64_t)g; c->ty = TY_COFIX | (global_tickar(g) ? TY_TICK : 0);
+    if (tyg >= 0) { Cell *t = cell(V_GLOBAL, 1); t->a = (uint64_t)tyg; link(P(t, 0), P(c, 1)); c->ty |= TY_KNOWN; }
     else link(unk(), P(c, 1));
     return P(c, 0);
 }
 Port apply_gid(long g, const Port *args, int n) {
-    Cell *gc = cell(V_GLOBAL, 1); gc->a = (uint64_t)g; gc->key = key_global(g);
+    Cell *gc = cell(V_GLOBAL, 1); gc->a = (uint64_t)g;
     Port f = P(gc, 0);
-    Key *fk = key_retain(gc->key);
-    for (int k = 0; k < n; k++) {
-        Cell *a = cell(O_APP, 3); link(f, P(a, 0)); link(args[k], P(a, 1)); f = P(a, 2);
-        if (fk) { Key *ak = key_of_port(args[k]); Key *nk = key2(K_APP, 0, NULL, fk, ak); key_release(fk); if (ak) key_release(ak); fk = nk; }
-        if (fk) { a->key = key_retain(fk); memo_register(a); }
-    }
-    if (fk) key_release(fk);
+    for (int k = 0; k < n; k++) { Cell *a = cell(O_APP, 3); link(f, P(a, 0)); link(args[k], P(a, 1)); f = P(a, 2); }
     return f;
 }
 static Port apply_global(const char *name, Port *args, int n) {
@@ -1376,7 +973,7 @@ static Port jit_read(uint64_t v, JT *t) {
         if (t->k == JT_WORD) { tail = word_of(v); break; }
         if (t->k == JT_NAT) {
             /* the word as a numeral: zero, then suc v times */
-            Port none[1]; tail = con_build(DATA[t->d].cons[0], none, NULL);
+            tail = con_build(DATA[t->d].cons[0], NULL, NULL);
             for (uint64_t i = 0; i < v; i++) { Port f[1] = { tail }; tail = con_build(DATA[t->d].cons[1], f, NULL); }
             break;
         }
@@ -1386,7 +983,7 @@ static Port jit_read(uint64_t v, JT *t) {
             Bytes *b = calloc(1, sizeof(Bytes) + bn); b->rc = 1; b->n = bn; if (bn) memcpy(b->b, p + 1, bn);
             Cell *c = cell(V_BYTES, 1); c->x = PT_BYTES; c->p = b; tail = P(c, 0); break;
         }
-        if (t->k == JT_DATA && v < 4096) { Port none[1]; tail = con_build(DATA[t->d].cons[v], none, NULL); break; }
+        if (t->k == JT_DATA && v < 4096) { tail = con_build(DATA[t->d].cons[v], NULL, NULL); break; }
         if (t->k != JT_DATA && t->k != JT_PAIR) { tail = word_of(0); break; }
         if (n == cap) { cap *= 2; vs = realloc(vs, cap * sizeof(uint64_t)); ts = realloc(ts, cap * sizeof(JT *)); }
         vs[n] = v; ts[n] = t; n++;
@@ -1509,7 +1106,7 @@ static void rule_dup(Cell *o, Cell *v) {
     }
     Cell *c1 = clone(v), *c2 = clone(v);
     for (int k = 1; k < v->n; k++) {
-        Cell *d = cell(O_DUP, 3); d->a = o->a; d->key = key_of_port(v->port[k]);
+        Cell *d = cell(O_DUP, 3); d->a = o->a;
         link(v->port[k], P(d, 0)); link(P(d, 1), P(c1, k)); link(P(d, 2), P(c2, k));
     }
     link(P(c1, 0), o1); link(P(c2, 0), o2);
@@ -1536,20 +1133,19 @@ static void subst_level(Cell *o, Cell *v) {
         /* the reference (the unbuilt subterm) carries the substitution: nothing is copied */
         Subst *t = v->a ? subst_compose((Subst *)(uintptr_t)v->a, s) : subst_retain(s);
         if (v->a) subst_release((Subst *)(uintptr_t)v->a);
-        if (v->kind == V_REF && !no_memo && !getenv_a8_off()) {
+        if (v->kind == V_REF && !getenv_a8_off()) {
             /* only the box's own dimensions (box_fd; PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.16 “A8 — Proposal: formal transported compositions”): the rest leave its value unchanged */
             FdInfo *fi = box_fd(v->p);
             if (fi) { Subst *t2 = subst_to_fd(t, fi); subst_release(t); t = t2; }
         }
         v->a = (uint64_t)(uintptr_t)t;
-        if (v->e) { memo_leave(v); memo_register(v); }
         link(P(v, 0), out); cell_free(o); return;
     }
     case V_NVAR:
         link(sub(v->port[1], s), P(v, 1));
         link(P(v, 0), out); cell_free(o); return;
-    case V_IV: { Dnf *n2 = iv_subst(v->p, s); dnf_release(v->p); v->p = n2; rekey_formula(v); link(P(v, 0), out); cell_free(o); return; }
-    case V_FACE: { Dnf *n2 = face_subst(v->p, s); dnf_release(v->p); v->p = n2; rekey_formula(v); link(P(v, 0), out); cell_free(o); return; }
+    case V_IV: { Dnf *n2 = iv_subst(v->p, s); dnf_release(v->p); v->p = n2; link(P(v, 0), out); cell_free(o); return; }
+    case V_FACE: { Dnf *n2 = face_subst(v->p, s); dnf_release(v->p); v->p = n2; link(P(v, 0), out); cell_free(o); return; }
     case V_PLAM: {
         Dim j = (Dim)v->a, j2 = j;
         Subst *t = subst_without(s, j);
@@ -1674,9 +1270,8 @@ static void subst_level(Cell *o, Cell *v) {
     case V_GLUE: { Cell *a = cell(O_MKGLUE, 3); a->x = v->x; link(sub(v->port[2], s), P(a, 0)); link(sub(v->port[1], s), P(a, 1)); link(P(a, 2), out); break; }
     case V_GLUEV: { Cell *a = cell(O_MKGLUEV, 3); link(sub(v->port[1], s), P(a, 0)); link(sub(v->port[2], s), P(a, 1)); link(P(a, 2), out); break; }
     default: {
-        /* constructors: λ (its environment), pair, Π, Σ, PathP; named as the value under s */
+        /* constructors: λ (its environment), pair, Π, Σ, PathP */
         Cell *c = clone(v);
-        if (c->key) { Key *k = key_under(c->key, s); key_release(c->key); c->key = k; }
         for (int k = 1; k < v->n; k++) link(sub(v->port[k], s), P(c, k));
         link(P(c, 0), out);
         break;
@@ -1702,13 +1297,13 @@ static void rule_subst(Cell *o, Cell *v) {
         return;
     }
     /* the value is held and the substitution pending on a reference to it: nothing is copied or
-     * re-dispatched until a reader reads it, one level at a time (ref_read). With the memo, on one
-     * worker, the value's free dimensions cut the substitution first (as a box's do, box_fd): one
+     * re-dispatched until a reader reads it, one level at a time (ref_read). On one worker, the
+     * value's free dimensions cut the substitution first (as a box's do, box_fd): one
      * that does not meet them is dropped */
     Subst *s = subst_retain(o->p);
     Port out = o->port[1];
     FdInfo *nf = NULL;
-    if (!no_memo && !getenv_a8_off() && net_solo) {
+    if (!getenv_a8_off() && net_solo) {
         FdSet *y = malloc(sizeof *y); y->n = 0; y->taint = false; y->inexact = false;
         long saved = fd_budget; fd_budget = 4000; fd_why = 0;
         bool ok = fd_cell(v, y, 0);
@@ -2022,7 +1617,6 @@ static void rule_view(Cell *o, Cell *v) {
 static Port case_of_susp(Cell *v) {
     Cell *c = cell(O_CASE, v->n); c->x = v->x; c->p = v->p;
     for (int k = 1; k < v->n; k++) link(v->port[k], P(c, k - 1));
-    if (v->key) { c->key = key_retain(v->key); memo_register(c); }
     cell_free(v);
     return P(c, c->n - 1);
 }
@@ -2223,7 +1817,7 @@ static void interact(Cell *o, Cell *v) {
          * built, as the reader would have built it in place; a value is passed on to where it is
          * held, and the waiting reader gets its one-level copy */
         if (unbuilt(v->kind)) { link(unbuilt_build(v), P(o, 0)); return; }
-        Port c = copy_top(o->key, v);
+        Port c = copy_top(v);
         link(c, o->port[2]);
         link(P(v, 0), o->port[1]);
         cell_free(o);
@@ -2264,11 +1858,9 @@ static void interact(Cell *o, Cell *v) {
         if (r && r->nparam <= na) {
             /* all the parameters: the body at once; any further arguments applied to it */
             if (prof_on) ADD(prof_count[r->where], 1);
-            Box *bx; Port sh = memo_begin(o, &bx, true);
-            if (sh && !bx) { for (int k = 0; k < na; k++) era(o->port[1 + k]); link(sh, o->port[o->n - 1]); cell_free(o); cell_free(v); return; }
             Port res = record_build_n(r, &o->port[1], NULL);
             for (int k = r->nparam; k < na; k++) res = app2(res, o->port[1 + k]);
-            link(memo_end(sh, bx, res), o->port[o->n - 1]);
+            link(res, o->port[o->n - 1]);
             cell_free(o); cell_free(v);
             return;
         }
@@ -2281,7 +1873,7 @@ static void interact(Cell *o, Cell *v) {
     }
     if (v->kind == V_GLOBAL) {
         /* a definition is used: its value is copied in */
-        Port r = global_copy((long)v->a, v->key);
+        Port r = global_copy((long)v->a);
         if (!r) { global_park((long)v->a, o, v); return; }
         link(r, P(o, 0));
         cell_free(v);
@@ -2316,10 +1908,8 @@ static void interact(Cell *o, Cell *v) {
         }
         if (vk == V_LAM && ((Record *)v->p)->nparam == 1) {
             if (prof_on) ADD(prof_count[((Record *)v->p)->where], 1);
-            Box *bx; Port sh = memo_begin(o, &bx, true);
-            if (sh && !bx) { era(o->port[1]); era(P(v, 0)); link(sh, o->port[2]); cell_free(o); return; }
             Port r = record_build(v->p, o->port[1], &v->port[1]);
-            link(memo_end(sh, bx, r), o->port[2]);
+            link(r, o->port[2]);
             cell_free(o); cell_free(v);
         } else if (vk == V_SYS) distribute(o, v);
         else {
@@ -2336,7 +1926,6 @@ static void interact(Cell *o, Cell *v) {
             if (is_neutral(vk) && (v->ty & TY_COFIX)) {
                 n->ty = TY_COFIX;
                 if (v->ty & TY_TICK) { n->ty |= TY_TICK; n->a = (uint64_t)((vk == V_NVAR ? global_tickar((long)v->a) : (long)v->a) - 1); }
-                if (v->key) { Key *ak = key_of_port(o->port[1]); n->key = key2(K_APP, 0, NULL, v->key, ak); if (ak) key_release(ak); }
             }
             mv(o, 1, P(n, 2)); link(unk(), P(n, 3));
             link(P(v, 0), P(n, 1));
@@ -2404,7 +1993,6 @@ static void interact(Cell *o, Cell *v) {
                 /* a tick-unfolding definition may take an interval before its tick (pfix) */
                 long ta = (v->ty & TY_TICK) ? (vk == V_NVAR ? global_tickar((long)v->a) : (long)v->a) : 0;
                 if (ta > 1) { n->ty |= TY_TICK; n->a = (uint64_t)(ta - 1); }
-                if (v->key) { Key *rk = key0(K_IV, 0, r); n->key = key2(K_PAPP, 0, NULL, v->key, rk); if (rk) key_release(rk); }
             }
             link(unk(), P(n, n->n - 1));
             link(P(v, 0), P(n, 1));
@@ -2588,7 +2176,7 @@ static void interact(Cell *o, Cell *v) {
     }
     case O_NEG:
         if (vk != V_IV) { stuck(o, v); return; }
-        { Dnf *n2 = iv_neg(v->p); dnf_release(v->p); v->p = n2; rekey_formula(v); }
+        { Dnf *n2 = iv_neg(v->p); dnf_release(v->p); v->p = n2; }
         link(P(v, 0), o->port[1]); cell_free(o);
         return;
     case O_BIN: {
@@ -2602,7 +2190,7 @@ static void interact(Cell *o, Cell *v) {
         bool face = o->x == B_FAND || o->x == B_FOR;
         if (vk != (face ? V_FACE : V_IV)) { stuck(o, v); return; }
         Dnf *n2 = (o->x == B_MEET || o->x == B_FAND) ? dnf_meet(o->p, v->p, face) : dnf_join(o->p, v->p, face);
-        dnf_release(v->p); v->p = n2; rekey_formula(v);
+        dnf_release(v->p); v->p = n2;
         link(P(v, 0), o->port[1]); cell_free(o);
         return;
     }
@@ -2909,12 +2497,6 @@ static void interact(Cell *o, Cell *v) {
                         link(fb, P(h, 1));
                         if (mb) link(mc[leaf], P(h, 2));
                         for (int e = 0; e < ne; e++) link(ec[e][leaf + 1], P(h, 2 + mb + e));
-                        /* its key: the case term on the field (the motive is not part of the term) */
-                        if (!rd) { Key **ck = malloc(((size_t)ne + 2) * sizeof(Key *)); ck[0] = key_of_port(fb);
-                          for (int e = 0; e < ne; e++) ck[1 + e] = key_of_port(ec[e][leaf + 1]);
-                          h->key = key(K_CASE, 0, tb, ne + 1, ck);
-                          for (int e = 0; e < ne + 1; e++) if (ck[e]) key_release(ck[e]);
-                          free(ck); }
                         Port hp = P(h, 0);
                         for (int t = rd - 1; t >= 0; t--) { Cell *m = cell(O_MKPLAM, 2); m->a = ds[t]; link(hp, P(m, 0)); hp = P(m, 1); }
                         prm[nf + q] = hp;
@@ -2923,11 +2505,7 @@ static void interact(Cell *o, Cell *v) {
                 }
                 for (int j = 0; j < nd; j++) prm[nf + nr + j] = v->port[1 + nf + j];
             }
-            Box *bx; Port sh = memo_begin(o, &bx, true);
-            if (sh && !bx) { for (int j = 0; j < np; j++) era(prm[j]); for (int e = 0; e < ne; e++) era(env[e]); link(sh, o->port[o->n - 1]); cell_free(o); cell_free(v); return; }
-            scrut_key = v->key ? key_retain(v->key) : NULL;   /* the branch's rebuilt scrutinee is named by this value */
-            link(memo_end(sh, bx, record_build_n(tb->br[k], prm, env)), o->port[o->n - 1]);
-            if (scrut_key) { key_release(scrut_key); scrut_key = NULL; }
+            link(record_build_n(tb->br[k], prm, env), o->port[o->n - 1]);
             cell_free(o); cell_free(v);
         } else if (vk == V_HCOMP && tb->motive) {
             /* f (hcomp^i [φ ↦ u] u0) = comp^i P(hfill) [φ ↦ f u] (f u0), f this elimination; the
@@ -3481,7 +3059,6 @@ static void interact(Cell *o, Cell *v) {
             static uint64_t next_var;
             /* its type is held once: every copy of the variable refers to it */
             Cell *n = cell(V_NVAR, 2); n->a = LVL_TAG | __atomic_fetch_add(&next_var, 1, __ATOMIC_RELAXED); n->ty = 1; n->x = nm;
-            n->key = key0(K_VAR, n->a, NULL);   /* fresh for the whole run: its own key */
             link(ref_of(o->port[1]), P(n, 1)); link(P(n, 0), o->port[2]);
         } else {
             Dim d = fresh_dim();
@@ -3507,13 +3084,13 @@ static void interact(Cell *o, Cell *v) {
         if (g < 0) { fprintf(stderr, "checker table %u has no entry %llu\n", o->x, (unsigned long long)o->a); exit(2); }
         if (o->x == TB_VAL) {
             /* a checked definition's own value */
-            Port val = global_copy(g, NULL);
+            Port val = global_copy(g);
             long aty = val ? -2 : global_axiom_ty(g);
             if (!val && aty != -2) {
                 /* a constant with no computation (a law stated as a primitive): its neutral, carrying
                  * its type, as the elaborated term meets it (S_AXIOM): a path among them reads its
                  * endpoints from that type */
-                Cell *c = cell(V_NVAR, 2); c->a = (uint64_t)g; c->key = key0(K_VAR, (uint64_t)g, NULL);
+                Cell *c = cell(V_NVAR, 2); c->a = (uint64_t)g;
                 if (aty >= 0) { Cell *t = cell(V_GLOBAL, 1); t->a = (uint64_t)aty; link(P(t, 0), P(c, 1)); c->ty = 1; }
                 else link(unk(), P(c, 1));
                 val = P(c, 0);
@@ -3533,7 +3110,7 @@ static void interact(Cell *o, Cell *v) {
             era(v->port[2]);
             Port n1, n2; split2(v->port[1], &n1, &n2);
             Cell *da = cell(O_DAPPLY, 3); link(ntype_of(n1), P(da, 0));
-            Cell *g = cell(V_GLOBAL, 1); g->a = (uint64_t)FLD[v->a].fty; g->key = key_global(FLD[v->a].fty);
+            Cell *g = cell(V_GLOBAL, 1); g->a = (uint64_t)FLD[v->a].fty;
             link(P(g, 0), P(da, 1));
             T = app2(P(da, 2), n2);
             break;
@@ -3783,7 +3360,6 @@ static void interact(Cell *o, Cell *v) {
             Cell *u = cell(O_UNFOLD, 2), *a = cell(O_APP, 3);
             link(v->port[1], P(u, 0)); link(P(u, 1), P(a, 0)); link(v->port[2], P(a, 1)); link(P(a, 2), out);
             era(v->port[3]);
-            if (v->key) { a->key = key1(K_UNFOLD, 0, NULL, v->key); if (a->key) memo_register(a); }
             cell_free(o); cell_free(v);
         } else if (vk == V_NPAPP) {
             Cell *u = cell(O_UNFOLD, 2), *pr = cell(O_PAPPR, 3);
@@ -3794,7 +3370,7 @@ static void interact(Cell *o, Cell *v) {
             cell_free(o); cell_free(v);
         } else if (vk == V_NVAR && (v->ty & TY_COFIX)) {
             long b = global_unfold((long)v->a);
-            Cell *g = cell(V_GLOBAL, 1); g->a = (uint64_t)b; g->key = key_global(b);
+            Cell *g = cell(V_GLOBAL, 1); g->a = (uint64_t)b;
             link(P(g, 0), out); era(v->port[1]);
             cell_free(o); cell_free(v);
         } else if (vk == V_SYS) distribute(o, v);
@@ -3889,9 +3465,6 @@ static void *worker(void *arg) {
     return NULL;
 }
 void net_start(int n) {
-    key_trace = getenv("CUBICAL_KEYS") != NULL;
-    no_memo = getenv("CUBICAL_NOMEMO") != NULL;
-    shards_init();
     queues_init(n + 1);
     nworkers = n;
     net_solo = n == 0;   /* stays false when some workers fail to start: the scheduler serves those that did */
@@ -3950,202 +3523,50 @@ bool net_observe(Cell *root, long limit) {
     }
     stat_gather();
     arenas_release();
-    if (!ok && root && limit < 0 && key_trace) {
-        /* the reading stopped short of a value: what is at the root (an operation waiting there, or
-         * nothing yet) */
-        Port q = peek(root->port[0]); Cell *c = q ? PC(q) : NULL;
-        fprintf(stderr, "stuck: root -> kind %d", c ? c->kind : -1);
-        if (c && c->key) { fputc(' ', stderr); key_print(stderr, c->key); }
-        fputc('\n', stderr);
-    }
     return ok || observed(root);
 }
 /* reduce every pending pair: the workload's normal form, or what waits on an input */
 void net_drain(void) { net_observe(NULL, -1); }
-/* every payload pointer the net holds, a cell's to cellf and a key's to keyf (NULL: not walked): the
- * roots lang.c's records_sweep marks from. Run with every worker parked. A freed cell's p is NULL
- * (payload_release), so a cell on a free list hands nothing; a slab of variables holds no payloads */
-void net_scan_payloads(void (*cellf)(void *), void (*keyf)(void *)) {
-    if (cellf) {
-        pthread_mutex_lock(&allmu);
-        for (Local *l = ALL; l; l = l->next)
-            for (Slab *x = l->slabs; x; x = x->next) {
-                if (x->n == ~0u) continue;
-                size_t sz = cell_bytes((int)x->n);
-                for (size_t off = SLAB_HDR; off + sz <= x->used; off += sz) { Cell *c = (Cell *)((char *)x + off); if (c->p) cellf(c->p); }
-            }
-        pthread_mutex_unlock(&allmu);
-        pthread_mutex_lock(&bigmu);
-        for (size_t i = 0; i < nbigs; i++) if (BIGS[i]->p) cellf(BIGS[i]->p);
-        pthread_mutex_unlock(&bigmu);
-    }
-    if (keyf) for (int i = 0; i < KSH; i++) for (size_t j = 0; j < SH[i].KTcap; j++) if (SH[i].KT[j] && SH[i].KT[j]->p) keyf(SH[i].KT[j]->p);
+/* every payload pointer the net holds, a cell's to cellf: the roots lang.c's records_sweep marks
+ * from. Run with every worker parked. A freed cell's p is NULL (payload_release), so a cell on a
+ * free list hands nothing; a slab of variables holds no payloads */
+void net_scan_payloads(void (*cellf)(void *)) {
+    pthread_mutex_lock(&allmu);
+    for (Local *l = ALL; l; l = l->next)
+        for (Slab *x = l->slabs; x; x = x->next) {
+            if (x->n == ~0u) continue;
+            size_t sz = cell_bytes((int)x->n);
+            for (size_t off = SLAB_HDR; off + sz <= x->used; off += sz) { Cell *c = (Cell *)((char *)x + off); if (c->p) cellf(c->p); }
+        }
+    pthread_mutex_unlock(&allmu);
+    pthread_mutex_lock(&bigmu);
+    for (size_t i = 0; i < nbigs; i++) if (BIGS[i]->p) cellf(BIGS[i]->p);
+    pthread_mutex_unlock(&bigmu);
 }
-/* memory accounting (CUBICAL_MEMDEF): slabs held over every thread, keys interned */
-void net_mem(long *slabs, long *keys) {
-    long sl = 0, k = 0;
+/* memory accounting (CUBICAL_MEMDEF): slabs held over every thread */
+void net_mem(long *slabs) {
+    long sl = 0;
     pthread_mutex_lock(&allmu);
     for (Local *l = ALL; l; l = l->next) for (Slab *x = l->slabs; x; x = x->next) sl++;
     pthread_mutex_unlock(&allmu);
-    for (int i = 0; i < KSH; i++) k += (long)SH[i].KTn;
-    *slabs = sl; *keys = k;
+    *slabs = sl;
 }
 
 /* ---------------- building a net from syntax ---------------- */
-typedef struct { Port *sup; int cur, n; Key *key; Port inl[4]; } Supply;   /* inl: the providers of a slot used at most 3 times */
-/* synkey's results in one frame being built (run_frame), by node. synkey(t, f) is a function of t, the
- * keys of the slots free in t and f's scrut, and these are fixed from the moment t is built: a slot is
- * bound (bind, bind_dim) before the subterms under its binder are built and never rebound in the frame,
- * and every call of synkey on t from build_m (at t, or at an ancestor, after its parts are built) comes
- * after t is built. The one exception is synkey's own S_LET, which sets the let's slot to the key of the
- * let's value while it reads the body (the built body has the slot bound to its built value's key):
- * below it (ovr > 0) nothing is read from or written to the table. So a result found here is the result
- * the walk would compute, and each node of a frame is walked once instead of once per keyed ancestor
- * (2026-11-16: synkey made 132M calls and recursed 837M more for 79M nodes built in lib/views.cub, the
- * walks and the keys they interned and freed again a ninth of the run). Held keys are released when the
- * frame is done; holding them longer changes no key (keys are interned: one term, one key while alive) */
-typedef struct { const Syn *t; Key *k; uint64_t stamp; } KcEnt;
-typedef struct { KcEnt *e; size_t cap, n; uint64_t stamp; Key **held; size_t nheld, capheld; } KCache;
-typedef struct { Supply *s; int nslots; const int *uses; Key *scrut; KCache *kc; int ovr; } Frame;   /* scrut: a case branch's scrutinee's key (the value it rebuilds is named by it); kc: synkey's table (NULL: none), ovr: synkey is under a let it rebinds */
-/* one table per depth of frames being built on this thread (a frame's building may build another) */
-static __thread KCache **kc_pool; static __thread int kc_depth, kc_npool;   /* each table allocated alone: a frame holds its own while a deeper one is added */
-static KCache *kc_enter(void) {
-    if (kc_depth == kc_npool) { kc_pool = realloc(kc_pool, (size_t)(kc_npool + 1) * sizeof(KCache *)); kc_pool[kc_npool++] = calloc(1, sizeof(KCache)); }
-    KCache *c = kc_pool[kc_depth++];
-    c->stamp++; c->n = 0;   /* entries of an earlier stamp are empty */
-    return c;
-}
-static void kc_leave(KCache *c) {
-    for (size_t i = 0; i < c->nheld; i++) key_release(c->held[i]);
-    c->nheld = 0;
-    kc_depth--;
-}
-static inline size_t kc_slot(const Syn *t, size_t cap) { return (size_t)(((uintptr_t)t >> 4) * 0x9e3779b97f4a7c15ull >> 20) & (cap - 1); }
-static KcEnt *kc_find(KCache *c, const Syn *t) {
-    if (!c->cap) return NULL;
-    for (size_t i = kc_slot(t, c->cap); c->e[i].stamp == c->stamp; i = (i + 1) & (c->cap - 1)) if (c->e[i].t == t) return &c->e[i];
-    return NULL;
-}
-static void kc_put(KCache *c, const Syn *t, Key *k) {   /* k: a reference the table takes (NULL: no key) */
-    if ((c->n + 1) * 2 > c->cap) {
-        size_t nc = c->cap ? c->cap * 2 : 256; KcEnt *ne = calloc(nc, sizeof(KcEnt));
-        for (size_t i = 0; i < c->cap; i++) if (c->e[i].stamp == c->stamp) { size_t j = kc_slot(c->e[i].t, nc); while (ne[j].stamp == c->stamp) j = (j + 1) & (nc - 1); ne[j] = c->e[i]; }
-        free(c->e); c->e = ne; c->cap = nc;
-    }
-    size_t j = kc_slot(t, c->cap); while (c->e[j].stamp == c->stamp) j = (j + 1) & (c->cap - 1);
-    c->e[j] = (KcEnt){ t, k, c->stamp }; c->n++;
-    if (k) { if (c->nheld == c->capheld) { c->capheld = c->capheld ? c->capheld * 2 : 256; c->held = realloc(c->held, c->capheld * sizeof(Key *)); } c->held[c->nheld++] = k; }
-}
+typedef struct { Port *sup; int cur, n; Port inl[4]; } Supply;   /* inl: the providers of a slot used at most 3 times */
+typedef struct { Supply *s; int nslots; const int *uses; } Frame;
 
 static void bind(Frame *f, int slot, Port prov) {
     int u = f->uses[slot];
     Supply *s = &f->s[slot];
     s->sup = u + 1 <= 4 ? s->inl : malloc((size_t)(u + 1) * sizeof(Port)); s->n = u; s->cur = 0;
-    s->key = key_of_port(prov);
     split(prov, u, s->sup);
 }
 static void bind_dim(Frame *f, int slot, Dim i) {
     int u = f->uses[slot];
     Supply *s = &f->s[slot];
     s->sup = u + 1 <= 4 ? s->inl : malloc((size_t)(u + 1) * sizeof(Port)); s->n = u; s->cur = 0;
-    Dnf *at = iv_atom(i); s->key = key0(K_IV, 0, at); dnf_release(at);
     for (int k = 0; k < u; k++) s->sup[k] = iv_cell(iv_atom(i));
-}
-/* the key of a compiled term in a frame, without building it: the term with its slots' keys.
- * NULL where a part has no key or the form is not keyed. The caller owns the result */
-static Key *synkey(Syn *t, Frame *f);
-static Key *synkey_walk(Syn *t, Frame *f) {
-    Key *r = NULL, *x = NULL, *y = NULL, *z = NULL;
-    switch (t->tag) {
-    case S_VAR: { Key *k = f->s[t->slot].key; return k ? key_retain(k) : NULL; }
-    case S_LAM: case S_THUNK: {
-        /* a thunk is its body's term; a λ is its record over its environment */
-        Key **env = malloc(((size_t)t->n + 1) * sizeof(Key *)); bool ok = true;
-        for (int k = 0; k < t->n; k++) { env[k] = synkey(t->k[k], f); if (!env[k]) ok = false; }
-        if (ok) {
-            if (t->tag == S_LAM) r = key(K_LAM, 0, t->rec, t->n, env);
-            else {
-                Record *rc = t->rec;
-                Frame g = { calloc((size_t)rc->nslots + 1, sizeof(Supply)), rc->nslots, rc->uses, NULL, NULL, 0 };   /* no table: a walk of another frame, once */
-                for (int k = 0; k < rc->nenv; k++) g.s[rc->env_slot[k]].key = env[k];
-                r = synkey(rc->body, &g);
-                free(g.s);
-            }
-        }
-        for (int k = 0; k < t->n; k++) if (env[k]) key_release(env[k]);
-        free(env);
-        return r;
-    }
-    case S_APP: x = synkey(t->k[0], f); y = x ? synkey(t->k[1], f) : NULL; r = key2(K_APP, 0, NULL, x, y); break;
-    case S_CALL: {
-        r = key0(K_GLOBAL, (uint64_t)t->id, NULL);
-        for (int k = 0; k < t->n && r; k++) { Key *a = synkey(t->k[k], f); Key *n = key2(K_APP, 0, NULL, r, a); key_release(r); if (a) key_release(a); r = n; }
-        return r;
-    }
-    case S_PAIR: case S_PI: case S_SIGMA: case S_PATHP: case S_DATA: case S_CON: {
-        if (t->tag == S_CON && t->x) return f->scrut ? key_retain(f->scrut) : NULL;   /* the scrutinee rebuilt: its key */
-        int tag = t->tag == S_PAIR ? K_PAIR : t->tag == S_PI ? K_PI : t->tag == S_SIGMA ? K_SIGMA : t->tag == S_PATHP ? K_PATHP : t->tag == S_DATA ? K_DATA : K_CON;
-        Key **c = malloc(((size_t)t->n + 1) * sizeof(Key *)); bool ok = true;
-        for (int k = 0; k < t->n; k++) { c[k] = synkey(t->k[k], f); if (!c[k]) ok = false; }
-        if (ok) r = key(tag, (uint64_t)t->id, NULL, t->n, c);
-        for (int k = 0; k < t->n; k++) if (c[k]) key_release(c[k]);
-        free(c);
-        return r;
-    }
-    case S_FST: x = synkey(t->k[0], f); r = key1(K_FST, 0, NULL, x); break;
-    case S_SND: x = synkey(t->k[0], f); r = key1(K_SND, 0, NULL, x); break;
-    case S_FORCE: return synkey(t->k[0], f);   /* forcing a suspension is the suspended term */
-    case S_PAPP: if (t->x) return NULL; x = synkey(t->k[0], f); y = x ? synkey(t->k[1], f) : NULL; r = key2(K_PAPP, 0, NULL, x, y); break;
-    case S_U: { if (t->n) { x = synkey(t->k[0], f); r = key1(K_U, 0, NULL, x); } else r = key0(K_U, 0, NULL); break; }
-    case S_WORD: { Big *b = t->big; r = key0(K_WORD, (uint64_t)t->id, b); return r; }
-    case S_WORDTY: return key0(K_WTY, 0, NULL);
-    case S_IV0: { Dnf *d = dnf_zero(); r = key0(K_IV, 0, d); dnf_release(d); return r; }
-    case S_IV1: { Dnf *d = dnf_one(); r = key0(K_IV, 0, d); dnf_release(d); return r; }
-    case S_FTT: { Dnf *d = dnf_one(); r = key0(K_FACE, 0, d); dnf_release(d); return r; }
-    case S_FFF: { Dnf *d = dnf_zero(); r = key0(K_FACE, 0, d); dnf_release(d); return r; }
-    case S_GLOBAL: return key0(K_GLOBAL, (uint64_t)t->id, NULL);
-    case S_AXIOM: return key0(K_VAR, (uint64_t)t->id, NULL);
-    case S_CASE: {
-        /* the table, the scrutinee and the shared variables */
-        int ne = t->tab->nenv;
-        Key **c = malloc(((size_t)ne + 2) * sizeof(Key *)); bool ok = true;
-        c[0] = synkey(t->k[0], f); if (!c[0]) ok = false;
-        for (int e = 0; e < ne; e++) { c[1 + e] = synkey(t->k[2 + e], f); if (!c[1 + e]) ok = false; }
-        if (ok) r = key(K_CASE, 0, t->tab, ne + 1, c);
-        for (int e = 0; e < ne + 1; e++) if (c[e]) key_release(c[e]);
-        free(c);
-        return r;
-    }
-    case S_LET: {
-        Key *saved = f->s[t->slot].key;
-        f->s[t->slot].key = synkey(t->k[0], f);
-        f->ovr++;   /* the body read with the slot as it is not when built: not from the table */
-        r = synkey(t->k[1], f);
-        f->ovr--;
-        if (f->s[t->slot].key) key_release(f->s[t->slot].key);
-        f->s[t->slot].key = saved;
-        return r;
-    }
-    default: return NULL;
-    }
-    if (x) key_release(x);
-    if (y) key_release(y);
-    if (z) key_release(z);
-    return r;
-}
-/* synkey_walk, its result kept for the frame (KCache above); a leaf costs no more than a lookup */
-static Key *synkey(Syn *t, Frame *f) {
-    switch (t->tag) {
-    case S_LAM: case S_THUNK: case S_APP: case S_CALL: case S_PAIR: case S_PI: case S_SIGMA: case S_PATHP: case S_DATA: case S_CON:
-    case S_FST: case S_SND: case S_FORCE: case S_PAPP: case S_U: case S_CASE: case S_LET: break;
-    default: return synkey_walk(t, f);
-    }
-    if (!f->kc || f->ovr) return synkey_walk(t, f);
-    KcEnt *e = kc_find(f->kc, t);
-    if (e) return e->k ? key_retain(e->k) : NULL;
-    Key *r = synkey_walk(t, f);
-    kc_put(f->kc, t, r ? key_retain(r) : NULL);
-    return r;
 }
 /* Call by need (CBN; PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.16 “A8 — Proposal: formal transported compositions”). Every operand is compiled unbuilt: an operation in an operand position is
  * built as a V_DEFER cell (its kind, payload and inputs, the operation not yet run), run by its
@@ -4193,12 +3614,9 @@ static Port build_m(Syn *t, Frame *f, bool lazy) {
     case S_LAM: case S_THUNK:
         c = cell(t->tag == S_LAM ? V_LAM : V_THUNK, t->n + 1); c->p = t->rec;
         for (int k = 0; k < t->n; k++) link(build_m(t->k[k], f, true), P(c, k + 1));
-        c->key = synkey(t, f);
-        if (t->tag == S_THUNK && c->key) memo_register(c);
         return P(c, 0);
     case S_APP:
         c = OPC(O_APP, 3); link(OPND(t->k[0], 0), IN(c, 0)); link(OPND(t->k[1], 1), IN(c, 1));
-        c->key = synkey(t, f); if (c->key) memo_register(c);
         return OUT(c);
     case S_PAIR: c = cell(V_PAIR, 3); goto fields;
     case S_PI: c = cell(V_PI, 3); c->x = t->x; goto fields;
@@ -4206,10 +3624,9 @@ static Port build_m(Syn *t, Frame *f, bool lazy) {
     case S_PATHP: c = cell(V_PATHP, 4); goto fields;
     fields:
         for (int k = 0; k < c->n - 1; k++) link(build_m(t->k[k], f, true), P(c, k + 1));
-        c->key = synkey(t, f);
         return P(c, 0);
-    case S_FST: { Port r = op1(O_FST, t->k[0], f, lazy); PC(r)->key = synkey(t, f); return r; }
-    case S_SND: { Port r = op1(O_SND, t->k[0], f, lazy); PC(r)->key = synkey(t, f); return r; }
+    case S_FST: return op1(O_FST, t->k[0], f, lazy);
+    case S_SND: return op1(O_SND, t->k[0], f, lazy);
     case S_U: {
         /* U at its level: lzero when none is written */
         c = cell(V_U, 2);
@@ -4218,14 +3635,13 @@ static Port build_m(Syn *t, Frame *f, bool lazy) {
         return P(c, 0);
     }
     case S_BOX: return ref_of(build_m(t->k[0], f, true));
-    case S_WORD: c = cell(V_WORD, 1); c->a = (uint64_t)t->id; c->p = big_retain(t->big); c->key = synkey(t, f); return P(c, 0);
-    case S_WORDTY: c = cell(V_WTY, 1); c->key = synkey(t, f); return P(c, 0);
+    case S_WORD: c = cell(V_WORD, 1); c->a = (uint64_t)t->id; c->p = big_retain(t->big); return P(c, 0);
+    case S_WORDTY: c = cell(V_WTY, 1); return P(c, 0);
     case S_CALL: {
         c = OPC(O_CALL, t->n + 2);
         for (int k = 0; k < t->n; k++) link(OPND(t->k[k], 1 + k), IN(c, 1 + k));
-        Cell *gv = cell(V_GLOBAL, 1); gv->a = (uint64_t)t->id; gv->key = key_global(t->id);
+        Cell *gv = cell(V_GLOBAL, 1); gv->a = (uint64_t)t->id;
         link(P(gv, 0), IN(c, 0));
-        c->key = synkey(t, f); if (c->key) memo_register(c);
         return OUT(c);
     }
     case S_GLOBTAB:
@@ -4250,13 +3666,13 @@ static Port build_m(Syn *t, Frame *f, bool lazy) {
         link(OPND(t->k[1], 0), IN(c, 0)); link(OPND(t->k[0], 1), IN(c, 1));
         if (t->x) { link(OPND(t->k[2], 2), IN(c, 2)); link(OPND(t->k[3], 3), IN(c, 3)); }
         return OUT(c);
-    case S_IV0: { Port r = iv_cell(dnf_zero()); PC(r)->key = synkey(t, f); return r; }
-    case S_IV1: { Port r = iv_cell(dnf_one()); PC(r)->key = synkey(t, f); return r; }
+    case S_IV0: return iv_cell(dnf_zero());
+    case S_IV1: return iv_cell(dnf_one());
     case S_NEG: return op1(O_NEG, t->k[0], f, lazy);
     case S_BIN: c = OPC(O_BIN, 3); c->x = t->x; link(OPND(t->k[0], 0), IN(c, 0)); link(OPND(t->k[1], 1), IN(c, 1)); return OUT(c);
     case S_FEQ: c = OPC(O_FEQ, 2); c->a = t->x; link(OPND(t->k[0], 0), IN(c, 0)); return OUT(c);
-    case S_FTT: c = cell(V_FACE, 1); c->p = dnf_one(); c->key = synkey(t, f); return P(c, 0);
-    case S_FFF: c = cell(V_FACE, 1); c->p = dnf_zero(); c->key = synkey(t, f); return P(c, 0);
+    case S_FTT: c = cell(V_FACE, 1); c->p = dnf_one(); return P(c, 0);
+    case S_FFF: c = cell(V_FACE, 1); c->p = dnf_zero(); return P(c, 0);
     case S_FACEOF: return op1(O_FACEOF, t->k[0], f, lazy);
     case S_FNEG: return op1(O_FNEG, t->k[0], f, lazy);
     case S_SYS0: c = cell(V_SYS, 1); c->p = NULL; return P(c, 0);
@@ -4272,13 +3688,13 @@ static Port build_m(Syn *t, Frame *f, bool lazy) {
     case S_GLUE: c = OPC(O_MKGLUE, 3); c->x = t->x; link(OPND(t->k[1], 0), IN(c, 0)); link(OPND(t->k[0], 1), IN(c, 1)); return OUT(c);
     case S_GLUEV: c = OPC(O_MKGLUEV, 3); link(OPND(t->k[0], 0), IN(c, 0)); link(OPND(t->k[1], 1), IN(c, 1)); return OUT(c);
     case S_UNGLUE: c = OPC(O_UNGLUE, 3); c->x = t->x; link(OPND(t->k[0], 0), IN(c, 0)); link(OPND(t->k[1], 1), IN(c, 1)); return OUT(c);
-    case S_GLOBAL: c = cell(V_GLOBAL, 1); c->a = (uint64_t)t->id; c->key = key_global(t->id); return P(c, 0);
+    case S_GLOBAL: c = cell(V_GLOBAL, 1); c->a = (uint64_t)t->id; return P(c, 0);
     case S_AXIOM:
-        c = cell(V_NVAR, 2); c->a = (uint64_t)t->id; c->key = synkey(t, f);
+        c = cell(V_NVAR, 2); c->a = (uint64_t)t->id;
         if (t->slot >= 0) { Cell *g = cell(V_GLOBAL, 1); g->a = (uint64_t)t->slot; link(P(g, 0), P(c, 1)); c->ty = 1; }
         else link(unk(), P(c, 1));
         return P(c, 0);
-    case S_FORCE: { Port r = op1(O_FORCE, t->k[0], f, lazy); PC(r)->key = synkey(t, f); return r; }
+    case S_FORCE: return op1(O_FORCE, t->k[0], f, lazy);
     case S_DATA: c = cell(V_DATA, t->n + 1); c->a = (uint64_t)t->id; goto fields;
     case S_CON: {
         ConInfo *ci = &CON[t->id];
@@ -4297,7 +3713,6 @@ static Port build_m(Syn *t, Frame *f, bool lazy) {
         for (int k = 0; k < t->n; k++) a[k] = build_m(t->k[k], f, !(k == nf && ci->bdy >= 0 && nd > 0 && a8_conw()) || lazy);
         Port r = con_build((int)t->id, a, a + nf);
         free(a);
-        if (PI(r) == 0) PC(r)->key = synkey(t, f);   /* a plain constructor (one with a boundary is checked first) */
         return r;
     }
     case S_PROJ: c = OPC(O_PROJ, 2); c->a = (uint64_t)t->id; link(OPND(t->k[0], 0), IN(c, 0)); return OUT(c);
@@ -4319,7 +3734,6 @@ static Port build_m(Syn *t, Frame *f, bool lazy) {
         c = OPC(O_CASE, ne + 2); c->x = 0; c->p = t->tab;
         link(OPND(t->k[0], 0), IN(c, 0));
         for (int e = 0; e < ne; e++) link(OPND(t->k[2 + e], 1 + e), IN(c, 1 + e));
-        c->key = synkey(t, f); if (c->key) memo_register(c);
         return OUT(c);
     }
     case S_LET: {
@@ -4337,8 +3751,7 @@ static Port build_m(Syn *t, Frame *f, bool lazy) {
 static Port run_frame(Syn *body, int nslots, const int *uses, int nparam, const Port *params, int nenv, const int *env_slot, const Port *env, int where) {
     Supply local_s[16];
     Supply *ss = nslots + 1 <= 16 ? (memset(local_s, 0, (size_t)(nslots + 1) * sizeof(Supply)), local_s) : calloc((size_t)nslots + 1, sizeof(Supply));
-    Frame f = { ss, nslots, uses, scrut_key, kc_enter(), 0 };
-    scrut_key = NULL;
+    Frame f = { ss, nslots, uses };
     long saved = dup_origin;
     if (prof_on) dup_origin = where + 1;
     for (int k = 0; k < nparam; k++) bind(&f, k, params[k]);
@@ -4347,10 +3760,7 @@ static Port run_frame(Syn *body, int nslots, const int *uses, int nparam, const 
     for (int k = 0; k < nslots; k++) {
         if (f.s[k].cur != f.s[k].n) { fprintf(stderr, "internal: slot %d built %d of %d uses\n", k, f.s[k].cur, f.s[k].n); exit(2); }
         if (f.s[k].sup != f.s[k].inl) free(f.s[k].sup);
-        if (f.s[k].key) key_release(f.s[k].key);
     }
-    if (f.scrut) key_release(f.scrut);
-    kc_leave(f.kc);
     if (f.s != local_s) free(f.s);
     dup_origin = saved;
     return r;

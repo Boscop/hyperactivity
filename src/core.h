@@ -275,28 +275,11 @@ enum {
 enum { B_MEET, B_JOIN, B_FAND, B_FOR };
 
 typedef uint64_t Port;            /* cell pointer << 16 | port index; 0 = none */
-/* ---------------- keys: terms as names ----------------
- * A key names a term: a compiled body with each free position replaced by the key of the value
- * bound there; a value by its constructor over its parts' keys; a held value (a box) by the key of
- * what was put in it, which a copy out of it, and a value rebuilt from the fields a case took from
- * it, carry too. Keys are interned, so one term is one pointer (compared structurally when made).
- * A cell whose parts all have keys has one; a cell with an unkeyed part has none, and nothing
- * built on it is keyed. */
-typedef struct Key {
-    uint32_t rc, n;               /* n = children */
-    uint64_t h;                   /* hash */
-    uint16_t tag;                 /* K_* */
-    uint64_t a;                   /* a number, global, constructor, variable name, ... */
-    void *p;                      /* a payload: Dnf, Big, Record, CaseTab (by pointer) */
-    struct Key *c[];
-} Key;
-enum { K_WORD = 1, K_IV, K_FACE, K_VAR, K_GLOBAL, K_CON, K_DATA, K_LAM, K_PAIR, K_PI, K_SIGMA, K_PATHP, K_U,
-       K_APP, K_FST, K_SND, K_PAPP, K_CASE, K_FORCE, K_SUB, K_SUBST, K_DIM, K_TERM, K_WTY, K_UNFOLD };
-Key *key_retain(Key *k);
-Key *key_global(long g);
-Key *key_con0(int c);              /* a constructor with no fields */
-void key_release(Key *k);
-extern long stat_hits, stat_keys;  /* readings: memo hits; keys with a shared value made */
+/* Sharing is physical: a value is shared exactly where a duplicator (or a box a reference holds)
+ * connects its readers. Nothing names a computation program-wide, and no table finds one by its
+ * term (2026-11-18: the memo and the keys every built cell carried are gone; Avik: two processes
+ * unaware of each other computing the same thing share nothing, and "same" past what a connection
+ * observes is not observable). */
 
 /* A port names a principal port (cell, 0), an auxiliary port (cell, k ≥ 1; named only while a cell
  * is wired up), or a variable: a slot standing for a wire between two auxiliary ports, or for a
@@ -305,7 +288,7 @@ extern long stat_hits, stat_keys;  /* readings: memo hits; keys with a shared va
  * auxiliary ports are wired to: a principal port or a variable. Cells carry no back pointers, so a
  * cell is written only by its maker (its slots, once, before it is reachable), by the rule
  * consuming it, or by a compare-and-swap on a slot of a held value (copy_top); rules take no locks. */
-typedef struct Var { Port p; struct Var *next; Key *key; } Var;   /* key: what the wire's producer is named (key_of_port) */
+typedef struct Var { Port p; struct Var *next; } Var;
 #define VARI 0xffff
 static inline bool is_var(Port p) { return (p & 0xffff) == VARI; }
 static inline Var *PV(Port p) { return (Var *)(uintptr_t)(p >> 16); }
@@ -319,9 +302,6 @@ typedef struct Cell {
                                    * (it unfolds under projection) */
     uint64_t a;
     void *p;
-    Key *key;                     /* the term this cell is (a value) or will produce (a thunk, a call, an
-                                   * application, a case, a duplicator's outputs), or NULL */
-    struct Entry *e;              /* a producer registered as pending on its key (memo), or NULL */
     Port port[];
 } Cell;
 
@@ -339,8 +319,8 @@ void net_start(int workers);       /* worker threads besides the caller */
 void net_push(Cell *op, Cell *v);  /* enqueue an active pair */
 bool net_observe(Cell *root, long limit); /* reduce until root's port holds a value (root NULL: until no pair is pending); workers then pause */
 void net_drain(void);
-void net_mem(long *slabs, long *keys);
-void net_scan_payloads(void (*cellf)(void *), void (*keyf)(void *));   /* every cell's payload pointer to cellf, every key's to keyf (either NULL: skipped; workers parked) */
+void net_mem(long *slabs);
+void net_scan_payloads(void (*cellf)(void *));   /* every cell's payload pointer to cellf (workers parked) */
 Cell *global_res(long g);          /* the cell holding a definition's value */
 
 /* data types (higher inductive types, Coquand–Huber–Mörtberg): declared by
@@ -391,9 +371,8 @@ int global_checked(long g);
 Port cofix_head(long g, long tyg);   /* the stuck head of copattern definition g, of type global tyg (or -1) */
 /* a definition's body as one record taking all its parameters (NULL when it is not a λ) */
 struct Record *global_nary(long g);
-/* key: the name of what the box holds (a reference's identity). e: the memo entry whose value this is */
 typedef struct FdInfo { uint32_t n; unsigned taint : 1, inexact : 1; Dim d[]; } FdInfo;   /* taint: a record that may make a dimension is reachable; inexact: a bound from pending parts' inputs (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.16 “A8 — Proposal: formal transported compositions”, its part A8b) */   /* the free dimensions of a box's value, once known */
-typedef struct Box { struct Cell *root; long rc; Key *key; struct Entry *e; Port in; FdInfo *fd; int fdtries; } Box;   /* in: the wire its value is built into (memo); fd, fdtries: box_fd */
+typedef struct Box { struct Cell *root; long rc; FdInfo *fd; int fdtries; } Box;   /* a value held once, read by the references to it; fd, fdtries: box_fd */
 /* motive: the elimination's motive as a record over the same environment, or NULL. It is not a port:
  * only the two rules that read it (a formal hcomp met, and a stuck elimination typing its neutral)
  * build it, from the environment */
@@ -445,8 +424,7 @@ typedef struct Record {
     Syn *body;
     int where;          /* the definition it was compiled in (CUBICAL_PROFILE) */
     int mk;             /* A8 (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.16 “A8 — Proposal: formal transported compositions”): may building it make a dimension (reach %dim)? 0 unknown, 1 no, 2 yes (record_mkdim) */
-    uint64_t h;         /* its interning hash, once computed (kept when the body is dropped) */
-    struct RecGone *gone;   /* the body dropped (lang.c's records_sweep): only keys name it; NULL while it has one */
+    uint64_t h;         /* its interning hash, once computed */
 } Record;
 int record_mkdim(Record *r);        /* A8 (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.16 “A8 — Proposal: formal transported compositions”): 1 when building r (or anything it calls) may make a fresh free dimension */
 int casetab_mkdim(const struct CaseTab *t);
@@ -463,7 +441,7 @@ Port top_build(Syn *body, int nslots, const int *uses);
 
 /* globals: each definition's net is built once; a use copies its value */
 long global_axiom_ty(long g);   /* a constant with no computation: its type's global (or -1); else -2 */
-Port global_copy(long g, Key *as); /* 0 when the global is an unsupplied input; as: the key the copy carries (the name of the cell that referred to it; NULL: the definition's) */
+Port global_copy(long g);          /* 0 when the global is an unsupplied input */
 void global_park(long g, Cell *op, Cell *glob);
 /* foreign functions (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.11 “D24–D27 — The world”, its part D27): a C symbol at a primitive type; the arguments' kinds (PT_*, or 4 a word), its result's.
  * The same table holds the #jit entries (PLAN.md revision 8, 9 Nov 2026, git 91167ad638c0:PLAN.md, §5.5 “Bytes, the boundary, and what is trusted”): fn the bytes, jt the parameters' and the result's types
