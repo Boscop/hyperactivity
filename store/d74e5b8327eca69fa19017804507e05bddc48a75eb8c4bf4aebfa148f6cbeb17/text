@@ -1,0 +1,30 @@
+k-btw-c : (x : List Word) → (a1 : List (List Word)) →
+          ((b c : List (List Word)) → isTrue (leq {suffix-ord} a1 b) → isTrue (leq {suffix-ord} b c) → ltn (lcp b c) (lcp a1 c) ≡ false) →
+          (b c : List (List Word)) → isTrue (leq {suffix-ord} (cons x a1) b) → isTrue (leq {suffix-ord} b c) → ltn (lcp b c) (lcp (cons x a1) c) ≡ false
+k-btw-c x a1 ih b c h1 h2 =
+  (case c return λ v → isTrue (leq {suffix-ord} (cons x a1) b) → isTrue (leq {suffix-ord} b v) → ltn (lcp b v) (lcp (cons x a1) v) ≡ false of
+     nil → λ h1 h2 → k-ltn-zero (lcp b nil)
+     cons z c1 →
+       λ h1 h2 →
+         ifP {λ bb → ltn (lcp b (cons z c1)) (if bb then suc (lcp a1 c1) else zero) ≡ false} {tok-eq x z}
+           (λ exz →
+              (case b return λ v → isTrue (leq {suffix-ord} (cons x a1) v) → isTrue (leq {suffix-ord} v (cons z c1)) → ltn (lcp v (cons z c1)) (suc (lcp a1 c1)) ≡ false of
+                 nil → λ h1 h2 → Empty-rec h1
+                 cons y b1 →
+                   λ h1 h2 →
+                     let xz = tok-eq-sound x z (eq→isTrue exz)
+                         lxy = step-fst {leq {token-ord} x y} {leq {token-ord} y x} {leq {suffix-ord} a1 b1} h1
+                         lyz = step-fst {leq {token-ord} y z} {leq {token-ord} z y} {leq {suffix-ord} b1 c1} h2
+                         lyx = subst {_} {_} {List Word} {λ w → isTrue (leq {token-ord} y w)} (sym xz) lyz
+                         xy = ord-antisym {token-ord} {x} {y} lxy lyx
+                         yz = tr {List Word} {y} {z} x (sym xy) xz
+                         lzy = subst {_} {_} {List Word} {λ w → isTrue (leq {token-ord} w y)} (tr {List Word} {y} {z} x (sym xy) xz) (ord-refl {token-ord} y)
+                         tyz = isTrue→eq (subst {_} {_} {List Word} {λ w → isTrue (tok-eq y w)} yz (tok-eq-refl y))
+                         h1r = step-r {leq {token-ord} x y} {leq {token-ord} y x} {leq {suffix-ord} a1 b1} lyx h1
+                         h2r = step-r {leq {token-ord} y z} {leq {token-ord} z y} {leq {suffix-ord} b1 c1} lzy h2
+                     in tr {Bool} {ltn (if tok-eq y z then suc (lcp b1 c1) else zero) (suc (lcp a1 c1))} {false} (ltn (suc (lcp b1 c1)) (suc (lcp a1 c1)))
+                          (λ i → ltn (if tyz i then suc (lcp b1 c1) else zero) (suc (lcp a1 c1)))
+                          (ih b1 c1 h1r h2r))
+                h1 h2)
+           (λ e → k-ltn-zero (lcp b (cons z c1))))
+    h1 h2

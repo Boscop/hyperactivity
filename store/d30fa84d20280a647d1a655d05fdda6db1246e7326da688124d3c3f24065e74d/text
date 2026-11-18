@@ -1,0 +1,22 @@
+k-scan-good : (t : List (List Word)) → (f : List (List Word) → Word) → FinRank t f → (u : List (List Word)) → (h : Nat) →
+              MemOrNil t u → k-HintL t f h u →
+              k-All t (k-scan (build (list-length (k-Lf t f)) (k-Lf t f)) h u (list-map f (sufs u)))
+k-scan-good t f fin u =
+  case u return λ w → (h : Nat) → MemOrNil t w → k-HintL t f h w →
+                      k-All t (k-scan (build (list-length (k-Lf t f)) (k-Lf t f)) h w (list-map f (sufs w))) of
+    nil → λ h mo hint → unit
+    cons x u1 →
+      λ h mo hint →
+        let lf = k-Lf t f
+            ml = list-map (k-psi f) (sufs t)
+            sl = msort-fuel-sorted {k-PR} (list-length ml) ml
+            key = k-key (f (cons x u1))
+            path = k-tree {k-PR} (list-length lf) lf sl key
+        in k-at-good t f fin x u1 mo h
+             (λ l → k-scan (build (list-length lf) lf) l u1 (list-map f (sufs u1)))
+             (λ l hl → rec u1 l (mem-tail t x u1 mo) hl)
+             (k-pq key (build (list-length lf) lf))
+             (subst {_} {_} {Sum Unit (El k-PR)} {λ w → k-LastP {k-PR} key lf w} (sym path) (k-last-p key lf))
+             (λ z mz nz → subst {_} {_} {Sum Unit (El k-PR)} {λ w → k-Ge {k-PR} (k-psi f z) w} (sym path)
+                            (k-last-ge key (k-psi f z) lf sl (k-mem-in t f z mz) (k-not-path (sym (k-key-psi t f fin (cons x u1) z mo mz)) nz)))
+             (subst {_} {_} {Sum Unit (El k-PR)} {λ w → k-HintP h (cons x u1) w} (sym path) hint)
