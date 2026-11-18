@@ -1,0 +1,9 @@
+-- a word identified with its forms (left with leave, meaning with mean): the entries it heads and
+-- the entries it is a form of, and all their forms, when the English index exists, else the word alone
+c-forms : List Word → Proc W (List (List Word))
+c-forms w = bind (c-exists "build/etym/en.syn.index") (λ have → if h-not have then ret {lzero} {W} (cons w nil) else
+  bind (c-out (cons "grep" (cons "-a" (cons "-m" (cons "20" (cons "-e" (cons (list-append "^" (list-append w c-tab)) (cons "build/etym/en.syn.index" nil)))))))) (λ s →
+  bind (c-out (cons "grep" (cons "-a" (cons "-n" (cons "-m" (cons "1" (cons "-e" (cons (list-append "^" (list-append w c-tab)) (cons "build/etym/en.index" nil))))))))) (λ h →
+  bind (c-forms-of (h-dedupe (list-append (if h-null (c-strip-nl h) then nil else cons (c-hex8 (wsub (h-number (c-upto-colon h)) #1)) nil)
+    (list-map (λ l → h-drop "#" (c-field (toNat #2) l)) (h-lines s))))) (λ fs →
+  ret (h-dedupe (cons w (c-filter c-all-letters fs)))))))
