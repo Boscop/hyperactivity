@@ -1848,7 +1848,10 @@ static void p_decl_in(void) {
             }
             free(r);
             if (ng != 5) x_sem("#jit: the plan did not read back, for", fn);
-            Node *v = grp[0];
+            /* the first part: (pair verdict reads), reads the entry's parameters the compiled program reads
+             * (lib/x86.cub jit-reads, its relevance analysis): the boundary converts those and no other */
+            Node *v = grp[0], *reads = NULL;
+            if (v->list && v->n == 3 && !v->it[0]->list && !strcmp(v->it[0]->s, "pair")) { reads = v->it[2]; v = v->it[1]; }
             if (v->list && v->n >= 2 && !v->it[0]->list && !strcmp(v->it[0]->s, "not-fo")) {
                 printf("jit: %s stays on the net: %s   [%ld steps]\n", fn->s, v->it[1]->list ? "?" : v->it[1]->s, steps);
                 decl_end(); return;
@@ -1878,7 +1881,12 @@ static void p_decl_in(void) {
             int arity = 0; Node *body = grp[3];
             for (; body->list && body->n == 2 && !body->it[0]->list && !strcmp(body->it[0]->s, "clam"); body = body->it[1]) arity++;
             bool used[NATIVE_MAXW] = { 0 };
-            for (int i = 0; i < arity && i < NATIVE_MAXW; i++) used[i] = code_reads(body, arity - 1 - i, 0);
+            if (reads)
+                for (Node *cur = reads; cur->list && cur->n == 3 && !cur->it[0]->list && !strcmp(cur->it[0]->s, "lcons"); cur = cur->it[2]) {
+                    long i = !cur->it[1]->list && cur->it[1]->s[0] == '#' ? atol(cur->it[1]->s + 1) : -1;
+                    if (i >= 0 && i < arity && i < NATIVE_MAXW) used[i] = true;
+                }
+            else for (int i = 0; i < arity && i < NATIVE_MAXW; i++) used[i] = code_reads(body, arity - 1 - i, 0);
             int k = jit_bind(fn->s, ck, bytes, len, arity, used);
             free(bytes);
             if (k < 0) {

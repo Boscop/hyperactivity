@@ -1,0 +1,13 @@
+-- a definition of the compiled program: a kept function is specialized as its caller is (its own
+-- calls kept the same way, from its code as written); any other definition is its code as checked
+unfold-jit : Word → Opt Code
+unfold-jit g =
+  case def-code g return (λ _ → Opt Code) of
+    none → none
+    some c → (case def-type-code g return (λ _ → Opt Code) of
+                none → some c
+                some T → (if andB (fo-fun T) (if self-head g c then false else true)
+                            then (let s = opt-or (src-of g) c
+                                      hs = jit-holds g s
+                                  in some (fst (specialize T (sched #64 lnil hs) lnil (inline-src hs s))))
+                            else some c))

@@ -1,0 +1,13 @@
+jit-plan-at : Word → Code → Lst Rule → Code → Plan
+jit-plan-at g Tc rules c =
+  let s = specialize Tc (jit-sched g c) rules c
+      cs = fst s
+      p = program-of-at unfold-jit g cs #256
+      ok = code-conv-at Tc (cglob g) cs
+      defs = x-erase g (x-forms-all (snd p))
+  in case x-verdict (fst p) defs return (λ _ → Plan) of
+       not-fo w at → (not-fo w at , (ok , (snd s , (cs , lnil))))
+       -- the entry's arity in the blob is the code's leading λs, which is what the boundary passes
+       -- (the directive counts them): a pass that changed it is refused here
+       fo q2 → (if x-arity-is defs g (fst (x-split cs)) then (fo cs , (ok , (snd s , (cs , encode-prog g defs))))
+                else (not-fo reflect cs , (ok , (snd s , (cs , lnil)))))

@@ -1,0 +1,16 @@
+-- the definitions compiled code keeps as calls (sched-holds): every one reached from the entry, other
+-- than the entry, that is a function on first-order data and is not a leaf (a body of at most 24
+-- nodes is copied into its caller). A kept definition is compiled once, as its own function, and its
+-- arguments are computed once by the caller: normalizing it into its caller instead substitutes each
+-- argument at every use of the parameter, so a parameter used k times computes its argument k times
+-- and the code grows by the argument's size k times over, at every level of the call tree
+hold-ok : Word → Word → Bool
+hold-ok e g =
+  if %weq e g then false
+  else (case def-type-code g return (λ _ → Bool) of
+          none → false
+          some T → (if fo-fun T
+                      then (case def-code g return (λ _ → Bool) of
+                              none → false
+                              some c → %wlt #24 (c-weight c-fuel c #0))
+                      else false))

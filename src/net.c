@@ -995,7 +995,27 @@ static Port jit_read_one(uint64_t v, JT *t, Port last) {
     default: return word_of(0);
     }
 }
+/* a List Word every element of which is a byte, read back as the text its bytes spell (V_TEXT): n bytes,
+ * where cells cost a cons cell and a word cell an element. Any other value: 0 */
+static Port jit_read_text(uint64_t v, JT *t) {
+    static int c_cons = -1, c_nil = -1;
+    if (c_cons < 0) { c_nil = con_index("nil"); c_cons = con_index("cons"); }
+    if (t->k != JT_DATA || c_cons < 0 || c_nil < 0 || CON[c_cons].data != t->d || v < 4096) return 0;
+    size_t n = 0;
+    for (uint64_t w = v;; n++) {
+        if (w < 4096) { if (DATA[t->d].cons[w] != c_nil) return 0; break; }
+        uint64_t *p = (uint64_t *)(uintptr_t)w;
+        if (DATA[t->d].cons[p[0]] != c_cons || jt_field(t, (int)p[0], 0)->k != JT_WORD || p[1] > 255) return 0;
+        w = p[2];
+    }
+    Bytes *b = malloc(sizeof(Bytes) + n); b->rc = 1; b->n = n;
+    size_t i = 0;
+    for (uint64_t w = v; w >= 4096; i++) { uint64_t *p = (uint64_t *)(uintptr_t)w; b->b[i] = (unsigned char)p[1]; w = p[2]; }
+    Cell *c = cell(V_TEXT, 1); c->p = b; c->a = 0;
+    return P(c, 0);
+}
 static Port jit_read(uint64_t v, JT *t) {
+    { Port tx = jit_read_text(v, t); if (tx) return tx; }
     size_t cap = 16, n = 0; uint64_t *vs = malloc(cap * sizeof(uint64_t)); JT **ts = malloc(cap * sizeof(JT *));
     Port tail;
     for (;;) {
