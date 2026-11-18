@@ -2685,11 +2685,26 @@ static char *dnf_string(const Dnf *d, bool face) {
 }
 static int obs_depth;
 long rb_nodes;   /* cells of the value read back: its size, reported beside the steps */
+/* a verdict of the checker (a term %%chk-…) is read back to at most RB_VERDICT_CAP cells: a refusal
+ * carries the values it concerns, the expected and the actual type, for its report, and a value of a
+ * symbolic run (26 steps of an x86 model, the flags an unshared tree of word operations) has a normal
+ * form far past memory; past the cap a part reads as opq. An acceptance (ok) and the implicit arguments
+ * found (elab) are far below it */
+#define RB_VERDICT_CAP 1000000
+#define RB_REPORT_CAP 20000
+static long rb_cap; static bool rb_cut;   /* the last verdict read was cut at the cap */
+static const char *con_of(Cell *c);
 static void rb_one(FILE *o, Port prov) {
+    if (rb_cap && rb_nodes >= rb_cap) { rb_cut = true; fputs(" opq ", o); return; }
     Cell *c = observe(prov);
     if (!c) { fputs("<pending>", o); return; }
     /* the size counts the value's cells, not the references and unbuilt subterms it is read through */
-    if (c->kind != V_REF && c->kind != V_THUNK && c->kind != V_DEFER) rb_nodes++;
+    if (c->kind != V_REF && c->kind != V_THUNK && c->kind != V_DEFER) {
+        rb_nodes++;
+        /* a refusal is a report: its values read to RB_REPORT_CAP cells (an acceptance and the
+         * implicit arguments found are read whole, to the verdict cap) */
+        if (rb_cap && rb_nodes == 1 && c->kind == V_CON && !strcmp(con_of(c), "refused")) rb_cap = RB_REPORT_CAP;
+    }
     long nm;
     if (obs_depth > 0 && (c->kind == V_NVAR || c->kind == V_NAPP || c->kind == V_NPAPP) && (c->ty & TY_COFIX)) {
         /* (observe n t): a stuck call unfolded, its fields read one level less deep */
@@ -3002,7 +3017,11 @@ static void pbranches(FILE *o, int d, Port bs) {
     }
     free(br);
 }
+/* a code printed for a refusal's report (explain) is cut at pc_cap nodes: what is shown is read, and
+ * reading a normal form computes it */
+static long pc_nodes, pc_cap;
 static void pcode(FILE *o, Port p) {
+    if (pc_cap && pc_nodes++ >= pc_cap) { fputs("…", o); return; }
     Cell *c = obs_val(p);
     const char *h = con_of(c);
     if (!*h) { fputs("<?>", o); return; }
@@ -3132,7 +3151,7 @@ static char *read_code(Port prov) {
     Cell *c = obs_val(prov);
     if (!c || strcmp(con_of(c), "some")) return NULL;
     char *buf; size_t len; FILE *o = open_memstream(&buf, &len);
-    ndshow = 0; dcount = 0; vcount = 0; ncnm = 0; cvc = 0; cdc = 0;
+    ndshow = 0; dcount = 0; vcount = 0; ncnm = 0; cvc = 0; cdc = 0; pc_nodes = 0;
     pcode(o, c->port[1]);
     fclose(o);
     return buf;
@@ -3149,7 +3168,11 @@ static Node *reading_type(Node *t) {
 static char *readback(Node *t, long *steps) {
     net_drain();
     long s0 = stat_steps;
+    long cap0 = rb_cap;
+    rb_cut = false;
+    if (t->list && t->n > 0 && !t->it[0]->list && !strncmp(t->it[0]->s, "%%chk-", 6)) rb_cap = RB_VERDICT_CAP;
     char *buf = read_port(build_top(t));
+    rb_cap = cap0;
     net_drain();
     if (steps) *steps = stat_steps - s0;
     return buf;
@@ -3239,7 +3262,15 @@ static void out_str(const char *r) {
 /* the position of the declaration being processed (file:line, set by the surface parser; PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §12 “The build list”, “E. The language people and models write in”, item 30: incremental checking, editor protocol, errors, debugger by replay, step profiles) */
 char decl_pos[512];
 static bool has_hole(Node *t);
+static void explain_at(const char *r, Node *q);
+/* the report of a refusal, read to a bounded size: 4000 nodes of each code shown, the verdict's cap
+ * for a value read back */
 static void explain(const char *r, Node *q) {
+    long rc = rb_cap, pc = pc_cap; rb_cap = RB_VERDICT_CAP; pc_cap = 4000; pc_nodes = 0;
+    explain_at(r, q);
+    rb_cap = rc; pc_cap = pc;
+}
+static void explain_at(const char *r, Node *q) {
     if (decl_pos[0]) printf("   in: %s\n", decl_pos);
     /* reason, then what its two values are */
     static const char *M[][3] = {
@@ -3305,7 +3336,9 @@ static void explain(const char *r, Node *q) {
         return;
     }
     char *typed[2] = { NULL, NULL };
-    if (q && known && (slot_is_type(why, 0) || slot_is_type(why, 1))) {
+    /* the types quoted at their own type, unless the verdict itself was past the cap (quoting a value
+     * computes all of it before its first constructor is known) */
+    if (q && known && !rb_cut && (slot_is_type(why, 0) || slot_is_type(why, 1))) {
         net_drain();
         Cell *c = obs_val(build_top(q));
         if (c && !strcmp(con_of(c), "refused"))
