@@ -1,0 +1,14 @@
+-- the public server's answer (Avik, 2026-11-18: "I don't want to send this to people and then it goes
+-- down"): the front page, every published work and its search item read from the pages the build kept
+-- (s-kept-public), the paper's page kept by the build, the list of works (s-corpus-list, made from the
+-- declaration), the views sent to the front page, and nothing else: any other address is not found. No
+-- answer here renders anything, so each costs one read of a kept file and one write of it
+s-public-answer : List Word → List Word → List Word → Proc W (List Word)
+s-public-answer st m p =
+  if orB (h-eq p "/") (h-null p) then s-kept-public st "front" else
+  if h-eq p "/paper" then s-paper st m else
+  if h-eq p "/corpus" then ret {lzero} {W} (s-response "application/json" s-corpus-list) else
+  if andB (h-prefix "/corpus/" p) (orB (h-eq p "/corpus/paper") (s-known (s-at-name (h-drop "/corpus" p) s-published))) then s-kept-public st (list-append "corpus-" (h-drop "/corpus/" p)) else
+  if s-views-path p then ret {lzero} {W} s-to-front else
+  if s-known (s-at-name p s-published) then s-kept-public st (h-drop "/" p) else
+  ret {lzero} {W} (s-respond "404 Not Found" "text/plain" "Nothing is published at this address. The front page, /, lists everything that is.")

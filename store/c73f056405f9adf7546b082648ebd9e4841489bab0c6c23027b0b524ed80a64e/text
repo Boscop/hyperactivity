@@ -1,0 +1,10 @@
+-- write NAME: a declaration changed; write NAME after OTHER: a new one placed; write NAME NAME ...: several
+-- changed, checked once; write NAME NAME ... after OTHER: several new ones placed together, checked once
+hy-write : List Word → List Word → List (List Word) → List Word → Proc W Unit
+hy-write st m nil t = h-fail "hyperactive write NAME [NAME ...] [after OTHER], the declarations on standard input"
+hy-write st m (cons name rest) t = if h-ends ".cub" name then bind (hy-head-of st name) (hy-write-head st m name (hy-nl t))
+  else if hy-document name then bind (h-record m name t) (λ u → bind (hy-version "modules" (h-hex name)) (λ vu → h-out (h-line (list-append name "   (a document, written whole)"))))
+  else if andB (h-has "after" rest) (h-not (h-eq (hy-head rest) "after")) then hy-write-group-of st m (cons name (hy-names-before rest)) (hy-name-after rest) (hy-nl t)
+  else if andB (h-not (h-null (h-concat rest))) (h-not (h-eq (hy-head rest) "after"))
+  then hy-write-many st m (cons name rest) (hy-cut rest nil nil (h-split #10 (hy-nl t)))
+  else bind (hy-get st (list-append "written/" (h-hex name))) (λ w → hy-write-to st m name rest (hy-nl t) w)

@@ -1,0 +1,8 @@
+-- a request answered: a public server answers a reader without the owner's token from what the build
+-- kept (s-public-answer); the owner, or a server that is not public, is answered in full (s-answer)
+s-request : Bool → List Word → List Word → Sum Unit (List Word) → List Word → Proc W (List Word)
+s-request pub st m tok req =
+  if h-prefix "POST " req then (if s-allowed pub tok req then s-post st m (h-before " " (h-drop "POST " req)) req
+    else ret {lzero} {W} (s-respond "403 Forbidden" "text/plain" "this server is read-only"))
+  else if andB pub (h-not (s-allowed pub tok req)) then s-public-answer st m (h-before "?" (s-request-path req))
+  else s-answer st m (s-request-path req)
