@@ -20,3 +20,9 @@ his complete insight.
 
 Write no code in any language but hyperactive (`.cub`): no Python, no shell. The core C changes
 only to fix the core, each change recorded in the guard's list (lib/guard.cub, the pre-commit hook).
+
+The system is decentralized, and every process is written as part of it (Avik, 2026-11-18: "it should
+require as much memory is needed for local operation on the graph and that's it"): no process holds
+the whole of anything (a corpus, the repository's prose, the workflow); text is held at the cost of
+its bytes, List Word being its specification and not its storage; and the cost of every process is
+derived and proven from its definitions, never measured. The workflow node is `memory-is-local`.
