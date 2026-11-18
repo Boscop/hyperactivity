@@ -910,7 +910,7 @@ static bool jit_ready(Cell *c) {
         if (!x) { ok = false; break; }
         switch (x->kind) {
         case V_WORD: if (x->p) ok = false; break;
-        case V_PVAL: case V_BYTES: break;
+        case V_PVAL: case V_BYTES: case V_TEXT: break;
         case V_CON:
             if (CON[x->a].ndims) { ok = false; break; }
             for (int j = 0; j < CON[x->a].nfields; j++) { if (sp == cap) { cap *= 2; st = realloc(st, cap * sizeof(Cell *)); } st[sp++] = cell_at(x->port[1 + j]); }
@@ -954,6 +954,19 @@ static uint64_t jit_in(Cell *c, JT *t, JitCtx *x) {
             *slot = (uint64_t)(uintptr_t)p; slot = &p[2]; c = cell_at(c->port[2]); t = t->b; continue;
         }
         case JT_DATA: {
+            if (c->kind == V_TEXT) {
+                /* a text held as its bytes: its list written out in the arena, one cons a byte (the
+                 * list's constructors by their indices, as a list of cells crosses) */
+                static int ci = -1, ni = -1;
+                if (ci < 0) { ni = CON[con_index("nil")].index; ci = CON[con_index("cons")].index; }
+                Bytes *b = c->p; size_t off = (size_t)c->a, n = b ? b->n : 0;
+                for (; off < n; off++) {
+                    uint64_t *p = jit_alloc(x, 3); if (!p) return 0;
+                    p[0] = (uint64_t)ci; p[1] = b->b[off];
+                    *slot = (uint64_t)(uintptr_t)p; slot = &p[2];
+                }
+                *slot = (uint64_t)ni; return r;
+            }
             ConInfo *k = &CON[c->a]; int nf = k->nfields;
             if (nf == 0) { *slot = (uint64_t)k->index; return r; }
             uint64_t *p = jit_alloc(x, 1 + (size_t)nf); if (!p) return 0;
@@ -1898,7 +1911,9 @@ static void interact(Cell *o, Cell *v) {
     }
     /* an unbuilt subterm meeting an operation is built (an explicit force of a hypothesis too) */
     if (unbuilt(v->kind)) { link(unbuilt_build(v), P(o, 0)); return; }
-    if (v->kind == V_TEXT) { link(text_build(v), P(o, 0)); return; }
+    /* a text met by an operation that reads it: its first constructor. Forcing data whole passes it on (it
+     * is built all the way down) and compiled code takes its bytes (jit_in) */
+    if (v->kind == V_TEXT && o->kind != O_DEEP && o->kind != O_DEEPC && o->kind != O_NATIVE) { link(text_build(v), P(o, 0)); return; }
     if (v->kind == V_REF) {
         /* the value is copied out of its box */
         link(ref_read(v), P(o, 0));
