@@ -235,6 +235,8 @@ enum {
     O_LOAD, O_LOADB,   /* x=width (1,2,4,8): (%load b off): 0=b 1=off 2=out */
     O_STORE, O_STOREB, O_STOREC,   /* x=width: (%store b off v): a copy of b with v at off: 0=b 1=off 2=v 3=out */
     O_BLEN,     /* (%blen b): 0=b 1=out, the length */
+    O_TEXTB,    /* (%textbytes t): 0=t 1=out, the bytes a List Word of byte words spells (a text, V_TEXT, its bytes
+                 * shared; a list read whole first, O_DEEP, x=1 once it has been) */
     O_BEQ, O_BEQB,   /* (%beq a b): 0=a 1=b 2=out, true when both are byte strings of equal contents (the checker's conversion); O_BEQB: p=a's bytes, 0=b 1=out */
     O_PTROF,    /* (%ptr-of b): 0=b 1=out, the address of its bytes, a word (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.10 “C20–C22 — Memory and state”, its part C20; trusted) */
     O_REGAT,    /* (%region-at n a): 0=n 1=a 2=out, the n bytes at address a, copied (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.10 “C20–C22 — Memory and state”, its part C20; trusted) */

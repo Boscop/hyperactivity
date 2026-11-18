@@ -1798,7 +1798,7 @@ static const char *const KIND_NAME[K_END] = {
     [O_NTYPE] = "NTYPE",
     [O_CALL] = "CALL",
     [O_WSUCC] = "WSUCC",
-    [O_PTY] = "PTY", [O_BYTESTY] = "BYTESTY", [O_PVAL] = "PVAL", [O_PVAL2] = "PVAL2", [O_POP1] = "POP1", [O_POP2] = "POP2", [O_POP2B] = "POP2B", [O_BYTES] = "BYTES", [O_LOAD] = "LOAD", [O_LOADB] = "LOADB", [O_STORE] = "STORE", [O_STOREB] = "STOREB", [O_STOREC] = "STOREC", [O_BLEN] = "BLEN", [O_BEQ] = "BEQ", [O_BEQB] = "BEQB", [O_PTROF] = "PTROF", [O_REGAT] = "REGAT", [O_REGATA] = "REGATA", [O_FFI] = "FFI", [O_NATIVE] = "NATIVE", [O_DEEP] = "DEEP", [O_DEEPC] = "DEEPC",
+    [O_PTY] = "PTY", [O_BYTESTY] = "BYTESTY", [O_PVAL] = "PVAL", [O_PVAL2] = "PVAL2", [O_POP1] = "POP1", [O_POP2] = "POP2", [O_POP2B] = "POP2B", [O_BYTES] = "BYTES", [O_LOAD] = "LOAD", [O_LOADB] = "LOADB", [O_STORE] = "STORE", [O_STOREB] = "STOREB", [O_STOREC] = "STOREC", [O_BLEN] = "BLEN", [O_TEXTB] = "TEXTB", [O_BEQ] = "BEQ", [O_BEQB] = "BEQB", [O_PTROF] = "PTROF", [O_REGAT] = "REGAT", [O_REGATA] = "REGATA", [O_FFI] = "FFI", [O_NATIVE] = "NATIVE", [O_DEEP] = "DEEP", [O_DEEPC] = "DEEPC",
     [O_PIMULT] = "PIMULT", [O_PIM] = "PIM", [O_FMULT] = "FMULT", [O_FMULT2] = "FMULT2", [O_FMULT3] = "FMULT3", [O_LINEAR] = "LINEAR", [O_GSTEPS] = "GSTEPS", [O_GCODE] = "GCODE", [O_DNIDX] = "DNIDX", [O_GUSAGE] = "GUSAGE", [O_GUSAGE2] = "GUSAGE2",
     [O_WEQ] = "WEQ",
     [O_WLT] = "WLT",
@@ -1913,7 +1913,7 @@ static void interact(Cell *o, Cell *v) {
     if (unbuilt(v->kind)) { link(unbuilt_build(v), P(o, 0)); return; }
     /* a text met by an operation that reads it: its first constructor. Forcing data whole passes it on (it
      * is built all the way down) and compiled code takes its bytes (jit_in) */
-    if (v->kind == V_TEXT && o->kind != O_DEEP && o->kind != O_DEEPC && o->kind != O_NATIVE) { link(text_build(v), P(o, 0)); return; }
+    if (v->kind == V_TEXT && o->kind != O_DEEP && o->kind != O_DEEPC && o->kind != O_NATIVE && o->kind != O_TEXTB) { link(text_build(v), P(o, 0)); return; }
     if (v->kind == V_REF) {
         /* the value is copied out of its box */
         link(ref_read(v), P(o, 0));
@@ -2771,6 +2771,42 @@ static void interact(Cell *o, Cell *v) {
         era(P(v, 0));
         link(con_build(eq ? B_TRUE : B_FALSE, NULL, NULL), o->port[1]);
         cell_free(o);
+        return;
+    }
+    case O_TEXTB: {
+        /* the bytes a List Word of byte words spells: a text's are its own (shared from its offset 0, else
+         * copied from its offset); a list of cells is read whole first (O_DEEP), then walked here, a text
+         * at its end taken whole */
+        Bytes *nb = NULL;
+        if (vk == V_TEXT) {
+            Bytes *b = v->p; size_t off = (size_t)v->a, n = b && off < b->n ? b->n - off : 0;
+            if (b && off == 0) { rcl_inc(&b->rc); nb = b; }
+            else { nb = malloc(sizeof(Bytes) + n); nb->rc = 1; nb->n = n; if (n) memcpy(nb->b, b->b + off, n); }
+        } else if (vk == V_CON) {
+            size_t n = 0, cap = 64; unsigned char *buf = malloc(cap); bool built = true;
+            for (Cell *c = v;;) {
+                if (c && c->kind == V_TEXT) { Bytes *b = c->p; size_t off = (size_t)c->a, m = b && off < b->n ? b->n - off : 0;
+                    if (n + m > cap) { cap = n + m; buf = realloc(buf, cap); } if (m) memcpy(buf + n, b->b + off, m); n += m; break; }
+                if (!c || c->kind != V_CON) { built = false; break; }
+                if (CON[c->a].nfields == 0) break;
+                Cell *h = cell_at(c->port[1]);
+                if (CON[c->a].nfields != 2 || !h || h->kind != V_WORD || h->p) { built = false; break; }
+                if (n == cap) { cap *= 2; buf = realloc(buf, cap); }
+                buf[n++] = (unsigned char)h->a;
+                c = cell_at(c->port[2]);
+            }
+            if (!built && !o->x) {
+                Cell *d = cell(O_DEEP, 2), *t = cell(O_TEXTB, 2); t->x = 1;
+                link(P(v, 0), P(d, 0)); link(P(d, 1), P(t, 0)); mv(o, 1, P(t, 1));
+                free(buf); cell_free(o);
+                return;
+            }
+            if (!built) { free(buf); stuck(o, v); return; }
+            nb = malloc(sizeof(Bytes) + n); nb->rc = 1; nb->n = n; if (n) memcpy(nb->b, buf, n); free(buf);
+        } else { stuck(o, v); return; }
+        Cell *c = cell(V_BYTES, 1); c->x = PT_BYTES; c->p = nb;
+        link(P(c, 0), o->port[1]);
+        era(P(v, 0)); cell_free(o);
         return;
     }
     case O_BLEN: {

@@ -287,7 +287,7 @@ static bool node_eq(Node *a, Node *b) {
 /* ---------------- desugaring to the core forms ---------------- */
 static const char *KW[] = { "%raw", "%welimP", "%rebuilt", "%hole", "%guess", "%spine", "lam", "thunk", "%delay", "delay", "force", "case", "elim", "if", "rec", "the", "code", "%data", "%con", "hcompD", "%hcompF", "%transD", "%case", "%branches", "record", "%record", "plam", "forall", "let", "app", "pair", "fst", "snd", "Pi", "Sigma", "U",
     "PathP", "@", "~", "/\\", "\\/", "=", "&", "|", "faceof", "%fneg", "sys", "sys0", "sys+", "sysmap", "comp", "Glue", "%hcompU", "%unglueU", "glue",
-    "unglue", "%view", "%var", "%dim", "%ieq", "%feq", "%clauses", "%dnf", "%motive", "%restrict", "%gval", "%gty", "%dtab", "%dent", "%dtrans", "%abs", "%branch", "%clos", "%box", "%wsucc", "%weq", "%wlt", "%wadd", "%wmul", "%wdiv", "%wmod", "%wand", "%wor", "%wxor", "%wshl", "%wshr", "%wmax", "%wsub", "%welim", "%pimult", "%pim", "%fmult", "%linear", "%gusage", "%gsteps", "%gcode", "%dnidx", "%pty", "%bytesty", "%pval", "%bytes", "%blen", "%beq", "%ptr-of", "%region-at", "%ffi", "%native", "%natrep",
+    "unglue", "%view", "%var", "%dim", "%ieq", "%feq", "%clauses", "%dnf", "%motive", "%restrict", "%gval", "%gty", "%dtab", "%dent", "%dtrans", "%abs", "%branch", "%clos", "%box", "%wsucc", "%weq", "%wlt", "%wadd", "%wmul", "%wdiv", "%wmod", "%wand", "%wor", "%wxor", "%wshl", "%wshr", "%wmax", "%wsub", "%welim", "%pimult", "%pim", "%fmult", "%linear", "%gusage", "%gsteps", "%gcode", "%dnidx", "%pty", "%bytesty", "%pval", "%bytes", "%blen", "%textbytes", "%beq", "%ptr-of", "%region-at", "%ffi", "%native", "%natrep",
     "%i64add", "%i64sub", "%i64mul", "%i64eq", "%i64lt", "%u32add", "%u32sub", "%u32mul", "%u32eq", "%u32lt", "%f64add", "%f64sub", "%f64mul", "%f64div", "%f64eq", "%f64lt",
     "%u64add", "%u64sub", "%u64mul", "%u64eq", "%u64lt", "%u64div", "%u64mod", "%u64and", "%u64or", "%u64xor", "%u64shl", "%u64shr", "%i64div", "%i64mod", "%i64and", "%i64or", "%i64xor", "%i64shl", "%i64shr",
     "%i64ofw", "%wofi64", "%u32ofw", "%wofu32", "%f64ofw", "%f64ofi64", "%i64off64", "%f64bits", "%f64ofbits", "%f32bits", "%f32ofbits", "%u64ofw", "%wofu64", "%load8", "%load16", "%load32", "%load64", "%store8", "%store16", "%store32", "%store64", NULL };
@@ -2451,7 +2451,7 @@ static Syn *compile(Node *t) {
             { "%wadd", O_WADD, 2 }, { "%wmax", O_WMAX, 2 }, { "%wsub", O_WSUB, 2 }, { "%wmul", O_WMUL, 2 }, { "%wdiv", O_WDIV, 2 }, { "%wmod", O_WMOD, 2 }, { "%wand", O_WAND, 2 }, { "%wor", O_WOR, 2 }, { "%wxor", O_WXOR, 2 }, { "%wshl", O_WSHL, 2 }, { "%wshr", O_WSHR, 2 }, { "%welim", O_WELIM, 3 },
             { "%pimult", O_PIMULT, 1 }, { "%pim", O_PIM, 3 }, { "%fmult", O_FMULT, 3 }, { "%linear", O_LINEAR, 1 }, { "%gusage", O_GUSAGE, 2 }, { "%gsteps", O_GSTEPS, 1 }, { "%gcode", O_GCODE, 1 }, { "%dnidx", O_DNIDX, 1 },
             /* primitive types and values (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.2 “B12 — Representations as a construct”) */
-            { "%pty", O_PTY, 1 }, { "%bytesty", O_BYTESTY, 1 }, { "%pval", O_PVAL, 2 }, { "%bytes", O_BYTES, 1 }, { "%blen", O_BLEN, 1 }, { "%beq", O_BEQ, 2 }, { "%ptr-of", O_PTROF, 1 }, { "%region-at", O_REGAT, 2 }, { NULL, 0, 0 } };
+            { "%pty", O_PTY, 1 }, { "%bytesty", O_BYTESTY, 1 }, { "%pval", O_PVAL, 2 }, { "%bytes", O_BYTES, 1 }, { "%blen", O_BLEN, 1 }, { "%textbytes", O_TEXTB, 1 }, { "%beq", O_BEQ, 2 }, { "%ptr-of", O_PTROF, 1 }, { "%region-at", O_REGAT, 2 }, { NULL, 0, 0 } };
         /* the primitive operations, (%i64add a b) ...: O_POP1/O_POP2 with the operation in x; the loads and
          * stores by width */
         static const struct { const char *name; int op, n; } PO[] = {
@@ -4701,6 +4701,20 @@ static bool code_reads(Node *c, long target, long depth) {
     if ((!strcmp(h, "clam") || !strcmp(h, "cplam") || !strcmp(h, "cforall") || !strcmp(h, "cdlam")) && c->n == 2) return code_reads(c->it[1], target, depth + 1);
     if (!strcmp(h, "clet") && c->n == 3) return code_reads(c->it[1], target, depth) || code_reads(c->it[2], target, depth + 1);
     if ((!strcmp(h, "cpi") && c->n == 4) || (!strcmp(h, "csigma") && c->n == 3)) { int a = c->n - 2; return code_reads(c->it[a], target, depth) || code_reads(c->it[a + 1], target, depth + 1); }
+    /* an elimination's motive is its type, which the compiled code does not compute */
+    if (!strcmp(h, "celim") && c->n >= 4) { for (int i = 3; i < c->n; i++) if (code_reads(c->it[i], target, depth)) return true; return false; }
+    if (!strcmp(h, "cwelim") && c->n == 5) { for (int i = 1; i < 4; i++) if (code_reads(c->it[i], target, depth)) return true; return false; }
+    if (!strcmp(h, "cprim") && c->n == 3 && !c->it[1]->list && c->it[1]->s[0] == '#') {
+        /* a load, a store or a length (cprim 768..1535) carries the byte string's length last, for the reflected
+         * semantics' bounds; the compiled code does not read it (lib/x86.cub x-prim) */
+        long k = atol(c->it[1]->s + 1);
+        if (k >= 768 && k < 1536) {
+            int m = k < 1024 ? 2 : k < 1280 ? 3 : 1, i = 0;
+            for (Node *a = c->it[2]; a->list && a->n == 3 && !a->it[0]->list && !strcmp(a->it[0]->s, "lcons") && i < m; a = a->it[2], i++)
+                if (code_reads(a->it[1], target, depth)) return true;
+            return false;
+        }
+    }
     for (int i = 1; i < c->n; i++) if (code_reads(c->it[i], target, depth)) return true;
     return false;
 }
