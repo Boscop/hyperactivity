@@ -149,6 +149,11 @@ enum {
                  * run, an unbuilt value (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.16 “A8 — Proposal: formal transported compositions”): a reader runs it (defer_build), a duplicator holds it once, a
                  * substitution waits on a reference to it. Made where a rule would otherwise build one
                  * operation per branch of a system (distribute, a composition over a system of families) */
+    V_TEXT,     /* a=an offset, p=Bytes (refcounted): the bytes p[a..n) presented as List Word, the value
+                 * they spell (cons #b (cons #b … nil)); an operation meeting it is given one constructor
+                 * (text_build), so a text costs its bytes and the cells of the part being read, and a
+                 * copy of it is the same bytes (2026-11-18, Avik: "a ridiculous implementation": one
+                 * cell per character) */
     V_END,
     /* operations: negative principal port; the last port is the result */
     O_APP,      /* 0=f 1=arg 2=out */

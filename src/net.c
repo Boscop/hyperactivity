@@ -99,7 +99,7 @@ static void payload_retain(Cell *c) {
     if (owns_dnf(c->kind)) dnf_retain(c->p); else if (owns_subst(c->kind)) subst_retain(c->p);
     else if (c->kind == V_REF) { rcl_inc(&((Box *)c->p)->rc); if (c->a) subst_retain((Subst *)(uintptr_t)c->a); }
     else if (c->kind == V_WORD || c->kind == V_WPLUS) big_retain(c->p);
-    else if (c->kind == V_BYTES && c->p) rcl_inc(&((Bytes *)c->p)->rc);
+    else if ((c->kind == V_BYTES || c->kind == V_TEXT) && c->p) rcl_inc(&((Bytes *)c->p)->rc);
     else if (c->kind == V_THUNK && c->a) subst_retain((Subst *)(uintptr_t)c->a);
     else if (c->kind == V_DEFER && c->p && owns_dnf((int)c->ty)) dnf_retain(c->p);
 }
@@ -107,7 +107,7 @@ static void payload_release(Cell *c) {
     if (owns_dnf(c->kind)) dnf_release(c->p); else if (owns_subst(c->kind)) subst_release(c->p);
     else if (c->kind == V_REF && c->p) { box_release(c->p); if (c->a) subst_release((Subst *)(uintptr_t)c->a); c->a = 0; }
     else if (c->kind == V_WORD || c->kind == V_WPLUS) big_release(c->p);
-    else if (c->kind == V_BYTES && c->p) { Bytes *b = c->p; if (rcl_dec(&b->rc) == 0) free(b); }
+    else if ((c->kind == V_BYTES || c->kind == V_TEXT) && c->p) { Bytes *b = c->p; if (rcl_dec(&b->rc) == 0) free(b); }
     else if (c->kind == V_THUNK && c->a) { subst_release((Subst *)(uintptr_t)c->a); c->a = 0; }
     else if (c->kind == V_DEFER && c->p && owns_dnf((int)c->ty)) dnf_release(c->p);
     c->p = NULL;
@@ -527,6 +527,22 @@ Port thunk_build(Cell *v) {
     return r;
 }
 static Port word_of(uint64_t n) { Cell *c = cell(V_WORD, 1); c->a = n; return P(c, 0); }
+/* a text (V_TEXT) met by an operation: its first constructor, cons #b (the rest, the same bytes from the
+ * next offset) or nil; the cell is consumed. The value is the one the bytes spell as List Word, so
+ * every definition on List Word reads it unchanged */
+Port text_build(Cell *v) {
+    static int c_cons = -1, c_nil = -1;
+    if (c_cons < 0) { c_nil = con_index("nil"); c_cons = con_index("cons"); }
+    Bytes *b = v->p; size_t i = (size_t)v->a; Port r;
+    if (!b || i >= b->n) r = con_build(c_nil, NULL, NULL);
+    else {
+        Cell *t = cell(V_TEXT, 1); t->p = b; t->a = (uint64_t)(i + 1); rcl_inc(&b->rc);
+        Port f[2] = { word_of(b->b[i]), P(t, 0) };
+        r = con_build(c_cons, f, NULL);
+    }
+    cell_free(v);
+    return r;
+}
 /* the number a word cell holds (a copy), and a word cell holding a number (taking it) */
 static WN cell_wn(const Cell *c) { WN r = { c->a, c->p }; return wn_copy(&r); }
 static Port word_wn(WN k) { Cell *c = cell(V_WORD, 1); c->a = k.s; c->p = k.b; return P(c, 0); }
@@ -1521,6 +1537,7 @@ static void rule_view(Cell *o, Cell *v) {
     case V_GLUE: r = mk(WC[v->x ? W_HCOMPU : W_GLUE], v->port[1], v->port[2], 0, 0); break;
     case V_GLUEV: r = mk(WC[W_GLUEV], v->port[1], v->port[2], 0, 0); break;
     case V_HCOMP: if (v->n == 4) era(v->port[3]); r = mk(WC[W_HCOMP], v->port[1], v->port[2], 0, 0); break;
+    case V_TEXT: link(text_build(v), P(o, 0)); return;
     case V_TRANSH: link(transh_expand(v), P(o, 0)); return;
     case V_SYS: {
         int nb = v->n - 1; Dnf *cl = v->p;
@@ -1708,7 +1725,7 @@ static const char *const KIND_NAME[K_END] = {
     [V_WORD] = "WORD",
     [V_WSUSP] = "WSUSP",
     [V_WTY] = "WTY",
-    [V_PTY] = "PTY", [V_PVAL] = "PVAL", [V_BYTES] = "BYTES",
+    [V_PTY] = "PTY", [V_PVAL] = "PVAL", [V_BYTES] = "BYTES", [V_TEXT] = "TEXT",
     [V_THUNK] = "THUNK", [V_DEFER] = "DEFER",
     [V_WPLUS] = "WPLUS",
     [V_NWOP] = "NWOP",
@@ -1881,6 +1898,7 @@ static void interact(Cell *o, Cell *v) {
     }
     /* an unbuilt subterm meeting an operation is built (an explicit force of a hypothesis too) */
     if (unbuilt(v->kind)) { link(unbuilt_build(v), P(o, 0)); return; }
+    if (v->kind == V_TEXT) { link(text_build(v), P(o, 0)); return; }
     if (v->kind == V_REF) {
         /* the value is copied out of its box */
         link(ref_read(v), P(o, 0));

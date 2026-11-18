@@ -49,6 +49,20 @@ static Bytes *drv_bytes(Port p, const char *what) {
 }
 static Port drv_word_of(uint64_t n) { Cell *c = cell(V_WORD, 1); c->a = n; return P(c, 0); }
 static Port drv_bytes_of(Bytes *b) { Cell *c = cell(V_BYTES, 1); c->x = PT_BYTES; c->p = b; return P(c, 0); }
+/* the next cell of a list being written: a rest that is a text (V_TEXT) is taken whole, its bytes
+ * copied after the n already gathered, and (Cell *)1 returned; otherwise the list's next value */
+static Cell *drv_text_tail(Port p, unsigned char **b, size_t *n, size_t *cap) {
+    Cell *h = observe(p);
+    while (h && h->kind == V_REF) { p = ref_copy(h); h = observe(p); }
+    if (h && h->kind == V_TEXT) {
+        Bytes *t = h->p; size_t i = (size_t)h->a, m = t && i < t->n ? t->n - i : 0;
+        if (*n + m > *cap) { *cap = *n + m + 65536; *b = realloc(*b, *cap); }
+        if (m) memcpy(*b + *n, t->b + i, m);
+        *n += m;
+        return (Cell *)1;
+    }
+    return obs_val(p);
+}
 static void drivers_run(Node *t) {
     int c_sdone = drv_con("sdone"), c_scmd = drv_con("scmd"), c_unit = drv_con("unit");
     int c_now = drv_con("w-now"), c_write = drv_con("w-write"), c_read = drv_con("w-read"), c_sleep = drv_con("w-sleep"), c_exit = drv_con("w-exit");
@@ -57,7 +71,7 @@ static void drivers_run(Node *t) {
     int c_sys = drv_con("w-sys"), c_alloc = drv_con("w-alloc"), c_load8 = drv_con("w-load8"), c_store8 = drv_con("w-store8");
     int c_spawn = drv_con("w-spawn");
     int c_fdwrite = drv_con("w-fd-write");
-    int c_fread = drv_con("w-file-read"), c_fwrite = drv_con("w-file-write"), c_cons = con_lookup("cons"), c_nil = con_lookup("nil");
+    int c_fread = drv_con("w-file-read"), c_fwrite = drv_con("w-file-write"), c_nil = con_lookup("nil");
     Port p = build_top(t);
     long steps = 0, s0 = stat_steps;
     for (;;) {
@@ -161,14 +175,15 @@ static void drivers_run(Node *t) {
             posix_spawn_file_actions_destroy(&fa);
             resp = drv_word_of(e ? (uint64_t)-(int64_t)e : (uint64_t)pid);
         } else if (c == c_fread) {
-            /* a file whole, as the list of its bytes, built at once */
+            /* a file whole: its bytes held once, as the text they spell (V_TEXT), read one constructor
+             * at a time by whatever reads it (2026-11-18: was the list of its bytes, built at once) */
             const char *path = (const char *)(uintptr_t)drv_word(cm->port[1], "w-file-read's path");
             FILE *f = fopen(path, "rb"); uint64_t st = 0; unsigned char *b = NULL; size_t n = 0, cap = 0;
             if (!f) st = (uint64_t)-(int64_t)errno;
             else { size_t k; do { if (n + 65536 > cap) { cap = (n + 65536) * 2; b = realloc(b, cap); } k = fread(b + n, 1, 65536, f); n += k; } while (k > 0); fclose(f); }
-            Port r = con_build(c_nil, NULL, NULL);
-            for (size_t i = n; i-- > 0; ) { Port fl[2] = { drv_word_of(b[i]), r }; r = con_build(c_cons, fl, NULL); }
+            Bytes *tb = malloc(sizeof(Bytes) + n); tb->rc = 1; tb->n = n; if (n) memcpy(tb->b, b, n);
             free(b);
+            Cell *tc = cell(V_TEXT, 1); tc->p = tb; tc->a = 0; Port r = P(tc, 0);
             Cell *pr = cell(V_PAIR, 3);
             link(drv_word_of(st), P(pr, 1)); link(r, P(pr, 2));
             resp = P(pr, 0);
@@ -177,7 +192,8 @@ static void drivers_run(Node *t) {
             uint64_t fd = drv_word(cm->port[1], "w-fd-write's descriptor");
             unsigned char *b = NULL; size_t n = 0, cap = 0;
             for (Port p = cm->port[2];;) {
-                Cell *h = obs_val(p);
+                Cell *h = drv_text_tail(p, &b, &n, &cap);
+                if (h == (Cell *)1) break;
                 if (!h || h->kind != V_CON) die("run: w-fd-write: a list of words was expected", NULL);
                 if ((int)h->a == c_nil) break;
                 if (n == cap) { cap = cap * 2 + 65536; b = realloc(b, cap); }
@@ -192,7 +208,8 @@ static void drivers_run(Node *t) {
             const char *path = (const char *)(uintptr_t)drv_word(cm->port[1], "w-file-write's path");
             unsigned char *b = NULL; size_t n = 0, cap = 0;
             for (Port p = cm->port[2];;) {
-                Cell *h = obs_val(p);
+                Cell *h = drv_text_tail(p, &b, &n, &cap);
+                if (h == (Cell *)1) break;
                 if (!h || h->kind != V_CON) die("run: w-file-write: a list of words was expected", NULL);
                 if ((int)h->a == c_nil) break;
                 if (n == cap) { cap = cap * 2 + 65536; b = realloc(b, cap); }
