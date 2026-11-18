@@ -346,6 +346,26 @@ static long store_steps(const char *key) {
 /* the names log: name key time; read once, the latest key of each name kept */
 typedef struct { char *name; char *key; } NameBind;
 static NameBind *NB; static size_t capnb; static int nnb; static bool nb_read;
+/* a name's place in NB found by hashing it: the log is a line per binding ever made, so finding each
+ * line's name by a scan of NB was quadratic in the log (4.4 billion instructions a load, 2026-11-18) */
+static int *NBH; static size_t capnbh;
+static size_t nb_hash(const char *s) { size_t h = 1469598103934665603ull; for (; *s; s++) h = (h ^ (unsigned char)*s) * 1099511628211ull; return h; }
+static void nbh_put(int i) { size_t m = capnbh - 1, j = nb_hash(NB[i].name) & m; while (NBH[j] >= 0) j = (j + 1) & m; NBH[j] = i; }
+static int nb_find(const char *name) {
+    if (!capnbh) return -1;
+    size_t m = capnbh - 1, j = nb_hash(name) & m;
+    for (; NBH[j] >= 0; j = (j + 1) & m) if (!strcmp(NB[NBH[j]].name, name)) return NBH[j];
+    return -1;
+}
+static int nb_add(const char *name) {
+    if ((size_t)(nnb + 1) * 2 > capnbh) {
+        size_t nc = capnbh ? capnbh * 2 : 1024; free(NBH); NBH = malloc(nc * sizeof(int)); capnbh = nc;
+        for (size_t j = 0; j < nc; j++) NBH[j] = -1;
+        for (int i = 0; i < nnb; i++) nbh_put(i);
+    }
+    GROW(NB, capnb, (size_t)nnb + 1); NB[nnb].name = strdup(name); NB[nnb].key = NULL; nbh_put(nnb);
+    return nnb++;
+}
 static void names_load(void) {
     if (nb_read) return;
     nb_read = true;
@@ -355,8 +375,7 @@ static void names_load(void) {
         char *s1 = strchr(l, ' ');
         if (s1) {
             *s1 = 0; char *s2 = strchr(s1 + 1, ' '); if (s2) *s2 = 0;
-            int i; for (i = 0; i < nnb && strcmp(NB[i].name, l); i++) ;
-            if (i == nnb) { GROW(NB, capnb, (size_t)nnb + 1); NB[nnb].name = strdup(l); NB[nnb].key = NULL; nnb++; }
+            int i = nb_find(l); if (i < 0) i = nb_add(l);
             free(NB[i].key); NB[i].key = strdup(s1 + 1);
         }
         l = e ? e + 1 : l + strlen(l);
@@ -373,9 +392,9 @@ static void names_bind(const char *name, const char *key) {
     if (hx.b && hx.n <= 250) { char *cur = store_read("bound", hx.b); if (!cur || strcmp(cur, key)) store_write("bound", hx.b, key, false); free(cur); }
     free(hx.b);
     names_load();
-    int i; for (i = 0; i < nnb && strcmp(NB[i].name, name); i++) ;
-    if (i < nnb && NB[i].key && !strcmp(NB[i].key, key)) return;
-    if (i == nnb) { GROW(NB, capnb, (size_t)nnb + 1); NB[nnb].name = strdup(name); NB[nnb].key = NULL; nnb++; }
+    int i = nb_find(name);
+    if (i >= 0 && NB[i].key && !strcmp(NB[i].key, key)) return;
+    if (i < 0) i = nb_add(name);
     free(NB[i].key); NB[i].key = strdup(key);
     char line[512]; snprintf(line, sizeof line, "%s %s %ld\n", name, key, (long)time(NULL));
     mkdir(store_dir(), 0777);
