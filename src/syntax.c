@@ -2475,8 +2475,8 @@ static void w_whole(const char *text, const char *rel) {
     SBuf mod = {0}; sb_put(&mod, h); sb_put(&mod, "\n");
     char mh[65]; key_hash(mod.b, mod.n, mh);
     char *p = src_path(mh, "module"); struct stat st; if (!w_indexing && stat(p, &st) != 0) src_write(mh, "module", mod.b); free(p);
+    e_bind(rel, mh);   /* before w_point: e_bind compares mh with what the source holds, which w_point overwrites */
     w_point("modules", rel, mh);
-    e_bind(rel, mh);
     free(mod.b);
 }
 /* a document by its path: the source's text (its length in len); a text document the source did not
@@ -2566,10 +2566,11 @@ static void w_file(const char *text, const char *path) {
         char *p = src_path(mh, "module");
         struct stat st; if (p && !w_indexing && stat(p, &st) != 0) src_write(mh, "module", mod.b);
         free(p);
-        char *rel = w_rel(path); w_forget(rel, names.b, mod.b);
+        char *rel = w_rel(path);
+        e_bind(rel, mh);   /* first: it compares mh with what the source holds, which the pointers below overwrite */
+        w_forget(rel, names.b, mod.b);
         w_point("modules", rel, mh);
         w_point("names-of", rel, names.b);
-        e_bind(rel, mh);
         if (load_root && store_dir() && !w_indexing) {
             /* roots/<path>: the file given to this machine that loads it (the machine's own, not the
              * source's), only a module of the work being a root */
