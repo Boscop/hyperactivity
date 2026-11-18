@@ -106,6 +106,7 @@ static void drivers_run(Node *t) {
     int c_load = drv_con("w-load"), c_store = drv_con("w-store"), c_cas = drv_con("w-cas"), c_fence = drv_con("w-fence");
     int c_sys = drv_con("w-sys"), c_alloc = drv_con("w-alloc"), c_load8 = drv_con("w-load8"), c_store8 = drv_con("w-store8");
     int c_free = drv_con("w-free");
+    int c_snap = drv_con("w-snapshot");
     int c_spawn = drv_con("w-spawn");
     int c_fdwrite = drv_con("w-fd-write");
     int c_freadn = drv_con("w-file-read-named"), c_fwriten = drv_con("w-file-write-named");
@@ -198,6 +199,13 @@ static void drivers_run(Node *t) {
             /* the bytes of one w-alloc given back; the address is dead after it */
             free((void *)(uintptr_t)drv_word(cm->port[1], "w-free's address"));
             resp = con_build(c_unit, NULL, NULL);
+        } else if (c == c_snap) {
+            /* the n bytes at an address, copied now: the copy is ordered by the commands around it, so
+             * a region taken this way and then freed holds the bytes as they were (2026-11-18) */
+            uint64_t n = drv_nat(cm->port[1], "w-snapshot's length"), a2 = drv_word(cm->port[2], "w-snapshot's address");
+            Bytes *b2 = calloc(1, sizeof(Bytes) + (size_t)n); b2->rc = 1; b2->n = (size_t)n;
+            if (a2 && n) memcpy(b2->b, (const void *)(uintptr_t)a2, (size_t)n);
+            resp = drv_bytes_of(b2);
         } else if (c == c_load8) {
             uint64_t a = drv_word(cm->port[1], "w-load8's address");
             resp = drv_word_of(*(volatile uint8_t *)(uintptr_t)a);

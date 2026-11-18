@@ -1,0 +1,14 @@
+-- a buffer the host fills, read as a region and then given back (2026-11-18). with-region n use m takes
+-- n bytes, runs use on their address so the host can fill them (a read, a stat, a socket) and answers
+-- what the host said, copies the bytes into a region of n bytes, gives the bytes back, and answers m's
+-- answer on that region. What the type carries, needing no argument about the code: every access m makes
+-- is through Ptr n, whose second component is the proof that the cell it names fits inside n bytes
+-- (lib/prim.cub load64), so no access of m is outside the buffer; m : Word → RM n A is a function of the
+-- host's answer and the region, so it is not given the address and cannot keep it; and the copy is a
+-- command, ordered before the bytes are given back, which %region-at on its own would not be. What it
+-- does not carry: use is handed the address, as it has to be to name the buffer in a system call, so a
+-- use that answered the address itself rather than the system call's result would hand it on. Every use
+-- written here answers a system call's result
+with-region : {A : Type} → (n : Nat) → (Word → Proc W Word) → (Word → RM n A) → Proc W A
+with-region {A} n use m = bind (alloc-bytes (fromNat n)) (λ a → bind (use a) (λ r →
+  bind (snapshot n a) (λ b → bind (free-at a) (λ u2 → ret {lzero} {W} (snd (run-on {n} {A} b (m r)))))))

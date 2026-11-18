@@ -1,0 +1,50 @@
+-- lib/world.cub — the drivers' signature W (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.11 “D24–D27 — The world”, its part D26): the commands the machine's driver loop
+-- (src/drivers.c, #run) performs against the operating system, and a process as a tree of
+-- steps the loop walks. Loaded after lib/proc.cub (Sig, Proc, Cmd, Resp) and lib/prim.cub
+-- (Bytes). A process over any signature is run through a handler into W.
+--
+-- Commands: the time now (nanoseconds), a write of n bytes to a descriptor (the count
+-- written), a read of up to n bytes (the count read and the bytes, the buffer n long), a
+-- sleep, an exit. Memory commands (load, store, cas, fence on Regions) are lib/proc.cub's
+-- MemS, run through sc-world or atomically; a hardware memory model is not offered yet.
+data WCmd = w-now | w-write (fd : Word) (n : Nat) (b : Bytes n) | w-read (fd : Word) (n : Nat) | w-sleep (ns : Word) | w-exit (ec : Word)
+  | w-open (n : Nat) (path : Bytes n) (flags : Word) (mode : Word) | w-close (fd : Word)
+  -- the memory interface (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.11 “D24–D27 — The world”, its part D26): words at addresses (ptr-of's, or memory the program does not own),
+  -- the model named: load acquire, store release, cas acquire-release (the value seen), fence
+  -- sequentially consistent
+  | w-load (a : Word) | w-store (a : Word) (v : Word) | w-cas (a : Word) (old : Word) (new : Word) | w-fence
+  -- the raw system call (Phase 3; lib/os/linux.cub is the typed world over it): the number and six
+  -- arguments as the syscall instruction takes them (rax; rdi rsi rdx r10 r8 r9), the response what
+  -- it leaves in rax as a 64-bit word (an error is the two's complement of its errno). Buffers are
+  -- addresses: w-alloc n is the address of n fresh zero bytes that stay valid for the process's
+  -- life; w-load8/w-store8 are one byte at an address (the value's low 8 bits stored). New
+  -- commands are added here, at the end: lib/elf.cub dispatches on the constructors' indices
+  | w-sys (nr : Word) (a1 : Word) (a2 : Word) (a3 : Word) (a4 : Word) (a5 : Word) (a6 : Word)
+  | w-alloc (n : Word) | w-load8 (a : Word) | w-store8 (a : Word) (v : Word)
+  -- another program started (2026-11-16): argv and envp the addresses of NULL-ended arrays of
+  -- NUL-ended strings, the program the first of argv; its standard output and error the descriptor
+  -- out (a negative out: this process's). The response is its process id, or an errno's two's
+  -- complement. Started without copying this process (posix_spawn), so a machine holding much memory
+  -- starts one as readily as a small one
+  | w-spawn (argv : Word) (envp : Word) (out : Word)
+  -- text written whole to a descriptor (a socket, standard output): the count written
+  | w-fd-write (fd : Word) (t : List Word)
+  -- a file read whole as text and text written whole to a file, each named by its path as a value
+  -- (2026-11-18): the read answers 0 and the file's bytes, or an errno's two's complement and
+  -- nothing; the write answers the count written, or an errno's two's complement. The name's bytes
+  -- and the text both cross as one value, not a command per byte, and the driver copies the name and
+  -- terminates it itself, so no program holds an address and the driver has no precondition that the
+  -- field's type does not already carry. Until this day the path was a Word holding a pointer into
+  -- the process, which no type stated and nothing checked
+  | w-file-read-named (path : List Word) | w-file-write-named (path : List Word) (t : List Word)
+  -- memory given back (2026-11-18): w-alloc's bytes stay valid for the process's life, so a buffer
+  -- allocated for one read and never given back is held until the process ends, which is what makes
+  -- w-alloc's out of memory reachable at all in a server that runs for days. w-free a gives back the
+  -- bytes of one w-alloc; the address is dead after it, and reading it is the same error as reading
+  -- any address the program does not own
+  | w-free (a : Word)
+  -- the n bytes at an address taken as a byte string, at the moment the command is performed
+  -- (2026-11-18): %region-at copies the same bytes, but it copies when the copy is demanded, which can
+  -- be after the memory has been given back. A command's copy is ordered by the commands around it, so
+  -- a region entered through w-snapshot and then freed is a region of the bytes as they were
+  | w-snapshot (n : Nat) (a : Word)

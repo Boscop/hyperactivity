@@ -1,0 +1,396 @@
+h-capture-with : List (List Word) → List (List Word) → Proc W (Word × List Word)
+h-capture-with extra args =
+  bind (h-read "/proc/self/environ") (λ env →
+  bind (h-ptrs args) (λ argv → bind (h-ptrs (list-append extra (h-env-block env))) (λ envp →
+  bind (with-region {Word} 8 (λ fds → sys-call #293 fds #524288 #0 #0 #0 #0) h-cell0) (λ both →
+  bind (spawn-at (fst argv) (fst envp) (wshr both #32)) (λ pid →
+  bind (h-free-ptrs argv) (λ u1 → bind (h-free-ptrs envp) (λ u2 →
+  bind (sys-call #3 (wshr both #32) #0 #0 #0 #0 #0) (λ c →
+  bind (h-read-fd (wand both #4294967295) (toNat #4096)) (λ out →
+  bind (sys-call #3 (wand both #4294967295) #0 #0 #0 #0 #0) (λ c2 →
+  if wlt pid #9223372036854775808 then bind (h-wait pid) (λ s → ret {lzero} {W} (s , out)) else ret {lzero} {W} (#127 , out))))))))))))
+h-capture : List (List Word) → Proc W (Word × List Word)
+h-capture args = h-capture-with nil args
+-- the names in a directory (not . and ..)
+h-dir-entries : Word → Word → Word → Nat → Proc W (List (List Word))
+h-dir-entries buf off n zero = ret nil
+h-dir-entries buf off n (suc k) =
+  if wlt off n then
+    bind (load8-at (wadd buf (wadd off #16))) (λ lo → bind (load8-at (wadd buf (wadd off #17))) (λ hi →
+    bind (h-name-at (wadd buf (wadd off #19)) (toNat #256)) (λ name →
+    bind (h-dir-entries buf (wadd off (wadd lo (wshl hi #8))) n k) (λ rest →
+    ret {lzero} {W} (if orB (h-eq name ".") (h-eq name "..") then rest else cons name rest)))))
+  else ret {lzero} {W} nil
+h-dir-reads : Word → Word → Nat → Proc W (List (List Word))
+h-dir-reads fd buf zero = ret nil
+h-dir-reads fd buf (suc k) = bind (sys-call #217 fd buf #65536 #0 #0 #0) (λ n →
+  if andB (wlt #0 n) (wlt n #9223372036854775808)
+  then bind (h-dir-entries buf #0 n (toNat (wquot n #20))) (λ es → bind (h-dir-reads fd buf k) (λ rest → ret {lzero} {W} (list-append es rest)))
+  else ret {lzero} {W} nil)
+h-list : List Word → Proc W (List (List Word))
+h-list path = with-bytes {List (List Word)} (wadd (fromNat (list-length path)) #1) (λ p → bind (h-poke p path) (λ u →
+  bind (sys-call #257 #18446744073709551516 p #65536 #0 #0 #0) (λ fd →
+  if wlt fd #9223372036854775808 then
+    with-bytes {List (List Word)} #65536 (λ buf → bind (h-dir-reads fd buf (toNat #4096)) (λ ns →
+    bind (sys-call #3 fd #0 #0 #0 #0 #0) (λ c → ret {lzero} {W} ns)))
+  else ret {lzero} {W} nil)))
+-- hex digits read back as bytes
+h-unhexd : Word → Word
+h-unhexd c = if wlt c #58 then wsub c #48 else wsub c #87
+h-unhex : List Word → List Word
+h-unhex nil = nil
+h-unhex (cons a nil) = nil
+h-unhex (cons a (cons b r)) = cons (wadd (wshl (h-unhexd a) #4) (h-unhexd b)) (h-unhex r)
+-- whether a text holds another inside it
+h-infix : List Word → List Word → Bool
+h-infix p nil = h-null p
+h-infix p (cons x r) = if h-prefix p (cons x r) then true else h-infix p r
+-- text up to the first place another text begins in it
+h-before : List Word → List Word → List Word
+h-before p nil = nil
+h-before p (cons x r) = if h-prefix p (cons x r) then nil else cons x (h-before p r)
+h-unlink : List Word → Proc W Unit
+h-unlink path = with-bytes {Unit} (wadd (fromNat (list-length path)) #1) (λ p → bind (h-poke p path) (λ u →
+  bind (sys-call #87 p #0 #0 #0 #0 #0) (λ r → ret unit)))
+-- the first n of a list
+h-take-n : {A : Type} → Nat → List A → List A
+h-take-n zero xs = nil
+h-take-n (suc n) nil = nil
+h-take-n (suc n) (cons x r) = cons x (h-take-n n r)
+-- text between quotation marks
+h-quote : List Word → List Word
+h-quote s = cons #34 (list-append s (cons #34 nil))
+
+-- texts sorted (merge sort) with each kept once, and the operations of sorted sets
+h-merge : Nat → List (List Word) → List (List Word) → List (List Word)
+h-merge zero a b = list-append a b
+h-merge (suc f) nil b = b
+h-merge (suc f) (cons x xs) nil = cons x xs
+h-merge (suc f) (cons x xs) (cons y ys) = if h-lt y x then cons y (h-merge f (cons x xs) ys) else if h-eq x y then cons x (h-merge f xs ys) else cons x (h-merge f xs (cons y ys))
+h-split2-onto : List (List Word) → List (List Word) → List (List Word) → (List (List Word)) × (List (List Word))
+h-split2-onto a b nil = (a , b)
+h-split2-onto a b (cons x r) = h-split2-onto b (cons x a) r
+h-msort-f : Nat → List (List Word) → List (List Word)
+h-msort-f zero xs = xs
+h-msort-f (suc f) nil = nil
+h-msort-f (suc f) (cons x nil) = cons x nil
+h-msort-f (suc f) (cons x (cons y r)) = h-merge (plus (list-length (cons x (cons y r))) (list-length (cons x (cons y r))))
+  (h-msort-f f (fst (h-split2-onto nil nil (cons x (cons y r))))) (h-msort-f f (snd (h-split2-onto nil nil (cons x (cons y r)))))
+h-msort : List (List Word) → List (List Word)
+h-msort xs = h-msort-f (list-length xs) xs
+-- a without b, both sorted
+h-minus-f : Nat → List (List Word) → List (List Word) → List (List Word)
+h-minus-f zero a b = a
+h-minus-f (suc f) nil b = nil
+h-minus-f (suc f) (cons x xs) nil = cons x xs
+h-minus-f (suc f) (cons x xs) (cons y ys) = if h-eq x y then h-minus-f f xs ys else if h-lt x y then cons x (h-minus-f f xs (cons y ys)) else h-minus-f f (cons x xs) ys
+h-minus : List (List Word) → List (List Word) → List (List Word)
+h-minus a b = h-minus-f (plus (list-length a) (list-length b)) a b
+-- a and b both, both sorted
+h-inter : List (List Word) → List (List Word) → List (List Word)
+h-inter a b = h-minus a (h-minus a b)
+h-union : List (List Word) → List (List Word) → List (List Word)
+h-union a b = h-merge (plus (list-length a) (list-length b)) a b
+-- a list of texts without its first
+h-tail-lists : List (List Word) → List (List Word)
+h-tail-lists nil = nil
+h-tail-lists (cons x r) = r
+-- the names in a directory with their kinds (4 a directory, 8 a regular file)
+h-typed-entries : Word → Word → Word → Nat → Proc W (List (List Word × Word))
+h-typed-entries buf off n zero = ret nil
+h-typed-entries buf off n (suc k) =
+  if wlt off n then
+    bind (load8-at (wadd buf (wadd off #16))) (λ lo → bind (load8-at (wadd buf (wadd off #17))) (λ hi →
+    bind (load8-at (wadd buf (wadd off #18))) (λ ty →
+    bind (h-name-at (wadd buf (wadd off #19)) (toNat #256)) (λ name →
+    bind (h-typed-entries buf (wadd off (wadd lo (wshl hi #8))) n k) (λ rest →
+    ret {lzero} {W} (if orB (h-eq name ".") (h-eq name "..") then rest else cons (name , ty) rest))))))
+  else ret {lzero} {W} nil
+h-typed-reads : Word → Word → Nat → Proc W (List (List Word × Word))
+h-typed-reads fd buf zero = ret nil
+h-typed-reads fd buf (suc k) = bind (sys-call #217 fd buf #65536 #0 #0 #0) (λ n →
+  if andB (wlt #0 n) (wlt n #9223372036854775808)
+  then bind (h-typed-entries buf #0 n (toNat (wquot n #20))) (λ es → bind (h-typed-reads fd buf k) (λ rest → ret {lzero} {W} (list-append es rest)))
+  else ret {lzero} {W} nil)
+h-typed-list : List Word → Proc W (List (List Word × Word))
+h-typed-list path = with-bytes {List (List Word × Word)} (wadd (fromNat (list-length path)) #1) (λ p → bind (h-poke p path) (λ u →
+  bind (sys-call #257 #18446744073709551516 p #65536 #0 #0 #0) (λ fd →
+  if wlt fd #9223372036854775808 then
+    with-bytes {List (List Word × Word)} #65536 (λ buf → bind (h-typed-reads fd buf (toNat #4096)) (λ ns →
+    bind (sys-call #3 fd #0 #0 #0 #0 #0) (λ c → ret {lzero} {W} ns)))
+  else ret {lzero} {W} nil)))
+-- every file under a directory whose name ends in suffix, to depth `depth`, paths from where it is
+h-files-at : (List Word → Proc W (List (List Word))) → List Word → List Word → List (List Word × Word) → Proc W (List (List Word))
+h-files-at rec suf path nil = ret nil
+h-files-at rec suf path (cons e r) =
+  bind (if andB (weq (snd e) #4) (h-not (h-skip (fst e))) then rec (list-append path (cons #47 (fst e)))
+        else ret {lzero} {W} (if andB (weq (snd e) #8) (h-ends suf (fst e)) then cons (list-append path (cons #47 (fst e))) nil else nil)) (λ here →
+  bind (h-files-at rec suf path r) (λ rest → ret (list-append here rest)))
+h-files : Nat → List Word → List Word → Proc W (List (List Word))
+h-files zero suf path = ret nil
+h-files (suc d) suf path = bind (h-typed-list path) (λ es → h-files-at (h-files d suf) suf path es)
+-- the working directory
+h-cwd : Proc W (List Word)
+h-cwd = with-bytes {List Word} #4097 (λ buf → bind (sys-call #79 buf #4096 #0 #0 #0 #0) (λ r → h-name-at buf (toNat #4096)))
+-- lists of texts run together
+h-concat-lists : List (List (List Word)) → List (List Word)
+h-concat-lists nil = nil
+h-concat-lists (cons x r) = list-append x (h-concat-lists r)
+-- the source (2026-11-16, Avik: "there will be no file system (asap)"): the written code and documents
+-- are objects of store/, which every session shares (src/store.c, src/syntax.c): each piece of text
+-- under its hash (HASH/text), each module's pieces in order (HASH/module), and the view's entries
+-- (entries/ID; src/syntax.c), from which the machine computes what each path and name holds into its
+-- index (h-index: modules/PATH, names-of/PATH, written/NAME, module-of/NAME, in hex). A path names a
+-- module; no file holds it.
+h-source : List Word
+h-source = "store"
+h-index : List Word
+h-index = ".cubical-store/index"
+h-source-or : Sum Unit (List Word) → List Word
+h-source-or (inl u) = nil
+h-source-or (inr t) = t
+h-source-pieces : List (List Word) → Proc W (List Word)
+h-source-pieces nil = ret nil
+h-source-pieces (cons p r) = bind (h-read (list-append h-source (cons #47 (list-append p "/text")))) (λ t →
+  bind (h-source-pieces r) (λ rest → ret (list-append (h-source-or t) rest)))
+h-source-module : Sum Unit (List Word) → Proc W (Sum Unit (List Word))
+h-source-module (inl u) = ret (inl unit)
+h-source-module (inr mh) = bind (h-read (list-append h-source (cons #47 (list-append mh "/module")))) (λ mo →
+  bind (h-source-pieces (h-lines (h-source-or mo))) (λ t → ret (inr t)))
+-- a module's text, by its path from the repository's root
+h-source-text : List Word → Proc W (Sum Unit (List Word))
+h-source-text path = bind (h-read (list-append h-index (list-append "/modules/" (h-hex path)))) h-source-module
+-- every path the source holds
+h-source-paths : Proc W (List (List Word))
+h-source-paths = bind (h-list (list-append h-index "/modules")) (λ hs → ret (list-map h-unhex hs))
+-- a module's pointer: the hash of its list of pieces, or "-" when the source does not hold it
+h-pointer-or : Sum Unit (List Word) → List Word
+h-pointer-or (inl u) = "-"
+h-pointer-or (inr p) = p
+h-pointer : List Word → Proc W (List Word)
+h-pointer path = bind (h-read (list-append h-index (list-append "/modules/" (h-hex path)))) (λ p → ret (h-pointer-or p))
+-- a text recorded as the module at a path by the machine m (the reader cuts a .cub into its
+-- declarations; any other document is held whole)
+h-record-raw : List Word → List Word → List Word → Proc W Unit
+h-record-raw m path t = bind (h-write "build/record" t) (λ b →
+  bind (h-capture (cons m (cons "--record" (cons path (cons "build/record" nil))))) (λ r → ret unit))
+-- a module dropped from the source (an entry of the view saying so): its path no longer names it, nor
+-- do its names their pieces
+h-unrecord-raw : List Word → Proc W Unit
+h-unrecord-raw path = bind (h-capture (cons "build/cubical" (cons "--unrecord" (cons path nil)))) (λ r → ret unit)
+h-record : List Word → List Word → List Word → Proc W Unit
+h-record m path t = h-record-raw m path t
+h-unrecord : List Word → Proc W Unit
+h-unrecord path = h-unrecord-raw path
+-- a path at which the source holds no one module: its alternatives named (src/syntax.c, the view), or nothing
+h-not-held-of : List Word → Sum Unit (List Word) → Proc W Unit
+h-not-held-of path (inl u) = h-fail (list-append "the source holds nothing at " path)
+h-not-held-of path (inr a) = h-fail (h-concat (cons path (cons " holds alternatives (entry, module), none read until all but one are stated dead (hyperactive dead ENTRY REASON) or a write follows them:" (cons (cons #10 nil) (cons a nil)))))
+h-not-held : List Word → Proc W Unit
+h-not-held path = bind (h-read (list-append h-index (list-append "/alternatives/" (h-hex path)))) (h-not-held-of path)
+-- a document by its path: the source's, or a file the source does not hold (the machine's C, the
+-- server's pages), from the disk
+h-document-or : List Word → Sum Unit (List Word) → Proc W (Sum Unit (List Word))
+h-document-or path (inl u) = h-read path
+h-document-or path (inr t) = ret (inr t)
+h-document : List Word → Proc W (Sum Unit (List Word))
+h-document path = bind (h-source-text path) (h-document-or path)
+-- the files the machine reports a file imports, and reads as bytes (`--imports`: `imports:` and `reads:`
+-- lines, paths from the repository root)
+h-imported : List (List Word) → List (List Word)
+h-imported nil = nil
+h-imported (cons l r) = if h-prefix "imports: " l then list-append (h-tail-lists (h-split #32 (h-drop "imports: " l))) (h-imported r) else h-imported r
+h-reads : List (List Word) → List (List Word)
+h-reads nil = nil
+h-reads (cons l r) = if h-prefix "reads: " l then list-append (h-tail-lists (h-split #32 (h-drop "reads: " l))) (h-reads r) else h-reads r
+-- the files a program depends on: the code files it imports, followed until no new one appears
+-- (code), and with them every file any of them reads as bytes, text or documents (all)
+h-imports-closure : Nat → List Word → List (List Word) → List (List Word) → List (List Word) → Proc W (List (List Word))
+h-imports-closure zero m code all front = ret all
+h-imports-closure (suc f) m code all front = if h-null (h-concat front) then ret {lzero} {W} all
+  else bind (h-capture (cons m (cons "--imports" front))) (λ im →
+    h-imports-closure f m (h-union code (h-minus (h-msort (h-imported (h-lines (snd im)))) code))
+      (h-union all (h-union (h-msort (h-imported (h-lines (snd im)))) (h-msort (h-reads (h-lines (snd im))))))
+      (h-minus (h-msort (h-imported (h-lines (snd im)))) code))
+-- when a path last changed: the time of its module's pointer in the index (computed from the view, a
+-- pointer is replaced only when what it points to changes), or, for what the source does not hold (the machine), the file's
+h-change-time-or : List Word → Word → Proc W Word
+h-change-time-or f t = if weq t #0 then h-file-time f else ret {lzero} {W} t
+h-change-time : List Word → Proc W Word
+h-change-time f = bind (h-file-time (list-append h-index (list-append "/modules/" (h-hex f)))) (h-change-time-or f)
+h-latest : List (List Word) → Proc W Word
+h-latest nil = ret #0
+h-latest (cons f r) = bind (h-change-time f) (λ t → bind (h-latest r) (λ u → ret (if wlt t u then u else t)))
+-- the latest change among the files a result of the machine m on the program at path depends on: the
+-- machine itself and every file the program depends on
+h-code-time : List Word → List Word → Proc W Word
+h-code-time m path = bind (h-imports-closure (toNat #64) m (cons path nil) (cons path nil) (cons path nil)) (λ fs → h-latest (cons m fs))
+-- the first of a list of texts (nothing when there is none)
+h-head-or : List (List Word) → List Word
+h-head-or nil = nil
+h-head-or (cons x r) = x
+-- what follows the first occurrence of p in s (nothing when p does not occur)
+h-after : List Word → List Word → List Word
+h-after p nil = nil
+h-after p (cons x r) = if h-prefix p (cons x r) then h-drop p (cons x r) else h-after p r
+-- the served source (2026-11-17; Avik: "There is no canonical state"): every session's pool and the
+-- server's grow by union, never written over. HYPERACTIVE_SERVER is [NAME@]ADDRESS:PORT (ADDRESS an IPv4
+-- address; NAME, when given, is the Host each request names, which is how a session with no resolver
+-- of names reaches a named server through a proxy that routes by Host), HYPERACTIVE_TOKEN the token
+-- the server asks of what is sent to it (lib/server.cub). What one side lacks the other sends: objects
+-- by their hashes (texts, modules, the view's entries), each taken only when its hash is its content's
+-- (the machine's --put). A session publishes each entry it holds that the server has not been seen to
+-- hold (STORE/served/ID), with the module and texts it binds; it takes the entries the server has had
+-- after the last it took (STORE/source-seq), with theirs, and checks each module of the work so taken:
+-- one that does not check is held back here (STORE/held/ID; src/syntax.c, the view), reported, and
+-- stays in the pool. What each side holds at a path then follows from the entries it holds
+h-crlf : List Word
+h-crlf = cons #13 (cons #10 nil)
+h-srv-addr : List Word → List Word
+h-srv-addr srv = if h-infix "@" srv then h-after "@" srv else srv
+h-srv-host : List Word → List Word
+h-srv-host srv = if h-infix "@" srv then h-before "@" srv else srv
+h-ip4 : List Word → List Word
+h-ip4 a = list-map h-number (h-split #46 a)
+h-sockaddr : List Word → List Word
+h-sockaddr srv = cons #2 (cons #0 (cons (wshr (h-number (h-after ":" srv)) #8) (cons (wand (h-number (h-after ":" srv)) #255)
+  (list-append (h-ip4 (h-before ":" srv)) (cons #0 (cons #0 (cons #0 (cons #0 (cons #0 (cons #0 (cons #0 (cons #0 nil))))))))))))
+h-recv-all : Word → Nat → List Word → Proc W (List Word)
+h-recv-all fd zero acc = ret acc
+h-recv-all fd (suc k) acc = bind (with-bytes {Sum Unit (List Word)} #65536 (λ buf →
+  bind (sys-call #0 fd buf #65536 #0 #0 #0) (λ n →
+  if orB (weq n #0) (wlt #9223372036854775807 n) then ret {lzero} {W} (inl unit)
+  else bind (h-peek buf (toNat n)) (λ b → ret {lzero} {W} (inr b))))) (λ r → case r of
+    inl u → ret {lzero} {W} acc
+    inr b → h-recv-all fd k (list-append acc b))
+-- a request sent and its whole response read (the server closes the connection), or nothing
+h-http : List Word → List Word → Proc W (Sum Unit (List Word))
+h-http srv req = bind (sys-call #41 #2 #1 #0 #0 #0 #0) (λ fd →
+  with-bytes {Sum Unit (List Word)} #16 (λ a → bind (h-poke a (h-sockaddr (h-srv-addr srv))) (λ u →
+  bind (sys-call #42 fd a #16 #0 #0 #0) (λ c →
+  if weq c #0 then bind (fd-write fd req) (λ w → bind (h-recv-all fd (toNat #1000000) nil) (λ r →
+    bind (sys-call #3 fd #0 #0 #0 #0 #0) (λ x → ret {lzero} {W} (inr r))))
+  else bind (sys-call #3 fd #0 #0 #0 #0 #0) (λ x → ret {lzero} {W} (inl unit))))))
+h-status : Sum Unit (List Word) → Word
+h-status (inl u) = #0
+h-status (inr r) = h-number (h-take (toNat #3) (h-drop "HTTP/1.1 " r))
+h-body : Sum Unit (List Word) → List Word
+h-body (inl u) = nil
+h-body (inr r) = h-after (list-append h-crlf h-crlf) r
+h-get : List Word → List Word → Proc W (Sum Unit (List Word))
+h-get srv path = h-http srv (h-concat (cons "GET " (cons path (cons " HTTP/1.1" (cons h-crlf (cons "Host: " (cons (h-srv-host srv) (cons h-crlf
+  (cons "Connection: close" (cons h-crlf (cons h-crlf nil)))))))))))
+h-post : List Word → List Word → List Word → List Word → Proc W (Sum Unit (List Word))
+h-post srv tok path body = h-http srv (h-concat (cons "POST " (cons path (cons " HTTP/1.1" (cons h-crlf (cons "Host: " (cons (h-srv-host srv) (cons h-crlf
+  (cons "X-Token: " (cons tok (cons h-crlf (cons "Content-Length: " (cons (h-decimal (fromNat (list-length body))) (cons h-crlf
+  (cons "Connection: close" (cons h-crlf (cons h-crlf (cons body nil))))))))))))))))))
+-- an object of the pool by its hash and kind (text, module, entry)
+h-object-path : List Word → List Word → List Word
+h-object-path h k = if h-eq k "entry" then list-append h-source (list-append "/entries/" h) else list-append h-source (cons #47 (list-append h (cons #47 k)))
+h-object-route : List Word → List Word → List Word
+h-object-route h k = h-concat (cons "/source/object?h=" (cons h (cons "&k=" (cons k nil))))
+-- an object received, taken into the pool by the machine m when its hash is h
+h-take-object : List Word → List Word → List Word → List Word → Proc W Bool
+h-take-object m h k t = bind (h-write "build/put" t) (λ b → bind (h-capture (cons m (cons "--put" (cons h (cons k (cons "build/put" nil)))))) (λ r → ret (weq (fst r) #0)))
+-- an entry's words (kind, then hex path, module, replaced; or dead, entry, reason)
+h-entry-words : List Word → List (List Word)
+h-entry-words e = h-split #32 (h-before (cons #10 nil) e)
+h-word : Nat → List (List Word) → List Word
+h-word zero ws = h-head-or ws
+h-word (suc n) ws = h-word n (h-tail-lists ws)
+-- the module an entry binds, when it binds one ("-" otherwise)
+h-entry-module : List (List Word) → List Word
+h-entry-module ws = if h-eq (h-word zero ws) "bind" then h-word (suc (suc zero)) ws else "-"
+-- an object fetched from the server when the pool lacks it
+h-fetch-if : List Word → List Word → List Word → List Word → Sum Unit (List Word) → Proc W Bool
+h-fetch-if srv m h k (inr t) = ret true
+h-fetch-if srv m h k (inl u) = bind (h-get srv (h-object-route h k)) (λ r →
+  if weq (h-status r) #200 then h-take-object m h k (h-body r) else ret {lzero} {W} false)
+h-fetch : List Word → List Word → List Word → List Word → Proc W Bool
+h-fetch srv m h k = bind (h-read (h-object-path h k)) (h-fetch-if srv m h k)
+h-fetch-texts : List Word → List Word → List (List Word) → Proc W Bool
+h-fetch-texts srv m nil = ret true
+h-fetch-texts srv m (cons p r) = bind (h-fetch srv m p "text") (λ ok → if ok then h-fetch-texts srv m r else ret {lzero} {W} false)
+-- a module with its texts, fetched (texts first is not needed: a module is bound only by an entry, taken last)
+h-fetch-module : List Word → List Word → List Word → Proc W Bool
+h-fetch-module srv m mh = if h-eq mh "-" then ret {lzero} {W} true else
+  bind (h-fetch srv m mh "module") (λ ok → if ok then bind (h-read (h-object-path mh "module")) (λ mo → h-fetch-texts srv m (h-lines (h-source-or mo))) else ret {lzero} {W} false)
+-- an entry the server holds, taken with what it binds; a module of the work it binds is returned, with
+-- the entry, to be checked
+h-taken : List (List Word) → List Word → List (List Word × List Word)
+h-taken ws id = if andB (h-not (h-eq (h-entry-module ws) "-")) (h-ends ".cub" (h-unhex (h-word (suc zero) ws))) then cons (h-unhex (h-word (suc zero) ws) , id) nil else nil
+h-take-body : List Word → List Word → List Word → List Word → Proc W (List (List Word × List Word))
+h-take-body srv m id e = bind (h-fetch-module srv m (h-entry-module (h-entry-words e))) (λ ok →
+  if ok then bind (h-take-object m id "entry" e) (λ put → ret (if put then h-taken (h-entry-words e) id else nil))
+  else bind (h-say (h-line (list-append "not taken (its module could not be fetched whole): entry " id))) (λ u → ret {lzero} {W} nil))
+h-take-if : List Word → List Word → List Word → Sum Unit (List Word) → Proc W (List (List Word × List Word))
+h-take-if srv m id (inr e) = ret nil
+h-take-if srv m id (inl u) = bind (h-get srv (h-object-route id "entry")) (λ r →
+  if weq (h-status r) #200 then h-take-body srv m id (h-body r) else ret {lzero} {W} nil)
+h-served : List Word → List Word → Proc W Unit
+h-served st id = bind (h-mkdir (list-append st "/served")) (λ u → bind (h-write (list-append st (list-append "/served/" id)) nil) (λ w → ret unit))
+h-take-ids : List Word → List Word → List Word → List (List Word) → Proc W (List (List Word × List Word))
+h-take-ids st srv m nil = ret nil
+h-take-ids st srv m (cons l r) = bind (h-read (h-object-path (h-after " " l) "entry")) (λ have →
+  bind (h-take-if srv m (h-after " " l) have) (λ t → bind (h-served st (h-after " " l)) (λ u →
+  bind (h-take-ids st srv m r) (λ rest → ret (list-append t rest)))))
+-- the modules of the work taken, checked until none more fails: one that does not check is held back
+h-checked : List Word → List (List Word × List Word) → Proc W (List (List Word × List Word) × Bool)
+h-checked m nil = ret (nil , false)
+h-checked m (cons pe r) = bind (h-capture (cons m (cons "--read" (cons (fst pe) nil)))) (λ c →
+  bind (h-checked m r) (λ rest →
+  if weq (fst c) #0 then ret {lzero} {W} (cons pe (fst rest) , snd rest)
+  else bind (h-mkdir ".cubical-store/held") (λ u → bind (h-write (list-append ".cubical-store/held/" (snd pe)) nil) (λ w →
+    bind (h-say (h-line (h-concat (cons (fst pe) (cons " (entry " (cons (snd pe) (cons ") taken from the served source does not check here: held back, kept in the pool" nil))))))) (λ u2 →
+    ret {lzero} {W} (fst rest , true))))))
+h-check-taken : Nat → List Word → List (List Word × List Word) → Proc W Unit
+h-check-taken zero m ps = ret unit
+h-check-taken (suc k) m ps = bind (h-checked m ps) (λ c → if snd c then h-check-taken k m (fst c) else ret {lzero} {W} unit)
+h-last-seq : List Word → List (List Word) → List Word
+h-last-seq d nil = d
+h-last-seq d (cons l r) = h-last-seq (h-before " " l) r
+h-pull : List Word → List Word → List Word → Proc W Unit
+h-pull st m srv = bind (h-read (list-append st "/source-seq")) (λ s →
+  bind (h-get srv (list-append "/source/entries?since=" (h-source-or s))) (λ r →
+  if weq (h-status r) #200
+  then bind (h-take-ids st srv m (h-lines (h-body r))) (λ ps →
+    bind (h-write (list-append st "/source-seq") (h-last-seq (h-source-or s) (h-lines (h-body r)))) (λ w →
+    bind (h-check-taken (suc (list-length ps)) m ps) (λ u → bind (h-capture (cons m (cons "--index" nil))) (λ i → ret unit))))
+  else h-say (h-line (list-append "the served source cannot be reached: " srv))))
+-- an entry of this session's published with what it binds: texts, then its module, then itself
+h-post-object : List Word → List Word → List Word → List Word → List Word → Proc W Bool
+h-post-object srv tok h k t = bind (h-post srv tok (h-object-route h k) t) (λ r → ret (weq (h-status r) #200))
+h-post-texts : List Word → List Word → List (List Word) → Proc W Bool
+h-post-texts srv tok nil = ret true
+h-post-texts srv tok (cons p r) = bind (h-read (h-object-path p "text")) (λ t →
+  bind (h-post-object srv tok p "text" (h-source-or t)) (λ ok → if ok then h-post-texts srv tok r else ret {lzero} {W} false))
+-- whether the server holds an object (it takes a module only after its texts, an entry only after its module)
+h-held-there : List Word → List Word → List Word → Proc W Bool
+h-held-there srv h k = bind (h-get srv (h-object-route h k)) (λ r → ret (weq (h-status r) #200))
+h-post-module-if : List Word → List Word → List Word → Bool → Proc W Bool
+h-post-module-if srv tok mh true = ret true
+h-post-module-if srv tok mh false = bind (h-read (h-object-path mh "module")) (λ mo → bind (h-post-texts srv tok (h-lines (h-source-or mo))) (λ ok →
+  if ok then h-post-object srv tok mh "module" (h-source-or mo) else ret {lzero} {W} false))
+h-post-module : List Word → List Word → List Word → Proc W Bool
+h-post-module srv tok mh = if h-eq mh "-" then ret {lzero} {W} true else bind (h-held-there srv mh "module") (h-post-module-if srv tok mh)
+h-publish-entry : List Word → List Word → List Word → List Word → Sum Unit (List Word) → Proc W Bool
+h-publish-entry st srv tok id (inr u) = ret true
+h-publish-entry st srv tok id (inl u) = bind (h-held-there srv id "entry") (λ there → if there then bind (h-served st id) (λ u3 → ret {lzero} {W} true) else bind (h-read (h-object-path id "entry")) (λ e →
+  bind (h-post-module srv tok (h-entry-module (h-entry-words (h-source-or e)))) (λ ok →
+  if ok then bind (h-post-object srv tok id "entry" (h-source-or e)) (λ ok2 →
+    if ok2 then bind (h-served st id) (λ u2 → ret {lzero} {W} true) else ret {lzero} {W} false)
+  else ret {lzero} {W} false)))
+h-publish-ids : List Word → List Word → List Word → List (List Word) → Proc W Bool
+h-publish-ids st srv tok nil = ret true
+h-publish-ids st srv tok (cons id r) = bind (h-read (list-append st (list-append "/served/" id))) (λ s →
+  bind (h-publish-entry st srv tok id s) (λ ok →
+  if ok then h-publish-ids st srv tok r
+  else bind (h-say (h-line (list-append "not all published (the served source cannot be reached or refused an object); the next command publishes the rest, from entry " id))) (λ u → ret {lzero} {W} false)))
+-- a command's sync with the served source, when one is named: this session's entries published, then
+-- (at the start, `pull` true) the server's taken
+h-sync-at : List Word → List Word → Bool → Sum Unit (List Word) → Proc W Unit
+h-sync-at st m pull (inl u) = ret unit
+h-sync-at st m pull (inr srv) = bind (h-env "HYPERACTIVE_TOKEN") (λ tk → bind (h-list (list-append h-source "/entries")) (λ ids →
+  bind (h-publish-ids st srv (h-source-or tk) ids) (λ ok → if pull then h-pull st m srv else ret {lzero} {W} unit)))
+h-sync : List Word → List Word → Bool → Proc W Unit
+h-sync st m pull = bind (h-env "HYPERACTIVE_SERVER") (h-sync-at st m pull)
