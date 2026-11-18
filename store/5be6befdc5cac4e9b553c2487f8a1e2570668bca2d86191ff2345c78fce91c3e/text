@@ -1,0 +1,14 @@
+-- another program run to its end with exactly the environment given (NAME=VALUE each), its output
+-- (standard output and standard error) taken: its exit status and that output. Reading and cutting
+-- this process's own environment is most of what a run costs here (30 KB of it, about 0.4 s a run in
+-- this container, measured 2026-11-18), so a caller that gives a program what it needs runs it cheaply.
+h-capture-in : List (List Word) → List (List Word) → Proc W (Word × List Word)
+h-capture-in envs args =
+  bind (h-ptrs args) (λ argv → bind (h-ptrs envs) (λ envp →
+  bind (alloc-bytes #8) (λ fds → bind (sys-call #293 fds #524288 #0 #0 #0 #0) (λ pr →
+  bind (load-at fds) (λ both →
+  bind (spawn-at argv envp (wshr both #32)) (λ pid →
+  bind (sys-call #3 (wshr both #32) #0 #0 #0 #0 #0) (λ c →
+  bind (h-read-fd (wand both #4294967295) (toNat #4096)) (λ out →
+  bind (sys-call #3 (wand both #4294967295) #0 #0 #0 #0 #0) (λ c2 →
+  if wlt pid #9223372036854775808 then bind (h-wait pid) (λ s → ret {lzero} {W} (s , out)) else ret {lzero} {W} (#127 , out))))))))))

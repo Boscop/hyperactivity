@@ -1,0 +1,11 @@
+-- the blocks: the open block, the code being fenced (if any), and the lines left; a run of lines that begin "|" is a table (s-table)
+s-blocks : MdOpen → Sum Unit (List (List Word)) → List (List Word) → List Word
+s-blocks o (inr cd) nil = list-append (s-flush o) (list-append "<pre>" (list-append (s-esc (v-join-lines (h-rev-lists cd nil))) "</pre>"))
+s-blocks o (inl u) nil = s-flush o
+s-blocks o (inr cd) (cons l r) = if h-prefix "```" l then list-append "<pre>" (list-append (s-esc (v-join-lines (h-rev-lists cd nil))) (list-append "</pre>" (s-blocks o (inl unit) r))) else s-blocks o (inr (cons l cd)) r
+s-blocks o (inl u) (cons l r) =
+  if h-prefix "```" l then list-append (s-flush o) (s-blocks md-none (inr nil) r) else
+  if h-not (weq (fromNat (s-heading l)) #0) then list-append (s-flush o) (list-append (s-h (s-heading l) (s-inline (h-trim (h-drop-n (s-heading l) l)))) (s-blocks md-none (inl unit) r)) else
+  if h-prefix "|" (h-trim l) then list-append (s-flush o) (list-append (s-table (s-table-rows (cons l r))) (s-blocks md-none (inl unit) (s-table-rest (cons l r)))) else
+  if h-prefix ">" l then (if orB (s-is-para o) (s-is-list o) then list-append (s-flush o) (s-blocks (md-quote (cons (s-strip (h-drop ">" l)) nil)) (inl unit) r) else s-blocks (s-push-quote (s-strip (h-drop ">" l)) o) (inl unit) r) else
+  list-append (s-step-out (s-item-step o l (s-item l))) (s-blocks (s-step-open (s-item-step o l (s-item l))) (inl unit) r)

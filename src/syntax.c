@@ -2207,13 +2207,142 @@ static int e_cmp_id(const void *a, const void *b) { return strcmp(*(char *const 
 static int e_cmp_path(const void *a, const void *b) { const Ent *x = a, *y = b; int c = strcmp(x->w[1], y->w[1]); return c ? c : strcmp(x->id, y->id); }
 static bool e_in(char **set, int n, const char *id) { return n && bsearch(&id, set, (size_t)n, sizeof *set, e_cmp_id) != NULL; }
 static void record_source(const char *text, const char *path);
+/* alternatives that commute merge (Avik, 2026-11-18 08:16 UTC: "this all is contrary to the design of
+ * hyperactive ... it is made to work decentralized"): identity is the definition, a piece, not the path.
+ * Two entries live at one path are each a module, an order of pieces; each piece is keyed by the name it
+ * declares (the module's first piece, its head, by "head"; a piece declaring nothing by its own hash).
+ * Against the module of the nearest entry both follow (their base), a name changed on one side only
+ * takes that side's piece (dropped if that side dropped it), a name changed alike on both takes it, and
+ * the order is the first's with the second's new pieces after the piece that precedes them there. Only
+ * a name both sides changed differently stays alternatives, and those names are said. The merge reads
+ * only the pool, so every machine computes the same module from the same entries */
+typedef struct { char **nm, **ph; int n; } MPieces;
+static void mp_free(MPieces *m) { for (int i = 0; i < m->n; i++) { free(m->nm[i]); free(m->ph[i]); } free(m->nm); free(m->ph); m->nm = m->ph = NULL; m->n = 0; }
+static char *mp_name(const char *ph, bool first) {
+    if (first) return strdup("\x01head");
+    char *t = src_read(ph, "text"); if (!t) return strdup(ph);
+    char *name = NULL;
+    for (char *l = t; *l && !name; ) {
+        char *e = strchr(l, '\n'); size_t n = e ? (size_t)(e - l) : strlen(l);
+        if (n >= 2 && !(l[0] == '-' && l[1] == '-') && l[0] != ' ' && l[0] != '\t') {
+            const char *sp = memchr(l, ' ', n);
+            if (sp && (size_t)(sp - l) > 0 && (size_t)(l + n - sp) >= 3 && sp[1] == ':' && sp[2] == ' ') name = strndup(l, (size_t)(sp - l));
+            else if (n > 5 && !strncmp(l, "data ", 5)) { const char *b = l + 5; const char *q = b; while (q < l + n && *q != ' ') q++; name = strndup(b, (size_t)(q - b)); }
+        }
+        l = e ? e + 1 : l + n;
+    }
+    free(t); return name ? name : strdup(ph);
+}
+static bool mp_read(const char *mh, MPieces *m) {
+    memset(m, 0, sizeof *m);
+    if (!strcmp(mh, "-")) return true;
+    char *mod = src_read(mh, "module"); if (!mod) return false;
+    size_t cap = 0;
+    for (char *l = mod; *l; ) {
+        char *e = strchr(l, '\n'); if (!e) break; *e = 0;
+        GROW(m->nm, cap, (size_t)m->n + 1);
+        m->ph = realloc(m->ph, cap * sizeof *m->ph);
+        m->nm[m->n] = mp_name(l, m->n == 0); m->ph[m->n] = strdup(l); m->n++;
+        l = e + 1;
+    }
+    free(mod); return true;
+}
+static const char *mp_get(const MPieces *m, const char *name) { for (int i = 0; i < m->n; i++) if (!strcmp(m->nm[i], name)) return m->ph[i]; return NULL; }
+static bool mp_eq(const char *a, const char *b) { return a == b || (a && b && !strcmp(a, b)); }
+/* the nearest entry that the entries in as (the first side's) and b both follow: its module, or "-" */
+static void e_ancestors(const char *id, char ***set, int *n, size_t *cap) {
+    char **queue = NULL; size_t capq = 0; int nq = 0, qi = 0;
+    GROW(queue, capq, 1); queue[nq++] = strdup(id);
+    while (qi < nq) {
+        char *x = queue[qi++]; bool seen = false; for (int i = 0; i < *n; i++) if (!strcmp((*set)[i], x)) { seen = true; break; }
+        if (seen) continue;
+        GROW(*set, *cap, (size_t)*n + 1); (*set)[(*n)++] = strdup(x);
+        Ent e; if (!e_read(x, &e)) continue;
+        if (!strcmp(e.w[0], "bind") && e.w[3] && strcmp(e.w[3], "-")) { char *r = strdup(e.w[3]); for (char *t = strtok(r, ","); t; t = strtok(NULL, ",")) { GROW(queue, capq, (size_t)nq + 1); queue[nq++] = strdup(t); } free(r); }
+        e_free(&e);
+    }
+    for (int i = 0; i < nq; i++) free(queue[i]); free(queue);
+}
+static char *e_base_module(char **as, int nas, const char *b) {
+    char **anc = NULL; int na = 0; size_t capa = 0;
+    for (int i = 0; i < nas; i++) e_ancestors(as[i], &anc, &na, &capa);
+    char **queue = NULL; size_t capq = 0; int nq = 0, qi = 0; char *found = NULL;
+    GROW(queue, capq, 1); queue[nq++] = strdup(b);
+    while (qi < nq && !found) {
+        char *x = queue[qi++];
+        if (strcmp(x, b)) for (int i = 0; i < na; i++) if (!strcmp(anc[i], x)) { found = strdup(x); break; }
+        if (found) break;
+        Ent e; if (!e_read(x, &e)) continue;
+        if (!strcmp(e.w[0], "bind") && e.w[3] && strcmp(e.w[3], "-")) { char *r = strdup(e.w[3]); for (char *t = strtok(r, ","); t; t = strtok(NULL, ",")) { GROW(queue, capq, (size_t)nq + 1); queue[nq++] = strdup(t); } free(r); }
+        e_free(&e);
+    }
+    char *mh = strdup("-");
+    if (found) { Ent e; if (e_read(found, &e)) { if (e.w[2]) { free(mh); mh = strdup(e.w[2]); } e_free(&e); } free(found); }
+    for (int i = 0; i < na; i++) free(anc[i]); free(anc);
+    for (int i = 0; i < nq; i++) free(queue[i]); free(queue);
+    return mh;
+}
+/* a and b merged against base into out (its pieces in order); false, with the conflicting names in why,
+ * when some name changed differently on both sides */
+static bool mp_merge(const MPieces *base, const MPieces *a, const MPieces *b, MPieces *out, SBuf *why) {
+    memset(out, 0, sizeof *out); size_t cap = 0; bool ok = true;
+    #define MP_PUT(N, P) do { GROW(out->nm, cap, (size_t)out->n + 1); out->ph = realloc(out->ph, cap * sizeof *out->ph); out->nm[out->n] = strdup(N); out->ph[out->n] = strdup(P); out->n++; } while (0)
+    /* the pieces a's order holds, each name resolved */
+    for (int i = 0; i < a->n; i++) {
+        const char *n = a->nm[i], *pa = a->ph[i], *pb = mp_get(b, n), *p0 = mp_get(base, n);
+        const char *r;
+        if (mp_eq(pa, pb)) r = pa; else if (mp_eq(pa, p0)) r = pb; else if (mp_eq(pb, p0)) r = pa;
+        else { ok = false; sb_fmt(why, "  %s\n", n[0] == 1 ? "(the module's head)" : n); r = pa; }
+        if (r) MP_PUT(n, r);
+    }
+    /* b's names a lacks: added by b, or dropped by a (dropped stays dropped unless b changed it) */
+    for (int i = 0; i < b->n; i++) {
+        const char *n = b->nm[i]; if (mp_get(a, n)) continue;
+        const char *p0 = mp_get(base, n);
+        if (p0 && mp_eq(p0, b->ph[i])) continue;           /* a dropped it, b left it: dropped */
+        if (p0) { ok = false; sb_fmt(why, "  %s (dropped on one side, changed on the other)\n", n); continue; }
+        /* new on b: after the nearest piece before it in b's order that out holds */
+        int at = 0;
+        for (int k = i - 1; k >= 0; k--) { int f = -1; for (int j = 0; j < out->n; j++) if (!strcmp(out->nm[j], b->nm[k])) { f = j; break; } if (f >= 0) { at = f + 1; break; } }
+        MP_PUT(n, b->ph[i]);
+        char *ln = out->nm[out->n - 1], *lp = out->ph[out->n - 1];
+        for (int j = out->n - 1; j > at; j--) { out->nm[j] = out->nm[j - 1]; out->ph[j] = out->ph[j - 1]; }
+        out->nm[at] = ln; out->ph[at] = lp;
+    }
+    #undef MP_PUT
+    return ok;
+}
+/* the alternatives es[i..j) merged into one module, written to the pool under its hash (it is the same
+ * on every machine); its hash, or NULL with the conflicting names in why */
+static char *e_merge_alternatives(Ent *es, int i, int j, SBuf *why) {
+    MPieces acc; if (!mp_read(es[i].w[2], &acc)) return NULL;
+    char **done = NULL; size_t capd = 0; int nd = 0;
+    GROW(done, capd, 1); done[nd++] = es[i].id;
+    for (int k = i + 1; k < j; k++) {
+        MPieces b, base, out;
+        if (!mp_read(es[k].w[2], &b)) { mp_free(&acc); free(done); return NULL; }
+        char *bm = e_base_module(done, nd, es[k].id);
+        if (!mp_read(bm, &base)) { free(bm); mp_free(&b); mp_free(&acc); free(done); return NULL; }
+        free(bm);
+        bool ok = mp_merge(&base, &acc, &b, &out, why);
+        mp_free(&b); mp_free(&base); mp_free(&acc); acc = out;
+        if (!ok) { mp_free(&acc); free(done); return NULL; }
+        GROW(done, capd, (size_t)nd + 1); done[nd++] = es[k].id;
+    }
+    free(done);
+    SBuf mod = {0}; sb_put(&mod, ""); for (int k = 0; k < acc.n; k++) { sb_put(&mod, acc.ph[k]); sb_put(&mod, "\n"); }
+    char mh[65]; key_hash(mod.b, mod.n, mh);
+    char *p = src_path(mh, "module"); struct stat st; if (stat(p, &st) != 0) src_write(mh, "module", mod.b); free(p);
+    free(mod.b); mp_free(&acc);
+    return strdup(mh);
+}
 /* the index computed from the pool's entries, once per run, when its stamp is not the pool's */
 static void index_sync(void) {
     static bool done; if (done) return; done = true;
     char *st = e_stamp(); char *cur = idx_read("meta", "stamp");
     if (cur && !strcmp(cur, st)) { free(cur); free(st); return; }
     free(cur);
-    static const char *dirs[] = { "modules", "names-of", "written", "module-of", "live", "alternatives", NULL };
+    static const char *dirs[] = { "modules", "names-of", "written", "module-of", "live", "alternatives", "conflicts", NULL };
     char *in_use = strdup(idx_dir()); char *nx = malloc(strlen(in_use) + 8); sprintf(nx, "%s-next", in_use);
     mkdir(nx, 0777); for (int i = 0; dirs[i]; i++) idx_clear_in(nx, dirs[i]);
     idx_next = nx;
@@ -2239,10 +2368,23 @@ static void index_sync(void) {
     w_indexing = true;
     for (int i = 0; i < nl; ) {
         int j = i; while (j < nl && !strcmp(es[j].w[1], es[i].w[1])) j++;
-        if (j - i > 1) {
+        SBuf why = {0}; char *merged = j - i > 1 ? e_merge_alternatives(es, i, j, &why) : NULL;
+        if (j - i > 1 && !merged) {
             SBuf a = {0}; for (int k = i; k < j; k++) sb_fmt(&a, "%s %s\n", es[k].id, es[k].w[2]);
             idx_write("alternatives", es[i].w[1], a.b); free(a.b);
+            idx_write("conflicts", es[i].w[1], why.b ? why.b : ""); free(why.b);
+        } else if (merged) {
+            /* the alternatives merged: all of them are what is live here, and the next entry follows them all */
+            SBuf l = {0}; for (int k = i; k < j; k++) sb_fmt(&l, "%s\n", es[k].id); idx_write("live", es[i].w[1], l.b); free(l.b);
+            char *rel = w_unhex(es[i].w[1]); char *t = w_module_text(merged, NULL);
+            if (t) {
+                char *ab = malloc(strlen(repo_root) + strlen(rel) + 2); sprintf(ab, "%s/%s", repo_root, rel);
+                record_source(t, ab); idx_write("modules", es[i].w[1], merged);
+                free(ab); free(t);
+            }
+            free(rel); free(merged); free(why.b);
         } else {
+            free(why.b);
             SBuf l = {0}; sb_fmt(&l, "%s\n", es[i].id); idx_write("live", es[i].w[1], l.b); free(l.b);
             char *rel = w_unhex(es[i].w[1]); char *t = strcmp(es[i].w[2], "-") ? w_module_text(es[i].w[2], NULL) : NULL;
             if (t) {
@@ -2287,7 +2429,8 @@ static void e_bind(const char *rel, const char *mh) {
     SBuf hx = {0}; w_hex(&hx, rel); if (!hx.b || hx.n > 250) { free(hx.b); return; }
     char *live = idx_read("live", hx.b), *alt = idx_read("alternatives", hx.b);
     bool same = !live && !alt && !strcmp(mh, "-");
-    if (live && !alt) { char id[65] = {0}; Ent e; sscanf(live, "%64s", id); if (e_read(id, &e)) { same = e.w[2] && !strcmp(e.w[2], mh); e_free(&e); } }
+    if (live && !alt) { char *cur = idx_read("modules", hx.b); same = cur && !strcmp(cur, mh); free(cur);   /* what the source holds here: the one live entry's module, or the merge of several */
+        if (!same && !strchr(strchr(live, '\n') ? strchr(live, '\n') + 1 : "", '\n')) { char id[65] = {0}; Ent e; sscanf(live, "%64s", id); if (e_read(id, &e)) { same = e.w[2] && !strcmp(e.w[2], mh); e_free(&e); } } }
     if (!same) {
         SBuf reps = {0}; sb_put(&reps, "");
         const char *src = alt ? alt : live ? live : "";
@@ -2313,7 +2456,8 @@ static char *src_text(const char *rel, size_t *len) {
     SBuf hx = {0}; w_hex(&hx, rel);
     char *mh = hx.b && hx.n <= 250 ? idx_read("modules", hx.b) : NULL;
     char *alt = !mh && hx.b && hx.n <= 250 ? idx_read("alternatives", hx.b) : NULL; free(hx.b);
-    if (alt) { fprintf(stderr, "%s holds alternatives (entry, module), none read until all but one are stated dead (hyperactive dead ENTRY REASON):\n%s", rel, alt); exit(1); }
+    if (alt) { SBuf hx2 = {0}; w_hex(&hx2, rel); char *cf = hx2.b ? idx_read("conflicts", hx2.b) : NULL; free(hx2.b);
+        fprintf(stderr, "%s holds alternatives (entry, module) that do not merge: these definitions were changed differently on each side, so none is read until all but one are stated dead (hyperactive dead ENTRY REASON) or a new entry follows them:\n%s%s", rel, cf ? cf : "", alt); exit(1); }
     if (mh) { char *t = w_module_text(mh, len); free(mh); if (t) return t; }
     root_init();
     char *abs = rel[0] == '/' ? strdup(rel) : malloc(strlen(repo_root) + strlen(rel) + 2);
@@ -2331,8 +2475,8 @@ static void w_whole(const char *text, const char *rel) {
     SBuf mod = {0}; sb_put(&mod, h); sb_put(&mod, "\n");
     char mh[65]; key_hash(mod.b, mod.n, mh);
     char *p = src_path(mh, "module"); struct stat st; if (!w_indexing && stat(p, &st) != 0) src_write(mh, "module", mod.b); free(p);
+    e_bind(rel, mh);   /* before w_point: e_bind compares mh with what the source holds, which w_point overwrites */
     w_point("modules", rel, mh);
-    e_bind(rel, mh);
     free(mod.b);
 }
 /* a document by its path: the source's text (its length in len); a text document the source did not
@@ -2422,10 +2566,11 @@ static void w_file(const char *text, const char *path) {
         char *p = src_path(mh, "module");
         struct stat st; if (p && !w_indexing && stat(p, &st) != 0) src_write(mh, "module", mod.b);
         free(p);
-        char *rel = w_rel(path); w_forget(rel, names.b, mod.b);
+        char *rel = w_rel(path);
+        e_bind(rel, mh);   /* first: it compares mh with what the source holds, which the pointers below overwrite */
+        w_forget(rel, names.b, mod.b);
         w_point("modules", rel, mh);
         w_point("names-of", rel, names.b);
-        e_bind(rel, mh);
         if (load_root && store_dir() && !w_indexing) {
             /* roots/<path>: the file given to this machine that loads it (the machine's own, not the
              * source's), only a module of the work being a root */

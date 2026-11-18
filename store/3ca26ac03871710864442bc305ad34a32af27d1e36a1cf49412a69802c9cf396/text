@@ -1,0 +1,1656 @@
+# Chemical identity, and the chemistry knowledge graph
+
+Avik (2026-11-17 17:31 PST): "I'm literally interested not in synthesizing dmt but building a chemistry
+knowledge graph for medicine research". Earlier (17:35 PST), on this direction against his others: "I have
+undervalued that direction past month but it may be the most valuable one".
+
+The subject of this document is the identity of chemical objects. The field's central unsolved problem is
+chemical entity resolution: deciding when two records are the same substance. That problem is the identity
+crisis of §10.8 of *hyperactivity* (`docs/hyperactivity.cub`), where `digest(d₁) = digest(d₂)`, `d₁ ≡ d₂`
+and `SemEq(d₁,d₂)` are three different statements (10.22) — address identity, definitional equality, and a
+specified relation between interpreted meanings. Chemistry collapses all three into string equality of a
+canonical identifier, and the collapse is documented by the standards body that maintains the identifier.
+
+Each node below carries a `links:` line. Glosses are marked as Claude's. Sources are listed by pass at the
+end.
+
+---
+
+## I. The molecular object
+
+### molecular-graph
+- A molecule's constitution is a graph: vertices are atoms with their element, edges are bonds with their
+  order. Two presentations of that graph differing by a permutation of the vertex indices are the same
+  constitution, so the stored object is a graph up to relabeling, which is §4.2's construction:
+  `G ∶ Fin(n) → Fin(n) → Bool` with `(π⋅G)(u,v) ∶= G(π⁻¹u, π⁻¹v)` (4.14), and a shape is the quotient of
+  that action.
+- §4.2 and §8.3 state the choice that follows and it is not a matter of taste: "A set quotient gives the
+  isomorphism class and discards higher identities; a groupoid presentation keeps automorphisms and their
+  identities. These are mathematically different choices." The set quotient is `Unlabelled_n`, with points
+  `incl(G)`, paths `incl G = incl(σ⋅G)` and set truncation. The groupoid is
+  `GraphSym_n ∶= ∑{X∶𝒰} ‖X ≃ Fin n‖ × (X → X → Bool)`, whose identities `(X,G) = (Y,H)` are equivalent to
+  `e ∶ X ≃ Y` with `∏{x,x′} H(e x, e x′) = G(x,x′)`.
+- Cheminformatics took the set quotient. Its canonical identifiers are chosen enumerations serialized to
+  strings, and §8.3's argument applies directly: an enumeration is `(n, e ∶ A ≃ Fin n)`, `Q_A ≃ Card(A)`
+  forgets it, and "A chosen enumeration is not thereby identical to a cardinality."
+**links:** automorphism-is-physical · chirality · the-three-identities · crystal-symmetry · organometallics.
+
+### canonicalization
+- The operation cheminformatics performs instead of keeping the automorphisms is canonical labeling:
+  choose a total order on the atoms by graph invariants, traverse, serialize. The first such algorithm is
+  Morgan's, written in 1965 for Chemical Abstracts Service, and the lineage runs through Weininger,
+  Weininger and Weininger's CANGEN (*J. Chem. Inf. Comput. Sci.* 29:97, 1989) to the InChI
+  canonicalization.
+- The field's own statement of what that costs is exact. Krotko, "Atomic ring invariant and Modified CANON
+  extended connectivity algorithm for symmetry perception in molecular graphs and rigorous canonicalization
+  of SMILES" (*J. Cheminform.* 12:48, 2020), opens with "The perception of the symmetry of atoms in
+  molecular graphs is an important problem for chemoinformatics", and reports Ivanciuc's conclusion: "only
+  algorithms with an explicit determination of the graph automorphisms (an isomorphism of a graph with
+  itself is called an automorphism) can accurately determine all symmetry classes in complex" graphs.
+- The standard does not exist. O'Boyle, "Towards a Universal SMILES representation" (*J. Cheminform.*
+  4:22, 2012): "no standard exists to generate a canonical SMILES string", CANGEN "did not include a
+  treatment of stereochemistry, one of the most difficult aspects of the problem", "There is no published
+  canonical SMILES implementation for the general case", canonicalization has "many corner cases" and is in
+  places a trade secret, and so "Each cheminformatics toolkit generates its own canonical SMILES". Grossman
+  and co-authors (2005) showed the unique-SMILES algorithm failing to produce unique identifiers.
+- The structural objection, stated from inside the field: "just identifying two graphs as isomorphic does
+  not directly provide a UID."
+- *Claude's gloss:* that sentence is §8.3's argument in the field's words. Deciding that two presentations
+  are isomorphic is inhabiting `X ≃ Y`; a unique identifier is a chosen enumeration; and the one does not
+  give the other, which is why the identifier has to be computed by a procedure whose corner cases differ
+  between toolkits and are sometimes proprietary. Ivanciuc's conclusion closes the loop from the other
+  side: the symmetry classes — the thing σ and the NMR signal counts are computed from — are only correct
+  when the automorphisms are determined explicitly, which is the datum the set quotient discards and
+  `GraphSym` keeps. §4.4's sorting is the model: build the answer over the identities the object carries
+  rather than reading a chosen presentation as extra order. The repository's own work on canonical forms of
+  sequences (`index-every-repeated-sequence`, `lib/repeats-kasai.cub`) is the same operation one dimension
+  down.
+**links:** molecular-graph · automorphism-is-physical · the-three-identities · tautomers · isomorphism-cost.
+
+### isomorphism-cost
+- The first objection to keeping the structure is that deciding graph identity is expensive. The complexity
+  record: Babai, "Graph Isomorphism in Quasipolynomial Time" (arXiv:1512.03547, December 2015; STOC 2016),
+  showed GI solvable in `exp((log n)^O(1))` time, with Johnson graphs "the only obstructions to effective
+  canonical partitioning"; Helfgott found a flaw in the running-time analysis, Babai retracted the
+  quasipolynomial claim on 4 January 2017, announced a correction on 9 January and published it on 19
+  January, and Helfgott confirmed the fix, leaving a bound of `2^O((log n)^3)`. Earlier, Boppana and
+  co-authors had placed GI in NP ∩ coAM, so it is not NP-complete unless the polynomial hierarchy
+  collapses, and Babai, Erdős and Selkow showed GI easy on average.
+- In practice the question is different again, and the practical literature answers it in chemistry's
+  favour: molecular graphs are small, sparse and richly labeled by element and bond order, color refinement
+  resolves almost all of them, and McKay and Piperno's `nauty`/`Traces` line of work ("Engineering an
+  efficient canonical labeling tool for large and sparse graphs", 2007) is engineered for exactly that
+  regime. The canonical-labeling algorithms compute the automorphism group on the way to the label rather
+  than instead of it.
+- The loop closes on itself: Grohe and Schweitzer's survey of the problem (*CACM*, November 2020) notes that
+  color refinement is "one of the most basic ideas in graph isomorphism testing that has been reinvented
+  several times; the oldest published version that we are aware of can be found in Morgan" — Morgan's 1965
+  algorithm for Chemical Abstracts Service. They also note why the field prefers labels: "a canonical form γ
+  yields an isomorphism test... In practical applications, canonical forms are often preferable over
+  isomorphism tests."
+- *Claude's gloss:* chemistry invented the practical subroutine of graph isomorphism testing and then
+  discarded the output it produces. Keeping the automorphism group is not an added cost on top of
+  canonicalization; it is the datum the canonicalizer computes and throws away, so the groupoid presentation
+  is cheaper than the usual objection assumes and in the common case free. The preference for canonical
+  forms over isomorphism tests is a real engineering fact and not an argument about identity: a label is a
+  fast equality check, and the error is treating the check's output as the chemistry.
+**links:** canonicalization · automorphism-is-physical · molecular-graph.
+
+### automorphism-is-physical
+- The order of a molecule's automorphism group is a quantity that appears in its thermodynamics. The
+  symmetry number σ is the order of the symmetry group, and it corrects the overcounting of equivalent
+  arrangements in the partition function; the rotational partition function divides by it, so σ enters the
+  rotational entropy and through it every equilibrium constant and rate computed from first principles.
+  Benzene's σ is 12 and water's is 2.
+- The computational-chemistry literature computes σ from the graph: Vandewiele, Van de Vijver, Van Geem,
+  Reyniers and Marin (*J. Comput. Chem.* 36(3):181–92, 2015) take "the automorphism group order of the graph
+  associated with the molecule or transition state" as the starting point, over an augmented graph that
+  accounts for both topology and stereocenters, and introduce label-stereoisomers — stereoisomers that arise
+  after labeling homomorph substituents so they become distinguishable. Their stated motivation is fast
+  screening of symmetry over large sets of molecules.
+- The same automorphism orbits are the constitutionally equivalent atoms, and therefore the NMR equivalence
+  classes: atoms in one orbit give one signal. The complete information about constitutionally equivalent
+  atoms and bonds is contained in the automorphism group of the molecular graph.
+- *Claude's gloss:* σ is a term in the entropy, so the set quotient that discards the automorphisms discards
+  a physical quantity and the stored object can no longer produce it. That the field recomputes σ from the
+  graph when it needs it is the point: the computation exists, the identifier cannot hold its result, and
+  every downstream consumer re-derives or omits it. The groupoid presentation holds it by construction. This
+  also gives the cheapest falsifiable demonstration available in the domain: predicted counts of distinct
+  ¹H and ¹³C signals from orbit counts, checked against published spectra at scale — a physical prediction
+  the standard representation cannot make, rather than an argument that the foundations are better.
+**links:** molecular-graph · nmr-prediction · reaction-degeneracy · crystal-symmetry.
+
+### chirality
+- Chirality is not a property of the constitution graph. Two carbons each bearing four different
+  substituents admit graph automorphisms that no rotation of three-dimensional space realizes, so the object
+  is the graph together with an orientation assignment at its stereocenters, and identity is an equivalence
+  that commutes with the orientation component — §2.2's point that a bare equivalence of total spaces
+  forgets which inputs and outputs the witnesses relate.
+- Enantiomers are the same graph with the orientation globally inverted; diastereomers with it partially
+  inverted. A meso compound is the case where the inverting map lies inside the automorphism group, so the
+  molecule is identified with its mirror image by an automorphism it already carries.
+- Natural products average 6.2 chiral centers per molecule, against a much lower figure for synthetic
+  drugs, so the stereo component carries most of the identity information in exactly the compounds whose
+  structures are hardest to assign.
+- *Claude's gloss:* meso detection in current toolkits is a procedural test over canonical labels; stated as
+  membership of the inverting map in the automorphism group it is decidable by construction. Thalidomide is
+  the standing cost of the registration systems of the time not distinguishing the two orientations of one
+  graph.
+**links:** molecular-graph · automorphism-is-physical · structure-revision · the-three-identities.
+
+### tautomers
+- Tautomers are isomers that convert into each other through chemical equilibrium — keto and enol forms, for
+  the standard example. They are not one compound and not two unrelated ones, and the right object is a
+  higher inductive type whose points are the individual structures and whose path constructors are the
+  proton transfers with their conditions. That is §4.4's bag construction with different generators: points
+  `emp`, `sng`, `un` there; here one point per structure, one path per transfer.
+- The elimination discipline then does the work. §4.3: "A quotient identifies specified distinctions, and
+  operations on it have to respect them; other observations may need another representation." Exact mass
+  respects the paths and descends to the class. Dipole moment, ultraviolet absorption maximum, hydrogen-bond
+  donor count, and the shape presented to a binding pocket do not respect them, and elimination into those
+  targets does not typecheck without supplying what the path branches do, which is the ensemble population.
+- The field's identity standard was built to be tautomer-invariant and is not. The InChI and its hashed
+  InChIKey, developed at NIST and sanctioned by IUPAC, "were from the beginning (early 2000s) intended to be
+  tautomer invariant. The way the InChI algorithm was coded, however, implemented tautomer invariance only
+  partially." Standard InChI handles a limited range of tautomerism types, additional types are available
+  only through non-standard options (`KET`, `15T`), and "It was recognized early on that important types of
+  tautomerism are missing."
+- The numbers are the standards body's own. Over the Cambridge Structural Database, 319,201 structures of
+  which 203,108 are the tautomeric part, standard InChI's success rate is 26.25% and its strict success rate
+  13.46%; over ChEMBL, 1,820,035 structures of which 1,578,290 tautomeric, 62.15% and 28.55%. IUPAC project
+  #2012-023-2-800, "Redesign of Handling of Tautomerism for InChI V2" (Nicklaus, NCI), has been open since
+  2012, and its rules were analyzed against nine databases totaling over 400 million non-unique structures.
+  SMILES strings are neither designed to be nor in practice tautomer invariant. Martin has documented cases
+  where a minor or less stable tautomer is the one found in a macromolecular binding site.
+- *Claude's gloss:* an identifier intended to be invariant under a relation, implemented as invariant under
+  part of it, with a redesign project open for over a decade, is the exact shape of a representation that
+  asserts an identity its subject does not have. The HIT presentation cannot be written so as to make the
+  substitution silently, because the path branches have to be supplied. Guanine's tautomers differ in their
+  base pairing, which is a mutation mechanism, and a canonical-string treatment of the nucleobases has
+  nowhere to put it.
+- *Claude's gloss, 2026-11-18, the statement sharpened to a theorem:* `taut-no-lift` in
+  `chem/identity.cub` proves that a digest which differs across a single admissible proton transfer is not
+  the restriction of any function on the substance — given one such pair, no function out of the tautomer
+  carrier agrees with it on the forms. So partial tautomer invariance, the 26.25% and 13.46% measured over
+  the tautomeric part of the CSD, is not a tolerance that a better algorithm tightens: it is the report
+  that the identifier is a function on chosen representatives and not on the substance at all, and IUPAC
+  project 2012-023-2-800 has been open since 2012 because what is wrong is the carrier and not the
+  procedure. The construction's own answer is `Interconv` and `ic-within`: which forms an observation
+  identifies is data — the half-lives against the window — so the identification is declared, checkable,
+  and different for a spectrum taken in minutes and an exposure measured in days.
+**links:** the-three-identities · molecular-graph · binding-observation · structure-revision ·
+interconversion-and-timescale.
+
+### interconversion-and-timescale
+- Tautomerism is one instance of a general fact that the carrier has to hold: whether two forms are one
+  substance depends on how fast they interconvert relative to the observation, and the field's deepest
+  case is thalidomide. The molecule has one stereocentre, at C-3 of the glutarimide ring, and the
+  configuration is labile: enantiomerically pure thalidomide racemizes in aqueous buffer at pH 7.4 and
+  37 °C with a half-life of 266 ± 10 minutes for (S) and 295 ± 24 for (R), and in human serum with a
+  half-life of 21.8 ± 1.0 minutes for (S) and 32.9 for (R). The enantiomers were resolved in 1970, nine
+  years after the withdrawal.
+- The textbook account — (S) is the teratogen, (R) is the sedative, so a pure enantiomer would have been
+  safe — does not survive those numbers, and the literature says so: the interconversion in vivo raises
+  what the field calls the thalidomide paradox, that teratogenicity is not observed in animal experiments
+  given (R) despite ready racemization, and the 1967 rabbit work found both enantiomers teratogenic. A
+  2018 hypothesis explains the paradox by self-disproportionation — a fraction epimerises and precipitates
+  as the (R/S) heterodimer while enantiomerically pure material stays in solution. Roughly 10,000 children
+  were affected, with many more pregnancies lost.
+- *Claude's gloss:* this is written in `chem/identity.cub` and it computes. `Interconv` carries the
+  interconversions of a set of forms with their half-lives; `ic-within` says which an observation may
+  identify — those that interconvert faster than the window the observation takes — so the identification
+  is data rather than a convention. With thalidomide's serum half-lives as that data, `td-one-in-a-day`
+  computes that over a day's exposure the two forms are one, and `td-two-in-ten-minutes` computes that
+  over ten minutes they are two. Same molecule, same measurements, opposite verdicts, and both correct.
+  So "are these the same substance" has no answer apart from the observation; a carrier that answers it
+  once, for every purpose — which is what a canonical string does, and what InChI's tautomer rules do by
+  fiat — answers it wrongly for most purposes. And the clinical form of that error is the belief that
+  resolving the enantiomers would have prevented the harm: the body walks the path whatever the bottle
+  contains.
+**links:** tautomers · chirality · automorphism-is-physical · regulatory-identity · the-construction.
+
+### organometallics
+- The graph model has a boundary and the field knows where it is. SMILES admits four bond types — "Single,
+  double, triple, and aromatic bonds are represented by the symbols –, =, #, and :" — and molecular
+  inorganic chemistry exceeds that: d-orbital overlap allows bond orders higher than three, metal centers
+  occur in many coordination environments, and (organo)metal compounds are often characterized by extensive
+  electron delocalization and multi-centric bonding "which cannot be captured in simple Lewis formulas".
+  Ferrocene, [Fe(η⁵–C₅H₅)₂], already defeats the cyclic-structure convention.
+- InChI's treatment is to disconnect the metal bonds, and the consequence is stated in the open: "The
+  connection of metal bonds is by definition disconnected which makes most inorganic InChIs meaningless at
+  the moment." IUPAC Project 2009-040-2-800 on representation of organometallic and coordination compounds
+  commenced in November 2010 and the working group is "working slowly towards a proposal"; the project's own
+  risk assessment reads "Organometallic InChI fundamental to integrity and perception of InChI: reputational
+  risk if left unaddressed – possible barrier to adoption". A 2023 workshop at RWTH Aachen took up inorganic
+  stereochemistry, which the current version does not touch at all, and Yerin's stated requirements include
+  procedures to determine configurationally inequivalent ligands and a bond model for delocalized ligands.
+- *Claude's gloss, 2026-11-18, now a theorem rather than a limit:* a graph with four bond types is a model
+  of localized two-centre bonding, and where the bonding is delocalized and multi-centric the graph is not
+  the object — so identity there is not graph identity, and keeping the automorphisms of a wrong carrier
+  fixes nothing. The right carrier is written and the statement is sharp. `HMol` in `chem/identity.cub` is
+  bonding as it is: the atoms with their elements, a type of bonds, the atoms each bond is incident on, and
+  the electron count of each bond. `TwoCentred` states the property the standard model enforces, without
+  counting anything: any three atoms a bond is incident on include two that are the same atom.
+  `hmol-of-moleq` embeds the standard representation into the general one — the bonds are the pairs of
+  atoms that have one, each incident on exactly those two, the electron count read off the order — so
+  nothing of the localized model is lost by working in the general carrier. `hmol-two-centred` proves that
+  every molecule the embedding can produce has the two-centred property. And `bridge` is one B–H–B bridge
+  of diborane written as what it is, a single bond of two electrons incident on three atoms, with
+  `bridge-not-two-centred` proving it is not the embedding of any molecule of the standard
+  representation. So the boundary the field has been working at since 2009 is not a difficulty with an
+  algorithm: the carrier provably cannot hold the object, and a carrier that can holds it with nothing
+  added. "Configurationally inequivalent ligands" is then an orbit computation under the automorphisms of
+  this object, and those are relabellings of atoms and of bonds together preserving incidence.
+**links:** molecular-graph · the-three-identities · canonicalization · crystal-symmetry.
+
+### the-digest-has-an-error-bar
+- The InChIKey is the hashed form used as a database key: 27 characters — a 14-character first block for the
+  molecular skeleton, an 8-character second block for stereo, isotopic and (in non-standard keys) tautomeric
+  isomerism, three flag characters and two dashes — computed as a truncated SHA-256 of the InChI string.
+- Its designers publish its failure rate. Pletnev, Erin, McNaught, Blinov, Tchekhovskoi and Heller,
+  "InChIKey collision resistance: an experimental testing" (*J. Cheminform.* 4:39, 2012), state the
+  position: "due to the very essence of hash functions, collisions (the same InChIKey for different
+  InChIs/structures) are unavoidable in very large collections", and "The appearance of collision itself does
+  not compromise the signature as collision-free hashing is impossible; the only viable approach is to set
+  and keep a reasonable level of collision resistance which is sufficient for typical applications." The
+  theoretical estimate is about 2.2 × 10¹⁵ distinguishable keys, giving a 1.3% probability of a single
+  first-block collision in a database of one billion compounds and 0.014% at one hundred million; the design
+  goal was to avoid collisions up to several thousand isomers per skeleton. They tested the short second
+  block exhaustively against all 67,108,864 stereoisomers of spongistatin I. The first InChIKey collision
+  was reported in 2009.
+- *Claude's gloss:* this is the cleanest possible confirmation of the first clause of (10.22). `digest(d₁) =
+  digest(d₂)` does not imply that `d₁` and `d₂` are the same stored representation, and the field has
+  published the probability that it fails to. The authors' position is correct on its own terms — a hash is
+  a hash and they chose a defensible resistance level — and it is precisely why a hash match is evidence
+  about a representation rather than an identity: the store can use it as a fast index and has to keep the
+  relation it actually stands for alongside. A registration system that treats the key as the identity has
+  adopted a 0.014% error rate on the question of whether two substances are the same, at a database size the
+  CAS Registry passed in 2015.
+**links:** the-three-identities · canonicalization · identity-authority · molecular-graph.
+
+### identity-authority
+- The field's working solution to entity resolution is an authority. The CAS Registry began in 1965 as a
+  project to uniquely identify and track chemical substances; CAS, a division of the American Chemical
+  Society, describes itself as "the world's authority for chemical information" and the Registry as "the
+  only complete and accurate source of unique identifiers"; it registered its hundred-millionth substance on
+  30 June 2015, about 75 million of those added in the preceding decade, with the records curated by CAS
+  scientists from publicly disclosed literature.
+- The identifiers are property. CAS Registry Numbers are copyright CAS/ACS, the license forbids compiling
+  substantial lists, and when Antony Williams reported that CAS would not permit CAS numbers in Wikipedia
+  curated from the official database, Murray-Rust's summary was: "They would make excellent identifiers for
+  the semantic web, except that they are closed", with Wikipedia then holding between one and two thousand
+  chemical substances, about 0.01% of the Registry. CAS Common Chemistry, opened in 2009 and expanded in
+  2021, publishes about 500,000 substances — roughly half a percent of the Registry.
+- The open identifier's own history runs the other way: InChI was developed by IUPAC and NIST from 2000 to
+  2005 with non-proprietary format and algorithms, was LGPL through version 1.04, moved to a custom
+  IUPAC-InChI Trust licence for 1.05 and 1.06, and has been MIT-licensed since 1.07 (1.07.5, February 2026),
+  with the source now on GitHub.
+- *Claude's gloss:* Murray-Rust's complaint that "there is no authority that catalogues chemistry and
+  assigns open identifiers" is exact if the word *open* carries the weight: the authority exists and is
+  closed, and the open alternative is an algorithm whose identity relation is the partial one documented
+  above. Those are the only two options the field has had, and §10.8 is the third: definitions are
+  content-addressed, each identity relation is recorded with its evidence and the strongest available is
+  used for the operation, a peer sends a definition with its dependency closure and its proofs, and "No
+  global namespace is needed for definition identity". Identity by authority and identity by evidence are
+  different institutions, and the first is why a hundred million substances are legible only through a
+  subscription. This is the same object as `data-liberation` in the workflow.
+**links:** the-digest-has-an-error-bar · the-three-identities · canonicalization · workflow:
+data-liberation.
+
+### the-three-identities
+- (10.22) applied: two records with equal digests are the same stored representation; two objects
+  definitionally equal are the same object in the language; two objects related by `SemEq` are the same
+  chemical entity under a stated relation. There is no single `SemEq` for chemistry, and the relation
+  differs by case:
+  - **tautomers** — a path, with conditions, under which only some properties descend;
+  - **stereoisomers** — distinct objects, related by an equivalence that does not commute with the
+    orientation component;
+  - **salts, hydrates, solvates** — one shared active moiety observed in different solids, so a conclusion
+    over the moiety's fiber persists while solubility and dosing conclusions do not;
+  - **isotopologues** — the same graph with different vertex masses, physically distinct by the kinetic
+    isotope effect: deutetrabenazine was approved in 2017 as its own drug because deuterium substitution
+    slows its metabolism, a patentable and clinical distinction invisible to an object keyed on element
+    identity alone. InChI has an Isotopologues working group, chaired by Moseley, for this reason;
+  - **polymorphs** — identical composition and constitution, different solid, different behavior.
+- *Claude's gloss:* the store records each relation with its evidence and uses the strongest available for
+  the operation at hand, which is §10.8's rule. A hash match is evidence about a stored representation and
+  nothing more, and the practice of treating it as chemical identity is why cross-database merging is manual
+  and lossy in exactly these five cases. Murray-Rust's objection is the same one from inside the field: the
+  identifier "is now being overused and badly used", and there is no authority that catalogues chemistry and
+  assigns open identifiers, because the identity of many compounds is genuinely difficult.
+**links:** tautomers · chirality · polymorphs · molecular-graph · binding-observation.
+
+---
+
+## II. Observation
+
+### binding-observation
+- An affinity is not an edge weight. §2.2's `Rel(R) ∶= ∑_a ∑_b R(a,b)` (2.10) makes a binding claim an
+  inhabitant holding the molecule, the target, the value and what produced it, and over fixed carriers the
+  instance space is the family on `A×B` with both projections — "a bare equivalence of total spaces forgets
+  which inputs and outputs the witnesses relate."
+- An assay is an observation `o ∶ H → O` over experimental histories, and §1's
+  `Warrants(y,P) ∶= ∏_{(h,p)∶Fib_o(y)} P(h)` (1.3) states exactly what a reading establishes: a property
+  holds for every history compatible with it. The fiber over a potency reading contains compound
+  aggregation, fluorescence interference, redox cycling, thiol reactivity and assay-component chelation, so
+  "this compound inhibits this target" is usually not what the reading warrants, while "this reading was
+  obtained in this assay" is.
+- The filters are the field's empirical substitute. Baell and Holloway, "New substructure filters for removal
+  of pan assay interference compounds (PAINS) from screening libraries and for their exclusion in bioassays"
+  (*J. Med. Chem.* 53(7):2719–2740, 8 April 2010), describe substructural features identifying compounds
+  that are frequent hitters across many biochemical high-throughput screens and that are not caught by the
+  filters used for reactive compounds; 480 compound classes, identified in AlphaScreen assays, and Baell's
+  estimate that about 10% of the compounds in a commercially available screening library might show up as
+  false positives. Their stated concern is that "these compounds are increasingly prevalent in the
+  literature as potential starting points for further exploration, whereas they may not be". The paper has
+  over 3,500 citations, and interference characteristics propagate through medicinal chemistry programs and
+  compromise their outcomes.
+- *Claude's gloss:* a list of 480 substructures derived from one detection technology is a pattern-match
+  standing in for the fiber argument the representation cannot express, which is why its scope is contested:
+  the question "how frequently are PAINS actually active" (Jasial, Hu & Bajorath) is the question of whether
+  the substructure narrows the fiber, and it has to be asked empirically because the warrant was never
+  recorded. Refinement shrinks fibers, so a later selectivity panel narrows the fiber rather than replacing
+  the earlier record, and every conclusion already established persists (§1). Models trained on activity
+  records take the stronger claim as the label.
+**links:** structure-elucidation · the-three-identities · computed-quantities · retraction-propagation ·
+predictive-validity · affinity-uncertainty.
+
+### affinity-uncertainty
+- The size of the defect in the affinity record has been measured, by people who needed the number to
+  know what their models could possibly achieve. Kramer, Kalliokoski, Gedeck and Vulpetti, "The
+  experimental uncertainty of heterogeneous public Ki data" (*J. Med. Chem.* 55:5165, 2012), took
+  independent measurements of the same protein–ligand pair from ChEMBL and, after removing the dubious
+  pairs, found a mean error of 0.44 pKi units — a factor of 2.8 in Ki — a standard deviation of 0.54 and a
+  median error of 0.34. They then drew the consequence: the maximum achievable squared correlation for a
+  model on large sets of such data is about 0.81, so a model reporting more is reporting noise.
+- The filtering is the more interesting half. The paper states what had to be removed: unit-transcription
+  errors, undifferentiated stereoisomers, and repeated citations of single measurements, which were 90%
+  of all pairs. Nine pairs in ten that looked like two independent measurements of one system were one
+  measurement cited twice.
+- The IC₅₀ follow-up (Kalliokoski, Kramer, Vulpetti and Gedeck, *PLOS ONE* 8:e61007, 2013) fitted
+  σ = 0.87 for pIC₅₀ differences against σ = 0.69 for pKi, found pKi values in ChEMBL on average 0.35 log
+  units above pIC₅₀ (a factor of 2.3), and recorded the extreme: over 16,844 pairs, the largest single
+  disagreement is 7.7 log units — a factor of fifty million on the same protein–ligand system. Against
+  this, two assay standards measured repeatedly over years inside one company had a pIC₅₀ standard
+  deviation of about 0.2 log units. The noise is not the chemistry; it is the aggregation.
+- *Claude's gloss:* each finding is a missing component of `Report`. A repeated citation of one
+  measurement counted as two independent ones is a measurement with no identity of its own — the record
+  identifies the number, not the event that produced it, so the same event enters twice and the
+  disagreement between two laboratories cannot be told from the agreement of one with itself.
+  Undifferentiated stereoisomers are the carrier defect directly: two molecules the record cannot
+  distinguish, which is what `Oriented` distinguishes and the digest does not, and their affinities are
+  then averaged. A pKi mixed with a pIC₅₀ is two different warrants treated as one kind of value, with a
+  known systematic offset of 0.35 log units. And the 0.81 ceiling is `predictive-validity` in a single
+  number, derived inside medicinal chemistry, from its own data, thirteen years ago.
+**links:** binding-observation · predictive-validity · chirality · retraction-propagation ·
+the-construction · workflow: chemistry-knowledge-graph.
+
+### structure-elucidation
+- This is (1.1)–(1.3) as an experimental method. A high-resolution mass measurement observes molecular
+  formula, so its fiber is the formulas within the instrument's tolerance, and a formula's own fiber is its
+  isomer space. Each further experiment is a refinement `o = h ∘ o′`, and because refinement shrinks fibers
+  the formula can be reported before the structure is known. A structure assignment is the claim that the
+  fiber has been narrowed to a point.
+- The field's error rate is published. Nicolaou and Snyder (*Angew. Chem. Int. Ed.* 44(7):1012–44, 2005)
+  reviewed natural-product structural revisions made possible by total synthesis over 1990–2004; Suyama,
+  Gerwick and McPhail (*Bioorg. Med. Chem.* 19(22):6675–6701, 2011) tabulated marine revisions for
+  2005–2010; a 2022 review in *Natural Product Reports* (Guo and Appendino) summarizes more than 200 cases
+  of misassigned marine natural products reported between July 2010 and August 2021. Hexacyclinol is the
+  standing case: a 2002 structure, a 2006 synthesis whose spectra did not match, and a revised structure
+  confirmed by synthesis and X-ray.
+- Their own conclusion is the fiber statement in words: "no single technique can unambiguously assign the
+  structure of a complex unknown compound, but the synergistic combination of information from different
+  techniques can do it with high reliability".
+- *Claude's gloss:* the diagnostic is identical across the revisions — someone exhibited one structure
+  compatible with the data instead of showing the fiber was a singleton. Inhabiting one element of a fiber
+  and proving a property over the whole fiber are different types, and the field has no notation that
+  distinguishes them, which is why the error recurs with better instruments. Automorphism-orbit signal
+  counts are one computable constraint on the fiber that the standard object cannot supply.
+**links:** automorphism-is-physical · nmr-prediction · chirality · binding-observation · structure-revision · metabolite-annotation.
+
+### metabolite-annotation
+- The place where chemistry is most explicit that identity is an inference from an observation is
+  untargeted mass spectrometry, and the numbers are stark. "Illuminating the dark matter in metabolomics"
+  (*PNAS* 112, 2015) reports that only 1.8% of spectra in an untargeted metabolomics experiment can be
+  annotated, with the arithmetic behind it: more than 60 million molecules in PubChem against about
+  220,000 reference MS/MS spectra representing roughly 20,000 molecules. A 2025 review of annotation tools
+  repeats the same 1.8% as the average still reported. Industry summaries put 10% to 20% of detected
+  features at MSI Level 1 or Level 2, leaving 80% to 85% as what the field calls metabolomic dark matter:
+  features reliably detected and reproducibly quantified, and chemically anonymous.
+- The field responded by typing its own confidence. The MSI levels distinguish an identification confirmed
+  against an in-house standard (Level 1) from a putative annotation resting on a high-quality spectral
+  library match (Level 2), and the Schymanski scale extends that to five levels from confirmed structure
+  down to exact mass alone. And the statistics were missing until recently: before FDR-controlled spectral
+  matching, "spectrum–spectrum matches of unknown and library spectra are scored but this score alone
+  provides no statement about statistical accuracy of that assignment", leaving untargeted LC-MS/MS with
+  "identification results where errors rates are uncontrolled" — a gap closed by empirical-Bayes and
+  target-decoy methods over 70 public datasets.
+- *Claude's gloss:* this is the construction's `Report` arrived at independently, under pressure, by a
+  field that could not avoid it. A level is a warrant type, not a number: `rep-weaken` in
+  `chem/identity.cub` carries a report along an implication of warrants — the same molecule and the same
+  value resting on less — which is exactly what reporting a Level 1 identification as a Level 2 annotation
+  does, and `no-upgrade` is the direction that does not exist, because where no in-house standard exists
+  the stronger warrant is uninhabited and no amount of library matching constructs an inhabitant. Two
+  consequences the field has not drawn. First, the level belongs inside the record as the warrant itself,
+  so that a claim built on a Level 2 annotation carries that fact into everything derived from it
+  (`der-retracted`), rather than as a label that is dropped on the first reuse. Second, 1.8% is not a
+  coverage problem to be solved by more reference spectra alone: `structure-elucidation`'s fiber is the
+  reason, since a spectrum constrains the structure without determining it, and what the remaining 98%
+  needs is the constraint recorded as a constraint — a scope over molecules with its warrant, which is
+  `Scope` and `Report` together, instead of a name or nothing.
+**links:** structure-elucidation · binding-observation · affinity-uncertainty · identity-authority ·
+the-construction.
+
+### structure-revision
+- Structures are published, accepted, cited, built upon, and then found to be wrong. Nicolaou and Snyder,
+  "Chasing molecules that were never there: misassigned natural products and the role of chemical
+  synthesis in modern structure elucidation" (*Angew. Chem. Int. Ed.* 44:1012–1044, 2005 — with its own
+  corrigendum at 44:2050), set out the case against the common belief that assignment had become routine;
+  reviewers of that literature put the count of articles on structural revisions at around a thousand by
+  then. Maier's "Structural revisions of natural products by total synthesis" (*Nat. Prod. Rep.*
+  26:1105–1124, 2009) covers the following period, a marine-natural-products review covers the cases after
+  2005, and a 2023 review asks the question again in its title — are we still chasing molecules that were
+  never there — now with quantum-chemical NMR prediction as the instrument of reassignment.
+- The mechanism of discovery is the one that matters for the carrier: in many of these cases the error
+  surfaced only when the total synthesis of the proposed structure produced a compound whose spectra did
+  not match the natural material. That is a fiber argument carried out with glassware — the observation
+  did not determine the structure, and the way to find out was to make the candidate and compare.
+- *Claude's gloss:* the revision is an edit to the identity of an object that other records point at, and
+  nothing in the field's representation carries the edit. The old structure keeps its registry number,
+  its database entry and its citations; the new one is a new entry; the papers that computed a property
+  from the old structure are not retracted and cannot be enumerated. `Report` and `der-retracted` say
+  what the record would have to hold for that enumeration to be possible — the dependency — and
+  `retraction-propagation` is where this document states it in the general case. A thousand articles of
+  revisions is a thousand instances of a propagation that never happened.
+**links:** structure-elucidation · retraction-propagation · molecular-graph · the-construction ·
+identity-authority.
+
+### ligand-density
+- A crystal structure of a protein with a bound ligand is the primary evidence for a binding mode, and the
+  evidence for the ligand itself is its electron density. The real-space correlation coefficient (RSCC)
+  measures how well the modelled ligand's calculated density matches the observed density, so it is the
+  observation that a pose claim has to be warranted by.
+- Weichenberger, Pozharski and Rupp built *Twilight* for this (*Acta Cryst.* F69:195–200, 2013), a
+  pre-filtered set of 2,815 protein–ligand complexes deposited with the PDB as of 15 January 2012 whose
+  ligand RSCC is below 0.6. Their framing of why: "For consumers of such models it is not trivial to
+  determine the degree to which ligand structure modelling is biased by subjective electron density
+  interpretation."
+- Deller and Rupp, "Models of protein–ligand crystal structures: trust, but verify" (2015), tabulate a
+  curated set of 382,588 PDB ligands with density available: 67% have RSCC between 0.9 and 1.0, about 3%
+  fall between 0.6 and 0.7 ("very poor fit of ligand to density", roughly 2,100 structures), and about 1%
+  below 0.5 ("improbably poor fit"). Their review of the problem classes gives ligands incorrectly
+  identified as questionable at 7.4%, incorrectly modelled ligands at 5.2%, ligands with partially missing
+  density at 29.2%, glycosylation sites at 31.3%, and ligands placed into density that likely originates
+  from mother-liquor components.
+- Their epistemology is stated as such: "accepted scientific epistemology requires that strong claims are
+  backed by correspondingly strong evidence", and the conclusion is that a small but significant fraction
+  of deposited protein–ligand models "are only partially based on evidence and should be used with
+  caution".
+- *Claude's gloss:* that is `Warrants(y,P)` written by crystallographers. The density is the observation,
+  the fiber over it contains the poses compatible with it, and a deposited pose is one element of that fiber
+  presented as the answer — the same error as the natural-product assignments, in a different experiment.
+  Every docking program trained or validated on deposited poses inherits the unwarranted ones, and the
+  partially-missing-density class at 29.2% is not a small tail. A representation that carried the RSCC with
+  the pose, rather than beside it in a validation report, would make the strength of the claim part of the
+  claim.
+**links:** structure-elucidation · binding-observation · space-group-assignment · predictive-validity · docking-observation.
+
+### docking-observation
+- A docking score observes one protein conformation and one ligand conformer. The conformers are a family
+  over torsion space and the protein has its own ensemble, so the score is an observation twice over, and
+  the practical literature reports what that costs.
+- Wang, Sun, Yao, Li, Xu, Li, Tian and Hou (*Phys. Chem. Chem. Phys.*, 2016) evaluated ten programs for
+  sampling power and scoring power: GOLD reached 59.8% accuracy for the top-scored poses and LeDock 80.8%
+  for the best pose among those generated, and they tabulate 72 failure cases that no tested program could
+  predict. The distinction between those two numbers is the distinction between generating the right pose
+  and scoring it first.
+- The structural admission is Jain's: "In nearly all high-throughput docking approaches, protein
+  conformation is not among the degrees of freedom being searched", and "acceptable results in pose
+  prediction have been generally possible only in the artificial case of re-docking a ligand into" its own
+  cognate structure, with non-cognate structures "closer to 20–40% correct". Using conformations from
+  multiple complexes raises the average to about 61% across eight targets, and pocket adaptation with
+  rescoring to 67% for a single pose family and 75% for the best of two.
+- A 2025 cross-docking benchmark finds rigid docking outperforming flexible protocols — "current methods of
+  receptor flexibility introduce conformational noise without improving accuracy" — and significant
+  cross-docking failure for a deep-learning docking model despite training-test overlap, concluding that
+  "current models merely memorize".
+- *Claude's gloss:* re-docking into the cognate structure scores the answer against the observation it was
+  derived from, which is why it works and why it establishes nothing; the honest number is the non-cognate
+  one. The ensemble is the fiber, and a method that does not search protein conformation has fixed a
+  coordinate of the fiber by fiat and reports a point. That the deposited poses used as ground truth
+  include the unwarranted ones of `ligand-density` compounds the error, and that flexibility "introduces
+  noise without improving accuracy" is what widening a fiber without narrowing the evidence does.
+**links:** ligand-density · binding-observation · predictive-validity · structure-elucidation.
+
+### nmr-prediction
+- Atoms in one automorphism orbit of the molecular graph are constitutionally equivalent and give one
+  signal, so orbit counts predict the number of distinct ¹H and ¹³C resonances. The augmented graph that
+  accounts for stereocenters is the one to take orbits of, as in the symmetry-number algorithm.
+- *Claude's gloss:* this is the first public result to produce, because it is a physical prediction,
+  checkable by anyone against published spectra, following from information the standard representation
+  discards, and unobtainable from that representation. A table of predicted against observed signal counts
+  at scale is the demonstration; the argument about foundations is not.
+**links:** automorphism-is-physical · structure-elucidation · nmr-orbits.
+
+### nmr-orbits
+- The orbit prediction is already in the chemical literature, as a computation rather than a principle.
+  Fullerene work from 1995 determines the topological equivalence classes of atoms and bonds in C₂₀–C₆₀ by
+  generating all canonical labeled mapping trees, and states that "the number of atom classes and the
+  number of atoms in each class gives important information on the number of 13C NMR signals and intensity
+  patterns" (*J. Chem. Inf. Comput. Sci.*, 1995). Work from 2023 on coronene-based metal-organic
+  frameworks develops "an efficient algorithm and computer code … to generate the automorphism
+  partitioning of nuclei", and reads ¹³C signal counts and intensity ratios off it directly: for the
+  hexagonal framework M₇₂S₂₂₈C₄₅₆, 43 signals with the intensity pattern given class by class
+  (*ACS Omega*, 2023).
+- So the field computes the automorphism partition when it wants a spectrum predicted, and discards it
+  when it stores the molecule. The same group, in the same decade, is a published method and an absent
+  datum.
+- The prediction's limit is where the construction earns its keep. Protons that the graph identifies fall
+  into three cases the textbooks separate: homotopic, exchanged by an automorphism of the constitution;
+  enantiotopic, exchanged only by a reflection, so equivalent in an achiral medium and not in a chiral
+  one; diastereotopic, not exchanged at all and generally giving distinct signals. Only the first is a
+  graph automorphism. A signal count read off the bond graph is therefore an upper bound on the
+  equivalences that hold, and a spectrum showing more signals than the graph predicts is not an anomaly.
+- *Claude's gloss:* the group whose orbits a spectrum reports is the automorphism group of the oriented
+  molecule, not of the graph — `OrAuto` in `chem/identity.cub`, an automorphism preserving handedness at
+  every atom, with `or-orbit-refines` proving that its orbits refine the graph's, in that direction and
+  not the other. That single refinement is the homotopic/diastereotopic distinction as a statement about
+  groups, and it says what the demonstration must be: predicted counts from the oriented orbits, against
+  published spectra, at every place the graph-only count is wrong. The enantiotopic case is the sharpest
+  test, because there the right answer depends on the medium, which means the observation relation and not
+  the molecule alone decides it.
+- The named instance, with a published spectrum and sixty years of experimental work behind it: the two
+  γ-methyl groups of valine. In the bond graph they are exchanged by an automorphism — both are CH₃ on
+  the same Cβ — so a graph-orbit count puts them in one class and predicts one resonance. They are
+  diastereotopic, because Cα is a stereocentre, and in free valine they appear as two doublets, at about
+  0.99 and 1.04 ppm. The field did not merely observe the splitting; it built a chemistry to resolve it.
+  Neri, Otting and Wüthrich, "¹H and ¹³C NMR chemical shifts of the diastereotopic methyl groups of valyl
+  and leucyl residues in peptides and proteins" (*Tetrahedron* 46:3287, 1990), obtained stereospecific
+  assignments by biosynthetically directed fractional ¹³C labelling — a mixture of fully labelled and
+  unlabelled glucose as sole carbon source, with the known stereoselectivity of valine and leucine
+  biosynthesis doing the discrimination — and deposited them as BMRB entry 486, 28 ¹³C and 84 ¹H shifts.
+  Later patents cover reagents that protonate the pro-S γ2 methyl and leave only the pro-R γ1 observable.
+  Williamson and colleagues (*FEBS Lett.* 302:185, 1992) calculated shifts for diastereotopic groups and
+  reported stereospecific assignments correct about 80% of the time.
+- *Claude's gloss:* so for valine the distinction between the two methyls is the subject of a labelling
+  chemistry, a calculation literature and a public deposition, and the molecule's canonical identifier
+  carries none of it — the InChI of valine does not distinguish γ1 from γ2, because the automorphism that
+  would have to be broken is not in the representation. The construction's worked case
+  (`the-construction`) is this molecule's pattern in its smallest form, proved both ways; valine is where
+  it meets a recorded spectrum.
+**links:** nmr-prediction · automorphism-is-physical · chirality · the-construction.
+
+---
+
+## III. The solid
+
+### polymorphs
+- A polymorph is the same molecule in a different crystal packing. Ritonavir (Abbott, Norvir) was developed
+  in late 1992, approved by the FDA on 1 March 1996 and marketed as a semisolid capsule and an oral liquid,
+  with only one crystal form known through development and the NDA filing; attempts to find others failed.
+  About two years after launch, in mid-1998, lots failed a dissolution specification, and investigation
+  found a second form, designated Form II, more stable and much less soluble, precipitating out of the
+  formulated product. Form II was not bioequivalent in the marketed dosage forms. Abbott announced
+  difficulty manufacturing the capsules on 27 July 1998, the product was withdrawn and reformulated, FDA
+  approved the reformulated capsule on 30 June 1999, and the European authorization followed on 1 December
+  1999. The loss is estimated at more than US$250 million. Form III was found 24 years after Form II, and in
+  2024 Sacchi and colleagues reported in *PNAS* that ball milling under selected solvent-assisted conditions
+  could deliberately produce Form II and recover Form I.
+- *Claude's gloss:* the molecular graph is identical across the forms and therefore irrelevant to the
+  distinction that pulled a life-saving drug from shelves during the early HAART years. The distinguishing
+  data is the symmetry and packing, which a registration system keyed on constitution cannot represent, and
+  a patient relying on the drug bore the consequence.
+**links:** crystal-symmetry · the-three-identities · computed-quantities.
+
+### space-group-assignment
+- Assigning the space group is the identity decision of a crystal structure, and the field has been counting
+  its own errors for forty-five years. Marsh and Schomaker, "Some Incorrect Space Groups in Volume 16 of
+  *Inorganic Chemistry*" (1979), began a series of such lists, and being named in one came to be called
+  "being Marshed". Marsh's 1999 survey of every structure in the October 1998 release of the Cambridge
+  Structural Database assigned to space group P1 found that of about 1,300 such entries, 279 had
+  inappropriate designations — and in 157 of those, the reason was that the overline was missing from the
+  symbol for P1̄, "probably because of difficulties in producing the symbol on word processors". In the other
+  123 cases the space group was wrong for more fundamental reasons and the atom coordinates themselves
+  had to be revised: about one in ten of all the structures in that space group held coordinates that were
+  not the molecule's.
+- The rate did not improve. Marsh's 2005 update found 115 further structures improperly described in P1,
+  and reported that the three 2004 releases of the CSD contained 231 entries in P1 of which 32 belonged in
+  higher symmetry — the same ratio as in 1999, six years and one published survey later. He returned to
+  the question again in 2009 ("Space groups P1 and Cc: how are they doing?"), and a 2024 survey of the
+  Inorganic Crystal Structure Database, which had never been examined this way, found 22 more.
+- One further obstacle is itself an identity defect: a correction needs the primary reflection data, and
+  those are often not archived with the paper, so correction reports have to be made from the coordinates
+  alone, which is unreliable. The warrant for the published structure is not in the record.
+- Marsh and Clemente's survey of the *Journal
+  of the American Chemical Society*, from its first detailed crystal structure in 1940 through August 2006,
+  found 188 cases described in space groups of inappropriately low symmetry, 135 of them previously
+  unnoted.
+- What the error does to the chemistry: "A feature of many of these structures is that, in the original
+  space groups, bond lengths and angles are severely distorted; after revision of the space groups, the
+  molecular geometries become normal."
+- Spek's checkCIF, implemented in PLATON and first reported in 2003, validates submitted structures
+  automatically, and its first class of tests — the 1xx series — addresses unit-cell and space-group
+  symmetry. Spek's own 2018 question is "Forty years of Marshing: is the missed symmetry problem now
+  solved?", and he notes that disorder, twinning and pseudo-symmetry blur the assignment, and that failing
+  to report the best symmetry description "may lead to false claims of supposedly interesting chemistry that
+  in hindsight are purely based on refinement artefacts".
+- Raymond and Girolami, "Pathological crystal structures" (*Acta Cryst.* C79, 2023), catalogue the classes:
+  misassigned atoms, high-symmetry superstructures containing guest molecules, incorrect space group,
+  incorrect unit-cell size. Their central warning is about the fit statistic: "incorrect crystal structures
+  often have good R values (least-squares residuals) and that these values are of little or no use in
+  deciding whether a structure is correct". Fanwick's accompanying commentary is titled "Mythical
+  compounds".
+- *Claude's gloss:* 157 structures were wrong because a diacritic did not survive a word processor, which is
+  the sharpest available demonstration that an identity carried as a string is an identity at risk from
+  typography. The geometry result is the converse and the stronger one: the symmetry data is what makes the
+  chemistry come out right, so a representation that keeps it is not tidier but more correct. And the R value
+  is an observation whose fiber contains wrong structures — a fit statistic that does not warrant
+  correctness, stated in the crystallographers' own words rather than derived.
+**links:** crystal-symmetry · polymorphs · automorphism-is-physical · structure-elucidation.
+
+### crystal-symmetry
+- Crystallography never took the set quotient. A crystal structure is stored as a quotient presentation —
+  unit cell plus space group generates the lattice — Wyckoff positions are the orbits of the space-group
+  action on the cell, and site symmetry is computed as a matter of course. The 230 three-dimensional
+  crystallographic space groups are a finite classification of exactly the structured-equivalence data of
+  §4.2.
+- *Claude's gloss:* this is the direction to build first. The symmetry data is already in the experimental
+  record rather than something to reconstruct, the Cambridge Structural Database holds over a million
+  determined structures, polymorphism has a documented eight-figure cost, and the identity half of the
+  construction needs no collaboration with anyone. Measurement-side semantics — what an assay reading
+  warrants — is the slower half and it is the argument for taking the solid before the potency.
+**links:** polymorphs · automorphism-is-physical · molecular-graph · computed-quantities.
+
+---
+
+## IV. Derived quantities and their dependencies
+
+### computed-quantities
+- A density-functional energy without its functional, basis set, geometry, convergence criteria and
+  dispersion correction is not a number about a molecule. That is §10.5's `Dep` verbatim: a list of recorded
+  observations with `valid(S′,D) ∶= ∏_{(k,o)∈D}(Lookup(S′,k) ≡ o)` (10.17) deciding reuse, so changing the
+  functional invalidates the energies computed with it and leaves every other derived quantity standing.
+- Basis-dependence of intermediate quantities is a transport error in §4.3's sense: the energy is invariant
+  under a change of basis, the orbital coefficients transform, and a partition of electrons among atoms is
+  not a transported quantity at all, which is why Mulliken charges change substantially with basis set and
+  are nonetheless reported as physical.
+- Units are the smallest case: a quantity is a value with a dimension, dimension equality is a type, and
+  nanomolar against micromolar is a factor of a thousand that the published record contains in both
+  directions.
+- The dependency is measurable and has been measured. Hegde and co-authors, "Quantifying uncertainty in
+  high-throughput density functional theory: a comparison of AFLOW, Materials Project, and OQMD"
+  (*Phys. Rev. Materials* 7:053805, 2023; arXiv:2007.01988), compare the three databases on properties
+  computed *from the same initial crystal structure*, so the only difference is the parameter and
+  post-processing choices. The variance is as high as 0.105 eV/atom for formation energy (median relative
+  absolute difference 6%), 0.65 Å³/atom for volume (4%), and 0.21 eV for band gap (9%). Their outlier tables
+  are worse than the medians: formation energies differing by 1.617 eV/atom for Eu(Cu₂Sn)₂ and 1.605 for
+  GdMg₂Ag between MP and OQMD, and volumes for elemental bismuth differing by 72.21 Å³/atom between AFLOW
+  and MP, with the ICSD identifier of the shared input structure listed alongside each.
+- A 2026 study comparing MP, OQMD and MC3D under the same functional finds a median absolute difference of
+  15–18 meV/atom across all pairs, and locates the peak of the disagreement in oxygen-containing compounds,
+  "reflecting differences in the chosen oxygen reference across databases".
+- Against experiment: Kirklin and co-authors, "The Open Quantum Materials Database (OQMD): assessing the
+  accuracy of DFT formation energies" (*npj Comput. Mater.* 1:15010, 2015), compare 1,670 experimental
+  formation energies with calculation — the largest such comparison at the time — and report an apparent
+  mean absolute error of 0.096 eV/atom; examining the deviation between independent experimental
+  measurements of the same quantity where several exist, they find 0.082 eV/atom, and conclude that a
+  significant fraction of the apparent DFT error is experimental uncertainty.
+- *Claude's gloss:* the disagreement between databases traces to a chosen elemental reference, which is a
+  dependency of the calculation and not a property of the material, so the number has no meaning apart from
+  its certificate and merging the databases without one produces a corpus whose errors are choices nobody
+  recorded. The experimental comparison is the fiber argument in numbers: the computation is judged against
+  observations that disagree with each other by 0.082 eV/atom, so an error of 0.096 against them does not
+  warrant a claim about the computation's accuracy, and Kirklin's own conclusion says so.
+- *Claude's gloss, 2026-11-18, the same defect outside chemistry:* the health-economic verdict on a
+  medicine has exactly this shape, and the stakes make it legible. Sofosbuvir-based therapy was found to
+  add 0.56 quality-adjusted life-years at $55,400 per QALY, with the ratios running from $9,700 to
+  $284,300 across patient strata, and "cost-effective" in 83% of treatment-naive patients at a
+  willingness-to-pay threshold of $100,000; at the $50,000 threshold US analyses also used, parts of that
+  conclusion reverse. The same model run backwards computes a price: $105 a course to be affordable in
+  China, a 40% cut to make one regimen the best option. So "cost-effective" is a `Derived` value whose
+  reports include a price set by the seller and a threshold set by convention, and when it is cited
+  without them it reads as a property of the medicine. `der-retracted` is the proposition the citation
+  cannot state: change the price and the verdict is refuted, with nothing in the literature to mark which
+  conclusions fell. The formation-energy case and the pricing case are one defect at two scales, and in
+  the second the number rationed a cure (`docs/preventable-death-at-scale.md`, the-cost-ledger).
+**links:** retraction-propagation · binding-observation · crystal-symmetry · space-group-assignment · crystal-structure-prediction ·
+predictive-validity · the-construction.
+
+### retraction-propagation
+- `reuse(x,D′) ∶ valid(x,D′) → Value(x)` (10.25) keeps a derived value only if its certificate still
+  validates, and §10.11's edit propagation is the operation: a changed definition invalidates exactly the
+  retained results whose certificates fail, and the rest stand.
+- *Claude's gloss:* nobody can currently answer "what else was wrong" for any retraction in chemistry. A
+  withdrawn measurement propagates into reviews, models and training sets with no record that it did, and
+  the answer is computable from the graph. This is the second public result: take a documented bad
+  measurement, find its dependents, and show which conclusions lose their warrant and which survive.
+- *Claude's gloss, 2026-11-18:* this is now written rather than cited — `Report` with its warrant as a
+  type and an inhabitant, `Derived` with the reports it was computed from, and `der-retracted` proving
+  that refuting one warrant refutes the quantity (`the-construction`). The field's practice is the exact
+  negation of the premise: the dependency is not stored, so the proposition cannot be formed, so no
+  correction can be propagated and no one can enumerate what a correction overturns.
+**links:** computed-quantities · binding-observation · structure-elucidation · the-construction.
+
+---
+
+## V. Reactions
+
+### reaction-as-witness
+- A reaction is not an edge from reactants to products. It is `T(s,a,s′)` with the mechanism as the witness,
+  and arrow-pushing is the proof term in the notation chemists already use. Elementary steps compose by
+  matching ends as §3.3's transitions do — `Transition ∶= ∑_s ∑{s′} T(s,s′)` (3.11) — and a named
+  transformation is a derivation over them.
+- The atom-atom correspondence between reactant and product graphs is induced by the mechanism and is part
+  of the witness, not a metadata field a curator fills in. Reaction corpora carry machine-guessed maps, and
+  every template extracted from them inherits the guess.
+- *Claude's gloss:* retrosynthesis is proof search, and neural retrosynthesis proposes reactions that do not
+  go because it searches over reaction strings with no witness to compose. Reaction path degeneracy — the
+  multiplicity that enters a rate constant — is computed from the automorphism groups of the reactants and
+  the transition state, which is the same symmetry data again.
+**links:** atom-mapping · automorphism-is-physical · reaction-degeneracy · mass-balance.
+
+### mass-balance
+- Each element's count and the total charge are preserved by every elementary step, and preserved over a
+  composed derivation by induction on its length. That is §10.3's conservation argument with atoms in place
+  of credit: `total(S)` preserved by each transition and therefore by every finite sequence.
+- *Claude's gloss:* an unbalanced reaction record is a type error rather than a formatting defect, and it
+  persists only because the representation cannot state the type. Corpora extracted from patents and
+  journals contain large numbers of them, from schemes that omitted a reagent or extractions that dropped a
+  fragment, and they are trained on as they stand.
+**links:** reaction-as-witness · atom-mapping · reaction-balance.
+
+### reaction-corpora
+- The open reaction corpora derive from Lowe's text-mining of US patents (PhD thesis, Cambridge, 2012;
+  dataset of grants and applications 1976 to September 2016), with 1,808,938 reactions from granted
+  patents expressed as SMILES. Its users record its state plainly: "To date, there is no standard way of
+  filtering duplicates, incomplete or erroneous reactions in Lowe's dataset", and one widely used
+  preparation removed 720,768 duplicates by comparing reaction strings with the atom mapping stripped.
+- The mass-balance defect is systematic, not incidental: the dataset "has a substantial fraction of
+  chemically incomplete reactions: important molecules such as byproducts are vastly omitted and
+  stoichiometric factors are neglected, resulting in atom- and charge-unbalanced reactions."
+- The atom maps are machine-generated and known to be the weak link. USPTO-FULL's roughly one million
+  reactions carry Indigo-generated mappings; USPTO-50K is kept as the small high-quality set; and Chen, An,
+  Babazade and Jung ("Precise atom-to-atom mapping for organic reactions via human-in-the-loop machine
+  learning", *Nat. Commun.* 15, 2024) state the dependency: "the quality of these models is highly
+  dependent on the quality of the AAM in reaction datasets".
+- *Claude's gloss:* deduplicating by the string with the mapping stripped is the digest relation standing in
+  for chemical identity, and it merges reactions whose atom correspondences differ — which is to say it
+  merges different reactions. A corpus with a substantial unbalanced fraction, machine-guessed
+  correspondences and no record of which records were curated is one where the witness was never stored,
+  and templates extracted from it inherit every guess. The remedies in the literature are curation passes
+  that correct maps and amend missing reactants; each is a derived result that ought to carry a certificate
+  and does not.
+**links:** reaction-as-witness · mass-balance · atom-mapping · retraction-propagation · canonicalization.
+
+### reaction-balance
+- The unbalanced fraction is now a number. Of the USPTO reactions, "only ≈4.8% of reactions being
+  atom-balanced", and "across commonly used subsets, fewer than 10% of reactions are atom- and
+  charge-balanced" (*CompleteRXN*, arXiv:2605.00222). A second measurement, by a heuristic balancer run
+  over both corpora, puts originally complete and balanced reactions at 3.3% of USPTO and 7.2% of Reaxys;
+  of the rest, its completion step brought USPTO to 17.6% and Reaxys to 44.1% complete, and left 2.1% of
+  USPTO and 13.4% of Reaxys with the left-hand-side species insufficient to balance at all
+  (*ACS Omega* 9(16):18385, 2024). The Reaxys total it completed is 7,043,030 reactions against USPTO's
+  171,637.
+- So the two public corpora of organic reactions consist, to between 90% and 96%, of records that are not
+  reactions in the sense every one of their users assumes. The witness is not merely unstored: for most
+  records it cannot be constructed from what is stored, because atoms are missing from one side.
+- The maps are not only machine-generated but were selected against a set since found to be wrong.
+  RXNMapper's model selection "relied on USPTO-50K, a validation set later shown to contain erroneous
+  mappings"; its 2025 revision re-selects against 4,533 hand-curated Pistachio reactions, over a
+  USPTO-full of 2,847,312 unmapped reaction SMILES (*RXNMapper-v2*, 2025).
+- *Claude's gloss:* an atom map with its inverse, preserving each atom's element, is mass balance stated
+  without counting anything, and it is the only form in which the claim can be checked rather than
+  asserted — `AtomMap` in `chem/identity.cub`. Read against these numbers, the balanced fraction is the
+  fraction of records for which such a map could exist; the rest are claims about chemistry with no
+  object to be about. And a rebalancing or completion pass is itself a derived result: it invents a
+  byproduct to close the count, and the invented species is now indistinguishable, in the corpus, from a
+  species that was reported.
+**links:** mass-balance · reaction-corpora · atom-mapping · retraction-propagation · the-construction.
+
+### atom-mapping
+- Carbon-13 metabolic flux analysis infers fluxes from the labeling patterns that atom mappings predict: a
+  labeled substrate is fed, mass isotopomer distributions are measured, and the flux distribution is solved
+  backward. The solution set is the fiber of the observation map over the measured labeling, narrowed by
+  each additional tracer experiment.
+- *Claude's gloss:* the mappings for central carbon metabolism are hand-curated, a wrong map propagates into
+  every flux downstream of it, and nothing in the field records that it did. `valid(S,D)` applied here
+  answers which fluxes survive the correction of one map, which is a question the method currently cannot
+  ask.
+**links:** reaction-as-witness · mass-balance · retraction-propagation.
+
+---
+
+## VI. Scope as a type
+
+### markush
+- A Markush patent claim is a molecular graph with variable substituents, which is a family indexed by the
+  substituent choices. A patent's chemical scope is therefore a dependent type, infringement is an
+  inhabitation question, and freedom-to-operate analysis is checking whether a compound inhabits another
+  party's family.
+- *Claude's gloss:* chemical patent searching is an industry performing that check with string heuristics
+  over enumerated subsets, because the claim as written is a type and the search index holds only points.
+  Markush claims are drafted to cover spaces too large to enumerate, so the current practice samples and
+  hopes. There is a paying customer for the heuristic version.
+**links:** molecular-graph · the-three-identities · chemical-space · substantially-similar.
+
+### substantially-similar
+- The sharpest case of a scope with no criterion is criminal law. The Controlled Substance Analogue
+  Enforcement Act of 1986, 21 U.S.C. § 802(32), defines an analogue as a substance "the chemical
+  structure of which is substantially similar to the chemical structure of a controlled substance in
+  schedule I or II", together with a prong about effect on the central nervous system. The statute gives
+  no criterion for "substantially similar", and none has been supplied since.
+- In *United States v. Forbes*, 806 F. Supp. 232 (D. Colo. 1992), two chemists from the same agency
+  testified on opposite sides about the same pair of molecules: the DEA's Frank Sapienza testified that
+  AET's structure is substantially similar to a scheduled substance, and the DEA's Roger Ely testified
+  that AET's structure is not substantially similar to DMT or DET. The court held the definition
+  unconstitutionally vague as applied. Congress did not revise the statute; AET was scheduled by name
+  instead.
+- *United States v. Washam*, 312 F.3d 926 (8th Cir. 2002), settled the matter the other way and stated
+  the rule plainly: "all experts need not agree on whether two drugs' chemical structures are
+  'substantially similar' in order to affirm a conviction." The defendant's experts had testified that
+  the difference in functional groups means 1,4-butanediol and GHB are not substantially similar in
+  structure. District courts since have held that expert disagreement does not render the statute vague,
+  and the academic argument that it should be void (*Voiding the Federal Analogue Act*) rests on the one
+  observation that matters here: the phrase has no coherent or standardised definition.
+- *Claude's gloss:* this is `scope-respects` read from the other end. A scope cannot distinguish molecules
+  that are identical, so whatever decides identity decides coverage — and here coverage is decided by a
+  relation that is explicitly not identity, with no criterion, under a rule that experts need not agree.
+  The same theorem covers this and the biosimilar case, in opposite directions:
+  `non-transitive-at-not-identity` says a reflexive relation with one failure to compose is not identity,
+  so nothing may be transported along it that identity would transport. For biosimilars the relation
+  under-licenses — each pairwise comparison to the reference holds and no chain of substitutions is
+  covered — and for the Analogue Act it over-licenses: a criminal liability is carried along it as though
+  along a path. A legislature may of course criminalise a class; what it cannot do is criminalise a class
+  it has not defined and then let the definition be settled per defendant by whichever expert the jury
+  believes. The construction's contribution is not an opinion about drug policy: it is that the carrier
+  the law reaches for does not exist, and the field's own canonicalisation literature
+  (`canonicalization`) is where that was first visible.
+**links:** markush · chemical-space · regulatory-identity · the-construction · workflow:
+preventable-death-at-scale.
+
+### chemical-space
+- Enumerations of small-molecule space (GDB-17 and its relatives) are chosen enumerations in §8.3's sense,
+  and the operations wanted are membership in a family and counts of its orbits, both of which act on the
+  structured object rather than on a materialized set.
+**links:** markush · molecular-graph · automorphism-is-physical.
+
+### reaction-degeneracy
+- Reaction path degeneracy is the symmetry-derived multiplicity in a rate constant, obtained from the
+  automorphism groups of reactants and transition state, and it is the second place after the rotational
+  partition function where the automorphism data is load-bearing physics.
+**links:** automorphism-is-physical · reaction-as-witness.
+
+---
+
+---
+
+## VII. Substances that are not graphs
+
+### uvcb
+- European chemicals law divides substances into two groups for identification: well-defined substances,
+  with a defined qualitative and quantitative composition, and UVCB substances — of Unknown or Variable
+  composition, Complex reaction products, or Biological materials. The defining criterion is negative: a
+  UVCB "cannot be sufficiently identified by chemical composition", because the number of constituents is
+  large, the composition is substantially unknown, or its variability is large or poorly predictable, "as a
+  consequence other type of information for identification is necessary".
+- That other information is the manufacturing history. A UVCB's name is built from its source and then its
+  process, in that order, and sameness turns on process parameters: "variations in the compositions and
+  purities of starting materials (which may themselves be UVCB substances) can lead to difficulties in
+  establishing substance sameness", and the parameters that matter include reaction times and temperatures.
+  Where composition is used at all, the main constituents are identified by the 80% and 80–10% rules of
+  thumb. Recital 45 of REACH permits registering UVCBs together "despite their variable composition",
+  provided the hazardous properties do not differ significantly and warrant the same classification.
+- *Claude's gloss:* here the carrier is a process, and the paper's §1 supplies it directly: a state type,
+  actions, and a transition relation with evidence, where the substance is the history and two substances
+  are the same when their histories are related. Petroleum fractions, essential oils, enzyme preparations
+  and biological extracts are in this class, and it is not a marginal one. A system whose only identity is
+  a molecular graph has nothing to say about them, which is why their identity is currently settled by
+  negotiation among registrants in a consortium rather than computed. The "rules of thumb" are the honest
+  name for a relation nobody can state.
+**links:** regulatory-identity · the-three-identities · reaction-as-witness · molecular-graph · registrant-practice · mixtures-and-nanoforms · biologics.
+
+### registrant-practice
+- The Commission's own study read what registrants actually filed. It screened 2,213 dossiers across 223
+  complex substances drawn from a list of 2,414, at most twenty dossiers per substance — and its
+  conclusions give the figure as 2,202, so the report does not agree with itself about how many dossiers
+  it read. Over 22% of all substances in ECHA's registered database as of January 2014 were complex,
+  mostly UVCBs; the Commission states the same count as "over 2 400 substances (nearly a quarter of
+  substances registered by 2013)". Globally the count given in the toxicology literature is over 70,000.
+- The identifiers are often simply absent. 609 of 2,171 complex substances (28%) were registered with no
+  CAS registry number at all, and 47 (2.2%) had neither a CAS number nor an EC or list number. For one
+  substance — a product from burning carbonaceous materials — no process parameters appeared in any of the
+  twenty dossiers screened out of its 64.
+- Composition was scored on a six-level consistency scale per substance rather than reported as a
+  compositional fact: one lead-alloy dross had 14% of dossiers at level 1 and 43% at levels 2 and 3, while
+  mill scale had 95% at level 6. The study notes that identity information is "typically more consistent
+  and harmonised" where a consortium addresses it, which is to say that consistency is an artifact of who
+  coordinated the filing.
+- The analytical annex does not reach most of these substances: its data are "appropriate and sufficient
+  usually only for identification of some groups of substances, especially organics", and the study
+  recommends XRD, XRF and ICP-OES for many inorganics. Chemical speciation is "rarely included" for
+  metallurgical substances, with elemental composition used in its place — an element list for a substance
+  whose hazard is a function of which compounds those elements are in.
+- And on sameness the study states the conclusion flatly: it "was found to be especially challenging", and
+  "no widely applicable sameness assessment criteria can be developed". What it falls back on is the
+  assumption that substances manufactured from the same sources by the same processes will have similar
+  composition — identity as manufacturing provenance — with exceptions it records: an anode copper
+  registered jointly despite different sources, and secondary-stream substances registered together with
+  primary ones.
+- *Claude's gloss:* this is the regulator's own report that for a quarter of registered substances there is
+  no carrier of identity, no criterion of sameness that can be stated, and a provenance assumption doing
+  the work instead. Read with `Scope` and `scope-respects` in `chem/identity.cub`: a scope cannot
+  distinguish molecules that are identical, so whatever decides identity decides what a regulation covers,
+  and here that decision is a manufacturing history recorded at the registrant's discretion in free text.
+  The hazard data are then shared on the strength of it. That is the mechanism by which a dossier can be
+  compliant and the substance still unidentified.
+**links:** uvcb · regulatory-identity · identity-authority · the-three-identities · the-construction.
+
+### mixtures-and-nanoforms
+- The extensions exist and are the field's own admission of the scope problem. MInChI, IUPAC project
+  2015-025-4-800, defines a linear notation for "mixed substances of uniform properties that can resolve
+  to unique components", and names its own boundary: "the initial phase is focused on components with
+  molecular structures that produce a well defined standard InChI identifier", with other component types
+  left to future phases. So a mixture of things that each already have a graph identity can be written;
+  the UVCB case, where the components are what is unknown, is out of scope by construction.
+- NInChI proposes to identify a nanoform by encoding composition, size, shape and surface chemistry —
+  which is to say the identity of a nanomaterial is a tuple of measured quantities, each with its own
+  instrument and its own error, and none of them a graph.
+- The timeline is the measurement. As of July 2024 the InChI project's own status table lists RInChI as
+  released, MInChI as a prototype, and NInChI with a question mark; the inorganics and organometallics
+  approach, project 2009-040-2-800, was "officially approved" on 16 July 2024, with a prototype due end of
+  Q4 2024 and the tautomer, S-group and isotopologue work after it. That project opened in 2009. The
+  tautomer project, 2012-023-2-800, is thirteen years open.
+- The isotopologue and isotopomer extension (2024) is the most instructive of them: it represents
+  "isotopically-resolved chemical entities at varying levels of ambiguity in isotope location". An
+  identifier with a dial for how much it leaves undetermined is a scope, not a name.
+- *Claude's gloss:* each extension is a new string for a case the old string could not carry, and each
+  arrives with the previous one's defect intact, because the carrier was never the string. `Scope` and
+  `scope-respects` say what all of them are doing: naming a class of molecules and asserting that claims
+  transfer within it. Written as a scope, the assertion is checkable and the ambiguity is a parameter;
+  written as a string with a dial, it is a convention maintained by a committee, and the committee's own
+  timetable is the evidence of what that costs.
+**links:** uvcb · markush · chemical-space · tautomers · regulatory-identity · the-construction.
+
+### biologics
+- For biologics the field has already given up identity and says so. The slogan is "the process is the
+  product"; the EMA's core principle is to prove similarity and not sameness; the FDA's statutory term is
+  that a biosimilar is "highly similar" to the reference product, notwithstanding minor differences in
+  clinically inactive components, with no clinically meaningful differences in purity, potency and safety.
+  The reason given is not administrative: "identity is not chemically achievable", because glycosylation
+  patterns are not encoded in DNA and a developer with its own cell line and process cannot reproduce the
+  reference product's micro-heterogeneity.
+- And the reference is not a single object either: "the reference product itself is not a single
+  glycoform", so a developer must characterise its heterogeneity across multiple commercially sourced
+  lots, including lots from different markets, because the European and US reference material need not
+  agree. What is being compared is a distribution to a distribution, lot to lot.
+- *Claude's gloss:* a relation that is reflexive and does not compose cannot be read as identity, and that
+  is a theorem — `NonTransitive` and `non-transitive-not-identity` in `chem/identity.cub`. Every pairwise
+  comparison to the reference can hold while no composition of them holds, so a chain of substitutions is
+  not covered by the comparisons that were made; interchangeability is exactly the place where chains
+  occur. Identity composes because it is a path. The regime is not wrong to use similarity — for a
+  glycoform distribution there is nothing else to use — it is wrong to let similarity occupy the position
+  in the inference where identity was required, and the construction's contribution here is to say which
+  position that is: `scope-respects` transports a claim along identity, and there is no corresponding
+  transport along a relation that does not compose.
+**links:** uvcb · regulatory-identity · the-three-identities · predictive-validity · the-construction.
+
+### regulatory-identity
+- Two things make this the sharpest case in the document. The first is that identity relations here are
+  legally binding and they disagree with each other by design. Under the US Toxic Substances Control Act, a
+  substance must be on the Inventory or exempt before manufacture, and "the existence of a Chemical
+  Abstracts Index name or Chemical Abstracts Service (CAS) Registry Number does not mean that a substance is
+  listed on the Inventory. In fact, many CAS identities do not comport with the TSCA nomenclature rules."
+  Practitioners state the consequence flatly: "TSCA Inventory listings are not categories", and a "General
+  name / Inventory listing does not cover less precise substance and vice versa." Where exact identity is
+  unknown or variable one must describe the substance as completely as possible, confidential identities get
+  a structurally descriptive generic name for public disclosure, and CAS sells an Inventory Expert Service
+  to derive the systematic name.
+- Enforcement turns on it. EPA's complaints against two manufacturers over chlorinated paraffins rested on
+  the Inventory including some chloroalkane combinations — C6-C18, CAS 68920-70-7 — and not others, such as
+  C10-C13, CAS 85535-84-8. Whether a product was a listed substance or an unlisted one was the violation.
+- The second is that the regulator has stated, in its own background document for a workshop on substance
+  sameness (ECHA, Helsinki, 6–7 October 2014), that its identity relation does not track the property it
+  exists to control. Sameness there is understood in two senses, administrative and hazard, and: "When
+  looking at the crossover of these two concepts, a systematic correlation between administrative sameness
+  and hazard sameness cannot be defined."
+- *Claude's gloss:* that sentence is the thesis of this document written by a regulator. Two substances the
+  same for registration need not be the same for what they do to a person, and the agency knows it and says
+  so, because the administrative relation was built from names and the hazard relation is a property of
+  histories. (10.22)'s demand — record each relation with its evidence and use the strongest one the
+  operation needs — is not an improvement on the current arrangement but the thing the current arrangement
+  concedes it lacks. And the stakes are the ones `preventable-death-at-scale` counts: a classification is
+  what decides exposure limits, labeling and whether a substance is controlled at all.
+**links:** uvcb · the-three-identities · identity-authority · binding-observation · workflow:
+indict-the-medical-system.
+
+---
+
+## VIII. What the defect costs
+
+### predictive-validity
+- Scannell, Blanckley, Boldon and Warrington, "Diagnosing the decline in pharmaceutical R&D efficiency"
+  (*Nature Reviews Drug Discovery*, 2012), named Eroom's law: the number of new drugs approved per billion
+  dollars of R&D spending has roughly halved every nine years since 1950, a trend reported as persisting
+  through 2024. An industry analysis of large pharmaceutical companies put the average cost of developing a
+  single asset at roughly US$2.3 billion in 2024, against about US$800 million in 2013 on a comparable
+  basis, and Scannell's figure for the whole period is that a company spent about 100 times less per
+  FDA-approved drug in 1950 than in 2010, inflation adjusted. The four drivers he named are the 'better than
+  the Beatles' problem, the cautious regulator, the 'throw money at it' tendency, and the basic
+  research–brute force bias.
+- His current diagnosis (October 2025) is narrower and lands on the construction above: "The core problem is
+  the collapse of predictive validity in preclinical models, which sits at the heart of pharma's
+  productivity paradox", and his argument is that the paradox "arises from a fundamental misunderstanding of
+  what drives pharmaceutical innovation" — the same pattern repeating across successive technological waves.
+- *Claude's gloss:* predictive validity is `Warrants(y,P)` (1.3) under another name. A preclinical model is
+  an observation map, its fiber is the biological situations compatible with its readout, and its predictive
+  validity is whether a property established over that fiber transfers to the clinic. Scannell's finding is
+  that the fibers got wider while the field counted screens, and that no amount of throughput narrows a
+  fiber — which is why each technological wave bought less than it promised. A representation that records
+  what each reading warrants is the thing his diagnosis asks for and no current corpus supplies. That the
+  field's own productivity researcher arrives at the same object from the economics is the strongest
+  external evidence that the defect is in the representation rather than in the biology.
+- The cost figure that frames every argument about this is itself a derived quantity with undeclared
+  dependencies, and the spread is the evidence. Deloitte's analysis of the top twenty biopharma companies
+  gives an average cost per asset of US$2.23 billion for 2024, rising for twelve of the twenty companies,
+  and US$2.671 billion for 2025 — the second computed over a late-stage pipeline cohort, which its own
+  reporting notes is "not directly comparable with a per-approved-drug estimate". DiMasi's 2016 figure is
+  US$2.6 billion per approved drug including abandoned candidates and the cost of capital. A 2025 RAND
+  study of 38 drugs gives a median of US$708 million after adjusting for the cost of capital. Deloitte's
+  own forecast internal rate of return for the cohort is 5.9% for 2024 — and 3.8% with the GLP-1 assets
+  removed, with average forecast peak sales per asset falling from US$510 million to US$370 million in the
+  same counterfactual.
+- *Claude's gloss:* one quantity, four numbers differing by a factor of nearly four, each sound given its
+  cohort, its treatment of failures and its cost of capital, and all four cited interchangeably in the
+  arguments about pricing and about whether research is productive. This is `computed-quantities` in the
+  economics rather than the chemistry: a `Derived` value is only as good as the reports it carries, and
+  none of these is published with its dependencies attached in a form that lets a reader recompute it or
+  a correction propagate. The GLP-1 counterfactual is the honest version of the practice — a dependency
+  stated and varied — and it moves the headline conclusion by a third.
+**links:** binding-observation · computed-quantities · structure-elucidation · the-three-identities ·
+the-construction.
+
+## IX. The construction
+
+### solubility-prediction
+- The field has run the same experiment twice, ten years apart, with the answer known in advance to anyone
+  holding the three identities apart. The Second Solubility Challenge (Llinás and Avdeef, 2019) gave
+  competitors a tight test set of 100 drug-like compounds whose interlaboratory standard deviation is about
+  0.17 log units and a loose set of 32 whose standard deviation is about 0.62. Of 37 submissions the mean
+  RMSE was 1.14 log units on the tight set and 1.62 on the loose set. The best post hoc model, a graph
+  convolutional network, reaches 0.86; an ensemble reaches 0.865; two top models on the tight set reach
+  0.74 and 0.72 with 46% and 48% of predictions inside ±0.5 log. The organisers' own conclusion is that no
+  significant improvement in predictability was made between the second challenge and the first.
+- So the measurement reproduces to about 0.17 log units and the predictions sit near 1.1, and a decade of
+  method development did not move the gap. Every entry predicted from the molecular structure; the
+  challenge's own framing invites that, since what competitors are given is the compound.
+- *Claude's gloss:* intrinsic aqueous solubility is a property of the solid. It is the free-energy
+  difference between the crystal and the solution, which is why `polymorphs` matters commercially at all —
+  ritonavir's Form II is the same molecule with a different solubility, and it took the drug off the
+  market. `polymorph-not-determined` in `chem/identity.cub` proves from one published pair that molecular
+  identity does not determine the identity of the solid. The challenge therefore asks for a function from
+  the molecular graph to a property of an object the graph does not determine, and no amount of model
+  capacity supplies the missing argument: what is missing is not in the training data either, because the
+  corpora record the compound and not the form. That is the whole diagnosis, and it predicts exactly what
+  was observed — a stable gap, insensitive to method. The constructive reading is equally plain: the
+  prediction becomes well posed when the input is a `Solid` rather than a `Mol`, and the practical route to
+  that is the crystal-structure corpus, which is the layer `corpora-and-licences` shows is the one that
+  cannot be redistributed.
+**links:** polymorphs · predictive-validity · computed-quantities · the-three-identities ·
+corpora-and-licences · the-construction.
+
+### pose-validity
+- The docking literature was scored for years by a measure that does not ask whether the predicted object
+  is a molecule. PoseBusters (Buttenschoen, Morris and Deane, *Chem. Sci.*, 2024) added the checks —
+  stereochemistry, bonding, bond lengths, planarity, steric clashes, energy plausibility — and ran them
+  over a benchmark set built to contain no complex present in any method's training data. The result: the
+  best deep-learning method, DiffDock, reached 12% and did not compete with the two standard docking
+  programs, while EquiBind, Uni-Mol and TankBind "generate almost no physically valid poses that pass all
+  tests".
+- The gap between the two metrics is the finding. In one published comparison of top-1 results, the
+  percentage within 2 Å against the percentage within 2 Å *and* physically valid runs: Gold 58.0 / 55.0,
+  Vina 60.0 / 58.0, DeepDock 20.0 / 5.2, Uni-Mol 22.0 / 2.0, TankBind 16.0 / 3.3. A method credited with
+  22% success placed a chemically impossible object in the right region of space 20% of the time. Later
+  work closes much of the gap — AlphaFold 3 reaches 59.5% within 2 Å and valid on the post-September-2021
+  time split, pocket-guided Vina 53.1% on the same split, and template and classical pipelines higher
+  still on easier subsets — and one template method reports that 66.7% of its poses inside the 2 Å
+  threshold were nonetheless invalid.
+- *Claude's gloss:* this is the fiber argument with the carrier omitted. A pose is a claim about a
+  configuration, and the evaluation asked only how far the atoms were from the right places, which is a
+  question about coordinates and not about the object the coordinates are supposed to present. The
+  construction's position is that validity should be structural rather than audited: a pose of a molecule
+  is a presentation of that molecule, so a presentation with the wrong stereochemistry is not a pose of it
+  at all — `Stereo` and `StAuto` are what make "the wrong stereochemistry" a statement rather than a
+  judgement call, since an arrangement is equal only to its rotations. PoseBusters is the field supplying
+  the missing warrant after the fact, and `Informative` says why it worked: the checks refuse some claims,
+  and the RMSD score refused almost none. The remaining asymmetry is the interesting one — a pose can pass
+  every check and still recover none of the interactions the crystal pose shows, which the interaction-
+  recovery work measures separately, and that is a third relation again: `binding-observation`'s claim is
+  about a contact, not about a position.
+**links:** docking-observation · binding-observation · ligand-density · structure-elucidation ·
+the-construction.
+
+### crystal-structure-prediction
+- If solubility needs the solid, the question is whether the solid can be predicted from the molecule, and
+  the field has measured that too, repeatedly and in the open. The seventh blind test of crystal structure
+  prediction, organised by the CCDC and reported by Hunnisett and colleagues in two parts (*Acta Cryst.*
+  B80, 548–574, 2024), drew 28 groups, 22 of them in the structure-generation phase, over eight targets.
+- Generation and ranking fail differently, and the reports separate them for exactly that reason. On
+  generation: five of eight groups produced the known Form A of target XXVIII among their submitted
+  structures; the target given only as a simulated powder pattern was recovered by one group, which also
+  ranked it lowest in energy; and two groups correctly predicted the occurrence of disorder in a target
+  structure, which the organisers note as a first. On ranking: periodic dispersion-corrected DFT — PBE0
+  with MBD or D3, B86bPBE-XDM, rSCAN-MBD — "were found to most consistently rank the experimental forms
+  amongst the lowest in energy", and for one target five of ten groups ranked the observed form as the most
+  stable. One group ranked eight of ten target structures as the global minimum. Calculating free energies
+  at ambient temperature "offered improvement of predictions only in some cases".
+- The most interesting result is a negative one with a positive content. For target XXXII the periodic DFT
+  methods agreed, placing the experimental forms more than 4 kJ mol⁻¹ above the global minimum at both low
+  and ambient temperature, and the conclusion drawn is that a more stable polymorph is likely not yet
+  observed. The computation is asserting the existence of a solid that has never been made.
+- *Claude's gloss:* a crystal energy landscape is a family of solids over one molecule, and that is
+  precisely the type `Solid` has to be read with — many inhabitants per molecule, which
+  `polymorph-not-determined` proves is not a defect of the model but the situation. Two things follow.
+  First, the ranking is a `Derived` quantity and the blind test is an unusually honest experiment on it:
+  the dependencies are named (functional, dispersion treatment, temperature, free-energy correction), they
+  are varied, and the answer moves — "improvement only in some cases" is a dependency statement, not a
+  hedge. Second, an unobserved global minimum is a claim about an object with no `Report` behind it at all,
+  and the field states it anyway, correctly: it is a prediction, and what makes it legitimate is that the
+  warrant is the computation and is declared as such. The contrast with `computed-quantities`, where
+  databases publish formation energies whose elemental-reference dependency is not recorded, is the whole
+  difference between a prediction and a number.
+**links:** polymorphs · solubility-prediction · computed-quantities · space-group-assignment · pose-validity ·
+retraction-propagation · the-construction.
+
+### corpora-and-licences
+- What can actually be placed, and under what terms. PubChem, run by the NCBI, aggregates more than a
+  thousand sources into 119 million compounds and 295 million bioactivity data points, and is in the
+  public domain with no licence restrictions. The RCSB PDB releases its data under CC0. The
+  Crystallography Open Database dedicates its data and the database itself to the public domain under CC0,
+  asking only that the original authors of each structure be acknowledged. ChEMBL — 2.92 million
+  compounds, 24.5 million activities and 18,552 targets in release 37 — is CC BY-SA 3.0, and asks that
+  ChEMBL identifiers and the release number be preserved on reuse. The Cambridge Structural Database is
+  licensed by the CCDC, free at a community tier for academics and paid above it, with commercial tiers by
+  field; its data are not redistributable. CAS's registry is closed (`identity-authority`), and Reaxys is
+  commercial.
+- Two consequences for a knowledge graph built from these. First, the terms are not uniform, and the
+  share-alike one is load-bearing: a graph that merges ChEMBL's measurements inherits an obligation that
+  CC0 material does not carry, while PubChem — which aggregates ChEMBL among its sources — is itself
+  marked public domain, so the same measurement can arrive under two different sets of terms depending on
+  which door it came through. Second, the crystal structures of the solid, which `polymorphs` and
+  `space-group-assignment` make the most consequential layer, are precisely the layer whose largest
+  corpus cannot be redistributed; the open alternative exists and is smaller.
+- And the corpora now contain fabricated structures. A 2022 study found that about 800 papers in
+  crystallography and allied journals originated from a paper mill, and in response the CSD flagged 992
+  crystal structures; depositions are automatically scanned with the IUCr's checkCIF, and the database
+  now shares information about suspect crystals with journal editors.
+- *Claude's gloss:* a fabricated structure is not a wrong measurement, it is a record with no measurement
+  behind it, and the field discovered it had thousands of them only when someone counted the papers.
+  `Report`'s warrant is exactly what distinguishes the two cases, and `der-retracted` is what makes the
+  discovery actionable rather than alarming: with the dependency stored, the 992 flagged structures
+  enumerate everything computed from them, and without it the flag is a note on a page. The licences are
+  then the second-order problem: the terms govern redistribution of the record, and what the construction
+  needs to carry is the warrant, which is a statement about where a number came from — the provenance is
+  the thing no licence forbids stating.
+**links:** predictive-validity · identity-authority · polymorphs · space-group-assignment ·
+retraction-propagation · the-construction · workflow: data-liberation.
+
+### the-construction
+- The record above is now a construction: `chem/identity.cub`, 360 definitions checking, written over
+  `lib/core.cub`. What each node of this document asserted informally is stated there as a type or proved
+  there as a theorem, and nothing in it is a representation choice awaiting a schema.
+- `Mol` is a molecule as the structured graph of its atoms — a type of atoms, each atom's element, each
+  ordered pair's bond — with no numbering of the atoms part of the molecule. `Auto` is an automorphism:
+  a relabelling carrying its inverse as data together with its preservation of element and bond, and
+  `auto-id`, `auto-comp`, `auto-inv` are its group structure, each proved from that data and no further
+  principle. This is the object `automorphism-is-physical` named and `canonicalization` showed the field
+  computing and discarding.
+- `Orbit` is the witnessed same-orbit relation, with `orbit-refl`, `orbit-sym`, `orbit-trans`, and
+  `orbit-invariant` is the theorem: an observation of an atom invariant under the automorphisms is
+  constant on orbits. That is what makes "chemically equivalent positions" a property of the molecule
+  rather than of a drawing, and it is proved with no finiteness, no set-hood and no truncation — the
+  witness carries the whole argument.
+- `Taut` carries the tautomers as a type whose paths are the admissible proton transfers, `taut-rec` is
+  its elimination, and `taut-respects` is the consequence that matters: any function out of it already
+  respects every transfer. A tautomer-dependent quantity therefore cannot be stated of the substance at
+  all, which is `tautomers`' problem turned from a defect of a digest into a property of the carrier.
+- `digest-sound` holds of any digest whatever and is all that any hashing scheme establishes.
+  `DigestInjective` is what would license reading identity off a string. `Collision` is two molecules not
+  identical whose digests are, and `collision-not-injective` derives the refutation of injectivity from a
+  single one — so `the-digest-has-an-error-bar`'s published collision rates are not a quality metric but
+  the premise of that derivation.
+- Chirality is data beside the graph: `Hand`, `Oriented`, `or-mirror`, `Meso`, and `meso-self-mirror`,
+  which proves that for a meso compound every relabelling-invariant observation of the orientation reads
+  the same on the molecule and on its mirror image. `OrAuto` and `OrOrbit` are the oriented molecule's
+  automorphisms and orbits, and `or-orbit-refines` proves the refinement that `nmr-orbits` needs.
+- `AtomMap` is mass balance stated without counting: a relabelling of the reactant atoms onto the product
+  atoms with its inverse, preserving each atom's element. `am-after-auto` and `am-before-auto` give the
+  action of both molecules' automorphism groups on the atom maps, so `reaction-degeneracy` is not a
+  remark about multiplicity but the statement that a stored map is a representative of an orbit with the
+  orbit discarded.
+- `Scope` is a claim's coverage as a type family over molecules, and `scope-respects` proves that no scope
+  distinguishes identical molecules — `markush` and `regulatory-identity` as a theorem about what a claim
+  can possibly cover.
+- The three identities are separated by two refutations rather than by assertion. `Solid` is a molecule
+  with the space group assigned to its crystal; `PolymorphPair` is one molecule, two solids, two space
+  groups; and `polymorph-not-determined` derives from one such pair that molecular identity does not
+  determine the solid. `Substance` is what a regulator has — a scope over molecules and a provenance —
+  `ProvenanceCollision` is two substances of one provenance differing on a molecule, and
+  `provenance-not-identity` derives from one that provenance does not determine the substance. Each
+  refutation needs a single inhabitant of the pair type, and the field has published those inhabitants:
+  ritonavir Form II, and the Commission's jointly registered anode copper from different sources.
+- The observation layer is written as well, and it is the piece that makes this a knowledge graph rather
+  than a chemical database. `Report` holds the molecule observed, the proposition the number rests on —
+  as a type, with an inhabitant of it — and the value; `report-retracted` proves that refuting the warrant
+  refutes the report, so a report whose warrant has fallen is an absurdity rather than a record with a
+  flag on it. `Derived` holds the reports a quantity was computed from, indexed by whatever indexes them,
+  together with the function that computes it, and `der-retracted` proves that refuting any one of those
+  warrants refutes the quantity. Nothing is recomputed to know this and nothing is marked stale: the
+  dependency carries it, which is exactly what the computed-property databases cannot state and why a
+  correction there is a new release rather than a retraction.
+- The worked case is written and both of its statements are proved, which is the demonstration's kernel
+  rather than its table. A central atom carries two hydrogens and one other substituent; the elements,
+  the bonds (a function of which atom is the centre), the relabelling that exchanges the two hydrogens,
+  and its preservation of element and bond are all written out. `at-h-one-orbit` proves the two hydrogens
+  lie in one orbit of the bond graph. With an orientation that differs at the two of them — what a second
+  centre elsewhere in a real molecule imposes — `at-h-not-one-or-orbit` proves they lie in no orbit of the
+  oriented molecule. One molecule, two relations, two theorems: the graph-only count predicts one
+  resonance here and the oriented count predicts two. What remains for the table is scale and published
+  spectra, not the argument.
+- The measurement's own identity is written too, because the affinity record's largest defect turned out
+  to be that it has none. `Measured` carries the event that produced a report beside the report;
+  `Distinct` is the hypothesis every statistic over an aggregate needs — that the family is injective on
+  events; `DoubleCount` is two places in a family holding one event; and `double-count-not-distinct`
+  refutes the hypothesis from a single one. That is `affinity-uncertainty`'s 90% as a type. The mixing of
+  pKi with pIC₅₀ needs no new definition: `Derived I V` aggregates reports of one value type, so mixing
+  two kinds of measurement requires first erasing the distinction between them, which is what the
+  databases do by storing both as a number.
+- The pharmacology layer is written on top of it. `BindClaim` holds an oriented molecule, a target, a
+  measurement with its event and warrant, and the proof that the measurement was of this molecule;
+  `bind-transport` carries a claim along identity of oriented molecules, using the path. The claim is
+  about the oriented molecule because the two enantiomers of a drug are two claims. The target is an
+  opaque identifier, deliberately: a protein's identity is not a molecular graph, and `biologics` says
+  why none will do. `Interconv`, `ic-within` and the thalidomide instance (`td-inv`, `td-one-in-a-day`,
+  `td-two-in-ten-minutes`) make the identification of forms depend on the observation window, as
+  computed data. Together they say which inferences the pharmacology record is entitled to: transport
+  along a path, yes; a digest collision, no (`collision-not-injective`); a relation that does not
+  compose, no (`non-transitive-not-identity`). The record makes all three.
+- Two statements about control and evidence close it. `BScope` is a control instrument in the form it
+  takes — a yes or no on each molecule, which is what a scheduled structural class and a Markush claim
+  both are; `AffinitySettles` is what would have to hold for such an instrument to control anything, that
+  the affinity settles the membership; `Evasion` is two claims of one affinity with one molecule inside
+  the class and one outside; and `evasion-refutes` derives the refutation from a single one. That is
+  `substantially-similar` and `scheduling-by-structure` as a theorem. And on evidence: `vacuous-report`
+  shows a report can always be made, for any molecule and any value, by taking the warrant to be the
+  proposition that holds trivially — so the existence of a record is no evidence, which is exactly what a
+  fabricated structure is. `Informative` says what makes a family of warrants worth anything, that there
+  is a claim it refuses, and `unit-warrant-not-informative` proves the trivial warrant refuses nothing.
+- Two closures and one named next step. `at-map-id` and `at-map-swap` are both atom maps of the worked
+  molecule to itself and `at-maps-differ` proves they are different maps, so `reaction-degeneracy` is
+  concrete: a record storing one atom map is storing a choice, and here the orbit has two elements and the
+  record has room for one. `ic-respects` joins the interconversion data to the tautomer carrier: over the
+  forms an observation window identifies, every property of the carrier agrees, so a quantity that differs
+  between two fast-interconverting forms cannot be stated of the substance under that observation at all —
+  not by convention but because no such function exists. And the enantiotopic case is
+  derived, which was the sharpest test this document set itself. `Cyc` is the arrangement at a tetrahedral
+  atom — points are triples of neighbours, paths are the three-cycles, so two arrangements are equal
+  exactly when they are rotations of one another — and `cyc-sign` is a sign on the arrangements
+  themselves, defined on the points and carried along the rotation paths by `sgn-rot`, which is what makes
+  it a function of a configuration rather than of a drawing. On that: `cyc-swap-differs` proves that
+  exchanging the two hydrogens of a methylene group next to a stereocentre is not a rotation, so it is not
+  an automorphism of the molecule with its configuration, and the two positions are distinct —
+  diastereotopicity derived from the configuration instead of assigned to the atoms. `cyc-mirror-swap-same`
+  proves that the exchange composed with the reflection is a rotation, by the path the type carries, so a
+  medium admitting reflections identifies the two positions again: they are enantiotopic. With
+  `at-h-one-orbit`, that is three groups and three verdicts on one molecule — the bond graph identifies
+  the pair, the configuration separates it, reflection identifies it again — and the medium, not the
+  molecule, decides which applies. The textbook's three cases are now three theorems. And the
+  arrangements are joined to the molecule: `cyc-map` relabels an arrangement, carrying its rotation paths
+  with it; `Stereo` is a molecule with the arrangement at each atom, which is the bond graph and the
+  stereochemistry as data of the same kind rather than descriptors bolted onto a string; `StAuto` is an
+  automorphism that carries each arrangement to the arrangement at the atom it is sent to, with equality
+  taken in `Cyc`, so a relabelling that reverses an arrangement is not one of them; and
+  `st-orbit-refines` proves that its orbits refine the graph's. The three verdicts are properties of one
+  object.
+- One note on the machine, recorded because the next agent will hit it: the checker refuses a declaration
+  with three type-valued parameters returning `Type 1`, so `Derived` computes into its reports' own value
+  type rather than a third. Two such parameters are accepted, and a parameter of a data type is accepted
+  in any number; nothing in the argument needs the generality the refusal costs.
+- `NonTransitive` and `non-transitive-not-identity` carry the biologics case: a reflexive relation with
+  one instance of its failure to compose cannot be read as identity, however many pairwise comparisons
+  hold.
+- What is not yet written, and why: the unchosen enumeration (‖X ≃ Fin n‖, the finiteness of the atom set)
+  and the truncation of `Orbit` into a proposition both live in the library, and the library does not
+  check. Every definition of `lib/derive.cub` is written without a signature, which the checker allows
+  only in the fixed bootstrap files named in `src/syntax.c`, a list whose own comment says it is not
+  extended. So nothing can be written over the library at all until those definitions are stated at
+  signatures, and that is core work, not a repair of one file: the types in question are the checker's own
+  code representation. It is the workflow node `the-library-checks`.
+- *Claude's gloss:* the division between this section and the eight above it is the division between what
+  is proved and what is measured, and it is the only division in the document. Every figure above is a
+  measurement of the field's own practice, taken from the field's own publications; everything here is a
+  consequence of the definitions, which anyone can check by running the checker. The argument is that the
+  second explains the first.
+**links:** molecular-graph · automorphism-is-physical · tautomers · the-digest-has-an-error-bar ·
+chirality · mass-balance · reaction-degeneracy · markush · nmr-orbits · workflow:
+chemistry-knowledge-graph · workflow: the-library-checks.
+
+---
+
+## Where this stands in the work
+
+The substance nodes of `docs/preventable-death-at-scale.md` each carry a receptor, a mechanism and a
+measured affinity, which are the relations above: μ-opioid agonism, transporter reversal, 5-HT2A agonism.
+That document's finding that gabapentin's share of overdose deaths is a floor because it is not on the
+standard postmortem panel is a statement about what the toxicology observation warrants. Its `links:` lines
+are typed edges written in prose because the typed object did not exist, and its marking of Claude's gloss
+against a sourced claim is a provenance distinction that belongs in a type. So this construction is the
+substrate that record already stands on.
+
+## Open threads
+
+- The three identity relations recorded per pair with evidence, and the back-links (reverse edges) once
+  the tooling computes them. The structured graph, its automorphism data, the orientation component and
+  the tautomer paths are written (`the-construction`); the finiteness and the truncation wait on
+  `the-library-checks`.
+- The placing itself, now that the terms and the fraud are recorded (`corpora-and-licences`): the CSD and
+  the Crystallography Open Database for the solid, ChEMBL and PubChem for measurement, the PDB for
+  complexes, the Materials Project and OQMD for computed quantities — each item placed by the relation it
+  stands in, with its warrant, and nothing inherited from their schemas.
+- Reaction path degeneracy worked through on an example, with the automorphism groups of reactants and
+  transition state written out, and the orbit of atom maps for that example enumerated.
+- A named molecule with a published spectrum, carried through to counts: the abstract case is proved
+  (`the-construction`), so what is open is a real compound, its orbits computed under both groups, and
+  the counts set against the recorded resonances — then the same at scale.
+- The spectrum demonstration at scale, now that the carrier is complete: `Stereo` is a molecule with its
+  configurations and `StOrbit` its orbit relation (`the-construction`), so what is open is computing those
+  orbits for named compounds and setting the counts against published spectra. That needs the orbit
+  computation, which needs the finiteness that waits on `the-library-checks`.
+- Nanomaterials and mixtures beyond what `mixtures-and-nanoforms` records: a nanoform identified by a
+  tuple of measured quantities, written as a construction in which each quantity carries its warrant.
+- Reaxys and the other commercial reaction corpora: the licence, and what their curation records (the
+  scale and balanced fraction are in `reaction-balance`).
+- Biologics and proteins, where the TSCA enzyme nomenclature treats catalytic activity as the identity and
+  sequence may not settle sameness either.
+- The one pass-2 figure still to confirm against the paper itself rather than a secondary report: the 2026
+  MC3D comparison. The cost-per-asset figures are confirmed and extended in `predictive-validity`, and the
+  Marsh counts in `space-group-assignment`, where the 123 coordinate revisions and the unchanged error
+  ratio came out of the confirmation.
+
+## Sources
+
+### Pass 1
+- Symmetry: *Symmetry number* (Wikipedia, order of the symmetry group, partition-function overcounting,
+  ethane's methyl rotation); Vandewiele, Van de Vijver, Van Geem, Reyniers & Marin, "Symmetry calculation
+  for molecules and transition states", *J. Comput. Chem.* 36(3):181–92 (30 January 2015),
+  doi:10.1002/jcc.23788; automorphism-group molecular descriptors (*Croatica Chemica Acta*, hrcak.srce.hr
+  391546) on constitutionally equivalent atoms and bonds.
+- Tautomerism: Nicklaus, "Tautomers in InChI", NIH InChI Workshop (22–24 March 2021), IUPAC project
+  #2012-023-2-800; "Toward a Comprehensive Treatment of Tautomerism in Chemoinformatics Including in InChI
+  V2" (InChI Trust; PMC8459712; ChemRxiv 60c74624567dfe3014ec4582); the NCI/CADD tautomer database
+  (PMC8456363) and the FICTS/FICuS identifiers; PubChem standardization rejection rates (*J. Cheminform.*
+  10:38, 2018); Murray-Rust, "Identifiers: why we need them and when CAS and InChI don't mix"; InChI Trust
+  working groups (Isotopologues, chaired by Moseley; Organometallics/Inorganics; Extended Stereochemistry).
+- Structure revision: Nicolaou & Snyder, *Angew. Chem. Int. Ed.* 44(7):1012–44 (2005); Suyama, Gerwick &
+  McPhail, *Bioorg. Med. Chem.* 19(22):6675–6701 (2011), PMC3205310; *Nat. Prod. Rep.* 2022, d2np00023g
+  (>200 marine misassignments, July 2010–August 2021) and the CAS release on it; *Front. Nat. Prod.* (2023)
+  on hexacyclinol; *J. Braz. Chem. Soc.* on absolute-configuration reassignment and the 6.2 chiral centers
+  figure.
+- Ritonavir: Bauer, Spanton, Henry, Quick, Dziki, Porter & Morris, *Organic Process Research & Development*
+  4(5):413–17 (2000); Abbott press releases (27 July 1998; 30 June 1999; 1 December 1999) as cited in US
+  7,205,413; Morissette et al., *PNAS* (2003); CCDC, "Polymorphism: A Major Risk That Pharma Companies Must
+  Mitigate" (Form III, 24 years later; >US$250 million); Sacchi et al., *PNAS* (2024) on mechanochemical
+  recovery of Form I; Abbott's own 2000 IAPAC presentation on the dissolution failure and bioequivalence.
+
+### Pass 2
+- Computed quantities: Hegde, Borg, et al., "Quantifying uncertainty in high-throughput density functional
+  theory: a comparison of AFLOW, Materials Project, and OQMD", *Phys. Rev. Materials* 7:053805 (2023),
+  arXiv:2007.01988v2; Kirklin, Saal, Meredig, Thompson, Doak, Aykol, Rühl & Wolverton, "The Open Quantum
+  Materials Database (OQMD): assessing the accuracy of DFT formation energies", *npj Comput. Mater.*
+  1:15010 (2015); "Correcting DFT formation energies towards experimental accuracy using foundational MLIPs
+  and latent-feature delta-learning", arXiv:2607.18092 (2026), for the MP/OQMD/MC3D comparison and the
+  oxygen-reference finding.
+- Space groups: Marsh & Schomaker, "Some Incorrect Space Groups in Volume 16 of *Inorganic Chemistry*"
+  (1979); Marsh, survey of P1 entries in the CSD (1999) and the follow-up letter, *Acta Cryst.* B (2005);
+  Marsh & Clemente, "A survey of crystal structures published in the *Journal of the American Chemical
+  Society*" (Caltech record 0f32z-a9j59); Marsh & Spek, *Acta Cryst.* B57:800–805 (2001); Spek, "Single-crystal
+  structure validation with the program PLATON", *J. Appl. Cryst.* 36:7–13 (2003) and *Acta Cryst.*
+  E76:1–11 (2020); Spek, "Forty years of Marshing: is the missed symmetry problem now solved?" (IUCr, 2018);
+  Raymond & Girolami, "Pathological crystal structures", *Acta Cryst.* C79(11) (2023); Fanwick, "Mythical
+  compounds", *Acta Cryst.* C79:443–444 (2023).
+- Assay interference: Baell & Holloway, *J. Med. Chem.* 53(7):2719–2740 (2010), doi:10.1021/jm901137j; WEHI
+  release (24 March 2010) for the 10% estimate; Jasial, Hu & Bajorath, "How frequently are pan-assay
+  interference compounds active?" (CS3 2018).
+- Economics: Scannell, Blanckley, Boldon & Warrington, "Diagnosing the decline in pharmaceutical R&D
+  efficiency", *Nat. Rev. Drug Discov.* 11:191–200 (2012); Scannell & Singh, "The predictive validity
+  crisis: Pharma's productivity paradox", *Drug Target Review* (14 October 2025); Deloitte's 2024 analysis
+  as reported, and Sertkaya et al. (2024) on variation by therapeutic area.
+
+### Pass 3
+- Canonicalization: Morgan, *J. Chem. Doc.* 5:107 (1965); Weininger, Weininger & Weininger, "SMILES. 2.
+  Algorithm for generation of unique SMILES notation", *J. Chem. Inf. Comput. Sci.* 29:97 (1989); O'Boyle,
+  "Towards a Universal SMILES representation", *J. Cheminform.* 4:22 (2012) and his "Universal SMILES"
+  talk; Krotko, *J. Cheminform.* 12:48 (2020), doi:10.1186/s13321-020-00453-4, for Ivanciuc's conclusion on
+  explicit automorphism determination; Grossman et al. (2005), "Assigning Unique Keys to Chemical Compounds
+  for Data Integration"; Kelley, "Graph Canonicalization", *Dr. Dobb's Journal* (May 2003).
+- Reaction corpora: Lowe, "Extraction of Chemical Structures and Reactions from the Literature" (PhD
+  thesis, Cambridge, 2012) and the figshare release (2017); Schwaller et al., "Found in Translation"
+  (arXiv:1711.04810) for the 1,808,938 count and the deduplication; "Unassisted Noise Reduction of Chemical
+  Reaction Data Sets" (arXiv:2102.01399) and *Nat. Mach. Intell.* 3 (2021); arXiv:2605.00222 for the
+  incomplete-and-unbalanced finding; Chen, An, Babazade & Jung, *Nat. Commun.* 15 (2024),
+  doi:10.1038/s41467-024-46364-y; Li et al., *J. Cheminform.* 18 (2024), s13321-024-00869-2, on
+  template-based curation; the ORDerly issue thread on Indigo mappings.
+- Ligand density: Weichenberger, Pozharski & Rupp, *Acta Cryst.* F69:195–200 (2013) and "Twilight reloaded:
+  the peptide experience", *Acta Cryst.* D (2017); Pozharski, Weichenberger & Rupp (2013) for the
+  epistemology; Deller & Rupp, "Models of protein–ligand crystal structures: trust, but verify" (2015),
+  PMC4531100, for the 382,588-ligand table; Smart, Horský, Gore, Svobodová Vařeková, Bendová, Kleywegt &
+  Velankar, "Validation of ligands in macromolecular structures determined by X-ray crystallography"
+  (2018); Kleywegt & Harris, ValLigURL (2007).
+
+### Pass 4
+- Isomorphism cost: Babai, "Graph Isomorphism in Quasipolynomial Time", arXiv:1512.03547v2 (19 January
+  2016) and *STOC* 2016:684–697; the retraction and correction of January 2017, with Helfgott's
+  confirmation (Nautilus, 6 and 18 January 2017); Grohe & Schweitzer, "The Graph Isomorphism Problem",
+  *CACM* 63(11) (November 2020), for color refinement's origin in Morgan and the preference for canonical
+  forms; McKay & Piperno, "Engineering an efficient canonical labeling tool for large and sparse graphs",
+  *ALENEX* (2007); Babai, Erdős & Selkow, *SIAM J. Comput.* 9(3):628–635 (1980); Neuen & Schweitzer,
+  "Benchmark Graphs for Practical Graph Isomorphism", arXiv:1705.03686.
+- Organometallics: IUPAC Project 2009-040-2-800 (commenced November 2010) and the "Organometallic InChI"
+  project update (August 2019); Heller's 2019 request for proposal for an organometallic and coordination
+  layer (CCL archive, 11 March 2019); Herres-Pawlis and co-authors, *J. Cheminform.* (2022),
+  s13321-022-00640-5, on bond orders above three, delocalization and ferrocene; "Making the InChI FAIR and
+  sustainable by moving to open-source on GitHub", ChemRxiv (2024), for the disconnected-metal-bond
+  statement; the NFDI4Chem report of the InChI Workshop on Inorganic Stereochemistry (RWTH Aachen, 10–11
+  May 2023) and Yerin's requirements; InChI Trust working-group pages (Organometallics, chaired by
+  Batchelor; Inorganic, chaired by Hartshorn; Nano; Mixtures; Large Molecules).
+- Docking: Wang, Sun, Yao, Li, Xu, Li, Tian & Hou, *Phys. Chem. Chem. Phys.* (2016), c6cp01555g; Spitzer &
+  Jain, *J. Comput. Aided Mol. Des.* (2009), s10822-009-9266-3, and the PINC benchmark (PMC4464052); the
+  2015 review of benchmark success rates (s10822-015-9846-3); PMC5468358 on scoring-function failure; the
+  2025 cross-docking benchmark (Research Square rs-9441998) and the 2025 deep-learning docking evaluation
+  (*Chem. Sci.*, d5sc05395a).
+
+### Pass 5
+- InChIKey: Pletnev, Erin, McNaught, Blinov, Tchekhovskoi & Heller, "InChIKey collision resistance: an
+  experimental testing", *J. Cheminform.* 4:39 (2012), PMC3558395; "The First InChIKey Collision"
+  (depth-first.com, 24 April 2009); the InChI release notes quoted therein; InChI version and licence
+  history (LGPL to 1.04, IUPAC-InChI Trust for 1.05–1.06, MIT from 1.07; 1.07.5, 17 February 2026).
+- Identity as authority: CAS press releases on the 50 millionth (18 August 2009) and 100 millionth (30 June
+  2015) substances, via the Princeton New Sci/Tech blog; CAS Common Chemistry (*J. Chem. Inf. Model.* 2022,
+  ci2c00268) and the March 2021 release of nearly 500,000 substances; Murray-Rust, "ACS blocks use of
+  industry-standard chemical numbers in Wikipedia" and "Identifiers: why we need them and when CAS and
+  InChI don't mix"; Willighagen, "The Chemical Object Identifier; or, the freedom to identify chemicals"
+  (9 March 2008), reporting Antony Williams on the licence.
+
+### Pass 6
+- UVCB: ECHA, "Guidance for identification and naming of substances under REACH and CLP", version 1.4 (June
+  2016); ECHA, background document and presentations for the Workshop on Substance Identification and
+  Substance Sameness, Helsinki, 6–7 October 2014 (including Seubert, Federal Office for Chemicals, and the
+  Cefic contribution), for the administrative-versus-hazard sameness finding; REACH Regulation Recital 45;
+  "Study on Substance Identity (SID) in REACH. Analysis of SID and substance sameness of complex
+  substances", final report (European Commission, May 2016), covering 223 complex substances; ECHA's RAAF
+  considerations on multi-constituent substances and UVCBs; CNRS REACH guidance on substance
+  identification.
+- Regulatory identity: *inform* 26(7):444 (July/August 2015), "The impact of Toxic Substances Control Act
+  nomenclature on the commercialization of biobased chemicals"; Keller and Heckman, "TSCA Nomenclature:
+  Friend and Foe" (12 April 2023), for the Inventory-listings-are-not-categories point and CAS's Inventory
+  Expert Service; EPA, TSCA Inventory policy and guidance, and the 1985 Appendix B generic-names guidance;
+  EPA, "Treatment of Enzymes on the TSCA Chemical Inventory" (2005); *Federal Register* 60(60):16298 (29
+  March 1995) on CA Index Name requirements in premanufacture notices; NRDC on the Senate TSCA
+  "nomenclature" section and the chlorinated-paraffin complaints against Dover and INEOS.
+
+### Pass 7
+- Reaction balance: *CompleteRXN: Toward Completing Open Chemical Reaction Databases*, arXiv:2605.00222,
+  for the ≈4.8% atom-balanced figure and the under-10% figure across subsets; "Completing and Balancing
+  Database Excerpted Chemical Reactions with a Hybrid Mechanistic-Machine Learning Approach", *ACS Omega*
+  9(16):18385 (2024), for ChemBalancer's 3.3% and 7.2% originally balanced, the 17.6% and 44.1% completed,
+  the 2.1% and 13.4% with insufficient left-hand-side species, and the 171,637 and 7,043,030 totals;
+  "RXNMapper-v2: updated validation and evaluation on expanded chemical space" (2025) for USPTO-full's
+  2,847,312 reactions, the erroneous mappings in USPTO-50K as a validation set, and the 4,533-reaction
+  Pistachio curation.
+- NMR orbits: "Determination of Topological Equivalence Classes of Atoms and Bonds in C₂₀–C₆₀ Fullerenes
+  Using a New Prolog Coding Program", *J. Chem. Inf. Comput. Sci.* (1995); "Topological Entropy
+  Characterization, NMR and ESR Spectral Patterns of Coronene-Based Transition Metal Organic Frameworks",
+  *ACS Omega* (2023), for the automorphism partitioning of the nuclei set and the ¹³C signal counts and
+  intensity ratios read off it; LibreTexts "14.4: Proton Equivalence" and the standard treatments, for the
+  homotopic / enantiotopic / diastereotopic separation; Apodaca, "Molecular Graph Canonicalization" (2021),
+  for the automorphism group as the orbit partition and the numbering multiplicity it implies.
+- Registrant practice: "Study on Substance Identity (SID) in REACH. Analysis of SID and substance sameness
+  of complex substances", final report (European Commission, May 2016), read for the dossier counts (2,213
+  screened against the 2,202 of its own conclusions, 223 substances of 2,414), the 609 of 2,171 without a
+  CAS number and 47 without any numerical identifier, the six-level compositional consistency scoring, the
+  analytical-method findings, the speciation gap, and the sameness conclusion; the European Commission's
+  REACH studies page for "over 2 400 substances (nearly a quarter of substances registered by 2013)"; and
+  "The Next Frontier of Environmental Unknowns: UVCBs", PMC9228065, for the global count of over 70,000.
+
+### Pass 8
+- Mixtures and nanoforms: InChI Trust, "InChI – extending the standard", for the MInChI and NInChI project
+  descriptions; IUPAC/MInChI repository (project 2015-025-4-800) for the uniform-properties scope and the
+  initial-phase restriction to components with a well defined standard InChI; InChI Trust, *IODIDE*
+  presentation (16 July 2024) for the status table — RInChI released, MInChI prototype, NInChI with a
+  question mark — and for the official approval of the inorganics and organometallics approach with its
+  Q4 2024 prototype date; NanoCommons demonstration case on NInChI development; "InChI isotopologue and
+  isotopomer specifications", PMC11091993 (2024), for representation at varying levels of ambiguity in
+  isotope location; IUPAC projects 2009-040-2-800 and 2012-023-2-800 for the dates.
+- Biologics: FDA guidance definition of a biosimilar as reported in "Biosimilars: Key regulatory
+  considerations and similarity assessment tools", *Biotechnol. Bioeng.* (doi:10.1002/bit.26438);
+  GaBI Online, "Biosimilar regulatory issues" (8 July 2011), for the EMA principle of similarity and not
+  sameness and for "the process is the product"; Quanticate, "What are Biosimilars?", for the same slogan
+  and the micro-heterogeneity argument; DrugPatentWatch, "Biosimilar Development" guide, for "identity is
+  not chemically achievable", glycosylation not being encoded in DNA, the reference product not being a
+  single glycoform, and the characterisation across lots from different markets; *The Pharmaceutical
+  Journal*, "Interchangeability of biosimilars: a global perspective for pharmacists", for the
+  interchangeability framing and glycosylation heterogeneity.
+- Cost-effectiveness as a derived quantity: Chahal et al., "Cost-Effectiveness and Budget Impact of
+  Hepatitis C Virus Treatment With Sofosbuvir and Ledipasvir in the United States", *Annals of Internal
+  Medicine* (doi:10.7326/M14-1336), for the 0.56 QALY gain, the $55,400 ratio, the $9,700–$284,300 range
+  and the 83%/81% figures at a $100,000 threshold; the US sofosbuvir analyses using a $50,000 threshold for
+  the reversal; Chen et al., "Will Sofosbuvir/Ledipasvir (Harvoni) Be Cost-Effective and Affordable for
+  Chinese Patients", *PLOS ONE* 11:e0155934 (2016), and the 2021 pan-genotypic Chinese analysis
+  (doi:10.3389/fpubh.2021.779215), for the threshold analysis that computes a price and the 40% reduction.
+- Valine's diastereotopic methyls: Neri, Otting and Wüthrich, "¹H and ¹³C NMR chemical shifts of the
+  diastereotopic methyl groups of valyl and leucyl residues in peptides and proteins", *Tetrahedron*
+  46:3287–3296 (1990), with BMRB entry 486 (28 ¹³C and 84 ¹H shifts); Neri et al., "Stereospecific nuclear
+  magnetic resonance assignments of the methyl groups of valine and leucine in the DNA-binding domain of
+  the 434 repressor by biosynthetically directed fractional ¹³C labeling"; Williamson et al., "The
+  application of ¹H NMR chemical shift calculations to diastereotopic groups in proteins", *FEBS Lett.*
+  302:185–188 (1992), for the 80% figure; the free-valine γ-methyl doublets at about 0.99 and 1.04 ppm as
+  assigned in the peritoneal-dialysis-effluent metabolite study (arXiv:1404.0146); and the pro-S / pro-R
+  methyl labelling reagents of US 9,708,228 and US 10,053,396.
+- Affinity uncertainty: Kramer, Kalliokoski, Gedeck and Vulpetti, "The Experimental Uncertainty of
+  Heterogeneous Public Ki Data", *J. Med. Chem.* 55(11):5165–5173 (2012), doi:10.1021/jm300131x, for the
+  0.44 mean error, 0.54 standard deviation, 0.34 median, the 0.81 ceiling on achievable R², and the
+  filtering of unit-transcription errors, undifferentiated stereoisomers and repeated citations (90% of
+  pairs); Kalliokoski, Kramer, Vulpetti and Gedeck, "Comparability of Mixed IC50 Data – A Statistical
+  Analysis", *PLOS ONE* 8:e61007 (2013), for σ_pIC50 = 0.87 against σ_pKi = 0.69, the 0.35-log-unit offset,
+  the 16,844 pairs and the 7.7-log-unit extreme; "A comprehensive company database analysis of biological
+  assay variability", *Drug Discovery Today* (2016), for the in-house 0.2-log-unit standard deviation;
+  "Combining IC50 or Ki Values from Different Sources Is a Source of Significant Noise", *J. Chem. Inf.
+  Model.* (2024), doi:10.1021/acs.jcim.4c00049.
+- Interconversion and timescale: "Understanding the Thalidomide Chirality in Biological Processes by the
+  Self-disproportionation of Enantiomers", *Scientific Reports* 8 (2018), doi:10.1038/s41598-018-35457-6,
+  for the thalidomide paradox, the in vivo interconversion and the self-disproportionation hypothesis; the
+  racemization half-lives at pH 7.4 and 37 °C in buffer and in human serum as tabulated in US 10,725,057
+  and US 10,047,068 (lenalidomide resolution and analysis, with thalidomide as the comparator); the 1967
+  rabbit study finding both enantiomers teratogenic, and the 1956 / 1960 / 1961 / 1970 timeline, as
+  recorded in the chirality literature; the figure of roughly 10,000 children affected.
+- "Substantially similar": 21 U.S.C. § 802(32); *United States v. Forbes*, 806 F. Supp. 232 (D. Colo.
+  1992), for the two DEA chemists' opposing testimony on AET and the as-applied vagueness holding;
+  *United States v. Washam*, 312 F.3d 926 (8th Cir. 2002), for the rule that all experts need not agree
+  and for the 1,4-butanediol / GHB functional-group testimony; the Minnesota and Western Missouri
+  district-court opinions rejecting the vagueness argument; the Department of Justice's own account of
+  Analogue Act prosecutions; and "Voiding the Federal Analogue Act" (SSRN 3736304) for the absence of any
+  standardised definition.
+- Structure revision: Nicolaou and Snyder, "Chasing Molecules That Were Never There: Misassigned Natural
+  Products and the Role of Chemical Synthesis in Modern Structure Elucidation", *Angew. Chem. Int. Ed.*
+  44:1012–1044 (2005), with its corrigendum at 44:2050; Maier, "Structural revisions of natural products
+  by total synthesis", *Nat. Prod. Rep.* 26:1105–1124 (2009); "Recent Synthetic Studies Leading to
+  Structural Revisions of Marine Natural Products", *Mar. Drugs* 7:314–330 (2009); Elyashberg, Williams
+  and Blinov, "Structural revisions of natural products by Computer-Assisted Structure Elucidation",
+  *Nat. Prod. Rep.* (2010), for the count of around a thousand articles on revisions attributed to
+  Nicolaou and Snyder's survey; and "Are we still chasing molecules that were never there? The role of
+  quantum chemical simulations of NMR parameters in structural reassignment of natural products",
+  *Frontiers in Natural Products* (2023).
+- Space-group assignment, confirmed against the papers: Marsh, "P1 or P1̄? Or something else?", *Acta
+  Cryst.* B55:931–936 (1999), for the nearly 1,300 P1 entries in the October 1998 CSD, the 279 incorrect
+  designations (about 20%), the 157 attributable to the missing overline, and the 123 where the
+  coordinates themselves had to be revised; Marsh, "Space group P1: an update", *Acta Cryst.* B61:359
+  (2005), for the 115 further structures and for the 231 entries with 32 corrections in the 2004 releases,
+  the same ratio as before; Marsh, "Space groups P1 and Cc: how are they doing?", *Acta Cryst.*
+  B65:782–783 (2009); "Search for missing symmetry in the Inorganic Crystal Structure Database (ICSD)"
+  (2024), for the 22 further revisions; and Spek, "Forty Years of Marshing: Is the Missed Symmetry Problem
+  now Solved?", for misassignment producing geometry artefacts and for the unarchived primary reflection
+  data that makes correction reports from coordinates alone unreliable.
+- The cost figures: Deloitte, "Measuring the return from pharmaceutical innovation 2025" ("Be brave, be
+  bold", 15th edition), for the US$2.23 billion average cost per asset in 2024, the 5.9% forecast IRR and
+  the GLP-1 counterfactual (3.8% IRR, peak sales per asset US$510 million against US$370 million), as
+  reported by Fierce Biotech and Drug Discovery Trends; Deloitte's 16th edition for the US$2.671 billion
+  late-stage figure for 2025 and the note that it is not comparable with a per-approved-drug estimate;
+  DiMasi, Grabowski and Hansen (2016) for US$2.6 billion per approved drug; and the 2025 RAND study of 38
+  drugs for the median of US$708 million; Scannell et al., "Diagnosing the decline in pharmaceutical R&D
+  efficiency", *Nat. Rev. Drug Discov.* 11:191–200 (2012), for Eroom's Law.
+- Corpora and licences: the PubChem compound and bioactivity counts and public-domain status, and the
+  ChEMBL 37 counts with its CC BY-SA 3.0 terms, as tabulated in the 2026 overview of chemical information
+  databases and in ChEMBL's own licensing post; the RCSB PDB's CC0 release terms; the Crystallography Open
+  Database's CC0 dedication and its CrystalEye lineage; the CCDC's "How CSD Licences Work" for the
+  community and enterprise tiers; and "Crystallography Databases Hunt for Fraudulent Structures"
+  (PMC10604003) for the roughly 800 paper-mill papers found in 2022, the 992 structures the CSD flagged,
+  and the checkCIF scanning of depositions.
+- Solubility prediction: Llinás and Avdeef, "Solubility Challenge revisited after ten years, with
+  multi-lab shake-flask data, using tight (SD ~0.17 log) and loose (SD ~0.62 log) test sets", *J. Chem.
+  Inf. Model.* 59(6):3036–3040 (2019), for the two test sets and their interlaboratory standard deviations;
+  Bergström and colleagues' and Llinás and colleagues' reports of the challenge outcome, as summarised in
+  "Blinded Predictions and Post Hoc Analysis of the Second Solubility Challenge Data", *J. Chem. Inf.
+  Model.* (2023, doi:10.1021/acs.jcim.2c01189), for the 37 submissions with mean RMSE 1.14 on the tight set
+  and 1.62 on the loose set and for the best model at 0.86 log units; "A machine learning approach for the
+  prediction of aqueous solubility of pharmaceuticals" (2024) for the ensemble at 0.865; "Three machine
+  learning models for the 2019 Solubility Challenge", *ADMET & DMPK* (2020, doi:10.5599/admet.835), for the
+  consensus classifiers and the 0.17-log interlaboratory figure; "Improved estimation of intrinsic
+  solubility of drug-like molecules through multi-task graph transformer", *J. Cheminform.* (2025), for the
+  statement that no significant improvement was made between the second challenge and the first.
+- Crystal structure prediction: Hunnisett et al., "The seventh blind test of crystal structure prediction:
+  structure generation methods" and "… structure ranking methods", *Acta Cryst.* B80:548–574 (2024),
+  doi:10.1107/S2052520624008679, for the 28 participating groups and 22 in the generation phase, the five
+  of eight groups generating Form A of XXVIII, the powder-pattern target recovered and ranked lowest by one
+  group, the first correct predictions of disorder, the periodic dispersion-corrected DFT functionals that
+  most consistently rank experimental forms among the lowest in energy, the five of ten groups ranking the
+  observed form most stable, the group ranking eight of ten targets as the global minimum, the
+  above-4 kJ mol⁻¹ consensus for XXXII with the inference that a more stable polymorph is likely not yet
+  observed, and the free-energy calculations improving predictions only in some cases.
+- Metabolite annotation: da Silva, Dorrestein and Quinn, "Illuminating the dark matter in metabolomics",
+  *PNAS* 112:12549–12550 (2015), for the 1.8% of spectra annotated and for the 60 million PubChem molecules
+  against 220,000 reference MS/MS spectra covering about 20,000 molecules; "Unveiling the dark matter of the
+  metabolome: a narrative review of bioinformatics tools for LC-HRMS-based compound annotation", *Talanta*
+  (2025), for the same 1.8% still reported as the average; "Dark matter in host-microbiome metabolomics:
+  tackling the unknowns", *Anal. Chim. Acta* (2018), for the feature counts per sample; Scheubert et al.,
+  "Significance estimation for large scale metabolomics annotations by spectral matching", *Nat. Commun.*
+  (2017), for the uncontrolled error rates before FDR-controlled matching and the 70-dataset validation;
+  the MSI identification levels and the Schymanski confidence scale; and the ASMS 2026 industry summary for
+  the 10–20% of features at Level 1 or 2.
+- Pose validity: Buttenschoen, Morris and Deane, "PoseBusters: AI-based docking methods fail to generate
+  physically valid poses or generalise to novel sequences", *Chem. Sci.* (2024), arXiv:2308.05777, for the
+  validity checks, the training-data-free benchmark set, DiffDock's 12% and the near-zero validity of
+  EquiBind, Uni-Mol and TankBind; the Re-Dock paper's table (arXiv:2402.11459) for the paired
+  within-2 Å and within-2 Å-and-valid figures for Gold, Vina, DeepDock, Uni-Mol and TankBind; RAPID-Net
+  (arXiv:2502.02371) for the 53.1% against AlphaFold 3's 59.5% on the post-September-2021 time split and
+  the 54.9% against DiffBindFR's 49.1% on the full set; TEMPL (chemRxiv, 2025) for the 66.7% of
+  within-threshold poses that were invalid; "Assessing interaction recovery of predicted protein-ligand
+  poses" (arXiv:2409.20227) for the interaction-recovery metric beyond RMSD and validity.

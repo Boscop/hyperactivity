@@ -1,0 +1,9 @@
+-- at start, a child makes the paper's page, the site's corpus and the workflow's graph (s-paper, s-corpus, s-graph keep them), so no reader waits for it after a deploy;
+-- the child is counted among those answering until it is reaped
+s-start : List Word → List Word → Word → Proc W Unit
+s-start st m port = bind (h-env "HYPERACTIVE_PUBLIC") (λ pub → bind (h-env "HYPERACTIVE_TOKEN") (λ tok → bind (s-listen (s-set pub) port) (λ fd →
+  if wlt fd #9223372036854775807 then bind (h-out (h-line (list-append "http://localhost:" (list-append (h-decimal port) "/")))) (λ u →
+    bind (sys-call #57 #0 #0 #0 #0 #0 #0) (λ pid →
+    if weq pid #0 then bind (s-paper st m) (λ r → bind (s-corpus st) (λ c → bind (s-graph st m) (λ g → bind (sys-call #231 #0 #0 #0 #0 #0 #0) (λ x → ret {lzero} {W} unit))))
+    else s-serve (toNat #1000000) (if wlt pid #9223372036854775808 then #1 else #0) (s-set pub) st m tok fd))
+  else h-fail (list-append "server: the port cannot be listened on: " (h-decimal port)))))
