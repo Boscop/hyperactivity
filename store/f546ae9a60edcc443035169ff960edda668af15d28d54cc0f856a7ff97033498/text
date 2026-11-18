@@ -1,0 +1,9 @@
+-- each connection answered by its own process (fork), so a slow page never holds up another reader; the
+-- child exits once it has answered; where no process can be made, the connection is answered here
+s-serve : Nat → Bool → List Word → List Word → Sum Unit (List Word) → Word → Proc W Unit
+s-serve zero pub st m tok fd = ret unit
+s-serve (suc k) pub st m tok fd = bind (sys-call #43 fd #0 #0 #0 #0 #0) (λ c →
+  bind (sys-call #57 #0 #0 #0 #0 #0 #0) (λ pid →
+  if weq pid #0 then bind (s-handle pub st m tok c) (λ u → bind (sys-call #231 #0 #0 #0 #0 #0 #0) (λ x → ret unit))
+  else if wlt pid #9223372036854775808 then bind (sys-call #3 c #0 #0 #0 #0 #0) (λ cl → bind (s-reap (toNat #64)) (λ u → s-serve k pub st m tok fd))
+  else bind (s-handle pub st m tok c) (λ u → s-serve k pub st m tok fd)))
