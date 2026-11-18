@@ -1,0 +1,59 @@
+-- brunerie-comparison (2026-11-17): the machine beside Cubical Agda on the same definition, on one
+-- machine, every number from repeated interleaved runs with its distribution.
+-- What is compared. The typed port (experiments/brunerie/typed.cub with run-typed.cub, 260 checked
+-- declarations) is Ljungström's brunerie' of Cubical/Homotopy/Group/Pi4S3/BrunerieExperiments.agda
+-- (agda/cubical at cd8c842d, 2023-02-01 "Prepare for Agda 2.6.3", the library of the paper's date;
+-- the file at master differs only by a --safe option and a hiding clause): there brunerie' = g10 (g9
+-- (g8 λ i j → f7' λ k → η₃ .fst (push (loop i) (loop j) k))) with g8 = mapΩrefl encodeTruncS², g9 =
+-- encodeTruncS¹, g10 = SetTrunc.rec isSetℤ (idfun ℤ), f7' = f7stuff.encode north; ours is brunerie =
+-- g10 (encodeTruncS1 g8) with g8 = λ i → encodeTruncS2 (λ j → F i j), the same composition with g9
+-- and the λs written in (its own K2 = the 4-truncation of S2 as a higher inductive type, CodeK over
+-- the suspension of S2 by ua (K2eq a), the Hopf fibration HopfS2). It is not the figure the paper
+-- times. Ljungström and Mörtberg, "Formalizing π₄(S³) ≅ ℤ/2ℤ and Computing a Brunerie Number in
+-- Cubical Agda" (LICS 2023, arXiv 2302.00151) time "optimised β₃", computerIsoη₃ : fst computer η₃'
+-- ≡ -2 of Cubical/Homotopy/Group/Pi4S3/DirectProof.agda, Part 2 ("one of these normalises, in just
+-- under 4 seconds on a regular laptop, to −2"), and say β₂ "fails to normalise in reasonable time";
+-- brunerie' is the experiments file's variant (its comment: "Computing it takes ~1s"). Both were run.
+-- How it was measured. One machine, this container: 4 virtual x86-64 cores (AVX-512), 16 GB, Linux
+-- 6.18, nothing else running, the two systems' runs interleaved in rounds. Agda 2.6.3 (Ubuntu 24.04's
+-- package): the library's interfaces built once (BrunerieExperiments and its 138 modules, 20,780
+-- lines, 2 min 11 s; DirectProof and 90 more, 22,018 lines, 4 min 56 s), then a one-line test module
+-- re-checked each run with its own interface removed: `test : ℤ; test = brunerie'` loads without
+-- normalising; `test : brunerie' ≡ -2; test = refl` loads and normalises (the proof is by computation);
+-- the same two for fst computer η₃'. The machine: build/cubical at e14aaba1, CUBICAL_NOCACHE=1
+-- CUBICAL_WORKERS=0, lib/core.cub alone (load and check the core), with typed.cub (load and check the
+-- port), with run-typed.cub (and compute the number); the scripts are a loop of `time` around each.
+-- Results, 12 rounds each, wall seconds (minimum, lower quartile, median, upper quartile, maximum):
+-- Agda brunerie' load 3.59, 3.67, 3.93, 4.00, 4.39; load and normalise 4.15, 4.37, 4.68, 4.79, 4.93:
+-- normalising brunerie' is about 0.75 s (difference of medians; the quartile ranges do not overlap).
+-- Agda fst computer η₃' load 7.76, 7.80, 8.25, 8.32, 9.24; load and normalise 9.38, 9.70, 9.98, 10.25,
+-- 10.79: normalising β₃ is about 1.7 s here (the paper's 4 s was Agda of February 2023 on a laptop).
+-- The machine: core alone 1.33, 1.42, 1.48, 1.61, 1.73; core and the port 3.14, 3.23, 3.45, 3.59,
+-- 4.20; core, the port and the computation 3.31, 3.36, 3.51, 3.65, 3.75. So loading and checking the
+-- port's 260 declarations is about 2.0 s. The computation's own time is too small for this method:
+-- the run with it and the run without it differ by 0.06 s at the median, while each of the two runs
+-- varies by about 0.3 s from one repetition to the next, so twelve repetitions cannot tell 0.06 s
+-- from 0 s (only a whole run is timed; the machine prints the steps of each reading, not its
+-- time). The computation is measured instead by steps: the reading takes 358,603 of the run's
+-- 8,719,800 interaction steps, 4.1%, which at the run's 3.38 s of user time is about 0.14 s if
+-- steps cost alike (the handoff of 2026-11-16 measured 0.15 s the same way). A clock in the machine
+-- around each reading, printed beside its steps, would make it a direct number.
+-- What the comparison says. Normalising brunerie': Agda about 0.75 s, the machine about 0.14 s. The
+-- whole process: Agda 3.9 s to load the experiments module from compiled interfaces against the
+-- machine's 3.45 s to read and check the core and the port from source with no cache; these are not
+-- the same work (Agda's checking of the 138 modules is paid once, outside the timed run).
+-- Why −2 is trusted. The value is read at the declared type Int of a definition the checker accepted:
+-- the checker is lib/check.cub, a hyperactive program the same net runs; the port passes 260 checks
+-- with 0 failed, and the machine prints `brunerie = negsuc (suc zero)`. The same value and the same
+-- 358,603 steps on four workers (the Makefile's brunerie target runs both); the same value with the
+-- memo off (CUBICAL_NOMEMO=1: 405,568 steps, every other line of the output identical). In Agda the
+-- same value is brunerie'≡-2 = refl, accepted by its checker.
+-- What remains for the paper's own figure. Porting β₃ exactly is porting fst computer η₃': computer is
+-- composed of group isomorphisms (π₁S¹→∙ΩS³'≅π₃*S³', the encoding of the 2-truncation, ΩK₂'s base
+-- change, π₁S¹→ℤ) whose definitions reach through Cubical.Homotopy.Group.Pi4S3.S3PushoutIso,
+-- BlakersMassey, Freudenthal, HopfInvariant, ZCohomology (the ring structure, Gysin) and the algebra
+-- modules: the 90 modules and 22,018 lines above the experiments' closure. β₂ (η₂) and the original β
+-- (η₁) are in the same file over the same closure. This is the port the handoff asks for, and it is
+-- not a session's side job: raised with Avik as the question of the paper itself.
+brunerie-comparison : Node
+brunerie-comparison = node "The Brunerie number computed by the machine beside Cubical Agda computing the same definition, on one machine, repeated and interleaved: the measurements, their method, why −2 is trusted, and what porting the paper's own β₃ requires." (cons language-implementation-remainder (cons expose-symbolic-superintelligence nil))
