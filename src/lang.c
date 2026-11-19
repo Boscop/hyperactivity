@@ -1551,7 +1551,9 @@ static Node *cn(Node *c); static int ncn;   /* syntax.c: a code as a surface ter
 static size_t name_hash(const char *s);
 /* ---------------- definitions ---------------- */
 /* G_COFIX: a copattern definition, whose value is its stuck head; unf the definition holding its body */
-enum { G_DEF, G_AXIOM, G_INPUT, G_COFIX };
+/* G_LAZY: a definition the store holds as checked, not compiled until its value is first used
+ * (global_copy): lazy holds its desugared code (the checker's own copy, CHKSRC) */
+enum { G_DEF, G_AXIOM, G_INPUT, G_COFIX, G_LAZY };
 typedef struct {
     char *name; int kind;
     Syn *body; int nslots; int *uses;
@@ -1563,6 +1565,7 @@ typedef struct {
     long unf;                        /* a copattern definition's body (a global), or -1 */
     int chk;                         /* its index in the checker's signature, or -1 */
     int tickar;                      /* a stuck call unfolding when its last parameter is ⋄: its parameters, else 0 */
+    Node *lazy;                      /* G_LAZY: the desugared code it is compiled from */
     int file;                        /* the serial of the file defining it (the keys of PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §12 “The build list”, “B. Compilation by transport”, item 17: progressive specialization on run-time values, cached by key) */
 } Global;
 static Global *G; static long nG, capG;
@@ -1726,7 +1729,9 @@ static void decl_fresh(const char *name) {
     if (bound && checked_index(name) < 0) for (int i = 0; i < nchecked; i++) if (CHKHIDE[i] && !strcmp(CHECKED[i], name)) return;
     if (bound) die("declared again (a name is bound once):", name);
 }
+static void global_fill(long g);
 Port global_copy(long g) {
+    if (__atomic_load_n(&G[g].kind, __ATOMIC_ACQUIRE) == G_LAZY) global_fill(g);
     Cell *r = G[g].res;
     if (!r->port[0]) return 0;
     /* a definition whose value is a closed λ or a constant constructor is built from its
@@ -1757,8 +1762,8 @@ void global_park(long g, Cell *op, Cell *glob) {
 long global_unfold(long g) { return G[g].unf; }
 int global_tickar(long g) { return G[g].tickar; }
 int global_checked(long g) { return g >= 0 && g < nG ? G[g].chk : -1; }
-uint64_t global_strict(long g) { return g >= 0 && g < nG && G[g].kind == G_DEF ? G[g].strict : 0; }   /* the parameters g always reads (call by need: built strict) */
-Record *global_nary(long g) { return g >= 0 && g < nG && G[g].kind == G_DEF ? G[g].nary : NULL; }
+uint64_t global_strict(long g) { if (g >= 0 && g < nG && __atomic_load_n(&G[g].kind, __ATOMIC_ACQUIRE) == G_LAZY) global_fill(g); return g >= 0 && g < nG && G[g].kind == G_DEF ? G[g].strict : 0; }   /* the parameters g always reads (call by need: built strict) */
+Record *global_nary(long g) { if (g >= 0 && g < nG && __atomic_load_n(&G[g].kind, __ATOMIC_ACQUIRE) == G_LAZY) global_fill(g); return g >= 0 && g < nG && G[g].kind == G_DEF ? G[g].nary : NULL; }
 /* a copy of the value held by an observation cell */
 static Port held_copy(Cell *r) {
     if (!r->port[0]) return 0;
@@ -3563,6 +3568,65 @@ static Node *atel_coparams(Node *dd, int d, int k) {
     return kapp("tz", atel_cofields(dd, 2), NULL);
 }
 
+/* a definition compiled from its desugared code dsb: its body, its n-ary form, the parameters it
+ * always reads, and its value linked to its root */
+static void define_ds(long g, Node *dsb) {
+    ArMark m2 = ar_mark();
+    int ns; int *u;
+    prof_enter(G[g].name);
+    {
+        /* the parameters its body always reads */
+        Node *b = dsb; int np = 0; const char *pn[64];
+        G[g].nparams = 0; G[g].strict = 0;
+        while (b->list && b->n == 3 && is(b->it[0], "lam") && np < 64) { pn[np++] = param_name(b->it[1])->s; b = b->it[2]; }
+        uint64_t m = 0;
+        rd_bound.n = 0;
+        for (int q = 0; q < np; q++) names_add(&rd_bound, pn[q]);
+        for (int q = 0; q < np; q++) {
+            bool shadowed = false;
+            for (int r = q + 1; r < np; r++) if (!strcmp(pn[r], pn[q])) shadowed = true;
+            if (!shadowed && reads(b, pn[q])) m |= 1ull << q;
+        }
+        rd_bound.n = 0;
+        G[g].nparams = np; G[g].strict = m;
+    }
+    top_lazy = true;
+    Syn *s = compile_top_ds(dsb, &ns, &u);
+    top_lazy = false;
+    G[g].body = s; G[g].nslots = ns; G[g].uses = u;
+    {
+        /* the body with all its parameters at once */
+        Node *b = dsb; int np = 0;
+        Node *pn[256];
+        while (b->list && b->n == 3 && is(b->it[0], "lam") && np < 256) { pn[np++] = param_name(b->it[1]); b = b->it[2]; }
+        if (np >= 1) {
+            pop_binds(0); nlevels = 1; GROW(levels, caplevels, 1); levels[0] = (Level){ 0 };
+            Names none = { 0 };
+            G[g].nary = compile_branch(&none, pn, np, b);
+            nlevels = 0;
+        }
+    }
+    ar_release(m2);
+    prof_cur = 0;
+    link(top_build(s, ns, u), P(G[g].res, 0));
+    if (!strcmp(G[g].name, "%case-hcomp")) case_hcomp_global = g;
+}
+/* a G_LAZY definition compiled now, once, whoever meets it first (a worker or the main thread):
+ * compiling uses the compiler's tables, so one at a time */
+static pthread_mutex_t lazy_mu = PTHREAD_MUTEX_INITIALIZER;
+static void global_fill(long g) {
+    pthread_mutex_lock(&lazy_mu);
+    if (G[g].kind == G_LAZY) {
+        define_ds(g, G[g].lazy);
+        G[g].lazy = NULL;
+        __atomic_store_n(&G[g].kind, G_DEF, __ATOMIC_RELEASE);
+        pthread_mutex_lock(&park_mu);
+        for (int i = 0; i < G[g].npark; i++) net_push(G[g].park_o[i], G[g].park_v[i]);
+        G[g].npark = 0;
+        pthread_mutex_unlock(&park_mu);
+    }
+    pthread_mutex_unlock(&lazy_mu);
+}
 static void toplevel_in(Node *f);
 /* a top-level form; once the outermost one is handled, compiled code nothing reaches is swept */
 static void toplevel(Node *f) {
@@ -3756,44 +3820,8 @@ static void toplevel_in(Node *f) {
         long g = global_lookup(f->it[1]->s);
         bool fill_decl = g >= 0 && G[g].kind == G_INPUT && !G[g].res->port[0];
         if (fill_decl) G[g].kind = G_DEF; else { decl_fresh(f->it[1]->s); g = add_global(f->it[1]->s, G_DEF); }
-        int ns; int *u;
-        prof_enter(f->it[1]->s);
-        {
-            /* the parameters its body always reads */
-            Node *b = dsb; int np = 0; const char *pn[64];
-            G[g].nparams = 0; G[g].strict = 0;
-            while (b->list && b->n == 3 && is(b->it[0], "lam") && np < 64) { pn[np++] = param_name(b->it[1])->s; b = b->it[2]; }
-            uint64_t m = 0;
-            rd_bound.n = 0;
-            for (int q = 0; q < np; q++) names_add(&rd_bound, pn[q]);
-            for (int q = 0; q < np; q++) {
-                bool shadowed = false;
-                for (int r = q + 1; r < np; r++) if (!strcmp(pn[r], pn[q])) shadowed = true;
-                if (!shadowed && reads(b, pn[q])) m |= 1ull << q;
-            }
-            rd_bound.n = 0;
-            G[g].nparams = np; G[g].strict = m;
-        }
-        top_lazy = true;
-        Syn *s = compile_top_ds(dsb, &ns, &u);
-        top_lazy = false;
-        G[g].body = s; G[g].nslots = ns; G[g].uses = u;
-        {
-            /* the body with all its parameters at once */
-            Node *b = dsb; int np = 0;
-            Node *pn[256];
-            while (b->list && b->n == 3 && is(b->it[0], "lam") && np < 256) { pn[np++] = param_name(b->it[1]); b = b->it[2]; }
-            if (np >= 1) {
-                pop_binds(0); nlevels = 1; GROW(levels, caplevels, 1); levels[0] = (Level){ 0 };
-                Names none = { 0 };
-                G[g].nary = compile_branch(&none, pn, np, b);
-                nlevels = 0;
-            }
-        }
+        define_ds(g, dsb);
         ar_release(dm);
-        prof_cur = 0;
-        link(top_build(s, ns, u), P(G[g].res, 0));
-        if (!strcmp(G[g].name, "%case-hcomp")) case_hcomp_global = g;
         if (fill_decl) { for (int i = 0; i < G[g].npark; i++) net_push(G[g].park_o[i], G[g].park_v[i]); G[g].npark = 0; }
     } else if (!strcmp(h, "checked") || !strcmp(h, "checked-fail") || !strcmp(h, "check") || !strcmp(h, "check-fail")) {
         /* the checker (lib/check.cub), a term, run on the codes of T and t
@@ -3837,8 +3865,17 @@ static void toplevel_in(Node *f) {
         if (!accepted && (expect || getenv("CUBICAL_WHY"))) explain(r, nl3("%%chk-def", cT, ct));
         free(r); free(tr);
         if (define && accepted && expect) {
-            Node *d = nlist(3); d->it[0] = nsym("def"); d->it[1] = f->it[1]; d->it[2] = t;
-            toplevel(d);
+            /* a definition the store holds as checked is compiled when its value is first used
+             * (G_LAZY, global_fill): a run compiles what it reaches, not every definition it reads */
+            long lg = -1;
+            if (stored) {
+                lg = global_lookup(f->it[1]->s);
+                bool fill_decl = lg >= 0 && G[lg].kind == G_INPUT && !G[lg].res->port[0];
+                if (fill_decl) G[lg].kind = G_LAZY; else { decl_fresh(f->it[1]->s); lg = add_global(f->it[1]->s, G_LAZY); }
+            } else {
+                Node *d = nlist(3); d->it[0] = nsym("def"); d->it[1] = f->it[1]; d->it[2] = t;
+                toplevel(d);
+            }
             /* the checker's tables: the definition and its type, each a global, so a lookup
              * is a reference */
             char ty[32]; snprintf(ty, sizeof ty, "%%sty%d", nchecked);
@@ -3846,6 +3883,7 @@ static void toplevel_in(Node *f) {
             toplevel(td);
             int ck = sig_add(f->it[1]->s, global_lookup(f->it[1]->s), global_lookup(ty), false);
             chksrc_set(ck, dt); chkty_set(ck, dT);
+            if (lg >= 0) { G[lg].lazy = CHKSRC[ck]; if (G[lg].npark) global_fill(lg); }   /* a use already waiting: now */
             gsteps_set(ck, stored ? store_steps(key) : steps);
             ckey_set(ck, key); deps_take(&CDEPS, &capcdeps, ck);
             /* the parameters' computed usages (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.1 “B11 — Multiplicities (static side)”): asked of the checker (or read from the store),
