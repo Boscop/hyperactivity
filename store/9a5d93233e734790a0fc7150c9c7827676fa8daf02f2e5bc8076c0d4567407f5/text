@@ -1,0 +1,15 @@
+-- counted before the upper bound: the entries before q and those that start with q
+si-count-split : (q : List (List Word)) → (l : List (El entry-ord)) → si-all (λ e → sq-below-all word-le #256 (fst e)) l →
+  count-lt {entry-ord} (sq-up #256 q , #0) l ≡ plus (count-lt {entry-ord} (q , #0) l) (si-nstarts q l)
+si-count-split q l = case l return λ w → si-all (λ e → sq-below-all word-le #256 (fst e)) w → count-lt {entry-ord} (sq-up #256 q , #0) w ≡ plus (count-lt {entry-ord} (q , #0) w) (si-nstarts q w) of
+  nil → λ h i → zero
+  cons e r → λ h →
+    let qa = lexle (lexle word-le) q (fst e)
+        qu = lexle (lexle word-le) (sq-up #256 q) (fst e)
+        e1 = concat (cong (λ z → one-if (not z)) (si-key (sq-up #256 q) e))
+               (concat (si-bool3 qa qu (λ hu → lex-trans (lex-order word-order) q (sq-up #256 q) (fst e) (si-up-ge q) hu))
+                  (concat (cong (λ z → plus (one-if (not z)) (one-if (andB qa (not qu)))) (sym (si-key q e)))
+                     (cong (λ z → plus (one-if (not (leq {entry-ord} (q , #0) e))) (one-if z)) (sym (sq-starts-range word-le #256 q (fst e) (fst h))))))
+    in concat (cong (λ z → plus z (count-lt {entry-ord} (sq-up #256 q , #0) r)) e1)
+         (concat (cong (plus (plus (one-if (not (leq {entry-ord} (q , #0) e))) (one-if (sq-starts word-le q (fst e))))) (rec r (snd h)))
+            (si-interchange (one-if (not (leq {entry-ord} (q , #0) e))) (one-if (sq-starts word-le q (fst e))) (count-lt {entry-ord} (q , #0) r) (si-nstarts q r)))

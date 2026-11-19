@@ -1,0 +1,26 @@
+-- ---------------------------------------------------------------- the index's guarantee
+-- Bytes B whose records from o0 and table from p check against the text's tokens T, whose tree from r
+-- checks against the search tree of T's suffix array, with f steps enough for it, and T's bytes below
+-- 256: for every query q, the count read from B (two descents of at most f nodes, each one comparison
+-- of q's bytes) is the number of T's suffixes that start with q.
+si-index-ok : (T : List (List Word)) → (n : Nat) → (B : Bytes n) → (p : Word) → (o0 : Word) → (r : Word) → (g : Nat) → (f : Nat) →
+  isTrue (si-chk-chain n B p o0 T) → isTrue (si-chk-tree n B (build g (suffix-array-fast T)) r) →
+  isTrue (si-fuel (build g (suffix-array-fast T)) f) → isTrue (si-tokens-ok T) → (q : List (List Word)) →
+  wsub (si-cnt n B p (sq-up #256 q) f r) (si-cnt n B p q f r) ≡ fromNat (si-nstarts q (suffix-array T))
+si-index-ok T n B p o0 r g f hc ht hf hb q =
+  let e = suffix-array-fast-is T
+      sa = suffix-array T
+      ht2 = subst {_} {_} {List (El entry-ord)} {λ l → isTrue (si-chk-tree n B (build g l) r)} e ht
+      hf2 = subst {_} {_} {List (El entry-ord)} {λ l → isTrue (si-fuel (build g l) f)} e hf
+      rep = si-chk-chain-ok n B T p o0 hc
+      allt = si-all-build (si-keyok T) g sa (si-sa-keyok T)
+      below = si-all-map (si-keyok T) (λ x → sq-below-all word-le #256 (fst x))
+        (λ x hk → subst {_} {_} {List (List Word)} {sq-below-all word-le #256} (sym (fst hk)) (si-below-drop (snd x) T (si-tokens-below T hb)))
+        sa (si-sa-keyok T)
+      lo = concat (si-cnt-ok n B T p o0 (fst rep) (snd rep) q (build g sa) allt f r ht2 hf2)
+             (tree-cnt g sa (suffix-array-sorted T) (q , #0))
+      hi = concat (si-cnt-ok n B T p o0 (fst rep) (snd rep) (sq-up #256 q) (build g sa) allt f r ht2 hf2)
+             (concat (tree-cnt g sa (suffix-array-sorted T) (sq-up #256 q , #0)) (cong fromNat (si-count-split q sa below)))
+  in concat (si-cong-sub (si-cnt n B p (sq-up #256 q) f r) (si-cnt n B p q f r)
+               (fromNat (plus (count-lt {entry-ord} (q , #0) sa) (si-nstarts q sa))) (fromNat (count-lt {entry-ord} (q , #0) sa)) hi lo)
+       (si-sub (count-lt {entry-ord} (q , #0) sa) (si-nstarts q sa))

@@ -1,0 +1,15 @@
+si-chk-chain-ok : (n : Nat) → (B : Bytes n) → (L : List (List Word)) → (p : Word) → (o : Word) → isTrue (si-chk-chain n B p o L) → si-rep n B o L × si-tab n B p o L
+si-chk-chain-ok n B L = case L return λ w → (p : Word) → (o : Word) → isTrue (si-chk-chain n B p o w) → si-rep n B o w × si-tab n B p o w of
+  nil → λ p o h → (word-eq-sound (cstr-get n B o) #0 h , unit)
+  cons y r → λ p o h →
+    let a1 = weq (si-rd4 n B p) o
+        a2 = weq (cstr-get n B o) #1
+        a3 = tok-eq (si-tok n B o) y
+        a4 = si-chk-chain n B (wadd p #4) (si-next n B o) r
+        h1 = and-fst {a1} {andB a2 (andB a3 a4)} h
+        h234 = and-snd {a1} {andB a2 (andB a3 a4)} h
+        h2 = and-fst {a2} {andB a3 a4} h234
+        h34 = and-snd {a2} {andB a3 a4} h234
+        h3 = and-fst {a3} {a4} h34
+        ih = rec r (wadd p #4) (si-next n B o) (and-snd {a3} {a4} h34)
+    in ((word-eq-sound (cstr-get n B o) #1 h2 , (tok-eq-sound (si-tok n B o) y h3 , fst ih)) , (word-eq-sound (si-rd4 n B p) o h1 , snd ih))

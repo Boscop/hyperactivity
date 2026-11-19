@@ -1,0 +1,29 @@
+-- the count read down the tree's bytes is the tree's count of the entries before the query
+si-cnt-ok : (n : Nat) → (B : Bytes n) → (T : List (List Word)) → (p : Word) → (o0 : Word) → si-rep n B o0 T → si-tab n B p o0 T →
+  (c : List (List Word)) → (t : RTree (El entry-ord)) → si-allt (si-keyok T) t → (f : Nat) → (o : Word) →
+  isTrue (si-chk-tree n B t o) → isTrue (si-fuel t f) → si-cnt n B p c f o ≡ cnt-tree {entry-ord} (c , #0) t
+si-cnt-ok n B T p o0 hr ht c t = case t return λ w → si-allt (si-keyok T) w → (f : Nat) → (o : Word) → isTrue (si-chk-tree n B w o) → isTrue (si-fuel w f) → si-cnt n B p c f o ≡ cnt-tree {entry-ord} (c , #0) w of
+  rleaf → λ ha f o hc hf → (case f return λ v → si-cnt n B p c v o ≡ #0 of
+    zero → λ i → #0
+    suc g → λ i → if weq (word-eq-sound (cstr-get n B o) #0 hc i) #1
+      then (if si-cmp n B c (si-rd4 n B (si-slot p (si-rd4 n B (wadd o #5)))) then si-cnt n B p c g (wadd o #13)
+            else wadd (%wsucc (si-rd4 n B (wadd o #1))) (si-cnt n B p c g (si-rd4 n B (wadd o #9))))
+      else #0)
+  rnode a sz x b → λ ha f o hc → (case f return λ v → isTrue (si-fuel (rnode a sz x b) v) → si-cnt n B p c v o ≡ cnt-tree {entry-ord} (c , #0) (rnode a sz x b) of
+    zero → λ hf → Empty-rec hf
+    suc g → λ hf →
+      let c1 = weq (cstr-get n B o) #1
+          c2 = weq (si-rd4 n B (wadd o #1)) sz
+          c3 = weq (si-rd4 n B (wadd o #5)) (snd x)
+          c4 = si-chk-tree n B a (wadd o #13)
+          c5 = si-chk-tree n B b (si-rd4 n B (wadd o #9))
+          h2345 = and-snd {c1} {andB c2 (andB c3 (andB c4 c5))} hc
+          h345 = and-snd {c2} {andB c3 (andB c4 c5)} h2345
+          h45 = and-snd {c3} {andB c4 c5} h345
+          tagp = word-eq-sound (cstr-get n B o) #1 (and-fst {c1} {andB c2 (andB c3 (andB c4 c5))} hc)
+          szp = word-eq-sound (si-rd4 n B (wadd o #1)) sz (and-fst {c2} {andB c3 (andB c4 c5)} h2345)
+          kp = word-eq-sound (si-rd4 n B (wadd o #5)) (snd x) (and-fst {c3} {andB c4 c5} h345)
+          cmpp = si-node-cmp n B T p o0 hr ht c x (fst (snd ha)) (si-rd4 n B (wadd o #5)) kp
+          iha = rec a (fst ha) g (wadd o #13) (and-fst {c4} {c5} h45) (and-fst {si-fuel a g} {si-fuel b g} hf)
+          ihb = rec b (snd (snd ha)) g (si-rd4 n B (wadd o #9)) (and-snd {c4} {c5} h45) (and-snd {si-fuel a g} {si-fuel b g} hf)
+      in λ i → if weq (tagp i) #1 then (if cmpp i then iha i else wadd (%wsucc (szp i)) (ihb i)) else #0)
