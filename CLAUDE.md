@@ -26,3 +26,8 @@ require as much memory is needed for local operation on the graph and that's it"
 the whole of anything (a corpus, the repository's prose, the workflow); text is held at the cost of
 its bytes, List Word being its specification and not its storage; and the cost of every process is
 derived and proven from its definitions, never measured. The workflow node is `memory-is-local`.
+
+Never answer anything about any code without reading that exact line of code (Avik, 2026-11-18:
+"never answer anything about any code without reading that exact line of code"). A statement about
+what code does, costs, or permits, and every line count or estimate, comes from the lines read in
+that session; what is unread is said to be unread, in one sentence.
