@@ -1,0 +1,14 @@
+-- addition with carry computes c + a + b
+bin-addc-sound : (a : List Bool) → (c : Bool) → (b : List Bool) → bin-to-nat (bin-addc c a b) ≡ plus (bitn c) (plus (bin-to-nat a) (bin-to-nat b))
+bin-addc-sound a =
+  case a return λ m → (c : Bool) → (b : List Bool) → bin-to-nat (bin-addc c m b) ≡ plus (bitn c) (plus (bin-to-nat m) (bin-to-nat b)) of
+    nil → λ c b → (case c return λ u → bin-to-nat (bin-addc u nil b) ≡ plus (bitn u) (plus zero (bin-to-nat b)) of
+      true → bin-succ-sound b
+      false → λ i → bin-to-nat b)
+    cons x xs → λ c b →
+      transN (bin-cons-sound (bit-eq (bit-eq x (bin-head b)) c) (bin-addc (if x then (if bin-head b then true else c) else (if bin-head b then c else false)) xs (bin-tail b)))
+      (transN (cons-val (bit-eq (bit-eq x (bin-head b)) c) (bin-addc (if x then (if bin-head b then true else c) else (if bin-head b then c else false)) xs (bin-tail b)))
+      (transN (congN (λ z → plus (bitn (bit-eq (bit-eq x (bin-head b)) c)) (times 2 z)) (rec xs (if x then (if bin-head b then true else c) else (if bin-head b then c else false)) (bin-tail b)))
+      (transN (add-rearrange (bitn (bit-eq (bit-eq x (bin-head b)) c)) (bitn (if x then (if bin-head b then true else c) else (if bin-head b then c else false)))
+                (bin-to-nat xs) (bin-to-nat (bin-tail b)) (bitn c) (bitn x) (bitn (bin-head b)) (adder-bit x (bin-head b) c))
+      (symN (λ i → plus (bitn c) (plus (cons-val x xs i) (bin-split b i)))))))
