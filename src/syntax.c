@@ -2344,9 +2344,11 @@ static char *e_merge_alternatives(Ent *es, int i, int j, SBuf *why) {
     free(mod.b); mp_free(&acc);
     return strdup(mh);
 }
-/* the index computed from the pool's entries, once per run, when its stamp is not the pool's */
+/* the index computed from the pool's entries, once per run (once per request of a session, which
+ * clears idx_synced), when its stamp is not the pool's */
+static bool idx_synced;
 static void index_sync(void) {
-    static bool done; if (done) return; done = true;
+    if (idx_synced) return; idx_synced = true;
     char *st = e_stamp(); char *cur = idx_read("meta", "stamp");
     if (cur && !strcmp(cur, st)) { free(cur); free(st); return; }
     free(cur);

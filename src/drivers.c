@@ -155,6 +155,7 @@ static void drivers_run(Node *t) {
         } else if (c == c_exit) {
             uint64_t code = drv_word(cm->port[1], "w-exit's code");
             fflush(stdout);
+            if (session_exit) { session_code = (int)code; jmp_buf *j = session_exit; session_exit = NULL; longjmp(*j, 2); }
             exit((int)code);
         } else if (c == c_open) {
             uint64_t n = drv_nat(cm->port[1], "w-open's length");

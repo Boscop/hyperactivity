@@ -57,6 +57,10 @@ static int nix_get(const NameIx *t, const char *s) {   /* the latest entry named
 /* a failure where the caller has a way out (printing a result in the surface syntax): back to it */
 static jmp_buf *die_jb;
 static char die_msg[512];
+/* hyperactive's session (session_serve): a request's w-exit returns to the session with its code
+ * (longjmp value 2) instead of ending the process; the files a session loads do not run their #run */
+static jmp_buf *session_exit; static int session_code;
+static bool session_loading;
 static void die(const char *m, const char *x) {
     if (die_jb) { snprintf(die_msg, sizeof die_msg, "%s%s%s", m, x ? " " : "", x ? x : ""); jmp_buf *j = die_jb; die_jb = NULL; longjmp(*j, 1); }
     /* on stderr, and on stdout too when that is a different file (a run read through its stdout
@@ -4586,6 +4590,7 @@ static void toplevel_in(Node *f) {
         /* (run e): e a Step W A (lib/world.cub), walked by the driver loop (src/drivers.c; PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.11 “D24–D27 — The world”, its part D26) */
         if (f->n != 2) die("(run step)", NULL);
         if (read_only) { printf("run: not performed (--read)\n"); return; }
+        if (session_loading) return;   /* --session: the program runs per request, not at load */
         drivers_run(f->it[1]);
     } else if (!strcmp(h, "trusted")) {
         /* #trusted: the postulates and primitives in scope */
@@ -4965,6 +4970,127 @@ static void serve(void) {
         memcpy(buf + len, line, l); len += l;
     }
 }
+/* hyperactive's session (2026-11-20, Avik: "it was supposed to be a long running session environment
+ * not something with one-off commands ... I don't want anything slowing anything down"): `build/cubical
+ * lib/hyperactive.cub --session` loads the program once and answers each `./hyperactive ARGS` on the
+ * socket build/session.sock. The client (session_client) sends its descriptors 0, 1, 2 (SCM_RIGHTS) and
+ * its arguments as the cold start's /proc/self/cmdline holds them; the session points its own 0, 1, 2
+ * at them, runs hy-main-at on the arguments, and answers the exit code. What a cold start reloads every
+ * time (parsing, elaborating and building every definition of the program's imports) is done once. The
+ * session ends when the source's modules for the files it loaded change (a write to the program
+ * itself: a definition cannot be retracted, so it is not redefined in place), answering 256 so the
+ * client runs cold, or after half an hour without a request */
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <poll.h>
+static const char *session_sock = "build/session.sock";
+static bool fd_all(int fd, void *b, size_t n, bool wr) {
+    char *p = b;
+    while (n) { long k = wr ? write(fd, p, n) : read(fd, p, n); if (k <= 0) return false; p += k; n -= (size_t)k; }
+    return true;
+}
+/* the modules the source holds now at the paths of the files loaded */
+static char *session_key(void) {
+    SBuf k = {0}; sb_put(&k, "");
+    for (int i = 0; i < nloaded; i++) {
+        SBuf hx = {0}; w_hex(&hx, loaded[i]);
+        char *mh = hx.b && hx.n <= 250 ? idx_read("modules", hx.b) : NULL;
+        sb_put(&k, mh ? mh : "-"); sb_put(&k, "\n"); free(mh); free(hx.b);
+    }
+    return k.b;
+}
+static int session_connect(void) {
+    int s = socket(AF_UNIX, SOCK_STREAM, 0); if (s < 0) return -1;
+    struct sockaddr_un a; memset(&a, 0, sizeof a); a.sun_family = AF_UNIX; snprintf(a.sun_path, sizeof a.sun_path, "%s", session_sock);
+    if (connect(s, (struct sockaddr *)&a, sizeof a)) { close(s); return -1; }
+    return s;
+}
+/* one request, its descriptors in place of the session's own: the exit code the program gave */
+static int sr_saved[3];
+static int32_t session_run(const int fds[3]) {
+    fflush(stdout); fflush(stderr);
+    for (int i = 0; i < 3; i++) { sr_saved[i] = dup(i); dup2(fds[i], i); }
+    static char req[] = "#run (to-step (hy-main-at \"build/session.args\"))\n";
+    jmp_buf jb; session_code = 0;
+    int r = setjmp(jb);
+    if (r == 0) { die_jb = &jb; session_exit = &jb; load_surface(req, "<session>", false); }
+    else if (r == 1) { fprintf(stderr, "error: %s\n", die_msg); session_code = 1; }
+    die_jb = NULL; session_exit = NULL; toplevel_depth = 0;
+    net_drain();
+    fflush(stdout); fflush(stderr);
+    for (int i = 0; i < 3; i++) { dup2(sr_saved[i], i); close(sr_saved[i]); }
+    return session_code;
+}
+static void session_serve(void) {
+    { int s = session_connect(); if (s >= 0) { close(s); fflush(stdout); _Exit(0); } }   /* a session already answers */
+    int ls = socket(AF_UNIX, SOCK_STREAM, 0);
+    struct sockaddr_un a; memset(&a, 0, sizeof a); a.sun_family = AF_UNIX; snprintf(a.sun_path, sizeof a.sun_path, "%s", session_sock);
+    unlink(session_sock);
+    if (ls < 0 || bind(ls, (struct sockaddr *)&a, sizeof a) || listen(ls, 16)) die("cannot listen at", session_sock);
+    char *key0 = session_key();
+    signal(SIGPIPE, SIG_IGN);   /* a client's reader gone (`| head`) ends that client's output, not the session */
+    printf("session: listening at %s\n", session_sock); fflush(stdout);
+    for (;;) {
+        struct pollfd pf = { ls, POLLIN, 0 };
+        if (poll(&pf, 1, 30 * 60 * 1000) == 0) { unlink(session_sock); fflush(stdout); _Exit(0); }   /* idle */
+        int c = accept(ls, NULL, NULL); if (c < 0) continue;
+        int fds[3] = { -1, -1, -1 }; uint64_t n = 0; int32_t code = 1; char *args = NULL;
+        char cb[CMSG_SPACE(3 * sizeof(int))]; memset(cb, 0, sizeof cb);
+        struct iovec iv = { &n, sizeof n }; struct msghdr m; memset(&m, 0, sizeof m);
+        m.msg_iov = &iv; m.msg_iovlen = 1; m.msg_control = cb; m.msg_controllen = sizeof cb;
+        if (recvmsg(c, &m, MSG_WAITALL) == (long)sizeof n) {
+            struct cmsghdr *h = CMSG_FIRSTHDR(&m);
+            if (h && h->cmsg_level == SOL_SOCKET && h->cmsg_type == SCM_RIGHTS && h->cmsg_len == CMSG_LEN(3 * sizeof(int))) memcpy(fds, CMSG_DATA(h), sizeof fds);
+            if (n < (1u << 20)) args = malloc(n + 1);
+        }
+        if (fds[0] >= 0 && fds[1] >= 0 && fds[2] >= 0 && args && fd_all(c, args, n, false)) {
+            idx_synced = false; index_sync();   /* the pool as it is now */
+            char *k = session_key(); bool stale = strcmp(k, key0) != 0; free(k);
+            if (stale) { code = 256; fd_all(c, &code, sizeof code, true); unlink(session_sock); fflush(stdout); _Exit(0); }
+            FILE *f = fopen("build/session.args", "wb");
+            if (f && fwrite(args, 1, n, f) == n && fclose(f) == 0) code = session_run(fds);
+            else if (f) fclose(f);
+        }
+        fd_all(c, &code, sizeof code, true);
+        for (int i = 0; i < 3; i++) if (fds[i] >= 0) close(fds[i]);
+        free(args); close(c);
+    }
+}
+/* ./hyperactive through the session: returns only when no session answers (or the session's program
+ * changed); then the cold start runs, and a session is started beside it for the next command */
+extern char **environ;
+static void session_client(int argc, char **argv) {
+    if (getenv("CUBICAL_STORE") || getenv("HYPERACTIVE_SERVER") || getenv("HYPERACTIVE_COLD")) return;
+    int s = session_connect();
+    if (s < 0) {
+        pid_t pid; posix_spawn_file_actions_t fa; posix_spawn_file_actions_init(&fa);
+        posix_spawn_file_actions_addopen(&fa, 0, "/dev/null", 0, 0);
+        posix_spawn_file_actions_addopen(&fa, 1, "/dev/null", 1, 0);
+        posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", 1, 0);
+        char *sv[] = { "build/cubical", "lib/hyperactive.cub", "--session", NULL };
+        posix_spawn(&pid, "/proc/self/exe", &fa, NULL, sv, environ);
+        posix_spawn_file_actions_destroy(&fa);
+        return;
+    }
+    size_t n = strlen("build/cubical") + 1 + strlen("lib/hyperactive.cub") + 1;
+    for (int i = 1; i < argc; i++) n += strlen(argv[i]) + 1;
+    char *b = malloc(n), *p = b;
+    p = stpcpy(p, "build/cubical") + 1; p = stpcpy(p, "lib/hyperactive.cub") + 1;
+    for (int i = 1; i < argc; i++) p = stpcpy(p, argv[i]) + 1;
+    uint64_t len = n; int fds[3] = { 0, 1, 2 };
+    char cb[CMSG_SPACE(3 * sizeof(int))]; memset(cb, 0, sizeof cb);
+    struct iovec iv = { &len, sizeof len }; struct msghdr m; memset(&m, 0, sizeof m);
+    m.msg_iov = &iv; m.msg_iovlen = 1; m.msg_control = cb; m.msg_controllen = sizeof cb;
+    struct cmsghdr *h = CMSG_FIRSTHDR(&m); h->cmsg_level = SOL_SOCKET; h->cmsg_type = SCM_RIGHTS; h->cmsg_len = CMSG_LEN(3 * sizeof(int));
+    memcpy(CMSG_DATA(h), fds, sizeof fds);
+    int32_t code = 1;
+    bool sent = sendmsg(s, &m, 0) == (long)sizeof len && fd_all(s, b, n, true);
+    bool got = sent && fd_all(s, &code, sizeof code, false);
+    free(b); close(s);
+    if (!sent) return;              /* nothing ran: cold */
+    if (got && code == 256) return; /* the session's program changed: cold */
+    exit(got ? code : 1);
+}
 static void memend_report(void) {
     if (!getenv("CUBICAL_MEMEND")) return;
     /* what a sweep now would keep, and free (bytes of record bodies, shallow) */
@@ -4989,6 +5115,7 @@ int main(int argc, char **argv)
         const char *b = strrchr(argv[0], '/'); b = b ? b + 1 : argv[0];
         const char *prog = !strcmp(b, "hyperactive") ? "lib/hyperactive.cub" : !strcmp(b, "pre-commit") ? "lib/guard.cub" : NULL;
         if (prog) {
+            if (!strcmp(b, "hyperactive")) session_client(argc, argv);   /* returns when it ran nothing */
             char **nv = malloc((size_t)(argc + 2) * sizeof(char *));
             nv[0] = "build/cubical"; nv[1] = (char *)prog;
             for (int i = 1; i < argc; i++) nv[i + 1] = argv[i];
@@ -5022,6 +5149,7 @@ int main(int argc, char **argv)
         FILE *nul = fopen("/dev/null", "w"); dup2(fileno(nul), 1);
     }
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--read")) read_only = true;
+    for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--session")) session_loading = true;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--ingest") || (!strcmp(argv[i], "--record") && i + 2 < argc)) {
         /* the one reader (src/syntax.c, record_source): files on the disk recorded in the source */
         bool rec = !strcmp(argv[i], "--record");
@@ -5093,11 +5221,13 @@ int main(int argc, char **argv)
         if (!strcmp(argv[i], "--print") && i + 1 < argc) { convert_file(argv[++i], false); fflush(stdout); _Exit(0); }
         if (!strcmp(argv[i], "--roundtrip") && i + 1 < argc) { convert_file(argv[++i], true); continue; }
         if (!strcmp(argv[i], "--serve")) continue;
+        if (!strcmp(argv[i], "--session")) continue;
         if (!strcmp(argv[i], "--read")) continue;
         load_root = argv[i];   /* roots/<file>: the given file that loads it (src/syntax.c, w_file) */
         load_file(argv[i], true);
     }
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--serve")) serve();
+    for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--session")) { session_loading = false; session_serve(); }
     /* steps performed so far: a reading only when the workload has normalized (show) */
     memend_report();
     printf("%d passed, %d failed; %ld interaction steps performed; %ld cells live; %ld payloads live\n", passes, failures, stat_steps, stat_cells, stat_payloads);
