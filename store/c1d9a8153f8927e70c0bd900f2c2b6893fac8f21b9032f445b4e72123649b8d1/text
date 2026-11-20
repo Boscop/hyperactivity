@@ -1,0 +1,113 @@
+# The calculus rules of the net, as the core C states them
+
+Read 2026-11-20 from the core's header core.h (whole, 471 lines) and from net.c lines 1138–1498 and
+1862–2609, at commit 3aed33d6. Every rule below was read at the lines given. Part of the workflow node
+`core-forced-by-paper`. Nothing here is taken from any earlier description of the code.
+
+## What a rule is
+
+A term is a net of cells. Every cell has one principal port. A value provides at its principal port; an
+operation consumes one value there. An active pair is an operation's principal port wired to a value's
+principal port; its rule replaces the two cells by a net on their other wires (core.h 1–12). Two values,
+or two operations, wired together are a wire nothing reads. A rule writes only the pair's two cells,
+cells it makes, wires (by exchange) and slots of held values (by compare-and-swap) (core.h 291–297).
+There are 45 kinds of value and 118 kinds of operation (core.h 97–281).
+
+## The rules (operation meets value → result)
+
+Line numbers are net.c.
+
+Sharing and erasing
+- duplicate meets a value with parts, or one not yet built → the value is held once in a box; each side
+  gets a reference, read one level at a time (1147–1155)
+- duplicate meets a value with no parts → two copies (1156–1162)
+- erase meets a value → its parts are erased (1164–1169)
+- any operation meets a reference → one level of the held value is copied out (1937–1942)
+- any operation meets an unbuilt subterm → it is built (1933)
+- a waiting read meets its value when it arrives → the reader gets its one-level copy; not a step (1865–1875)
+- any operation meets a definition → the definition's value is copied in (1924–1931)
+
+Functions, pairs, paths
+- application meets a one-parameter λ → the body built with the argument (1962–1966)
+- force meets a parameterless λ → the body (1990–1993)
+- first, second meets a pair → that part; the other erased (1998–2001)
+- path application meets a path λ → the body under the substitution of its dimension (2023–2028)
+- path application at 0 or 1 with the endpoints at hand → that endpoint, without the path (2008–2012)
+- path application at 0 or 1 meets a neutral path → the endpoint read from the path's type (2032–2041)
+- any of these meets anything else that is not a system → a neutral holding the operands (1978–1986,
+  1487–1497, 2043–2054)
+
+Dimension substitution
+- meets an interval or a face → substituted in normal form (1196–1197)
+- meets a reference or an unbuilt subterm → carried by it, composed with what it already carries (1181–1192)
+- meets a path λ → pushed under the binder, the binder renamed if the substitution's range mentions it (1198–1209)
+- meets a system → the branch whose clause the substitution makes true; else the clauses substituted and
+  split (1210–1244)
+- meets a neutral → the neutral's own operation again, on the substituted parts, so it retries (1245–1259,
+  1297–1318)
+- meets a constructor of the calculus (λ, pair, Π, Σ, path type) → the same constructor, parts pending (1321–1327)
+- meets a value with parts, not yet read → held in a box, the substitution pending on the reference (1342–1381)
+
+Systems
+- an eliminator meets a system → the operation branch by branch, the other operands restricted to each
+  branch's clause, each deferred until that branch is read (1427–1483)
+- adding a branch whose face is true → the branch; whose face is false → dropped (2264–2267)
+
+Composition
+- composition meets a tube that covers everything → the tube's end at 1 (2062–2067)
+- composition with a partial tube → the type family at its own dimension; its head decides (2058–2061, 2071–2075)
+- head Π → `%comp-pi`; Σ → `%comp-sigma`; path type → `%comp-path`; universe → `%comp-u`; Glue →
+  `%comp-glue`; a composition of types → `%comp-gluel`: clauses written in the language (2091–2097,
+  2117–2120, 2157)
+- head a data type → that type's generated clause (2106–2116)
+- head Word, empty tube → the base (2098–2105, 2162)
+- head a system of families → each branch that holds along the whole line composes in its own family (2121–2148)
+- head a neutral → a neutral composition (2149–2155)
+
+Glue
+- a Glue type whose system is total → the type on its face (2176)
+- a glued value whose system is total → that value (2181)
+- unglue on the face → the equivalence's map applied (2193–2196)
+- unglue meets a glued value → its base (2200–2202)
+
+Data types
+- a path constructor with a dimension at 0 or 1, or whose boundary's face holds → its boundary
+  (2321–2322, 2340–2343)
+- composition in a data type, total tube → its end; partial tube → a formal composition, a value of the
+  type (2353–2372)
+- the same, type without path constructors, cap and every side the same constructor → into the fields
+  (2373–2419)
+- transport where the family is constant → the identity (2423–2426)
+- transport meets a constructor → that constructor's generated clause (2465–2474)
+- transport meets a formal composition → formal again, or the type's generated clause (2475–2491)
+- case meets a constructor → the selected branch built with the fields, dimensions and shared variables,
+  one step; each recursive field's hypothesis is the same case on that field, suspended (2509–2562)
+- case meets a formal composition → a composition in the motive, by a clause written in the language (2563–2572)
+- case meets anything else that is not a system → a neutral typed by the motive (2574–2588)
+
+## Verdict on these lines
+
+No rule read disagrees with the paper's foundation or with the CCHM rules the paper cites (§3.4, §4).
+
+## In the rule code and forced by nothing in the paper
+
+- profiling counters, a trace hook and environment-variable reads inside the rule function (1141–1146,
+  1165–1166, 1185, 1355, 1882–1896)
+- `fresh_dim()`, a global counter, for renaming binders and for examining tube sides (1202, 2394, 2409, 2548)
+- clauses found by name, as strings, in the table of definitions (2093–2120, 2157, 2191)
+- the process exits or aborts on an unexpected input in four places (1475, 2213, 2318, 2388)
+
+## Not established
+
+- With one worker, a pending substitution is first cut by a search for the value's free dimensions with a
+  budget of 4,000 steps; with several workers it is not (1355–1374). Whether this changes any result or
+  only the cost is not established.
+- A path-typed recursive field more than 16 dimensions deep overruns a fixed array (2547–2548).
+- "An eliminator of an unknown type gives an unknown type" erases the operands (1944–1950): what relies on
+  it is not read.
+
+## Not read
+
+net.c 1–1137 (cells, wires, queues, sharing, types of neutrals), 1499–1861 (values as data, for the
+checker), 2610–3865 (words, primitive values, the world, workers, building a net from syntax); and the
+rest of the core: lang.c, syntax.c, store.c, dnf.c, drivers.c, big.c.
