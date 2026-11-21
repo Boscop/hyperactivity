@@ -1,0 +1,236 @@
+# Handoff from the Brunerie measurement session (2026-11-21)
+
+Session 01WfrbRriXqHeMLRRPRviEao, received from https://github.com/avikj/hyperactivity/pull/9. This
+session changes no infrastructure from here on (Avik, 2026-11-21: "you're not changing any infra …
+your knowledge work at this point is handoff - I have sessions working on infra, you'd conflict. your
+work may shed light on important system improvements ill want integrated, but you need to report these
+clearly in a handoff"). Everything below is for the sessions doing that work. Each statement about
+code names the lines read in this session at the commit named; what was not re-read is said to be
+unread.
+
+## 1. State
+
+| object | address |
+|---|---|
+| main at the end of this session | 98f3e4647 (the session branch claude/nifty-johnson-0j4qfs holds the same) |
+| the machine measured against Agda | main at 8dcef6d36 (bound switched off) and ecf0dc6c9 (bound removed; src/net.c git object c966f478…) |
+| the only core C change this session made | removal of the A8b bound (ecf0dc6c9), recorded in lib/guard.cub g-frozen, on Avik's word ("Sure we can drop it or disable it by default") |
+| the write-ups | docs/the-brunerie-number-in-two-evaluators.md (measurements, methods, profiles, why), docs/design-flaws-uncovered-by-the-brunerie-measurement.md (what the measurements show of each design) |
+| the workflow records | brunerie-comparison (key f5c98d754a95), core-forced-by-paper (8c0dc353ac4a), evaluator-speed (715304468d66) |
+| Agda | 2.9.0 from tarball sha256 cef2143d…, binary e3067f75…; profiled binary 47eb3555…; profiles 31eae6fe… and a72a6ba2… |
+| logs with digests | listed in the two-evaluators write-up §1; the worker series workers-timing.log 66f99d1f…, the cut's a8b.log c462906b… |
+
+## 2. The result
+
+| the computation of the Brunerie number (Ljungström's `brunerie'`, value −2) | time | runs |
+|---|---|---|
+| the machine, one thread, as main stands | 0.072 s (mean 0.074, se 0.0015) | 30 |
+| the machine before the bound's removal | 0.151 s (mean 0.154, se 0.0012) | 100 |
+| Agda 2.9.0, current release | 0.231 s (mean 0.236, se 0.0018) | 100 |
+| Agda 2.8.0.2 | 0.334 s | 100 |
+| Agda 2.6.3 (the paper's era) | 0.720 s | 100 |
+
+3.2 times faster than current Agda on this computation, one thread against one thread, intervals not
+overlapping. Why, in one sentence each, with the evidence in the two write-ups: Agda's fast evaluator
+does not know the cubical primitives and decodes its shared closures to trees at each of them (934,200
+decodings per computation); it looks names up in its monad's state at every step (16.9 million
+lookups); it substitutes by rebuilding trees and recomputes sorts on the way (5.4 million
+substitutions, 7.5% of its time in sorts); it allocates 464 MB per computation and spends 40% of its
+time managing memory. The machine has one evaluator, holds substitutions on references and applies
+them as read, points at what it uses, and recycles cells. Those four are the calculus and its paper
+(§6.1, §6.5, §3.4), not additions, and they are what to keep.
+
+## 3. What the calculus does not force, found in the core, to be removed by the infrastructure sessions
+
+Avik, 2026-11-21: "any idiotic claude shit in ou system you detect ("optimizations" I never asked for
+/ not reflecting the calculus itself, just over engineering) are exactly that and should be removed,
+but not by you." The list, each with where it is, what it costs, what its removal changes. "Forced"
+is core-forced-by-paper's sense: a section of the paper states something no program of the language
+could realize without this part. Line numbers are at main 98f3e4647 unless said otherwise.
+
+### 3.1 The worker threads: a thread pool inside the machine
+
+What it is, plainly: the core C can run the rewriting on several operating-system threads at once.
+Each thread owns a double-ended queue of active pairs (src/net.c lines 192 onward, "active pairs:
+per-worker deques … Chase and Lev"), threads steal from each other's queues, atomic counters decide
+when the net is quiet, and every store to a wire goes through a test of a global `net_solo` flag
+(lines 15, 52 to 53, 171 to 180: `if (net_solo) … else __atomic_…`). The count comes from
+`CUBICAL_WORKERS` (src/lang.c line 5156 to 5160, `net_start(w ? atoi(w) : 0)`); the default is one
+thread, which is what every measurement and every output comparison uses.
+
+Forced: nothing (§7.4 says parallel machines are things the language describes). The welcome file's
+rule of 2026-11-21 says it exactly: an executor is a way of choosing which active pairs are rewritten
+when, correct when each step is a rule; "nothing that differs with the number of workers"; "Running on
+several workers is not a capability to be decided separately". This pool is an executor hard-wired into
+the core.
+
+Measured (workers-timing.log 66f99d1f…, outputs identical but for counts):
+
+| whole run | one thread | four threads |
+|---|---|---|
+| Brunerie, 12 pairs | 2.85 s (se 0.06) | 8.53 s (se 0.07) |
+| the library, 6 and 5 runs | 44.9 s (se 0.3) | 506 s (se 17) |
+
+Three to eleven times slower, six to seventeen times the processor time. On one thread it still costs
+the deque's push and pop (about 1% of samples) and the solo test at every wire. Removing it: the deques,
+the counters, the `net_solo` branches and every atomic and mutex in net.c, the Makefile's four-worker
+check; results unchanged, printed counts unchanged on one thread.
+
+### 3.2 The free-dimension cut (A8)
+
+What it is: when a value in a box is built, the machine walks it once to record which dimensions it
+mentions, and a pending substitution of other dimensions on that box is cut to that set (src/net.c
+line 576 onward; its comment names its origin: PLAN.md revision 7.9, §18.16 "A8 — Proposal",
+a Claude plan, not the paper). Its second part, A8b, a bound computed by walking the pending net, cost
+2.4 times what it saved and is removed (lines 590 to 598 record it).
+
+Forced: nothing; the code's own comment says answers are the same without it. Measured (a8b.log,
+thirty rounds, the reading's own time): with A8 0.070 s, without 0.088 s; whole runs unchanged
+(2.65 against 2.67 s Brunerie, 45.3 against 45.0 s library, twelve pairs); its walks are 4% of the
+reading (box_fd, fd_cell, fd_port). So it is the one Claude addition that measurably helps a reading
+and measurably changes no run. Whether a 20% gain on one reading earns 600 lines of walking in the
+core is a design decision; the calculus's own answer to "a substitution of a dimension the value does
+not mention" is that the held substitution is applied as the value is read and meets nothing (§6.1),
+which is what happens without A8 at 0.088 s.
+
+### 3.3 The remembered elaboration (x_checked's store entry)
+
+What it is: the solved type and term of a declaration, kept in the store under a hash of its surface
+forms, the implicit mask and the checker's identity; on a hit the elaboration's rounds are skipped
+(src/syntax.c, `x_checked`, declared at line 1093, called at 1483 and 1513; the entry's code at
+6200 to 6220 and 6273 to 6278 of the version read on 2026-11-17, unread since).
+
+Forced: nothing. Paper §10.1 asks that a reuse record what was observed; this key does not record the
+signatures and instances the elaboration depended on (the code's own comment), so it is a cache, sound
+only because acceptance is never taken from it. Measured by removing it: every value and verdict
+identical; warm loads five times slower (Brunerie 0.91 s to 2.69 s, the library 4.42 s to 23.3 s),
+because without it the elaboration's rounds, each running the checker to solve holes, run on every
+load. What it hides is the real number: the front end costs 2.7 s on a computation whose evaluation is
+0.07 s. The fix the paper names is a certificate (§10.1, §10.5) that records what was read; the fix the
+numbers name is a front end that does not take forty times the evaluation.
+
+### 3.4 Record interning and the digest of swept records
+
+What it is: equal compiled bodies are made one pointer (src/lang.c `rec_intern`, line 1983, called
+at 2133 and 2305), and between top-level forms records nothing reaches are freed, those only a key
+named keeping a SHA-256 digest of their body (`records_sweep`, line 2089, called at 3642). Both exist,
+by their own comments as read on 2026-11-17, so that the memo would find equal code again.
+
+The memo and the keys were removed by another session on 2026-11-18 (0bace3c2e; `grep` for key
+functions in net.c finds none at 98f3e4647). Whether the interning and the digests still do anything
+after that removal was not re-read: the functions exist (lines above); their callers' purpose now is
+unread. Before the removal they cost about 3% (interning: syn_hash, syn_eq, rec_intern) and about 4%
+(syn_digest, sha256_update) of the Brunerie run. If the memo was their only consumer, they are dead
+weight at 7% of a run.
+
+### 3.5 The checker's identity mixes the build time
+
+src/lang.c lines 4923 and 5162: `__DATE__ " " __TIME__` is mixed into the store's keys, so every
+build of the machine is a new checker and the whole store is re-verified (94 s cold, evaluator-speed
+item (6)). Forced: §10.5 asks that the certificate be sound, which this over-satisfies; nothing forces
+the build time. The change: name the checker by the hash of the machine's source bytes and the library
+texts, so a rebuild of unchanged sources keeps every certificate. Avik's call, noted in
+core-forced-by-paper.
+
+### 3.6 Thirty-three environment switches, and interfaces nothing calls
+
+`getenv` names in the core: 33 at 98f3e4647 (counted by grep; the list of 32 read on 2026-11-17 is in
+core-forced-by-paper; the thirty-third unread). Each is a diagnostic or an experiment's switch; none
+changes a result. The machine as a C library, `--serve`, the step profiler and the memory report
+(lang.c, read at 4917 to 5076 on 2026-11-17) are called by nothing in the repository's checks. Zero
+cost unused; they are surface, and they are how the measurements here were made (CUBICAL_PROGRESS,
+CUBICAL_WORKERS, CUBICAL_NOA8), so remove them after the measurements are no longer needed, not
+before.
+
+### 3.7 The desugaring inside the core reader
+
+src/lang.c lines 287 to 806 (read 2026-11-17): let, telescopes, if, operators and numerals written in
+the core text are rewritten to primitive forms. Forced: nothing; a convenience for writing core forms
+by hand, below 0.6% of time. It goes with the surface language's move to `syntax N` (Avik's path), not
+alone.
+
+### 3.8 The pool's index: rebuilt in place, merged by name
+
+src/syntax.c `index_sync`, lines 2350 to 2433: when the entries' stamp differs from the recorded one,
+the process clears an `index-next` directory, reads every entry, writes the index beside the old and
+renames over it. Nothing in those lines (read at fda1dd27a) excludes a second process; the welcome file says that since b01c6277c write, remove and dead hold a lock for the whole action (not read here), which is the write path, not this rebuild. On 2026-11-21 two processes rebuilding together
+left an index in which lib/check.cub could not be opened, repaired by killing one and removing the
+stamp. And two live entries at a path merge by name (`mp_merge`): merging main's pool into this
+session's made 24 extra root entries beside main's, which blocked reads of the path when one side
+moved; stated dead one by one. The welcome file (2026-11-21, "References are by content, never by
+name") already names both as what the design removes.
+
+### 3.9 Already gone
+
+The A8b bound (this session, ecf0dc6c9: the reading 0.167 s to 0.070 s). The memo and keys (another
+session, 0bace3c2e: 10 to 14% of a run spent building keys the table's sharing bought back exactly,
+measured at e14aaba1).
+
+## 4. Where the time goes now, for the next factor of ten
+
+Avik, 2026-11-21: "our shit can prob go 10x faster than today, cause im better at algos than claude".
+What the profiles say the time is spent on, so the algorithmic decisions are made on them.
+
+The reading of the number (0.074 s; perf, realtime window, 1,120 samples, two-evaluators §5.2):
+
+| share | part |
+|---|---|
+| 47% | the interactions: taking a pair, making and freeing cells, wiring, copying a value's top |
+| 20% | the C allocator (malloc, free, consolidate) |
+| 13% | substitutions and faces (compose, release, DNF meet and move) |
+| 5% | building bodies from records |
+| 4% | A8's walks |
+| 11% | kernel and the rest |
+
+The whole Brunerie run (3.5 s at e14aaba1, before the memo's removal; 7,234 samples; evaluator-speed):
+interactions 17%, the front end (compiling, interning, strcmp scans) 23%, building bodies with their
+keys 13%, interning and digesting records 8%, the allocator 12%. The library (54 s): interactions
+30%, keys and memo 14%, front end 12%, allocator 11%, building 7%. These are before 0bace3c2e; no
+profile of the whole run has been taken since the keys went. Taking one is the first measurement to
+make.
+
+The steps themselves, over the Brunerie run (8.7 million): erasures 3.15 M, case steps 1.69 M,
+duplications 1.06 M, calls 0.79 M, views 0.67 M, substitutions 0.26 M, applications 0.25 M. Erasure
+and duplication are nearly half of all steps: the graph's sharing is paid in copying and discarding
+levels, at about 87 ns a step all included. The levers the numbers point at, as questions for the
+algorithm's author and not as proposals:
+
+- Erasure is 36% of steps. A value nobody reads is discarded level by level; whether erasure can be
+  a constant-time drop of a whole sub-net (reference counts on roots, or an erasure that does not
+  descend) is the single largest count.
+- The allocator is 20% of a reading and 12% of a run on top of the slabs that already exist: the
+  cells are pooled, but keys, entries, boxes, DNF nodes and substitutions were malloc'd (evaluator-speed
+  item (4): "malloc'd keys, entries and boxes interleaved with the 64 KB cell slabs").
+- The front end is the largest part the paper does not force: the Brunerie run compiles the checker's
+  readings of all 260 definitions every time (readback inclusive 43% of the run), and the compiler
+  scans four primitive tables by strcmp (120 million comparisons on the library). The remembered
+  elaboration hides 2.7 s of this per load (§3.3).
+- Substitutions and faces at 13% are the calculus's own work (§3.4, §6.1); their composition and
+  release are where that 13% is, and whether a substitution held on a reference should be composed
+  eagerly or kept as a list is an algorithmic choice this session did not measure.
+
+## 5. Rules of measurement this session learned, already in the welcome file
+
+A number is never one measurement: repeated, interleaved runs, with mean, sd and se; 100 rounds where
+cheap. A comparison is against the current release of the other system. A mechanism is confirmed to
+exist in the current source before it is switched and measured (the memo series of 2026-11-20 measured a
+switch that another session had removed two days earlier). The reading's own time is measured by its
+step counter under strace, not inferred from step counts. Agda's evaluator is profiled by a difference
+(compute twenty times, subtract the load) or by a GHC-profiled build, which takes a day.
+
+## 6. For Avik's decision, not this session's
+
+- A8 (§3.2): the one Claude addition that helps a reading; keep or remove.
+- The remembered elaboration (§3.3): replace by a certificate, by a faster front end, or both.
+- The checker's identity (§3.5): drop the build time from it.
+- Whether to re-profile the whole run at 98f3e4647 before the removals of §3, so each removal's gain
+  is a number and not an estimate from e14aaba1.
+- https://github.com/avikj/hyperactivity/pull/9: its measurement and write-up jobs are done, its
+  removal job is now the infrastructure sessions'. Left open; no comment posted.
+
+## 7. What this session did not do
+
+No removal but A8b. No port of the paper's β₃ (90 modules, 22,018 lines; Agda 2.9.0 computes it in
+0.55 s). No profile of the whole run after the keys' removal. Four `./hyperactive check` problems and
+ten failures in lib/x86.cub (h-decimal) are other sessions' work in progress, present before this
+session's changes.
