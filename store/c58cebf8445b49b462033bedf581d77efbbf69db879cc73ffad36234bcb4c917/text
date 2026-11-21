@@ -1,0 +1,380 @@
+-- core-forced-by-paper (2026-11-17): Avik's question, answered part by part for the whole core C
+-- (at 5bae4ef0: src/net.c 4366 lines, lang.c 5114, syntax.c 6426, store.c 595, dnf.c 378, big.c 147;
+-- with core.h 486, drivers.c 211 and sha256.c 45, 17,768 lines), each part read before anything is
+-- said of it (read at e14aaba1; what 021252f6 changed in syntax.c, the syntax declaration, re-read). "Forced" means: a section of the paper (the value hyperactivity, docs/hyperactivity.cub)
+-- states a judgment, a computation rule or a property of the system that no program of the language
+-- could realize unless the machine has this part. Otherwise nothing forces it: it is a choice of
+-- this implementation, and the question is what it costs and what removing it changes. Costs are
+-- shares of the machine's own time measured with perf (sampled call stacks, --call-graph dwarf, the
+-- CPU clock) on two runs with nothing else running: the Brunerie run (lib/core.cub, the typed port,
+-- its run file; 7,234 samples at 2 kHz, 3.5 s) and the library (lib/library.cub; 27,463 samples at
+-- 500 Hz, 54 s of user time, 214,317,217 steps). The whole-process times under those runs are in
+-- brunerie-comparison and evaluator-speed, from twelve interleaved rounds each.
+-- The nouns, from the ground up. A term of the language (a program, a type, a proof: all one kind
+-- of thing) is written as text, read into a tree (a node: a symbol, or a list of nodes), and
+-- compiled into code (a Syn: the tree with each bound variable replaced by its distance to its
+-- binder, each name by the number of the definition it means). Code is built into a net: a graph of
+-- cells joined by wires. A cell has a kind (a value kind, V_*, such as a λ, a pair, a constructor
+-- with its fields, a path; or an operation kind, O_*, such as apply, project, substitute a dimension,
+-- compose) and a few ports; one port is principal. A wire joins two ports. An active pair is an
+-- operation whose principal port is wired to a value's principal port: the operation has met the
+-- value it consumes. An interaction step takes one active pair and replaces the two cells by a small
+-- net on the wires they leave behind, by a rule that depends only on the two kinds. Running a term
+-- is performing steps until none is active; reading back is walking the resulting values into text.
+-- A dimension is a variable ranging over the interval I; a face is a condition on dimensions, such
+-- as i = 0 or (i = 1) ∧ (j = 0). A substitution replaces dimensions by interval expressions. A box
+-- holds a value that several readers share, each holding a reference to it. A key is an interned
+-- name of a term over the values it is built on, so that two cells built from the same code over
+-- the same inputs have the same key (one pointer). The memo is the table from a key to the one box
+-- holding its value. A frame is the environment a body is built in (its captured values). A record
+-- is the compiled body of a λ or a thunk, shared by every cell built from it. The store is the
+-- directory of checked definitions under the SHA-256 of their canonical form (store.c). A step is
+-- one interaction; a reading's step count is printed after every result.
+-- Worked example, the paper's own (§6.5 "Shared evaluation and partial information"): t(x, y) =
+-- fst (x + 3, y). The code is `fst` applied to a pair whose first part is the word operation `+` on
+-- the variable x and the literal 3, its second part the variable y. Built as a net: an O_FST cell
+-- whose principal port is wired to a V_PAIR cell; the pair's two parts are deferred cells (V_DEFER,
+-- call by need: an operation in an operand position is built unrun, run by whatever reads it). The
+-- one active pair is fst against the pair; its rule wires the pair's first part to fst's result and
+-- erases the second (an O_ERA cell meets the deferred y and frees it unrun). The result is the
+-- deferred `x + 3`, a neutral value: x is a variable with no value, so the word addition stays
+-- stuck, and reading back prints `x + 3`, as the paper's §6.1 "Open terms and delayed work" says
+-- ("the result is a neutral value containing that eliminator and its arguments"). Substituting x := 5
+-- is a later run in which the variable is a value and the addition fires. Where the memo enters: had
+-- `x + 3` stood twice in the term, both cells carry the key (WADD (VAR x) (WORD 3)); when one fires
+-- while the other is pending on the same key, the value goes into a box and both read it.
+-- ---- src/net.c, the machine ----
+-- Cells and variables, per-thread slabs (lines 17–193). What: the cells and wires, allocated from
+-- 64 KB slabs owned by a thread, freed to the thread's free list. Forced: the paper's language
+-- computes by local graph reduction with sharing (§6.5: "two occurrences may refer to one
+-- producer"; "graph-based local reduction has an established account in interaction nets"), and
+-- §6.1 "Open terms and delayed work": "Call-by-need retains a shared producer rather than
+-- immediately copying and evaluating each use". Some representation of cells and wires is forced;
+-- slabs and free lists are the allocator chosen. Cost: cell 3.5% (Brunerie) and 6.8% (library),
+-- cell_free 2.2% and 3.3%, flush_frees 1.7% and 2.8%, var_new 0.5%. Removing the slabs for plain
+-- malloc changes no result; the allocator is already 12% (Brunerie) and 11% (library) of the time.
+-- Active pairs, per-worker deques, and the workers (194–380, 3851–3993). What: Chase–Lev deques, one
+-- per worker thread, from which workers steal active pairs; the atomic counters that decide the net
+-- is quiescent; the worker threads with their spin, yield and sleep; the shard locks on the key and
+-- memo tables; the atomic reference counts on boxes. Forced: nothing. §7.4 "Parallel processors and
+-- accelerators are other transition systems" says parallel machines are things the language
+-- describes, not that the evaluator runs on several threads; no section states a speed. Cost: on one
+-- worker (every measurement here) the locks are skipped by the net_solo test, and what remains is the
+-- deque's push and pop and the counters: pop 0.9% and 1.2%; the shared Queue structure. Removing it:
+-- a single-threaded machine; the Makefile's four-worker Brunerie check goes; every atomic and mutex
+-- in net.c goes with the shard locks, box_try_hold and the Local counters. Results unchanged (one
+-- worker is what every output comparison already uses). This is a capability, not a result: Avik's.
+-- Keys (381–590). What: interned terms (Key), hashed and sharded, with retain and release counts.
+-- Forced: only through the memo (below) and the free-dimension cut, which name values by keys; a
+-- duplicator also carries its value's key (split). §6.1 "Reuse of reductions" states what a reusable
+-- computation must record ("the producer's structure, free dependencies, context restrictions,
+-- result or residual"); the key is that record for the memo's reuse. Cost: key 3.2% and 5.0%,
+-- key_release, key_unlink, key_retain, key_of_port 0.8%, 1.0%, 0.7%, 0.6%, 0.8% (library); synkey
+-- and synkey_walk (a built node's key, from the code and the frame) 3.1% and 5.1%; the KCache table
+-- per frame. About 10% (Brunerie) and 14% (library) of self time with the memo below, before the
+-- allocator's share for Key and Entry objects (evaluator-speed, item (1)).
+-- Gone from main since 2026-11-18 (0bace3c2e, another session, Avik: "two processes unaware of each
+-- other computing the same thing share nothing; past what a connection observes, 'same' is not
+-- observable"): the keys, their tables and shards, the memo, synkey and its cache, the key on every
+-- cell, RecGone and the switches CUBICAL_NOMEMO and CUBICAL_KEYS; 682 lines of net.c. The two
+-- paragraphs above and the one below describe the code at e14aaba1, which the profiles of 2026-11-17
+-- measured; the removal was found 2026-11-21 when the current net.c was read for the bound's
+-- removal, and until then this node spoke of the memo as present. A8, the cut of a pending
+-- substitution to a box's free dimensions, was kept and runs without the memo.
+-- Memo, one value per live key (591–741 at e14aaba1). What: a producer cell is pending on its key from its
+-- creation; when one fires while another is pending, the value goes into a box and both read it.
+-- Forced: nothing. §6.5 and §6.1 force that sharing be possible (one producer, many occurrences:
+-- the net's wiring and duplicators do that) and that any reuse of a reduction be justified by
+-- substitution stability ((6.8), (6.9)); they do not force the machine to find reuse between
+-- occurrences the wiring does not connect, which is all the memo adds. Measured at e14aaba1, the last
+-- machine with a memo, 2026-11-17 (CUBICAL_NOMEMO=1, which turned the table and the cut off but still
+-- built every key, interleaved with the memo on, twelve rounds on Brunerie and five on the library,
+-- see evaluator-speed; the hundred-pair series of 2026-11-20 ran a machine that had no memo to switch
+-- and measured nothing): every value, every pass
+-- and fail identical; the step counts differ (the Brunerie reading 358,603 steps with, 405,568
+-- without; the whole run 8,719,800 and 9,098,611, 4.3% more; the library 214,317,217 and
+-- 215,740,424, 0.7% more); the wall time does not differ (Brunerie medians 3.31 s and 3.30 s, the
+-- library 49.3 s and 48.5 s, each inside the other's spread). So the table's sharing buys back
+-- exactly its own cost on these runs, and the keys' 10–14% is spent whether or not the table is on.
+-- Removing it all removes keys, synkey and its cache, the shard tables, Entry and the box-by-key
+-- holds, the "hits" and "shared" counts printed, and the free-dimension cut. What changes: the step
+-- counts printed (more), nothing else observed; the time gained is the keys' share less the extra
+-- steps' cost, to be measured by doing it.
+-- Small constructors (742–940). What: the functions that make the cells of each kind. Forced with
+-- the rules. Cost: inside the rules' shares.
+-- The free-dimension cut, A8 and A8b (941–1184). What: the set of dimensions a box's value mentions,
+-- found by walking the value once built, kept on the box; a pending substitution of other dimensions
+-- is cut to that set, so reads of one box at dimensions it does not mention are reads of the box
+-- itself and the memo shares them. Forced: nothing; it is PLAN.md revision 7.9 (git 2ca8d747aaa5,
+-- §18.16 "A8 — Proposal: formal transported compositions"), a proposal of a plan, not the paper,
+-- and the code says "without it every step is as before. Answers are the same either way". Cost,
+-- measured 2026-11-21 (brunerie-comparison, "Why"): over whole runs nothing (Brunerie 2.65 against
+-- 2.67 s, the library 45.3 against 45.0 s, twelve pairs each, inside the errors); inside the
+-- Brunerie reading itself it costs 45% of the time (0.160 s with, 0.089 s without, thirty rounds,
+-- se 0.003 and 0.002) while saving 13% of the steps: the walks box_fd, fd_cell, fd_port are 6–8% of
+-- the reading's samples. Every value and verdict identical with it off; the step and cell counts
+-- printed differ. Removal candidate with the measurement for it; the printed counts keep it from
+-- being byte-identical, as with the memo.
+-- Pending substitution, boxes and references (1185–1208, rule_subst, ref_read). What: a
+-- substitution meeting a value with parts is held: the value goes in a box and a reference carries
+-- the substitution, applied one level when read. Forced: §6.1 "Open terms and delayed work": "Delayed
+-- substitution records an operation and its inputs until a consumer needs the relevant structure";
+-- "Readback and quotation must preserve that sharing where possible; forcing the entire graph to a
+-- tree can destroy the benefit". Cost: inside SUBST steps (176,838 of the reading's steps).
+-- Types of neutrals (1209–1491). What: a stuck value carries its type on its last port, so
+-- eliminating it computes the result's type; a path at an endpoint answers the endpoint from its
+-- type. Forced: §3.4 "Dimension, face, composition, and path judgments", (3.13): p @ 0 ≡ a₀ for every
+-- p : Path, neutral or not; the endpoints are the type's.
+-- Structural rules (1492–1854): duplication, erasure, substitution, the path λ. Forced: duplication
+-- and erasure are the interaction net's sharing and discarding (§6.5), substitution is the calculus's
+-- t[i := r] (§3.4), the path λ is ⟨i⟩t of (3.13). Cost: DUP 1,053,251 and ERA 3,131,620 of the
+-- reading's steps, most steps by far: duplicating and erasing is what sharing costs when a value is
+-- read twice or not at all; the per-step share is inside interact, link, cell.
+-- Values as data, %view (1855–2217). What: %view gives a value's head as a constructor of View
+-- (lib/code.cub) over the value's own ports, nothing copied. Forced by name: §1.2 "Programs about
+-- programs": "The checker is itself a term: it analyzes the evaluator's values through a structured
+-- observation %view". Cost: VIEW steps; small in both profiles.
+-- The rules (2218–3836). What: one rule per pair of kinds: application and projection; path
+-- application; the Kan operations (composition, transport, hcomp) for Π, Σ, Path, universes, Glue,
+-- data types and higher inductive types; Glue and unglue; faces and systems; words (the primitive
+-- operations and their big numbers); clocks and ticks; the checker's views. Forced: §1.1 "Computational
+-- cubical foundations" ("The computational rules follow the CCHM cubical calculus [9], extended
+-- with clock-indexed guarded computation [44]"), §3.4 ((3.13) path rules, (3.14) composition "for
+-- every type former"), §4 "Equivalence, univalence, and structure" (Glue and ua), §8.5 "Exact scalar
+-- types" (Word, the fixed-width words). Cost: interact 4.0% and 5.2%, link 2.4% and 3.8%, link_now
+-- 1.7% and 2.7%, lazy_copy, copy_top, clone, retire_boxes about 1% each in the library: with cells
+-- and slabs about 17% (Brunerie) and 30% (library) of the machine's time is the interactions.
+-- Rewriting one active pair, net_observe (3837–3850, 3851–3993). What: the loop that takes pairs and
+-- applies rules; observe, which reads a result at its type. Forced with the rules.
+-- Building a net from syntax (3994–4366). What: build_m makes cells from code in a frame; call by
+-- need (V_DEFER): every operand is built unrun and run by its reader; synkey names each built node
+-- for the memo (KCache). Forced: building is forced (code must become a net); call by need is §6.1's
+-- "Call-by-need retains a shared producer"; synkey and KCache belong to the memo. Cost: build_m 4.3%
+-- and 5.6%, run_frame 1.4% and 1.7%, thunk_build, record_build about 2% each (Brunerie): about 8%
+-- forced, plus the memo's 3–5% for synkey.
+-- ---- src/lang.c, the front end and the driver ----
+-- Reading text into nodes, the node arena (70–286). What: the reader of the core forms (lists in
+-- parentheses) and the arena the nodes live in. Forced: some reader of the language's text is forced
+-- (§9.4 names "its printer/reader correspondence" as an obligation); the arena is a choice. Cost: the
+-- lexer and read_node are below 0.6%.
+-- Desugaring to the core forms (287–806). What: let, telescopes, if, operators and numerals written
+-- in the core text, rewritten to the primitive forms. Forced: nothing; a convenience of writing core
+-- forms by hand. Cost: ds below 0.6%. Removing it: the core text would be written in primitive forms
+-- only; the surface language (syntax.c) produces primitive forms through ds too, so ds goes only
+-- with syntax.c or with its own rewriting.
+-- Codes of source terms and annotated codes (807–1551). What: to_code quotes a definition's type and
+-- term as a value of Code (lib/code.cub) for the checker, with binder depths and definition numbers;
+-- ann annotates. Forced: §1.2 "Represented terms form an inductive type Code, with an interpretation
+-- eval-g"; the checker takes codes. Cost: ann 3.3% inclusive (Brunerie), aclosed below the floor.
+-- Definitions and globals (1552–1772). What: the table of definitions, data types, constructors and
+-- fields with their indexes by name (NameIx). Forced: the language has definitions; the indexes are
+-- the fix of evaluator-speed (a scan by name was 62% of a run). Cost: intern 3.6% and 3.3%,
+-- intern_lit 1.2% and 0.8%, strcmp 5.8% and 3.4% (interning names and the front end's comparisons).
+-- Compiling: binder levels and lifting (1773–1919). What: compile turns a node into code, lvs and
+-- maxlev compute binder levels, lift closes a body over its captures, lookup_i finds a binder.
+-- Forced: code must be compiled. Cost: compile 1.9% and 0.8%, lvs 3.6% and 2.3%, local_free 3.4%
+-- and 0.6%, maxlev 1.4% and 1.0%, lift 0.7%, compile_lazy 0.7%: about 12% (Brunerie), 6% (library).
+-- The Brunerie run compiles the checker's readings of every one of 260 definitions.
+-- Interning compiled code (1920–2038). What: equal records are one pointer, so equal bodies compiled
+-- in different places name their values alike "and share them through the memo". Forced: nothing;
+-- it exists for the memo. Cost: syn_hash 1.1% and 0.7%, syn_eq 1.3% and 1.0%, rec_intern 0.9% and
+-- 0.7%: about 3% and 2.4%. Goes with the memo (a key's record pointer would then name nothing).
+-- Sweeping compiled code (2039–2688). What: between top-level forms, records no cell, key or
+-- definition reaches are freed; records only a key names keep a SHA-256 digest of their dropped body
+-- (RecGone), so equal code compiled again gets the same pointer and the memo finds what it found.
+-- Forced: freeing is memory management (a choice: records could be kept, at memory); the digest of
+-- dropped bodies exists for the memo. Cost: records_sweep 5.4% inclusive (Brunerie), of which
+-- rec_drop_body and syn_digest 4.6% and 3.9%, sha256_update 2.9% and 1.3%. Without the memo the
+-- sweep frees without digesting.
+-- Reading back (2689–3005). What: a value walked into a node: readback, rb. Forced: §6.1 "Typed
+-- quotation, semantic readback, and self-application" (readback is the paper's own word). Cost:
+-- readback 43% inclusive of Brunerie (it includes every step the checker's readings run), rb itself
+-- below the floor.
+-- Printing a code (3006–3402). What: a node as text. Forced: the printer of the printer/reader
+-- correspondence (§9.4). Cost: printf 0.7%.
+-- The driver and the top-level forms (3403–3417, and toplevel in 3418–4860). What: each form the
+-- machine accepts: def, checked, data, codata, mutual, primitive, foreign, #show, #same, #check,
+-- #observe, #supply, #input, #run, #key, #names, #history, #unbind, #safe, #retract, #gc, #scope,
+-- #where, #usage, #trusted, import. Forced: the language's declarations (def, checked, data) and a
+-- way to read a value (#show) are the machine's interface to the language; the paper's §10.9
+-- "Interactive symbolic programming over the actual computational object" says "The interface
+-- itself is a program", so no command is forced as C: each is forced only until a program of the
+-- language does it. Cost: toplevel_in 19.6% inclusive (Brunerie), nearly all of it the checking it
+-- drives; its own code is below the floor.
+-- Data and codata generation (in 3418–4860: %comp-D, %trans-c, %hcompf-D, the eliminators). What:
+-- for each data type declared, the code of its composition, transport and homogeneous composition,
+-- and of its eliminator. Forced: §3.4 (3.14) "Dependent composition requires a filling operation for
+-- every type former", §1.1 "Inductive and higher-inductive definitions introduce data and paths by
+-- their constructors"; copattern definitions and clocks by §1.1 "The clocked extension permits
+-- guarded continuing computation". Cost: in the generated code's steps (%comp-Level 2,259,
+-- %hcompf-Level 4,832 λ entries of the reading, the profile's top lines).
+-- #jit binding (JT, jit_bind). What: bytes computed by lib/x86.cub's jit-plan are mapped executable
+-- and bound to a definition; on closed data the bytes compute it, otherwise its definition does.
+-- Forced: §9.2 "Universal native realization by one evaluator" and §9.4 "Compilation through C"
+-- force native realization through proved relations; the C part is the trusted boundary (the
+-- encoder's templates and the frame convention, PLAN.md §13 "The trusted surface"). Cost: nothing
+-- unless a #jit is declared (none in these runs).
+-- The machine as a library, --serve, the profiler, memend (4917–5076). What: C programs calling
+-- checked definitions; requests on standard input; the step profile; the memory report. Forced:
+-- nothing. Cost: nothing unless used (prof_enter per form is a few stores).
+-- main and the environment switches. What: 32 getenv names (CUBICAL_TRACE, PROGRESS, KEYS, WHY,
+-- PROFILE, MEMEND, MEMDEF, ARPOISON, KEEPTOP, NOCHKMARK, NOELMARK, NOELFREE, REDECLARE, NOCONW,
+-- STACKED, SWEEPALL, NOSWEEP, NOMEMO, NOA8, NOCACHE, STORE, WORKERS, CORE_OUT, SHOW_ELAB, SHOW_LIN,
+-- SHOW_EMIT, CUB_DBGSYN, CUB_DBGPR, CUB_DBGCOMP, CUB_CHKBIND, CUB_NOCASEMOTIVE, CUB_SHOWCLAUSES,
+-- X_TRACE). Forced: nothing; each is a diagnostic or an experiment's switch. Cost: each read once
+-- and cached, or at most once per form. Removing them: the comparisons they enable (NOMEMO, NOA8,
+-- CHKBIND) are how this classification was measured; the rest are debugging aids perf replaces for
+-- time, not for steps.
+-- ---- src/syntax.c, the surface language ----
+-- Tokens, layout, operators, the parser (11–849); numerals and intervals (850–884); names (885–910);
+-- definitions by clauses, untyped (911–1078); declarations (1079–2039: data, codata and record,
+-- mutual, module and open, primitive, world, foreign, variable, postulate, deriving, `syntax N` with
+-- a raw block, #build and #build-loop, #jit, and the # commands as surface); printing core forms in
+-- the surface language and converting a file (2329–3265); codes read back as core terms (3266–3424);
+-- elaboration (3425–4548: implicit arguments as holes solved by the checker, guesses of a λ's kind,
+-- instance search, tick insertion for guarded recursion, by-lin certificates, the declarations list);
+-- checked definitions by clauses (4549–6131: splits as eliminations with their motives, induction
+-- hypotheses, course-of-values recursion, guarded fixed points, index unification as Agda's,
+-- recursion along a measure, copatterns, lifting a case to a split); x_checked (6165–6290: the rounds
+-- with the checker until holes and guesses settle, with a remembered elaboration in the store);
+-- records, foreign, primitive, #show's solving (6292–6426). Forced: nothing in syntax.c is forced by
+-- the paper, with one exception. The paper's language is the core calculus with its codes (§1.1,
+-- §1.2, §3.4, §6.1); the surface notation is one notation for it. The exception is `syntax N`
+-- (p_decl_in, 2026-11-17, the form docs/language-derived-from-the-record.cub forces): N, a checked
+-- reading List Word → Lst Meaning, gives a raw block's meaning as declarations with the codes of
+-- their types and values, each checked, no text read again, so no notation is the hub; that is the
+-- paper's §6.1 "Typed quotation, semantic readback, and self-application" (a notation relates texts
+-- to codes, and codes are checked) realized for notations, and it is the part by which the rest of
+-- syntax.c goes. The elaborator is untrusted by construction: the checker checks what it produces,
+-- so removing it loses no trust. Cost: p_decl_in is 25.6% of the Brunerie run inclusive, but that
+-- includes the compiling and checking it drives; the lexer, parser, elaborator and clause compiler's
+-- own functions (el, syn_type, subst_multi, x_rename, ccm_t, p_expr, x_lex) are each below the 0.6%
+-- floor of the profile: the surface language costs under about 3% of a run and 6,426 of the core's
+-- 17,768 lines. Removing it: every .cub is written in core forms until the same notations exist as
+-- syntaxes in the language. Not a session's removal: the path is the one Avik stated, notation by
+-- notation; his to direct.
+-- The written code in the store (2040–2328: w_item, w_piece, w_file, record_source, src_text). What:
+-- as the reader reads a file it cuts it into pieces (each declaration with its comment), stores each
+-- under the SHA-256 of its bytes, the file as the list of its pieces' hashes, a name pointing to its
+-- piece; a document is one piece. Forced: §10.8 "Content-addressed definitions, identity, and a
+-- decentralized codebase" ("a definition is stored with its typed syntax tree and dependency
+-- references. A name is a view or alias"), and Avik's decision that no file is the source (How to
+-- work, "Code does not live in files"). The pieces are text, not the typed tree; the typed key is
+-- store.c's. Cost: below the floor (a few SHA-256 per file).
+-- The remembered elaboration (x_checked, 6200–6220, 6273–6278). What: the solved type and term of
+-- an elaboration kept in the store under the hash of the declaration's surface forms, the implicit
+-- mask and the checker's identity; on a hit the elaboration is skipped and the solved forms go to the
+-- checker as any term would. Forced: nothing. §10.1 "Exact reuse requires recorded information"
+-- states that a certificate "must record what was observed at each key", and this key does not: the
+-- code's own comment says the signatures and instances of the definitions referenced are not in it,
+-- so a stale elaboration can be replayed; it is sound only because acceptance is never remembered.
+-- Cost: nothing in these runs (CUBICAL_NOCACHE=1 turns the store off); when on, a store read and
+-- write per checked definition. Removing it was tried this session (the machine built without it,
+-- run beside the machine with it on the same files): uncached, every output byte-identical
+-- (Brunerie, the library, the workflow, lib/views.cub); with a store, every value and every pass
+-- and fail identical but the step counts not, and the warm runs five times slower: a hit skipped
+-- the elaboration's rounds, each of which runs the checker to solve holes, before the accepted key
+-- was found; without it those rounds run again on every warm load (Brunerie warm 365,451 steps
+-- with it, 6,104,482 without; the library warm 0 and 53,245,117; even cold, the library 211,378,275
+-- and 212,528,075, a declaration elaborated twice in one run hitting its own entry). Warm wall
+-- time, six and three interleaved pairs: Brunerie 0.84–0.95 s with it (median 0.91), 2.58–2.87 s
+-- without (2.69); the library 4.08–4.56 s with it (4.42), 22.6–24.3 s without (23.3). Every
+-- `hyperactive` command is a warm load, so the removal was reverted. What the paper asks is not
+-- its removal but its key completed: record what the elaboration observes (the referenced
+-- definitions' implicit masks and signatures, the instances in scope), as §10.1 states; coarse is
+-- allowed (§10.5: "An epoch for negative lookups may be coarse").
+-- ---- src/store.c, the codebase ----
+-- Canonical form and keys (key_def, key_decl, key_group). What: a checked definition's key is the
+-- SHA-256 of its type and term with binders nameless and every definition it mentions replaced by
+-- that definition's key. Forced: §10.8: "digest(d) for its content address"; "A change to a
+-- definition produces a new object and determines precisely which dependent constructions may
+-- require recomputation". Cost: key_hash and canon, below 1.2% (callgrind, evaluator-speed).
+-- The store's directories: code and type, check lines, usage, deps and users, refusals, names log.
+-- Forced: §10.5 "Dependency certificates and persistent evaluation" (a result retained "together with
+-- the facts read during its computation": the check line names the checker; deps are the
+-- definition's keys), §10.1 ("A failure is not a successful result": a refusal is recorded as its own
+-- observation, 2026-11-12), §10.8 ("A name is a view or alias": the names log binds names to keys
+-- over time, which the history reads). #safe (the trusted definitions a definition reaches, PLAN
+-- §18.10 C20) and #gc (objects nothing names, freed) are commands over the store: forced as
+-- operations only until a program of the language does them (§10.9).
+-- The checker's identity (chk_salt, and lang.c's key_mix of __DATE__ and __TIME__). What: the
+-- checker is named by the hash of the library texts up to the one defining %%chk-def, mixed with the
+-- build's date and time, so every build of the machine is a new checker and the whole store is
+-- re-verified (94 s cold, evaluator-speed item (6)). Forced: §10.5 forces that the certificate be
+-- sound, which this is (it over-invalidates); nothing forces the build time in the identity. A
+-- change, not a removal: name the checker by the hash of the machine's own source bytes and the
+-- library texts, so a rebuild of unchanged sources keeps every certificate. Avik's.
+-- ---- src/dnf.c, intervals and faces ----
+-- What: the interval as the free De Morgan algebra on dimensions (joins of meets of literals, an
+-- antichain), the face lattice on equations i = 0, i = 1, their meets, joins, negation, substitution
+-- and comparison; immutable, reference counted; single literals immortal. Forced: §3.4: "The
+-- interval is the free De Morgan algebra generated by dimension variables, modulo its equations. A
+-- face restriction is built from atomic equations of interval expressions by conjunction and
+-- disjunction." Cost: the Brunerie reading makes 81,430 Dnf and 50,651 Clause allocations; dnf
+-- functions are below the floor of both profiles. Immortal literals are an allocator choice.
+-- ---- src/big.c, numbers beyond a word ----
+-- What: natural numbers that do not fit 64 bits, as little-endian limbs, for word literals and word
+-- operations; wn_parse reads digits (fixed 2026-11-16, evaluator-speed). Forced: §8.5 "Machine
+-- representations and memory laws", "Exact scalar types": "The language distinguishes Nat, the
+-- runtime's unbounded natural representation Word, and fixed-width words such as U64 … A fast
+-- small-integer representation of Nat may spill into larger storage". Without it Word is U64. Cost:
+-- nothing unless a number exceeds 64 bits (wn_parse's old cost is gone).
+-- ---- src/drivers.c, sha256.c, core.h ----
+-- drivers.c: the driver loop that runs a process (a value of Step W A) against the operating system:
+-- w-write, w-read, w-sleep, w-sys. Forced: §7.6 "Composition of programs with open interactions" and
+-- its "Native execution of a continuing process" (a process is a tree of steps whose commands a
+-- handler answers). sha256.c: forced by §10.8's digest. core.h: the kinds and structures above.
+-- ---- The list of what nothing forces, with why each removal is safe ----
+-- (1) The memo and what exists for it: keys, synkey and its cache, the shard tables, Entry, the
+--     box-by-key holds, the interning of compiled code and the digest of dropped record bodies, the
+--     "hits" and "shared" counts. Done on main by another session on 2026-11-18 (0bace3c2e), before
+--     this list was written and unknown to it until 2026-11-21; A8 kept. Safe because sharing between
+--     occurrences the wiring does not connect changes which steps are taken, not what any step
+--     computes: each rule is a function of the two kinds it meets, and a value read from a box is the
+--     value its producer built. Measured with the switch that exists for it (CUBICAL_NOMEMO=1): every
+--     value, every pass and fail identical on the Brunerie run and the library; the step counts
+--     change as said above, and they are printed, so this removal cannot meet the handoff's condition
+--     of byte-identical outputs: the outputs are identical in every line but the step and sharing
+--     counts. Cost removed: about 15% (Brunerie) and 17% (library) of self time, plus part of the
+--     allocator's share, against 0.7–4.3% more steps. The proof at the change is this paragraph's:
+--     no rule reads a key.
+-- (2) The worker threads, deques and every lock and atomic. Safe because every output comparison
+--     already runs on one worker and the rules are the same code on one or four. Measured 2026-11-21
+--     (workers-timing.log, sha256 993da800…, the machine at ecf0dc6c9, outputs identical but for
+--     counts): four workers against one, Brunerie 8.57 s against 2.82 s (12 pairs, se 0.07 and 0.06;
+--     17.0 s of processor time against 2.7), the library 527 s against 44.5 s (3 pairs against 4,
+--     se 8 and 0.4; 781 s of processor time against 44). Four workers are three times slower on
+--     Brunerie and twelve times slower on the library, burning six to eighteen times the processor
+--     time: not a capability as the machine stands but a cost, and the removal's case is measured.
+-- (3) The remembered elaboration in the store: not a removal. Safe for results (acceptance is never
+--     taken from it; measured, every value identical), but it carries the warm loads (above: five
+--     times slower without it), so it stays, and its key is to be completed into a certificate.
+-- (4) The environment switches that are diagnostics. Safe: none changes a result; each is a view.
+--     Keep NOMEMO and CHKBIND until (1) is done; they are how (1) is checked.
+-- (5) The machine as a library, --serve, the profiler, memend. Safe: nothing in the repository's
+--     checks calls them (lib/hyperactive.cub drives the machine by files). Zero cost when unused.
+-- (6) The surface language, syntax.c, by Avik's path: each notation as a `syntax N` of the language
+--     giving meanings, then its C. Not safe to do in one step (every .cub is written in it); not this
+--     session's.
+-- Not removals but changes the paper's sections ask for: the checker's identity without the build
+-- time (§10.5, soundness kept, invalidation exact); the remembered elaboration kept and its key
+-- completed by everything it observes (§10.1).
+-- (7) The free-dimension cut on its own, measured 2026-11-21: the one mechanism found that makes a
+--     reading slower and nothing faster; whole runs unchanged; values and verdicts identical, printed
+--     counts not. Its two parts measured apart, thirty rounds each: the walk of built values (A8)
+--     off, the reading 0.088 s; the bound on pending operations (A8b) off, 0.070 s; both off, 0.088 s;
+--     as it was, 0.167 s. So A8b is what costs, and A8 helps once A8b is gone. Done, 2026-11-21, on
+--     Avik's word ("Sure we can drop it or disable it by default"): A8b first off by default
+--     (8dcef6d36), then its code removed as the dead branches of that switch (fd_taint_of, fd_pending,
+--     the unbuilt and pending cases of fd_cell, fd_port and box_fd), the reason at the place in
+--     src/net.c, recorded in lib/guard.cub's g-frozen; outputs of the rebuilt machine equal the
+--     switched-off ones on Brunerie, and on the library but for ten failures in lib/x86.cub
+--     (h-decimal not yet declared where ce-exp uses it) that the machine before the change shows too:
+--     another session's work in progress on main, not this change.
+-- Carried out this session: (3) was built, measured and reverted (above). (1) changes printed step
+-- counts, so it is not a byte-identical removal, and it is the machine's one sharing mechanism
+-- beyond the wiring: Avik's word first. (2) is a capability: his word. (4) and (5) are byte-identical
+-- removals a session can make, each a C change recorded in lib/guard.cub's g-frozen; neither moves
+-- a measurement, so they wait for his word with the rest.
+core-forced-by-paper : Node
+core-forced-by-paper = node "Every part of the core C (src/net.c, lang.c, syntax.c, store.c, dnf.c, big.c) classified by the paper's section that forces it or by nothing, with the measured cost of what nothing forces and what removing it changes; then the removals, each with its proof and byte-identical outputs." (cons language-implementation-remainder nil)
