@@ -1,0 +1,15 @@
+ce-exp : Nat → Word → Code → List Word
+ce-exp zero d c = "hy_bad()"
+ce-exp (suc k) d (cvar n) = list-append "v" ((λ z → ce-q (toNat #20) z nil) (%wsub (%wsub d #1) n))
+ce-exp (suc k) d (cwlit n) = list-append ((λ z → ce-q (toNat #20) z nil) n) "ull"
+ce-exp (suc k) d (cwsucc a) = list-append "hy_add(" (list-append (ce-exp k d a) ", 1ull)")
+ce-exp (suc k) d (cwop j a b) = list-append (ce-opname j) (list-append "(" (list-append (ce-exp k d a) (list-append ", " (list-append (ce-exp k d b) ")"))))
+ce-exp (suc k) d (clet t b) = list-append "({ uint64_t v" (list-append ((λ z → ce-q (toNat #20) z nil) d) (list-append " = " (list-append (ce-exp k d t) (list-append "; " (list-append (ce-exp k (%wsucc d) b) "; })")))))
+ce-exp (suc k) d (capp f a) =
+  (case fst (x-spine (capp f a)) return (λ _ → List Word) of
+     cglob g → list-append "g" (list-append ((λ z → ce-q (toNat #20) z nil) g) (list-append "(" (list-append (ce-args-n (λ x → ce-exp k d x) (snd (x-spine (capp f a))) true) ")")))
+     h → "hy_bad()")
+ce-exp (suc k) d (cglob g) = list-append "g" (list-append ((λ z → ce-q (toNat #20) z nil) g) "()")
+ce-exp (suc k) d (ccon dd j fs lnil) = list-append "hy_con(" (list-append ((λ z → ce-q (toNat #20) z nil) j) (list-append ", " (list-append ((λ z → ce-q (toNat #20) z nil) (l-count fs)) (list-append ", (uint64_t[]){0" (list-append (ce-args-n (λ x → ce-exp k d x) fs false) "})")))))
+ce-exp (suc k) d (ccase dd B x) = list-append "({ uint64_t *p" (list-append ((λ z → ce-q (toNat #20) z nil) d) (list-append " = (uint64_t *)" (list-append (ce-exp k d x) (list-append "; uint64_t r" (list-append ((λ z → ce-q (toNat #20) z nil) d) (list-append "; switch (p" (list-append ((λ z → ce-q (toNat #20) z nil) d) (list-append "[0]) { " (list-append (ce-brs B (λ e c → ce-exp k e c) dd d #0) (list-append "default: abort(); } r" (list-append ((λ z → ce-q (toNat #20) z nil) d) "; })")))))))))))
+ce-exp (suc k) d c = "hy_bad()"
