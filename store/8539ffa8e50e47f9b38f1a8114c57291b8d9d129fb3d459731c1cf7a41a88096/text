@@ -1,0 +1,20 @@
+nk-ev : Nat → NkTm → NkV → NkV
+nk-ev zero t e = nkd-bad
+nk-ev (suc k) (nk-var i) e = nk-lookup e i
+nk-ev (suc k) (nk-lam b) e = nkd-clo b e
+nk-ev (suc k) (nk-num m) e = nkd-num m
+nk-ev (suc k) (nk-free x) e = nkd-bad
+nk-ev (suc k) (nk-inc a) e =
+  (case nk-ev k a e return (λ _ → NkV) of
+     nkd-num m → nkd-num (%wsucc m)
+     nkd-clo b e2 → nkd-bad
+     nkd-nil → nkd-bad
+     nkd-cons v r → nkd-bad
+     nkd-bad → nkd-bad)
+nk-ev (suc k) (nk-app f a) e =
+  (case nk-ev k f e return (λ _ → NkV) of
+     nkd-clo b e2 → nk-ev k b (nkd-cons (nk-ev k a e) e2)
+     nkd-num m → nkd-bad
+     nkd-nil → nkd-bad
+     nkd-cons v r → nkd-bad
+     nkd-bad → nkd-bad)
