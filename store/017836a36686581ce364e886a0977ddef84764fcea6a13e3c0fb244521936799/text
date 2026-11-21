@@ -1,0 +1,27 @@
+c-prelude : List Word
+c-prelude = list-append "#include <stdint.h>" (list-append c-nl (list-append "#include <stdio.h>" (list-append c-nl (list-append "#include <stdlib.h>" (list-append c-nl
+  (list-append "static uint64_t hy_bad(void) { abort(); }" (list-append c-nl
+  (list-append "static uint64_t hy_bad2(uint64_t a, uint64_t b) { abort(); }" (list-append c-nl
+  (list-append "static uint64_t hy_add(uint64_t a, uint64_t b) { uint64_t r; if (__builtin_add_overflow(a, b, &r)) abort(); return r; }" (list-append c-nl
+  (list-append "static uint64_t hy_mul(uint64_t a, uint64_t b) { uint64_t r; if (__builtin_mul_overflow(a, b, &r)) abort(); return r; }" (list-append c-nl
+  (list-append "static uint64_t hy_sub(uint64_t a, uint64_t b) { return a > b ? a - b : 0; }" c-nl)))))))))))))))
+
+c-main : Word → Word → List Word
+c-main m n = list-append "int main(int c, char **v) { if (c != " (list-append (h-decimal (%wsucc n)) (list-append ") return 2; printf(" (list-append c-q (list-append "%llu\n" (list-append c-q
+  (list-append ", (unsigned long long)g" (list-append (h-decimal m) (list-append "(" (list-append (c-margs (toNat n) #0) (list-append ")); return 0; }" c-nl))))))))))
+
+c-prog : Word → Defs → List Word
+c-prog m defs = list-append c-prelude (list-append (c-protos defs) (list-append (c-fns defs) (c-main m (opt-or (x-arity defs m) #0))))
+
+c-of : Code → List Word
+c-of (cglob g) =
+  (case unfold g return (λ _ → List Word) of
+     none → "/* no code */"
+     some c → c-prog g (x-erase g (x-forms-all (snd (program-of-at unfold g (fst (specialize (opt-or (def-type-code g) cword) sched-default lnil c)) #256)))))
+c-of c = "/* not a definition */"
+
+c-demo : Word → Word → Word
+c-demo x y = %wadd (%wmul x #7) y
+
+c-demo-c : List Word
+c-demo-c = c-of (code c-demo)
