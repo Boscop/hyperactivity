@@ -1,0 +1,467 @@
+# The checker's comparison: the `%same` patch (2026-11-21, made and measured in a copy, not applied)
+
+What it is, what it measures and what applying it takes: AI-AGENTS-WELCOME-TO-HYPERACTIVITY.md, “How to work”, Claude's notes on the checker's comparison. The diff of src/ and of the checker's text, and the guard's text, follow verbatim.
+
+```diff
+diff --git a/src/core.h b/src/core.h
+index a3daacbe2..33c644187 100644
+--- a/src/core.h
++++ b/src/core.h
+@@ -277,6 +277,11 @@ enum {
+                  * fields forced in turn through O_DEEPC, anything else delivered as it is */
+     O_DEEPC,    /* a=the constructor, p=DeepAcc (the fields' values so far); 0=the next field's value,
+                  * 1..=the fields after it (unforced), last=out */
++    O_SAME,     /* (%same u v): 0=u 1=v 2=out. Neither operand is forced or read */
++    O_SAME2,    /* 0=v 1=u 2=out: true when u and v are one unbuilt term (same_unbuilt: the same stored value,
++                 * or the same call of a checked definition on arguments that are, constructors and words
++                 * alike); false when that is not seen. Reflexivity of definitional equality, decided
++                 * without running either side */
+     K_END
+ };
+ enum { B_MEET, B_JOIN, B_FAND, B_FOR };
+@@ -432,7 +437,9 @@ typedef struct Record {
+     int where;          /* the definition it was compiled in (CUBICAL_PROFILE) */
+     int mk;             /* A8 (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.16 “A8 — Proposal: formal transported compositions”): may building it make a dimension (reach %dim)? 0 unknown, 1 no, 2 yes (record_mkdim) */
+     uint64_t h;         /* its interning hash, once computed */
++    int fr;             /* may building it make a fresh name or act on the world (record_fresh)? 0 unknown, 1 no, 2 yes */
+ } Record;
++int record_fresh(Record *r);        /* 0 only when r's syntax, and every definition it reaches, holds no %var, %dim, memory or foreign operation, and no observation of sharing */
+ int record_mkdim(Record *r);        /* A8 (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.16 “A8 — Proposal: formal transported compositions”): 1 when building r (or anything it calls) may make a fresh free dimension */
+ int casetab_mkdim(const struct CaseTab *t);
+ int global_mkdim(long g);
+diff --git a/src/lang.c b/src/lang.c
+index 589717a65..7a3142fff 100644
+--- a/src/lang.c
++++ b/src/lang.c
+@@ -292,7 +292,7 @@ static bool node_eq(Node *a, Node *b) {
+ /* ---------------- desugaring to the core forms ---------------- */
+ static const char *KW[] = { "%raw", "%welimP", "%rebuilt", "%hole", "%guess", "%spine", "lam", "thunk", "%delay", "delay", "force", "case", "elim", "if", "rec", "the", "code", "%data", "%con", "hcompD", "%hcompF", "%transD", "%case", "%branches", "record", "%record", "plam", "forall", "let", "app", "pair", "fst", "snd", "Pi", "Sigma", "U",
+     "PathP", "@", "~", "/\\", "\\/", "=", "&", "|", "faceof", "%fneg", "sys", "sys0", "sys+", "sysmap", "comp", "Glue", "%hcompU", "%unglueU", "glue",
+-    "unglue", "%view", "%var", "%dim", "%ieq", "%feq", "%clauses", "%dnf", "%motive", "%restrict", "%gval", "%gty", "%dtab", "%dent", "%dtrans", "%abs", "%branch", "%clos", "%box", "%wsucc", "%weq", "%wlt", "%wadd", "%wmul", "%wdiv", "%wmod", "%wand", "%wor", "%wxor", "%wshl", "%wshr", "%wmax", "%wsub", "%welim", "%pimult", "%pim", "%fmult", "%linear", "%gusage", "%gsteps", "%gcode", "%dnidx", "%pty", "%bytesty", "%pval", "%bytes", "%blen", "%textbytes", "%beq", "%ptr-of", "%region-at", "%ffi", "%native", "%natrep",
++    "unglue", "%view", "%var", "%dim", "%ieq", "%feq", "%clauses", "%dnf", "%motive", "%restrict", "%gval", "%gty", "%dtab", "%dent", "%dtrans", "%abs", "%branch", "%clos", "%same", "%box", "%wsucc", "%weq", "%wlt", "%wadd", "%wmul", "%wdiv", "%wmod", "%wand", "%wor", "%wxor", "%wshl", "%wshr", "%wmax", "%wsub", "%welim", "%pimult", "%pim", "%fmult", "%linear", "%gusage", "%gsteps", "%gcode", "%dnidx", "%pty", "%bytesty", "%pval", "%bytes", "%blen", "%textbytes", "%beq", "%ptr-of", "%region-at", "%ffi", "%native", "%natrep",
+     "%i64add", "%i64sub", "%i64mul", "%i64eq", "%i64lt", "%u32add", "%u32sub", "%u32mul", "%u32eq", "%u32lt", "%f64add", "%f64sub", "%f64mul", "%f64div", "%f64eq", "%f64lt",
+     "%u64add", "%u64sub", "%u64mul", "%u64eq", "%u64lt", "%u64div", "%u64mod", "%u64and", "%u64or", "%u64xor", "%u64shl", "%u64shr", "%i64div", "%i64mod", "%i64and", "%i64or", "%i64xor", "%i64shl", "%i64shr",
+     "%i64ofw", "%wofi64", "%u32ofw", "%wofu32", "%f64ofw", "%f64ofi64", "%i64off64", "%f64bits", "%f64ofbits", "%f32bits", "%f32ofbits", "%u64ofw", "%wofu64", "%load8", "%load16", "%load32", "%load64", "%store8", "%store16", "%store32", "%store64", NULL };
+@@ -1663,6 +1663,61 @@ int record_mkdim(Record *r) {
+     if (t) __atomic_store_n(&r->mk, 2, __ATOMIC_RELAXED); else if (all) __atomic_store_n(&r->mk, 1, __ATOMIC_RELAXED);
+     return t;
+ }
++/* (%same, net.c same_unbuilt): which compiled syntax is a function of its inputs alone. A record is
++ * fresh (2) when its syntax, or a definition it reaches, holds an operation whose result is not
++ * determined by its operands' values: a fresh variable or dimension (O_MKVAR, O_MKDIM), a read or
++ * write of memory or a foreign call, the machine's counters, or an observation of how values are
++ * shared (O_CLOS, O_SAME). Otherwise two builds of it on the same inputs give the same value. A
++ * definition not yet compiled, or a recursion too deep to follow, counts as fresh. Clean is cached
++ * for a definition only when no definition still being visited was assumed clean on the way */
++static signed char *GFR; static long capGFR; static signed char *GFRON; static long capGFRON;
++static bool prim_fresh(uint32_t x) {
++    switch ((int)x) {
++    case O_MKVAR: case O_MKDIM: case O_LOAD: case O_STORE: case O_PTROF: case O_REGAT: case O_REGATA: case O_FFI: case O_NATIVE:
++    case O_GSTEPS: case O_GUSAGE: case O_CLOS: case O_CLOS2: case O_SAME: case O_SAME2: return true;
++    default: return false;
++    }
++}
++static bool global_fresh_in(long g, int depth, bool *open);
++static bool syn_fresh(const Syn *t, int depth, bool *open) {
++    if (!t) return false;
++    if (depth > 4000) return true;
++    if (t->tag == S_PRIM && prim_fresh(t->x)) return true;
++    if ((t->tag == S_GLOBAL || t->tag == S_CALL) && global_fresh_in(t->id, depth + 1, open)) return true;
++    if (t->rec && syn_fresh(t->rec->body, depth + 1, open)) return true;
++    if (t->tab) {
++        int N = t->tab->d >= 0 && t->tab->d < ndata ? DATA[t->tab->d].ncons : 0;
++        for (int i = 0; i < N; i++) if (t->tab->br && t->tab->br[i] && syn_fresh(t->tab->br[i]->body, depth + 1, open)) return true;
++        if (t->tab->motive && syn_fresh(t->tab->motive->body, depth + 1, open)) return true;
++    }
++    for (int i = 0; i < t->n; i++) if (t->k && syn_fresh(t->k[i], depth + 1, open)) return true;
++    return false;
++}
++static bool global_fresh_in(long g, int depth, bool *open) {
++    if (g < 0 || g >= nG) return true;
++    if (g >= capGFR) { long nc = capGFR ? capGFR : 1024; while (nc <= g) nc *= 2; GFR = realloc(GFR, (size_t)nc); memset(GFR + capGFR, 0, (size_t)(nc - capGFR)); capGFR = nc; }
++    if (g >= capGFRON) { long nc = capGFRON ? capGFRON : 1024; while (nc <= g) nc *= 2; GFRON = realloc(GFRON, (size_t)nc); memset(GFRON + capGFRON, 0, (size_t)(nc - capGFRON)); capGFRON = nc; }
++    if (GFR[g]) return GFR[g] == 2;
++    if (GFRON[g]) { *open = true; return false; }            /* a cycle: assumed clean, not cached below it */
++    if (!G[g].body) return !(G[g].kind == G_AXIOM || G[g].kind == G_INPUT);   /* not compiled yet: not known clean */
++    GFRON[g] = 1;
++    bool mine = false;
++    bool t = syn_fresh(G[g].body, depth + 1, &mine) || (G[g].nary && syn_fresh(G[g].nary->body, depth + 1, &mine));
++    if (!t && G[g].kind == G_COFIX && G[g].unf >= 0) t = global_fresh_in(G[g].unf, depth + 1, &mine);
++    GFRON[g] = 0;
++    if (g >= capGFR) return true;
++    if (t) GFR[g] = 2; else if (!mine) GFR[g] = 1; else *open = true;
++    return t;
++}
++int global_fresh(long g) { bool open = false; return global_fresh_in(g, 0, &open) ? 1 : 0; }
++int record_fresh(Record *r) {
++    if (!r) return 1;
++    if (r->fr) return r->fr == 2;
++    bool open = false;
++    bool t = syn_fresh(r->body, 0, &open);
++    if (t) r->fr = 2; else if (!open) r->fr = 1;
++    return t;
++}
+ int casetab_mkdim(const CaseTab *tb) {
+     if (!tb) return 1;
+     int N = tb->d >= 0 && tb->d < ndata ? DATA[tb->d].ncons : 0;
+@@ -2457,7 +2512,7 @@ static Syn *compile(Node *t) {
+     }
+     {
+         static const struct { const char *name; int kind, n; } PR[] = { { "%view", O_VIEW, 1 }, { "%ieq", O_IEQ, 2 }, { "%feq", O_FEQL, 2 }, { "%clauses", O_CLAUSES, 1 }, { "%dnf", O_DNF, 1 }, { "%motive", O_MOTIVE, 1 },
+-            { "%restrict", O_RESTRICT, 2 }, { "%abs", O_ABS, 2 }, { "%branch", O_BRANCH, 3 }, { "%clos", O_CLOS, 2 }, { "%wsucc", O_WSUCC, 1 }, { "%weq", O_WEQ, 2 }, { "%wlt", O_WLT, 2 },
++            { "%restrict", O_RESTRICT, 2 }, { "%abs", O_ABS, 2 }, { "%branch", O_BRANCH, 3 }, { "%clos", O_CLOS, 2 }, { "%same", O_SAME, 2 }, { "%wsucc", O_WSUCC, 1 }, { "%weq", O_WEQ, 2 }, { "%wlt", O_WLT, 2 },
+             { "%wadd", O_WADD, 2 }, { "%wmax", O_WMAX, 2 }, { "%wsub", O_WSUB, 2 }, { "%wmul", O_WMUL, 2 }, { "%wdiv", O_WDIV, 2 }, { "%wmod", O_WMOD, 2 }, { "%wand", O_WAND, 2 }, { "%wor", O_WOR, 2 }, { "%wxor", O_WXOR, 2 }, { "%wshl", O_WSHL, 2 }, { "%wshr", O_WSHR, 2 }, { "%welim", O_WELIM, 3 },
+             { "%pimult", O_PIMULT, 1 }, { "%pim", O_PIM, 3 }, { "%fmult", O_FMULT, 3 }, { "%linear", O_LINEAR, 1 }, { "%gusage", O_GUSAGE, 2 }, { "%gsteps", O_GSTEPS, 1 }, { "%gcode", O_GCODE, 1 }, { "%dnidx", O_DNIDX, 1 },
+             /* primitive types and values (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.2 “B12 — Representations as a construct”) */
+diff --git a/src/net.c b/src/net.c
+index c966f478c..0555d1c09 100644
+--- a/src/net.c
++++ b/src/net.c
+@@ -1767,6 +1767,8 @@ static const char *const KIND_NAME[K_END] = {
+     [O_PEND] = "PEND",
+     [O_CLOS] = "CLOS",
+     [O_CLOS2] = "CLOS2",
++    [O_SAME] = "SAME",
++    [O_SAME2] = "SAME2",
+     [O_BRANCH] = "BRANCH",
+     [O_BRANCHC] = "BRANCHC",
+     [O_BRANCHL] = "BRANCHL",
+@@ -1796,6 +1798,249 @@ static void trace_step(Cell *o, Cell *v) {
+     trace_side(v);
+     fputc('\n', trace_out);
+ }
++/* (%same u v), conversion's reflexivity without evaluation (2026-11-21): are the two operands one
++ * unbuilt term? Read-only: nothing is forced, copied or changed. True only for
++ *   - two references to one stored value (one Box, no substitution pending on either);
++ *   - two references to one definition (V_GLOBAL, the same id);
++ *   - two words of one value; two constructor cells of one constructor whose parts are the same;
++ *     two pairs whose parts are the same;
++ *   - an unbuilt subterm (V_THUNK, no substitution pending) is read as its record's syntax in its
++ *     environment, when the record is a function of its inputs alone (record_fresh, lang.c: no %var,
++ *     %dim, memory, foreign call or observation of sharing is reached from its syntax); two pieces
++ *     of syntax are the same when they are one piece in the same environments, or have the same
++ *     head (a call, a constructor, a pair, an application, a projection, a word, ...) and the same
++ *     parts; syntax and a value are the same when the value is what the syntax builds, part by part;
++ *   - two deferred calls (V_DEFER of O_CALL) of one definition that is a function of its inputs
++ *     alone (global_fresh) whose arguments are the same.
++ * Sound because each case is a congruence: the machine is deterministic, so one code built twice on
++ * the same inputs gives the same value, and conversion is reflexive on it. Assumed of the caller
++ * (lib/check.cub, conv-data and uconv): no λ whose code makes fresh names is a part of the values
++ * compared (a part that is a λ is the same only as one stored value). Every other kind (another
++ * deferred operation, a λ, a neutral, a part not yet there) answers false, and the caller compares
++ * as before. The budget bounds the cells looked at. Only when one thread
++ * rewrites (net_solo): a stored value read here could be built by another thread meanwhile */
++extern int global_fresh(long g);
++static Cell *same_cell(Port q, Box **via) {
++    for (int hops = 0; hops < 64; hops++) {
++        if (!q) return NULL;
++        Port r = peek(q);
++        if (!r || is_var(r) || PI(r) != 0) return NULL;
++        Cell *c = PC(r);
++        if (!is_value(c->kind)) return NULL;
++        if (c->kind != V_REF) return c;
++        if (c->a) return NULL;                       /* a substitution pending on the reference */
++        Box *b = c->p; if (!b || !b->root) return NULL;
++        *via = b;
++        q = sload(&b->root->port[0]);
++    }
++    return NULL;
++}
++/* A term under comparison: a value (a port), or a piece of compiled syntax in a frame. A frame is an
++ * unbuilt subterm's record with its environment: the ports of its cell, or (a thunk written inside
++ * another's syntax) the syntax of each environment entry in the enclosing frame. Resolving a term
++ * follows a variable to its environment entry, a reference to the stored value, and an unbuilt
++ * subterm (cell or syntax) to its body in its frame; it stops at a head: a value cell that is not
++ * such a subterm, or syntax that is not a variable. Nothing is built or changed */
++static __thread int same_why, same_d1, same_d2; static __thread long same_d3, same_d4;   /* CUBICAL_SAMEDBG: the line that first answered false */
++#define SF (same_why ? false : (same_why = __LINE__, false))
++typedef struct SFr { const Record *r; const Cell *cell; const struct SFr *up; Syn **k; } SFr;
++typedef struct { Syn *s; const SFr *f; Port p; } STerm;
++#define SAME_FRAMES 1024
++static __thread SFr same_fr[SAME_FRAMES]; static __thread int same_nfr;
++static bool st_env(const SFr *f, int i, STerm *out) {
++    if (i < 0 || i >= f->r->nenv) return SF;
++    if (f->cell) { out->s = NULL; out->f = NULL; out->p = sload(&f->cell->port[i + 1]); }
++    else { out->s = f->k[i]; out->f = f->up; out->p = 0; }
++    return true;
++}
++static bool st_resolve(STerm *t) {
++    for (int hops = 0; hops < 256; hops++) {
++        if (t->s) {
++            Syn *s = t->s;
++            if (s->tag == S_VAR) {
++                const SFr *f = t->f; if (!f) return SF;
++                int i; for (i = 0; i < f->r->nenv; i++) if (f->r->env_slot[i] == s->slot) break;
++                if (!st_env(f, i, t)) return SF;          /* a parameter or a local: not followed */
++                continue;
++            }
++            if (s->tag == S_THUNK) {
++                if (!s->rec || s->rec->nparam != 0 || s->rec->nenv != s->n || same_nfr >= SAME_FRAMES) return SF;
++                SFr *n = &same_fr[same_nfr++]; n->r = s->rec; n->cell = NULL; n->up = t->f; n->k = s->k;
++                t->s = s->rec->body; t->f = n; continue;
++            }
++            if (s->tag == S_BOX && s->n == 1) { t->s = s->k[0]; continue; }
++            return true;
++        }
++        Box *via = NULL; Cell *c = same_cell(t->p, &via);
++        if (!c) return SF;
++        if (c->kind == V_THUNK && !c->a && c->p) {
++            Record *r = c->p;
++            if (r->nparam != 0 || r->nenv != c->n - 1 || record_fresh(r) || same_nfr >= SAME_FRAMES) return true;   /* a head: compared as a cell (false unless one stored value) */
++            SFr *n = &same_fr[same_nfr++]; n->r = r; n->cell = c; n->up = NULL; n->k = NULL;
++            t->s = r->body; t->f = n; t->p = 0; continue;
++        }
++        return true;
++    }
++    return SF;
++}
++static bool same_term(STerm A, STerm B, int *budget);
++static bool same_frames(const SFr *f, const SFr *g, int *budget) {
++    if (f == g) return true;
++    if (!f || !g || f->r != g->r) return SF;
++    for (int i = 0; i < f->r->nenv; i++) { STerm a, b; if (!st_env(f, i, &a) || !st_env(g, i, &b) || !same_term(a, b, budget)) return SF; }
++    return true;
++}
++/* An application read as a head and its arguments, whichever way it was written: a call of a
++ * definition (S_CALL, or a deferred O_CALL cell), or applications one argument at a time (S_APP)
++ * down to a head. A head that is a definition is named by its id: S_GLOBAL, a V_GLOBAL cell, or
++ * the checker's table of values at a word (%gval i: the checked definition i, lang.c table_global) */
++#define SAME_ARGS 64
++extern long table_global(int table, long index);
++static long st_head_global(STerm t) {
++    if (t.s) {
++        if (t.s->tag == S_GLOBAL && t.s->n == 0) return t.s->id;
++        if (t.s->tag == S_GLOBTAB && t.s->x == TB_VAL && t.s->n == 1) {
++            STerm ix = { t.s->k[0], t.f, 0 };
++            if (!st_resolve(&ix)) return -1;
++            if (ix.s) return ix.s->tag == S_WORD && !ix.s->big ? table_global(TB_VAL, ix.s->id) : -1;
++            Box *via = NULL; Cell *c = same_cell(ix.p, &via);
++            return c && c->kind == V_WORD && !c->p ? table_global(TB_VAL, (long)c->a) : -1;
++        }
++        return -1;
++    }
++    Box *via = NULL; Cell *c = same_cell(t.p, &via);
++    return c && c->kind == V_GLOBAL ? (long)c->a : -1;
++}
++static bool st_appish(const STerm *t) {
++    if (t->s) return (t->s->tag == S_APP && t->s->n == 2 && !t->s->x) || t->s->tag == S_CALL;
++    Box *via = NULL; Cell *c = same_cell(t->p, &via);
++    return c && c->kind == V_DEFER && c->ty == (uint32_t)O_CALL && !c->p && c->n >= 2;
++}
++/* the arguments last first into rev (at most SAME_ARGS), the head into *head and, when it is a
++ * definition, its id into *g (else -1); the number of arguments, or -1 when it is not read */
++static int st_spine(STerm t, STerm *head, long *g, STerm *rev) {
++    int n = 0;
++    for (int hops = 0; hops < 256; hops++) {
++        if (!st_resolve(&t)) return -1;
++        if (t.s && t.s->tag == S_APP && t.s->n == 2 && !t.s->x) {
++            if (n >= SAME_ARGS) return -1;
++            rev[n++] = (STerm){ t.s->k[1], t.f, 0 };
++            t = (STerm){ t.s->k[0], t.f, 0 };
++            continue;
++        }
++        if (t.s && t.s->tag == S_CALL) {
++            if (n + t.s->n > SAME_ARGS) return -1;
++            for (int i = t.s->n - 1; i >= 0; i--) rev[n++] = (STerm){ t.s->k[i], t.f, 0 };
++            *g = t.s->id; *head = t; return n;
++        }
++        if (!t.s) {
++            Box *via = NULL; Cell *c = same_cell(t.p, &via);
++            if (c && c->kind == V_DEFER && c->ty == (uint32_t)O_CALL && !c->p && c->n >= 2) {
++                Box *v2 = NULL; Cell *gc = same_cell(sload(&c->port[1]), &v2);
++                if (!gc || gc->kind != V_GLOBAL || n + c->n - 2 > SAME_ARGS) return -1;
++                for (int k = c->n - 1; k >= 2; k--) rev[n++] = (STerm){ NULL, NULL, sload(&c->port[k]) };
++                *g = (long)gc->a; *head = t; return n;
++            }
++        }
++        *head = t; *g = st_head_global(t);
++        return n;
++    }
++    return -1;
++}
++static bool same_port(Port a, Port b, int *budget) { STerm A = { NULL, NULL, a }, B = { NULL, NULL, b }; return same_term(A, B, budget); }
++static bool same_term(STerm A, STerm B, int *budget) {
++    if (--*budget < 0) return SF;
++    if (!A.s && !B.s) {
++        /* two references to one stored value, before anything is read through them */
++        Port ra = A.p ? peek(A.p) : 0, rb = B.p ? peek(B.p) : 0;
++        if (ra && rb && !is_var(ra) && !is_var(rb) && PI(ra) == 0 && PI(rb) == 0) {
++            Cell *x = PC(ra), *y = PC(rb);
++            if (x == y) return true;
++            if (x->kind == V_REF && y->kind == V_REF && !x->a && !y->a && x->p && x->p == y->p) return true;
++        }
++        Box *ba = NULL, *bb = NULL; Cell *x = same_cell(A.p, &ba), *y = same_cell(B.p, &bb);
++        if (x && y && (x == y || (ba && ba == bb))) return true;
++    }
++    if (!st_resolve(&A) || !st_resolve(&B)) return SF;
++    if (A.s && B.s && A.s == B.s) return same_frames(A.f, B.f, budget);        /* one piece of syntax in the same environments */
++    if (st_appish(&A) || st_appish(&B)) {
++        /* applications: the same head on the same arguments, however each is written */
++        STerm ha, hb, ra[SAME_ARGS], rb[SAME_ARGS]; long ga = -1, gb = -1;
++        int na = st_spine(A, &ha, &ga, ra), nb = st_spine(B, &hb, &gb, rb);
++        if (na < 0 || nb < 0 || na != nb) { if (!same_why) { same_d1 = na; same_d2 = nb; same_d3 = ga; same_d4 = gb; } return SF; }
++        if (ga >= 0 || gb >= 0) { if (ga != gb) { if (!same_why) { same_d1 = -1; same_d2 = -1; same_d3 = ga; same_d4 = gb; } return SF; } if (global_fresh(ga)) return SF; }
++        else { if (na == 0) return SF; if (!same_term(ha, hb, budget)) return SF; }
++        for (int i = 0; i < na; i++) if (!same_term(ra[i], rb[i], budget)) return SF;
++        return true;
++    }
++    if (A.s && B.s) {
++        Syn *s = A.s, *t = B.s;
++        if (s->tag != t->tag || s->n != t->n || s->x != t->x || s->id != t->id) { if (!same_why) { same_d1 = s->tag; same_d2 = t->tag; same_d3 = s->id; same_d4 = t->id; } return SF; }
++        if (s->rec || t->rec || s->tab || t->tab) return SF;  /* binders and eliminations: only as one piece of syntax */
++        switch (s->tag) {
++        case S_WORD: { WN wx = { (uint64_t)s->id, s->big }, wy = { (uint64_t)t->id, t->big }; return wn_cmp(&wx, &wy) == 0; }
++        case S_PRIM: if (s->x == O_MKVAR || s->x == O_MKDIM || s->x == O_CLOS || s->x == O_SAME) return SF; break;
++        case S_GLOBTAB: case S_GLOBAL: case S_PAIR: case S_FST: case S_SND: case S_CON: case S_DATA: case S_WORDTY:
++        case S_IV0: case S_IV1: case S_NEG: case S_BIN: case S_FTT: case S_FFF: case S_PAPP: case S_PROJ: case S_FORCE: case S_PATHP: case S_U:
++            break;
++        default: if (!same_why) { same_d1 = s->tag; same_d2 = t->tag; same_d3 = s->id; same_d4 = -7; } return SF;
++        }
++        if (s->big || t->big) return SF;
++        for (int i = 0; i < s->n; i++) { STerm a = { s->k[i], A.f, 0 }, b = { t->k[i], B.f, 0 }; if (!same_term(a, b, budget)) return SF; }
++        return true;
++    }
++    if (!A.s && !B.s) {
++        Box *ba = NULL, *bb = NULL; Cell *x = same_cell(A.p, &ba), *y = same_cell(B.p, &bb);
++        if (!x || !y) return SF;
++        if (x == y || (ba && ba == bb)) return true;
++        if (x->kind != y->kind || x->n != y->n) { if (!same_why) { same_d1 = -x->kind; same_d2 = -y->kind; same_d3 = x->n; same_d4 = y->n; } return SF; }
++        switch (x->kind) {
++        case V_GLOBAL: return x->a == y->a;
++        case V_WTY: return x->n == 1;
++        case V_WORD: { WN wx = { x->a, x->p }, wy = { y->a, y->p }; return wn_cmp(&wx, &wy) == 0; }
++        case V_CON: case V_PAIR:
++            if (x->a != y->a || x->x != y->x || x->ty != y->ty || x->p != y->p) return SF;
++            for (int k = 1; k < x->n; k++) if (!same_port(sload(&x->port[k]), sload(&y->port[k]), budget)) return SF;
++            return true;
++        case V_DEFER: {
++            if (x->ty != (uint32_t)O_CALL || y->ty != (uint32_t)O_CALL || x->x != y->x || x->a != y->a || x->p || y->p || x->n < 2) return SF;
++            Box *g1 = NULL, *g2 = NULL;
++            Cell *gx = same_cell(sload(&x->port[1]), &g1), *gy = same_cell(sload(&y->port[1]), &g2);
++            if (!gx || !gy || gx->kind != V_GLOBAL || gy->kind != V_GLOBAL || gx->a != gy->a) return SF;
++            if (global_fresh((long)gx->a)) return SF;            /* its code may make fresh names */
++            for (int k = 2; k < x->n; k++) if (!same_port(sload(&x->port[k]), sload(&y->port[k]), budget)) return SF;
++            return true;
++        }
++        default: return SF;
++        }
++    }
++    /* syntax against a value: the value the syntax would build, part by part */
++    { Syn *s = A.s ? A.s : B.s; const SFr *f = A.s ? A.f : B.f; Port p = A.s ? B.p : A.p;
++      Box *via = NULL; Cell *y = same_cell(p, &via);
++      if (!y || s->rec || s->tab) return SF;
++      switch (s->tag) {
++      case S_GLOBAL: return y->kind == V_GLOBAL && s->n == 0 && (uint64_t)s->id == y->a;
++      case S_WORDTY: return y->kind == V_WTY;
++      case S_WORD: { if (y->kind != V_WORD) return SF; WN wx = { (uint64_t)s->id, s->big }, wy = { y->a, y->p }; return wn_cmp(&wx, &wy) == 0; }
++      case S_PAIR:
++          if (y->kind != V_PAIR || y->n != 3 || s->n != 2 || y->a || y->p) return SF;
++          for (int i = 0; i < 2; i++) { STerm a = { s->k[i], f, 0 }, b = { NULL, NULL, sload(&y->port[i + 1]) }; if (!same_term(a, b, budget)) return SF; }
++          return true;
++      case S_CON:
++          if (y->kind != V_CON || (uint64_t)s->id != y->a || s->n != y->n - 1 || y->x || y->p || CON[s->id].ndims != 0) return SF;
++          for (int i = 0; i < s->n; i++) { STerm a = { s->k[i], f, 0 }, b = { NULL, NULL, sload(&y->port[i + 1]) }; if (!same_term(a, b, budget)) return SF; }
++          return true;
++      case S_CALL: {
++          if (y->kind != V_DEFER || y->ty != (uint32_t)O_CALL || y->p || s->n != y->n - 2) { if (!same_why) { same_d1 = s->tag; same_d2 = y->kind; same_d3 = s->id; same_d4 = (long)y->ty; } return SF; }
++          Box *g1 = NULL; Cell *gy = same_cell(sload(&y->port[1]), &g1);
++          if (!gy || gy->kind != V_GLOBAL || gy->a != (uint64_t)s->id || global_fresh((long)s->id)) return SF;
++          for (int i = 0; i < s->n; i++) { STerm a = { s->k[i], f, 0 }, b = { NULL, NULL, sload(&y->port[i + 2]) }; if (!same_term(a, b, budget)) return SF; }
++          return true;
++      }
++      default: if (!same_why) { same_d1 = s->tag; same_d2 = y->kind; same_d3 = s->id; same_d4 = (long)y->a; } return SF;
++      } }
++}
++static bool same_unbuilt(Port a, Port b, int *budget) { same_nfr = 0; same_why = 0; return same_port(a, b, budget); }
+ /* ---------------- the rules ---------------- */
+ const char *kind_name(int k) { return k >= 0 && k < K_END && KIND_NAME[k] ? KIND_NAME[k] : "?"; }
+ static void interact(Cell *o, Cell *v) {
+@@ -1838,6 +2083,26 @@ static void interact(Cell *o, Cell *v) {
+     case O_MKPLAM: rule_mkplam(o, v); return;
+     default: break;
+     }
++    if (o->kind == O_SAME) {
++        /* the first operand is kept as it is (not forced); the second is met next */
++        Cell *c = cell(O_SAME2, 3);
++        mv(o, 1, P(c, 0)); link(P(v, 0), P(c, 1)); mv(o, 2, P(c, 2));
++        cell_free(o);
++        return;
++    }
++    if (o->kind == O_SAME2) {
++        need_bool();
++        int budget = 4096;
++        bool s = net_solo && same_unbuilt(o->port[1], P(v, 0), &budget);
++        { static int dbg = -1; if (dbg < 0) dbg = getenv("CUBICAL_SAMEDBG") != NULL;
++          if (dbg) { Port ra = peek(o->port[1]); Cell *x = ra && !is_var(ra) ? PC(ra) : NULL; Box *bx = NULL, *by = NULL; Cell *x2 = same_cell(o->port[1], &bx), *y2 = same_cell(P(v, 0), &by);
++            { STerm TA = { NULL, NULL, o->port[1] }; same_nfr = 0; int sw = same_why; bool okr = st_resolve(&TA); same_why = sw; fprintf(stderr, "[same-top] %s %s d=(%d,%d,%ld,%ld)\n", okr && TA.s ? (TA.s->tag == S_CALL ? name_of(TA.s->id) : "syn") : "cell", okr && TA.s && TA.s->tag != S_CALL ? "" : "", same_d1, same_d2, same_d3, same_d4); }
++            fprintf(stderr, "[same] %d why=%d left=%d u=%s->%s(ty %s) v=%s->%s(ty %s) solo=%d\n", (int)s, same_why, budget, x ? kind_name(x->kind) : "?", x2 ? kind_name(x2->kind) : "?", x2 && x2->kind == V_DEFER ? kind_name((int)x2->ty) : "-", kind_name(v->kind), y2 ? kind_name(y2->kind) : "?", y2 && y2->kind == V_DEFER ? kind_name((int)y2->ty) : "-", (int)net_solo); } }
++        era(o->port[1]); era(P(v, 0));
++        link(con_build(s ? B_TRUE : B_FALSE, NULL, NULL), o->port[2]);
++        cell_free(o);
++        return;
++    }
+     if (v->kind == V_GLOBAL && o->kind == O_CALL) {
+         long g = (long)v->a;
+         Record *r = global_nary(g);
+diff --git a/src/syntax.c b/src/syntax.c
+index 2fc13eb8b..3f47a8785 100644
+--- a/src/syntax.c
++++ b/src/syntax.c
+@@ -363,7 +363,7 @@ static const struct { const char *n; int lo, hi; } PRIM[] = {
+     { "fst", 1, 1 }, { "snd", 1, 1 }, { "force", 1, 1 }, { "thunk", 1, 1 }, { "delay", 1, 1 }, { "rec", 1, 1 }, { "the", 2, 2 },
+     { "code", 1, 1 }, { "PathP", 3, 3 }, { "faceof", 1, 1 }, { "sysmap", 2, 2 }, { "sys+", 3, 3 }, { "comp", 3, 3 }, { "Glue", 2, 2 },
+     { "glue", 2, 2 }, { "unglue", 2, 2 }, { "hcompD", 2, 2 }, { "%view", 1, 1 }, { "%ieq", 2, 2 }, { "%feq", 2, 2 }, { "%clauses", 1, 1 },
+-    { "%dnf", 1, 1 }, { "%motive", 1, 1 }, { "%restrict", 2, 2 }, { "%abs", 2, 2 }, { "%branch", 3, 3 }, { "%clos", 2, 2 },
++    { "%dnf", 1, 1 }, { "%motive", 1, 1 }, { "%restrict", 2, 2 }, { "%abs", 2, 2 }, { "%branch", 3, 3 }, { "%clos", 2, 2 }, { "%same", 2, 2 },
+     { "%wsucc", 1, 1 }, { "%weq", 2, 2 }, { "%wlt", 2, 2 }, { "%wadd", 2, 2 }, { "%wmax", 2, 2 }, { "%wsub", 2, 2 }, { "%wmul", 2, 2 }, { "%wdiv", 2, 2 }, { "%wmod", 2, 2 }, { "%wand", 2, 2 }, { "%wor", 2, 2 }, { "%wxor", 2, 2 }, { "%wshl", 2, 2 }, { "%wshr", 2, 2 }, { "%welim", 3, 3 },
+     { "%welimP", 4, 4 }, { "%box", 1, 1 }, { "%gval", 1, 1 }, { "%gty", 1, 1 }, { "%dtab", 1, 1 }, { "%dent", 1, 1 }, { "%dtrans", 1, 1 },
+     { "%var", 1, 2 }, { "%dim", 0, 1 }, { "%@", 4, 4 }, { "%fand", 2, 2 }, { "%for", 2, 2 }, { "pair", 2, 2 }, { NULL, 0, 0 } };
+
+=== lib/check.cub (text of the module; record with: build/cubical --record lib/check.cub FILE) ===
+438c438,442
+< conv-data d ps u v =
+---
+> -- one unbuilt term on both sides (%same: the same stored value, or the same call of a checked definition on the
+> -- same arguments) is equal without being run: reflexivity. Otherwise as before
+> conv-data d ps u v = if %same u v then true else conv-data-f d ps u v
+> 
+> conv-data-f d ps u v =
+541c545,547
+< uconv u v =
+---
+> uconv u v = if %same u v then true else uconv-f u v
+> 
+> uconv-f u v =
+
+=== lib/guard.cub g-frozen: ./hyperactive write g-frozen < /tmp/b2-g-frozen.txt ; change against the piece before ===
+131a132,139
+> -- src/net.c, src/lang.c, src/syntax.c, src/core.h (2026-11-21, checker cost: a verdict run again at every
+> -- comparison of its type): %same u v (O_SAME, O_SAME2), true when u and v are one unbuilt term, read
+> -- without forcing either: one stored value, or the same code on the same inputs (same_term: an
+> -- application as its head and arguments however written, S_APP, S_CALL, a deferred call, %gval), the
+> -- code free of fresh names, memory and foreign calls (record_fresh, global_fresh, prim_fresh); only
+> -- under net_solo, within 4096 nodes; false leaves every comparison as it was. lib/check.cub's
+> -- conv-data and uconv ask it first. An identity at a certificate's type: no end in 240 s before,
+> -- 29,621 steps after; a use of a checked verdict: 7.3 million steps before, 6,883 after.
+168c176
+<   cons ("src/core.h" , "a3daacbe2648fab79589791db01c49dfcc241b60") (
+---
+>   cons ("src/core.h" , "33c6441871f9d6f18042dad677be5e1f92f3f1da") (
+171c179
+<   cons ("src/lang.c" , "589717a6555af8254fbafe54a4bda27eff39bce7") (
+---
+>   cons ("src/lang.c" , "7a3142fff4e2eb3395e156e34198325eae3a73d4") (
+173c181
+<   cons ("src/net.c" , "c966f478c5dae452b4af3db7ce4e1cbc4d8a966a") (
+---
+>   cons ("src/net.c" , "0555d1c095fc555696233aa6ab21655145c2b16f") (
+176c184
+<   cons ("src/syntax.c" , "2fc13eb8bdf2cd4e272c6013af7b15c43948f205") (
+---
+>   cons ("src/syntax.c" , "3f47a8785c01c51b042582a95b0067684afc8d64") (
+189,192d196
+< 
+< used by:
+<   g-allowed
+< 
+```
