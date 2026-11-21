@@ -1,0 +1,59 @@
+-- congruence: λA B f a b p. λi. f (p i) : (A B : U) → (f : A → B) → (a b : A) → Path A a b →
+-- Path B (f a) (f b) (part of machine-in-hyperactive)
+nk-ty-cong : nk-has (nk-lam (nk-lam (nk-lam (nk-lam (nk-lam (nk-lam (nk-lam (nk-app (nk-var #4) (nk-app (nk-var #1) (nk-var #0))))))))))
+                   (nk-pi nk-U (nk-lam (nk-pi nk-U (nk-lam (nk-pi (nk-pi (nk-var #1) (nk-lam (nk-var #1))) (nk-lam (nk-pi (nk-var #2) (nk-lam (nk-pi (nk-var #3) (nk-lam (nk-pi (nk-pathp (nk-lam (nk-var #5)) (nk-var #1) (nk-var #0)) (nk-lam (nk-pathp (nk-lam (nk-var #5)) (nk-app (nk-var #3) (nk-var #2)) (nk-app (nk-var #3) (nk-var #1)))))))))))))))) ≡ true
+nk-ty-cong = refl
+-- symmetry: λA a b p. λi. p (reversal of i) : (A : U) → (a b : A) → Path A a b → Path A b a
+-- (part of machine-in-hyperactive)
+nk-ty-sym : nk-has (nk-lam (nk-lam (nk-lam (nk-lam (nk-lam (nk-app (nk-var #1) (nk-neg (nk-var #0))))))))
+                  (nk-pi nk-U (nk-lam (nk-pi (nk-var #0) (nk-lam (nk-pi (nk-var #1) (nk-lam (nk-pi (nk-pathp (nk-lam (nk-var #3)) (nk-var #1) (nk-var #0)) (nk-lam (nk-pathp (nk-lam (nk-var #4)) (nk-var #1) (nk-var #2)))))))))) ≡ true
+nk-ty-sym = refl
+
+
+
+-- ---------------------------------------------------------------- conversion as a program
+nk-church-body : Nat → NkTm
+nk-church-body zero = nk-var #0
+nk-church-body (suc k) = nk-app (nk-var #1) (nk-church-body k)
+
+-- the numeral k: λf. λx. f (f (... x)); and addition: λm. λn. λf. λx. m f (n f x)
+nk-church : Nat → NkTm
+nk-church k = nk-lam (nk-lam (nk-church-body k))
+
+nk-add : NkTm
+nk-add = nk-lam (nk-lam (nk-lam (nk-lam (nk-app (nk-app (nk-var #3) (nk-var #1)) (nk-app (nk-app (nk-var #2) (nk-var #1)) (nk-var #0))))))
+
+-- conversion decided by the machine: both bodies brought to normal form in at most k steps each
+-- and compared; 1 the same, 0 different, 2 no steps given
+nk-conv-f : Nat → NkTm → NkTm → Word
+nk-conv-f zero a b = #2
+nk-conv-f (suc k) a b = if nk-tm-eq (nk-nf k a) (nk-nf k b) then #1 else #0
+
+nk-fuel2 : Word → Nat
+nk-fuel2 n = toNat (%wadd (%wmul n #800) #2000)
+
+nk-lhs : Word → NkTm
+nk-lhs n = nk-app (nk-app nk-add (nk-church (toNat n))) (nk-church (toNat n))
+
+nk-rhs : Word → Word → NkTm
+nk-rhs n k = nk-church (toNat (%wadd (%wadd n n) k))
+
+-- is n + n, by the addition of numerals, convertible with the numeral 2n + k: 1 for k = 0
+nk-conv-demo : Word → Word → Word
+nk-conv-demo n k = nk-conv-f (nk-fuel2 n) (nk-lhs n) (nk-rhs n k)
+
+-- ---------------------------------------------------------------- as C
+nk-gix : Code → Word
+nk-gix (cglob g) = g
+nk-gix c = #0
+
+-- the C for an entry: the entry's own definition (for its number and type), the definitions it
+-- names, held as calls, and the entry as code of the source term. A definition's own code is the
+-- quote of its value, every callee unfolded and nothing shared, so an entry is always given this way
+nk-emit-entry : Word → Lst Word → Code → List Word
+nk-emit-entry m holds c = ce-prog m (x-erase m (x-forms-all (snd (program-of-at unfold m (fst (specialize (opt-or (def-type-code m) cword) (sched #64 lnil holds) lnil c)) #256))))
+
+-- nk-conv-emit: the C for the conversion check, the machine with quotation inside it
+-- (part of machine-in-hyperactive)
+nk-conv-emit : List Word
+nk-conv-emit = nk-emit-entry (nk-gix (code nk-conv-demo)) (lcons (nk-gix (code nk-conv-f)) (lcons (nk-gix (code nk-fuel2)) (lcons (nk-gix (code nk-lhs)) (lcons (nk-gix (code nk-rhs)) lnil)))) (code (λ (n k : Word) → nk-conv-f (nk-fuel2 n) (nk-lhs n) (nk-rhs n k)))
