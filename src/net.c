@@ -587,8 +587,16 @@ static void fd_merge(FdSet *x, const FdSet *y) { for (int i = 0; i < y->n && x->
 static __thread long fd_budget;
 static __thread int fd_why;   /* why a set is unknown (profile): 1 root not there, 2 an unbuilt part, 3 a part not there, 4 budget, 5 tries, 6 a pending part may make a dimension */
 long prof_fd_why[7], prof_fd_pending;
+/* A8b is off unless CUBICAL_A8B is set (2026-11-21, Avik: "Sure we can drop it or disable it by
+ * default"; brunerie-comparison, "Why"). Measured on the Brunerie reading, thirty interleaved rounds
+ * by the step counter: with it 0.167 s (358,691 steps), without it 0.070 s (395,608 steps): the walks
+ * over pending operations cost more than the steps they save, and whole runs of Brunerie and the
+ * library do not change. Off, a set with a pending part is unknown (fd_why 2, 3 or 1 below), so the
+ * cut applies only to sets found exact from built values and a substitution it would have dropped is
+ * kept, which is what every step was before A8b: values and verdicts identical (262 and 2810 passed,
+ * 0 failed either way), the step counts printed differ. */
 static int a8b_off = -1;
-static inline bool a8b_on(void) { if (a8b_off < 0) a8b_off = getenv("CUBICAL_NOA8B") != NULL; return net_solo && !a8b_off; }
+static inline bool a8b_on(void) { if (a8b_off < 0) a8b_off = getenv("CUBICAL_A8B") == NULL; return net_solo && !a8b_off; }
 static FdInfo *box_fd(Box *b);
 static bool fd_port(Port p, FdSet *x, int depth);
 /* may this value's record (or table, or global) make a dimension when built or applied? Asked only
