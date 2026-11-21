@@ -1,0 +1,191 @@
+-- evaluator-speed (2026-11-16): why the machine ran at 1 to 5 million interaction steps a second
+-- (lib/nbe-model.cub about 1.4M a second, lib/nbe.cub about 4.5M), what was fixed, and what remains,
+-- with the evidence for each. How it was measured, so it can be repeated: the tree at a commit
+-- unpacked outside the repository (git archive HEAD | tar -x -C DIR: another session edits the working
+-- copy), the machine built twice from the sources before and after a change, each file run uncached
+-- and on one worker (CUBICAL_NOCACHE=1 CUBICAL_WORKERS=0, --read), outputs compared byte for byte, and
+-- the time measured with gprof from a build with -pg -static (static, so time spent in the C library,
+-- string comparison and malloc, is attributed too); call counts of a C library function by its caller
+-- came from a build whose strcmp was a macro counting by __func__.
+-- Known (2026-11-16, at src/lang.c): fixed. Most of a run's time was not interactions: it was searches by
+-- name, a string comparison per entry of a table that grows with everything loaded, so each run got
+-- slower as the library grew. In lib/views.cub (203M steps) gprof gave 62% of the run (176 s of 281 s)
+-- to lookup, the compiler's binder lookup, 21.6M calls each scanning the whole binder stack (thousands
+-- of binders deep in a read-back term): compile called it three times for every application whose head
+-- is not a variable (a definition, constructor or field: nearly every head), and lazy_trivial and
+-- local_free once. They now call lookup_i, the epoch-cached lookup compile already used for
+-- variables: it returns the same binder (the latest of the name; CUB_CHKBIND=1 checks every cached
+-- answer against the scan), and every name reaching these sites is interned, as lookup_i needs.
+-- lookup_i also read the environment (getenv("CUB_CHKBIND")) on every cached answer; it reads it once.
+-- The remaining scans, counted in the same file: con_lookup's "%%c" (the checker's own constructor,
+-- the first declared of that name) scanned every constructor, 18M lookups and 1.6 billion string
+-- comparisons; the elaborator's imask_of and sig_of (implicit-argument masks, signatures) 1.1 billion
+-- and 0.9 billion; data_lookup 0.7 billion; checked_index, called by the store's canonical form for
+-- every symbol (7.3M times), each call a scan of thousands of entries; in lib/library.cub,
+-- srcname 1.4 billion. Each is now an index from name to entry (NameIx in src/lang.c; CONF beside
+-- con_lookup's CONH for the first of a name; CHKPREV linking a checked name's entries, so a hidden
+-- entry is passed over as the scan passed over it). Each answers what its scan answered, the latest
+-- entry of the name (the first for "%%c"; srcname's names are unique), because those tables are only
+-- appended to and an entry's name never changes, except at #retract, which renames a data type's
+-- constructors (con_lookup's tables were already rebuilt then) and the data type itself (the data
+-- index is rebuilt then). lazy_trivial compared an interned head with eight literals by strcmp; it
+-- compares pointers (IS), as compile does.
+-- Known (2026-11-16, at src/net.c): fixed. synkey, the key of a compiled term in the frame build_m is
+-- building, walked the whole subterm, and build_m calls it at every keyed node it builds, so each node
+-- was walked once for itself and again for every keyed node above it: in lib/views.cub 133M calls and
+-- 837M more recursive ones for 79M nodes built, and the keys those walks interned were freed and
+-- interned again by the next walk (key interning, key_unlink and key_destroy, a ninth of the run). Now
+-- run_frame gives the frame a table of synkey's results by node (KCache). It is exact:
+-- synkey(t, f) is a function of t, the keys of the slots free in t and the frame's scrut; a slot is
+-- bound (bind, bind_dim) before anything under its binder is built and is never bound again in the
+-- frame, and every call of synkey on t comes after t is built, so those keys are fixed whenever synkey
+-- is asked. The one exception is synkey's own reading of a let, which binds the let's slot to the key
+-- of the let's value rather than of the built value: below it nothing is read from or written to the
+-- table. The table's keys are released when the frame is done; keys are interned, so holding one longer
+-- changes no key.
+-- Results, every output identical (each passed and failed count, each step count, each #show line),
+-- the tree at 13bd858, one worker, uncached: lib/views.cub (203M steps) 6 min 48 s to 1 min 43 s of
+-- processor time, 0.50M to 1.97M steps a second; workflow/hyperactivity.cub (196M steps) 6 min 28 s to
+-- 1 min 39 s; lib/library.cub (214M steps; 2511 passed, 24 failed before and after) 1 min 42 s to 48 s,
+-- 2.1M to 4.4M steps a second; Brunerie (lib/core.cub with experiments/brunerie/typed.cub and
+-- run-typed.cub, 8.7M steps) 8.8 s to 3.1 s, and the same value and steps on four workers;
+-- experiments/brunerie/run-circle.cub, run-square.cub, every file of experiments/surface (failures
+-- included), experiments/tso and experiments/obs identical. Not verified: lib/nbe.cub and
+-- lib/nbe-model.cub, which the container's memory limit killed on both machines while another session's
+-- machine ran (below).
+-- Known (2026-11-16, at src/net.c): needs-work. Where the time goes now: gprof of lib/library.cub (41 s
+-- sampled) has no function above 6%. The interactions themselves (interact, cell, link, link_now,
+-- cell_free, copy_top, lazy_copy, flush_frees, retire_boxes, pop) about 13 s, some 60 ns an
+-- interaction; building bodies (build_m, run_frame, synkey, interning keys, registering producers in
+-- the memo) about 8 s; malloc, free, calloc and memset about 5.5 s; the front end (compile, lvs and
+-- maxlev, intern, the lexer, syn_eq, SHA-256, rec_intern) about 8 s. What remains, by cause, each with
+-- its fix and why the fix changes no result:
+-- (1) Every keyed node built gets an interned key and every keyed producer a memo entry, whether or not
+-- the memo ever shares its value: lib/views.cub began 71M memo producers (memo_begin) for 1.77M hits,
+-- dropped 176M entries (memo_drop) and called key() 301M times, about 70 ns each, most of it a cache
+-- miss in a key table of millions; each Entry is calloc'd and freed and each Key malloc'd and freed.
+-- Fix: allocate Keys (by number of children) and Entries from per-thread free lists, as cells and
+-- variables already are; only addresses change, and nothing observable depends on an address (keys
+-- compare by identity; a hash shard is chosen from children's addresses, which only places the key).
+-- (2) Leaf keys are interned again at every build: a word literal's (S_WORD, 32M in lib/views.cub), the
+-- V_GLOBAL cell of every call (key_global from build_m, 39M), the head of every call's key. A key of a
+-- global or a constructor with no children is immortal (KIMMORTAL), so a per-id array of them returns
+-- the pointer interning returns; a word literal's key can be held by its compiled node and released
+-- when the node is freed (syn_free).
+-- (3) A thunk's key walks its whole record body in a frame of its own (52M node walks in
+-- lib/views.cub), and the body is walked again when the thunk is built; a thunk inside a thunk's body
+-- is walked once per enclosing thunk. The result is a function of the record and its environment's
+-- keys, which key(K_LAM, record, environment) already names: kept on that key (a field of Key, released
+-- with it) each body is walked once per environment.
+-- (4) Memory: lib/nbe.cub was killed at 6.25 GB resident (after the fixes, 224 s in) and at 4.15 GB
+-- (before them, 247 s in, another machine using 1.9 GB beside it) by the container's memory limit. The
+-- peak is within single checks: between definitions (CUBICAL_MEMDEF=1, after dgdiag-nat) 35k cells and
+-- 8k keys are live, malloc holds 509 MB in use and 832 MB free, 1.3 GB resident; the free part is
+-- fragmentation, malloc'd keys, entries and boxes interleaved with the 64 KB cell slabs
+-- (aligned_alloc). A keyed producer costs a cell (48 bytes and 8 a port), a variable per wire (24), a
+-- key (40 and 8 a child, malloc'd) and an entry (40, calloc'd), and a shared value a box (56) with a
+-- root cell. The pools of (1) take keys, entries and boxes out of malloc, so a check's peak is returned
+-- to the slabs it came from. Which nbe definition peaks is the first measurement to make (CUBICAL_MEMDEF
+-- prints after each definition; the run is to be made with nothing else running).
+-- (5) Front end: compile compares a %-headed form's head with each name of four tables of primitives
+-- (PO, PL, PR, TBN) by strcmp, 120M comparisons in lib/library.cub; is() compares a symbol with a
+-- literal by strcmp when the pointers differ (46M); node_eq (35M) and vsrc (43M). An index by
+-- interned name (NameIx over the primitive tables) answers as the scans do.
+-- (6) Every build of the machine is a new checker identity (src/lang.c mixes __DATE__ and __TIME__ into
+-- the store's keys), so any change to the machine re-verifies the whole store (94 s cold): measure
+-- uncached, as above.
+-- Known (2026-11-16, Avik 17:45 and 18:04 UTC; 21:12 UTC): "no optimization work without perf. not
+-- allowed. no guess and check"; then, perf being impossible to install in this session (the cloud
+-- environment's proxy refuses the Ubuntu archive, and the session's network setting has no control in
+-- the interface): "fuck it do it without perf idc anthropic is retarded whatever". So the measurement
+-- is callgrind (valgrind 3.22, installed): every instruction the unmodified machine executes, by call
+-- stack and by source line. To repeat it: build from an export of the commit; run with
+-- CUBICAL_STACKED=1 CUBICAL_NOCACHE=1 CUBICAL_WORKERS=0, ulimit -s unlimited, and valgrind.bin
+-- --tool=callgrind --dump-instr=yes --main-stacksize=1073741824 --max-stackframe=1073741824 (the machine
+-- otherwise re-executes itself through /proc/self/exe to raise its stack, which under valgrind is the
+-- tool, not the machine; /usr/bin/valgrind is a wrapper that cannot pass this); callgrind_annotate
+-- --inclusive=no for self cost, --tree=both for callers, and --auto=yes with a source file for lines.
+-- About 60 times slower than the machine: Brunerie 4 min, lib/library.cub and lib/views.cub over an
+-- hour each, or a partial profile at any point with callgrind_control -d.
+-- Known (2026-11-16, at src/big.c and src/lang.c, tree at 538a70fa): measured, fixed. Shares of
+-- instructions in lib/views.cub (a partial profile, 154 billion), lib/library.cub (partial, 200
+-- billion) and Brunerie (whole, 24 billion): wn_parse 9.0%, 5.2%, 2.7%: compile reads every word
+-- literal's digits (S_WORD), and wn_parse made r·10 + d as ten wn_adds per digit, each a calloc and a
+-- free (in lib/views.cub 34M additions, 3.4M digits); it now multiplies in place, one 64-bit word up to
+-- 19 digits (10^19 < 2^64), the limbs otherwise (proof at wn_parse; the old and new functions agree on
+-- 244,007 digit strings of 0 to 60 digits, the 64-bit boundary included). lookup_i's scan of the
+-- binder stack 5.5%, 3.1%, 3.9%, almost all from maxlev: every pop of any binder bumped the epoch, after
+-- which each name's next lookup scanned the whole stack; now each binder keeps its name's previous
+-- header (prev) and every pop gives it back (pop_binds), so the header is always the topmost binder
+-- and no lookup scans (the invariant and its proof at lookup_i; lift pushes its saved binders again
+-- rather than copying them over the stack). Results at 433656b4, one worker, uncached, the machines
+-- run alternately with nothing else running: Brunerie 5.1 s to 4.3 s, lib/library.cub 60.6 s to
+-- 54.7 s, lib/views.cub 157.2 s to 149.9 s, workflow/hyperactivity.cub 108.2 s to 102.1 s; every
+-- output identical byte for byte (the library's 2511 passed and 24 failed, the 24 being
+-- lib/derive.cub's unsigned definitions, before and after), with CUB_CHKBIND=1 checking every
+-- lookup against the scan in all four runs. The time gained is less than the instructions removed:
+-- instructions are not cycles, and the allocator's and the key table's costs are memory, which
+-- callgrind does not time.
+-- Known (2026-11-16, measured at 538a70fa, lib/views.cub): what remains. No function's own cost is
+-- above 6%. The interactions (link, interact, cell, cell_free, link_now, run_frame) about 18%;
+-- malloc, free, calloc and memset about 19% before the fixes above, of which wn_parse was 6 points:
+-- the rest is calloc in syn and var_syn (compile, 1.9%), memo_register (0.8%), the thunk walk's frame
+-- in synkey_walk (0.7%), and free in synkey_walk (1.8%), key_destroy (0.9%), syn_free (0.9%) and
+-- memo_drop (0.6%), the keys and entries of item (1) above; key() 5.8% with what it calls, 5.3 points
+-- of it from synkey_walk; a thunk's key walking its record body (item 3) about 4% with what it calls;
+-- SHA-256 2.8%: syn_digest of a dropped record's body (rec_drop_body) 1.4%, store key_hash 1.2%
+-- (syn_digest is 2.5% of the library and 4.7% of Brunerie). Items (1) to (5) above stand as causes; their
+-- shares are now these measured ones.
+-- Known (2026-11-17, at e14aaba1, measured with perf): perf runs here after all (How to work,
+-- "Performance work starts from a profile": linux-tools-6.8.0-149's binary on this kernel, sampling
+-- the CPU clock, call graphs by DWARF). Every number is from repeated interleaved runs, one worker,
+-- uncached, nothing else running; distributions in brunerie-comparison. Whole-process wall time,
+-- twelve rounds, medians: lib/core.cub alone 1.48 s; with the typed port 3.45 s; with the
+-- computation 3.51 s (the Brunerie run; 8,719,800 steps); the library 49.3 s (214,317,217 steps,
+-- 2511 passed, 24 failed; 2.5M to 4.5M steps a second over the whole run, which is far from only
+-- steps). Self time of the Brunerie run (7,234 samples at 2 kHz): strcmp 5.8%, build_m 4.3%,
+-- interact 4.0%, lvs 3.6%, intern 3.6%, cell 3.5%, _int_malloc 3.4%, local_free 3.4%, key 3.2%,
+-- sha256_update 2.9%, link 2.4%, cell_free 2.2%, memset 2.2%, _int_free 2.1%, compile 1.9%, synkey
+-- 1.7%, flush_frees 1.7%, link_now 1.7%, syn_digest 1.7%, synkey_walk 1.4%, run_frame 1.4%, maxlev
+-- 1.4%, free 1.3%, syn_eq 1.3%, malloc 1.2%, intern_lit 1.2%, syn_hash 1.1%, calloc 1.0%. By part:
+-- the interactions (interact, cell, link, cell_free, flush_frees, link_now, pop, retire_boxes) about
+-- 17%; the front end (strcmp, intern, intern_lit, lvs, local_free, maxlev, compile, lift,
+-- compile_lazy, lookup_i) about 23%; building bodies with their keys (build_m, run_frame, key, synkey,
+-- synkey_walk, key_release) about 13%; interning and digesting records (syn_eq, syn_hash, rec_intern,
+-- syn_digest, sha256_update) about 8%; the allocator (malloc, free, calloc, memset, consolidate)
+-- about 12%; inclusive, readback (the checker's readings) is 43% and p_decl_in (the surface
+-- declaration with its compiling and checking) 26%, records_sweep 5.4%. Self time of the library
+-- (27,463 samples at 500 Hz, 54 s user): cell 6.8%, build_m 5.6%, interact 5.2%, key 5.0%, link
+-- 3.8%, strcmp 3.4%, cell_free 3.3%, intern 3.3%, synkey 3.0%, net_observe 2.8%, flush_frees 2.8%,
+-- link_now 2.7%, _int_malloc 2.7%, lvs 2.3%, memset 2.3%, synkey_walk 2.1%, run_frame 1.7%,
+-- _int_free 1.6%, sha256_update 1.3%, pop 1.2%, lazy_copy 1.1%, bind 1.1%, retire_boxes 1.0%, clone
+-- 1.0%, syn_eq 1.0%, maxlev 1.0%, key_release 1.0%. By part: the interactions about 30%; keys and the
+-- memo (key, synkey, synkey_walk, key_release, key_unlink, key_retain, key_of_port, memo_register)
+-- about 14%; building (build_m, run_frame) 7%; the front end about 12%; the allocator about 11%;
+-- digests about 2%. No function is above 7%; the profile confirms callgrind's shape at 538a70fa.
+-- The memo, measured by its switch (CUBICAL_NOMEMO=1 turns the table and the free-dimension cut off;
+-- every key is still built), interleaved, twelve rounds on Brunerie and five on the library: every
+-- value and every pass and fail identical; steps 358,603 to 405,568 for the reading, 8,719,800 to
+-- 9,098,611 for the run (4.3% more), 214,317,217 to 215,740,424 for the library (0.7% more); wall
+-- time Brunerie 3.31 s to 3.30 s (quartiles 3.18–3.51 and 3.22–3.33), the library 49.3 s to 48.5 s
+-- (47.3–51.1 and 47.5–53.2): no difference. (The hundred-pair series of 2026-11-20, 2.689 against
+-- 2.693 s and 44.20 against 44.18 s, ran a machine from which another session had already removed the
+-- memo and the keys, 0bace3c2e of 2026-11-18, so it measured one machine against itself; the perf
+-- shares of keys and memo above are of e14aaba1, before that removal.) The table's sharing pays for itself and no more; the
+-- keys' 10–14% is paid either way. What the paper forces of all this, part by part, with the
+-- removals it leaves, is core-forced-by-paper. The computation of the number itself is not
+-- resolved by the whole run's wall clock (0.06 s between medians, inside the spread); it is
+-- measured by the step counter's crossing (CUBICAL_PROGRESS lines timestamped by strace, the
+-- method in brunerie-comparison): 0.149 s median over twelve runs, 0.145 to 0.186 s. A reading's
+-- time is read that way without a change to the machine.
+-- What the profiles say about this goal (Avik, 2026-11-18: "So your work amounts to a bunch of
+-- numbers with no significance?"). The goal is that the machine's time goes to the language's
+-- interactions. Measured, it does not: the interactions are about 17% of the Brunerie run and about
+-- 30% of the library; the rest is the front end (compiling and interning, 23% and 12%), the keys
+-- and memo (10% and 14%), the allocator (12% and 11%), building bodies (8% and 7%) and digests (8%
+-- and 2%). So the goal stands at a fifth to a third met, and the fixes of 2026-11-16 did not change
+-- that shape (callgrind at 538a70fa had it too); the memo's table, the one piece that was switched
+-- off and measured, changes nothing in time, so removing the keys with it is the next thing that
+-- can move the share, and the front end is the largest part the paper does not force.
+evaluator-speed : Node
+evaluator-speed = node "The machine's time goes to the language's interactions: no search by name and no repeated walk grows with the program or the library." (cons language-implementation-remainder nil)
