@@ -17,6 +17,7 @@ extern int access(const char *, int);
 #include <sys/resource.h>
 #include <limits.h>
 extern int execv(const char *path, char *const argv[]);   /* <unistd.h>, whose link(2) the net's link shadows */
+extern int fork(void); extern int getpid(void);
 #include <stdarg.h>
 extern int dup(int); extern int dup2(int, int); extern int close(int); extern FILE *fdopen(int, const char *);
 
@@ -5007,10 +5008,12 @@ static int session_connect(void) {
 }
 /* one request, its descriptors in place of the session's own: the exit code the program gave */
 static int sr_saved[3];
-static int32_t session_run(const int fds[3]) {
+static char sr_req[160];
+static int32_t session_run(const int fds[3], const char *path) {
     fflush(stdout); fflush(stderr);
     for (int i = 0; i < 3; i++) { sr_saved[i] = dup(i); dup2(fds[i], i); }
-    static char req[] = "#run (to-step (hy-main-at \"build/session.args\"))\n";
+    snprintf(sr_req, sizeof sr_req, "#run (to-step (hy-main-at \"%s\"))\n", path);
+    char *req = sr_req;
     jmp_buf jb; session_code = 0;
     int r = setjmp(jb);
     if (r == 0) { die_jb = &jb; session_exit = &jb; load_surface(req, "<session>", false); }
@@ -5029,6 +5032,7 @@ static void session_serve(void) {
     if (ls < 0 || bind(ls, (struct sockaddr *)&a, sizeof a) || listen(ls, 16)) die("cannot listen at", session_sock);
     char *key0 = session_key();
     signal(SIGPIPE, SIG_IGN);   /* a client's reader gone (`| head`) ends that client's output, not the session */
+    signal(SIGCHLD, SIG_IGN);   /* the requests' children reaped as they end */
     printf("session: listening at %s\n", session_sock); fflush(stdout);
     for (;;) {
         struct pollfd pf = { ls, POLLIN, 0 };
@@ -5047,9 +5051,22 @@ static void session_serve(void) {
             idx_synced = false; index_sync();   /* the pool as it is now */
             char *k = session_key(); bool stale = strcmp(k, key0) != 0; free(k);
             if (stale) { code = 256; fd_all(c, &code, sizeof code, true); unlink(session_sock); fflush(stdout); _Exit(0); }
-            FILE *f = fopen("build/session.args", "wb");
-            if (f && fwrite(args, 1, n, f) == n && fclose(f) == 0) code = session_run(fds);
-            else if (f) fclose(f);
+            /* each request in a child of its own (the loaded program shared copy-on-write; the net runs
+             * on this one thread, net_start(0)): a long request, a write checking for hours, holds no
+             * other back, and nothing a request leaves behind reaches the next */
+            int pid = fork();
+            if (pid == 0) {
+                close(ls);
+                signal(SIGCHLD, SIG_DFL); signal(SIGPIPE, SIG_DFL);   /* the request's own processes waited for as in a cold start */
+                char path[64]; snprintf(path, sizeof path, "build/session.args.%d", getpid());
+                FILE *f = fopen(path, "wb");
+                if (f && fwrite(args, 1, n, f) == n && fclose(f) == 0) code = session_run(fds, path);
+                else if (f) fclose(f);
+                unlink(path);
+                fd_all(c, &code, sizeof code, true);
+                _Exit(0);
+            }
+            if (pid > 0) { for (int i = 0; i < 3; i++) close(fds[i]); free(args); close(c); continue; }
         }
         fd_all(c, &code, sizeof code, true);
         for (int i = 0; i < 3; i++) if (fds[i] >= 0) close(fds[i]);
