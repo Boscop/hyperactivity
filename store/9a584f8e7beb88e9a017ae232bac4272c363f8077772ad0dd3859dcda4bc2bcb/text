@@ -1,0 +1,28 @@
+-- hyperactive-emits-c (2026-11-21): the paper's §9.4 "Compilation through C" names C as the primary
+-- target; what the repository has is lib/x86.cub's builder, which emits x86 bytes into a Linux ELF
+-- file and so runs on no other processor. The builder already brings a definition to a first-order
+-- form before its templates (Defs: after specialization, then apps, lift, check), and its yes or no
+-- (fragment-n, x-ok-n) does not depend on the target, so the C emitter starts from that same form
+-- and is one template per construct. Known (2026-11-21): an experiment, sixteen definitions ce-* in
+-- lib/x86.cub after jit-plan, covering words, word arithmetic, let and full calls; anything else
+-- emits a call that aborts. ce-demo x y = x*7 + y came out as one C function; the system compiler
+-- built it; 6 3 gave 45; a result past 64 bits aborts. Printed by `hyperactive view in
+-- lib/library.cub ce-demo-c` (lib/x86.cub has no imports and checks only when loaded after others).
+-- Then data and case (2026-11-21): a constructor is a block of tag then fields, a case is a switch
+-- on the tag that binds the fields, word comparison gives a Bool block, successor is add one;
+-- ce-demo2 x = if x < 10 then x*2 else x+1 was emitted, built and run on both branches (9 gave 18,
+-- 10 gave 11). The first-order form lifts a case into its own definition, so the C had two
+-- functions. A construct the emitter does not cover aborts when reached; blocks are never freed.
+-- The experiment had used the command line's decimal printer, which the library does not hold, and
+-- the library's own check failed 13 definitions until the emitter got its own (ce-dec); the library
+-- now checks 2831 passed, 0 failed.
+-- Then the word eliminator (2026-11-21): a loop from 0 to w carrying the accumulator, when its step
+-- is two λs written in place; ce-demo3, the sum below n by the eliminator, emitted, built and run
+-- (100 gave 4950). toNat is built from the eliminator, so a count by Nat can now be emitted.
+-- Nothing in it is proven. To do: closures, memory, the world's commands, continuing
+-- processes; the meaning of the emitted subset of C as a definition of the language (language-support
+-- holds C's semantics as its goal), and against it the proof that each template's C means its
+-- construct and has no undefined behaviour; then the smallest machine (cells, wires, application,
+-- duplicate, erase) written in the language, emitted and run.
+hyperactive-emits-c : Node
+hyperactive-emits-c = node "Hyperactive emits C for everything the builder accepts, each construct by its template, with the proof that the C means the term and has no undefined behaviour." (cons language-implementation-remainder nil)
