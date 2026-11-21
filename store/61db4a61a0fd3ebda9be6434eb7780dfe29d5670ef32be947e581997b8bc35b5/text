@@ -1,0 +1,56 @@
+-- every rule: the operation and the value that met, and the first wire name the rule may use.
+-- apply, increment and quote facing a reference are not rules: that is a read, the memory's
+-- (nk-plan-read). An apply or an increment meeting a blocked term becomes a blocked term holding
+-- its operands (the paper's §4.5, "Blocked terms"). Quote meeting a closure applies it to a new
+-- variable and quotes the result under a λ; meeting a blocked term it quotes the parts
+nk-rule : NkOp → NkVal → Word → NkOut
+nk-rule (nko-app arg out) (nkv-lam b e) n = nk-build b (nke-cons arg e) out (nk-out nkf-nil n)
+nk-rule (nko-app arg out) (nkv-num m) n = nk-out (nkf-op arg nko-era nkf-nil) n
+nk-rule (nko-app arg out) (nkv-ref w) n = nk-out nkf-nil n
+nk-rule (nko-app arg out) (nkv-var x) n = nk-out (nkf-val n (nkv-var x) (nkf-val out (nkv-napp n arg) nkf-nil)) (%wsucc n)
+nk-rule (nko-app arg out) (nkv-lvl l) n = nk-out (nkf-val n (nkv-lvl l) (nkf-val out (nkv-napp n arg) nkf-nil)) (%wsucc n)
+nk-rule (nko-app arg out) (nkv-napp f a) n = nk-out (nkf-val n (nkv-napp f a) (nkf-val out (nkv-napp n arg) nkf-nil)) (%wsucc n)
+nk-rule (nko-app arg out) (nkv-ninc a) n = nk-out (nkf-val n (nkv-ninc a) (nkf-val out (nkv-napp n arg) nkf-nil)) (%wsucc n)
+nk-rule (nko-app arg out) (nkv-q t) n = nk-out (nkf-op arg nko-era nkf-nil) n
+nk-rule (nko-inc out) (nkv-lam b e) n = nk-out (nk-era-env e nkf-nil) n
+nk-rule (nko-inc out) (nkv-num m) n = nk-out (nkf-val out (nkv-num (%wsucc m)) nkf-nil) n
+nk-rule (nko-inc out) (nkv-ref w) n = nk-out nkf-nil n
+nk-rule (nko-inc out) (nkv-var x) n = nk-out (nkf-val n (nkv-var x) (nkf-val out (nkv-ninc n) nkf-nil)) (%wsucc n)
+nk-rule (nko-inc out) (nkv-lvl l) n = nk-out (nkf-val n (nkv-lvl l) (nkf-val out (nkv-ninc n) nkf-nil)) (%wsucc n)
+nk-rule (nko-inc out) (nkv-napp f a) n = nk-out (nkf-val n (nkv-napp f a) (nkf-val out (nkv-ninc n) nkf-nil)) (%wsucc n)
+nk-rule (nko-inc out) (nkv-ninc a) n = nk-out (nkf-val n (nkv-ninc a) (nkf-val out (nkv-ninc n) nkf-nil)) (%wsucc n)
+nk-rule (nko-inc out) (nkv-q t) n = nk-out nkf-nil n
+nk-rule (nko-dup a b) (nkv-lam t nke-nil) n = nk-out (nkf-val a (nkv-lam t nke-nil) (nkf-val b (nkv-lam t nke-nil) nkf-nil)) n
+nk-rule (nko-dup a b) (nkv-lam t (nke-cons w r)) n = nk-out (nkf-val n (nkv-lam t (nke-cons w r)) (nkf-val a (nkv-ref n) (nkf-val b (nkv-ref n) nkf-nil))) (%wsucc n)
+nk-rule (nko-dup a b) (nkv-num m) n = nk-out (nkf-val a (nkv-num m) (nkf-val b (nkv-num m) nkf-nil)) n
+nk-rule (nko-dup a b) (nkv-ref w) n = nk-out (nkf-val a (nkv-ref w) (nkf-val b (nkv-ref w) nkf-nil)) n
+nk-rule (nko-dup a b) (nkv-var x) n = nk-out (nkf-val a (nkv-var x) (nkf-val b (nkv-var x) nkf-nil)) n
+nk-rule (nko-dup a b) (nkv-lvl l) n = nk-out (nkf-val a (nkv-lvl l) (nkf-val b (nkv-lvl l) nkf-nil)) n
+nk-rule (nko-dup a b) (nkv-q t) n = nk-out (nkf-val a (nkv-q t) (nkf-val b (nkv-q t) nkf-nil)) n
+nk-rule (nko-dup a b) (nkv-napp f c) n = nk-out (nkf-val n (nkv-napp f c) (nkf-val a (nkv-ref n) (nkf-val b (nkv-ref n) nkf-nil))) (%wsucc n)
+nk-rule (nko-dup a b) (nkv-ninc c) n = nk-out (nkf-val n (nkv-ninc c) (nkf-val a (nkv-ref n) (nkf-val b (nkv-ref n) nkf-nil))) (%wsucc n)
+nk-rule nko-era (nkv-lam b e) n = nk-out (nk-era-env e nkf-nil) n
+nk-rule nko-era (nkv-num m) n = nk-out nkf-nil n
+nk-rule nko-era (nkv-ref w) n = nk-out nkf-nil n
+nk-rule nko-era (nkv-var x) n = nk-out nkf-nil n
+nk-rule nko-era (nkv-lvl l) n = nk-out nkf-nil n
+nk-rule nko-era (nkv-q t) n = nk-out nkf-nil n
+nk-rule nko-era (nkv-napp f a) n = nk-out (nkf-op f nko-era (nkf-op a nko-era nkf-nil)) n
+nk-rule nko-era (nkv-ninc a) n = nk-out (nkf-op a nko-era nkf-nil) n
+nk-rule (nko-fwd out) v n = nk-out (nkf-val out v nkf-nil) n
+nk-rule (nko-quote d out) (nkv-lam b e) n = nk-build b (nke-cons n e) (%wsucc n) (nk-out (nkf-val n (nkv-lvl d) (nkf-op (%wsucc n) (nko-quote (%wsucc d) (%wadd n #2)) (nkf-op (%wadd n #2) (nko-qlam out) nkf-nil))) (%wadd n #3))
+nk-rule (nko-quote d out) (nkv-num m) n = nk-out (nkf-val out (nkv-q (nk-num m)) nkf-nil) n
+nk-rule (nko-quote d out) (nkv-ref w) n = nk-out nkf-nil n
+nk-rule (nko-quote d out) (nkv-var x) n = nk-out (nkf-val out (nkv-q (nk-free x)) nkf-nil) n
+nk-rule (nko-quote d out) (nkv-lvl l) n = nk-out (nkf-val out (nkv-q (nk-var (%wsub (%wsub d #1) l))) nkf-nil) n
+nk-rule (nko-quote d out) (nkv-napp f a) n = nk-out (nkf-op f (nko-quote d n) (nkf-op a (nko-quote d (%wsucc n)) (nkf-op n (nko-qapp1 (%wsucc n) out) nkf-nil))) (%wadd n #2)
+nk-rule (nko-quote d out) (nkv-ninc a) n = nk-out (nkf-op a (nko-quote d n) (nkf-op n (nko-qinc out) nkf-nil)) (%wsucc n)
+nk-rule (nko-quote d out) (nkv-q t) n = nk-out nkf-nil n
+nk-rule (nko-qlam out) (nkv-q t) n = nk-out (nkf-val out (nkv-q (nk-lam t)) nkf-nil) n
+nk-rule (nko-qlam out) v n = nk-out nkf-nil n
+nk-rule (nko-qinc out) (nkv-q t) n = nk-out (nkf-val out (nkv-q (nk-inc t)) nkf-nil) n
+nk-rule (nko-qinc out) v n = nk-out nkf-nil n
+nk-rule (nko-qapp1 qa out) (nkv-q t) n = nk-out (nkf-op qa (nko-qapp2 t out) nkf-nil) n
+nk-rule (nko-qapp1 qa out) v n = nk-out nkf-nil n
+nk-rule (nko-qapp2 tf out) (nkv-q t) n = nk-out (nkf-val out (nkv-q (nk-app tf t)) nkf-nil) n
+nk-rule (nko-qapp2 tf out) v n = nk-out nkf-nil n

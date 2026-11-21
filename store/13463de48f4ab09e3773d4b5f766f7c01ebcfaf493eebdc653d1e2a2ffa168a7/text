@@ -1,0 +1,20 @@
+-- what a wire holds, read back as a body: a number, a free variable, a blocked application or
+-- increment with its parts read back, through references; a quoted body is itself. An observer of
+-- the memory, not a rule. A closure is read back as its body alone
+nk-quote : Nat → NkSlots → Word → NkTm
+nk-quote zero sl w = nk-free #999999
+nk-quote (suc k) sl w =
+  (case nk-get sl w return (λ _ → NkTm) of
+     nks-val v →
+       (case v return (λ _ → NkTm) of
+          nkv-num m → nk-num m
+          nkv-var x → nk-free x
+          nkv-lvl l → nk-free l
+          nkv-q t → t
+          nkv-ref y → nk-quote k sl y
+          nkv-napp f a → nk-app (nk-quote k sl f) (nk-quote k sl a)
+          nkv-ninc a → nk-inc (nk-quote k sl a)
+          nkv-lam b e → nk-lam b)
+     nks-none → nk-free #999997
+     nks-op o → nk-free #999996
+     nks-pair o v → nk-free #999995)
