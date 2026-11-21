@@ -1,0 +1,358 @@
+# Design flaws uncovered by the Brunerie measurement: Agda's evaluator, and ours
+
+Written 2026-11-21 at Avik's request ("Write a technical report on design flaws uncovered in agda/this
+investigation"). Companion to docs/the-brunerie-number-in-two-evaluators.md, which holds the
+measurements in full; this report states what the measurements and the source show to be design
+decisions with a measurable cost, each at the line that makes it and the count that prices it.
+
+A word on register. Agda is a twenty-year type checker whose evaluator exists to serve checking, and
+its authors have left their own marks on the places named below ("TODO", "fall back to slow
+reduction", "a big chunk of the time during reduction is spent looking up definitions"). "Flaw" here
+means a design decision whose cost this computation makes visible and countable, never a judgement of
+the people who made it. Where this report says what Agda does, the line was read in this session in
+the 2.9.0 source; where it says how often, the count is from Agda's own cost-centre profile of this
+computation; where the cause is inferred rather than read, the sentence says so. The second half is
+about our machine, by the same standard, because the investigation found as many flaws on our side.
+
+## 0. The states referenced
+
+| object | address |
+|---|---|
+| Agda 2.9.0 source | tarball Agda-2.9.0.tar.gz sha256 cef2143d6fc420e2c3250bbdd3bfe27c6ca9c64c114fb7cb00e919bdb019575b |
+| Agda 2.9.0 binary, optimised (timings) | sha256 e3067f7577079598a30aeefea0c041bff95726731b1d7468ac718a8ae01eb095 |
+| Agda 2.9.0 binary, GHC profiling (counts) | sha256 47eb35558ae6d4613204946ab26a48fd73edaa815de8908bd30915096fd71793 |
+| the cost-centre profiles, computing twenty times and loading | agda-TimeCompute20Exp.prof sha256 31eae6fe…, agda-TimeLoadExp2.prof a72a6ba2… |
+| the cubical library | agda/cubical commit 8f0a71b3b3c2435cd1f579328314ae10233b1308 |
+| the machine measured in the comparison | main at 8dcef6d36 (bound switched off) and ecf0dc6c9 (bound removed) |
+| the machine's source at the end of this work | main at fda1dd27a |
+| the worker-count series | workers-timing.log sha256 66f99d1f… |
+| the cut's series | a8b.log sha256 c462906b… |
+
+Every count "per computation" below is the profiled computing run's count less the profiled loading
+run's, divided by twenty (the computing module checks `brunerie' ≡ -2` twenty times by `refl`; Agda's
+own profiler confirms the twenty cost twenty times one). The computation is Ljungström's `brunerie'`,
+whose value is −2; the machine performs it in 395,608 interactions.
+
+## 1. Agda
+
+### 1.1 Two evaluators joined by a lossy seam
+
+Agda reduces with two engines. `Agda/TypeChecking/Reduce.hs` lines 610 to 619 (`maybeFastReduceTerm`)
+send a defined name or constructor applied to the fast engine and everything else to the slow one. The
+fast engine, `Agda/TypeChecking/Reduce/Fast.hs`, is a call-by-need abstract machine: arguments are
+pointers to thunks, so an argument is evaluated once however many times it is used. That is the right
+design, and it is where Agda's sharing lives.
+
+The machine handles the definitions it has a compact form for. `Fast.hs` lines 111 to 120 list the
+forms: functions by compiled clauses, constructors, `primForce`, `primErase`, type constructors,
+axioms, and `CPrimOp`, a primitive that runs on literals; the last constructor is `COther`, "in this
+case we fall back to slow reduction". Lines 166 to 284 compute the form; the primitives given a
+`CPrimOp` are those of natural numbers, characters, strings, names and metavariables (lines 270 to
+282 end the list), and everything else is `COther` (line 284). The interval's connectives and the Kan
+operations (`primTransp`, `primHComp`, `primComp`, the Glue primitives) are not in the list; as far as
+the lines read, they are `COther`.
+
+On meeting `COther` the machine does not stop computing; it leaves. `Fast.hs` line 1018: `COther ->
+fallbackEval s`. `fallbackEval`, lines 1466 to 1478, "decode[s] the current focus to a Term, call[s]
+slow reduction and pack[s] up the result in a value closure". `decodeClosure`, lines 816 to 826,
+writes the environment and the spine out as a term by applying a parallel substitution to the body:
+every shared thunk becomes a copy of its term at each of its occurrences. The slow engine then
+reduces a tree, and the result re-enters the machine as a value.
+
+The seam is where this computation lives. Per computation of `brunerie'` (§5.3a of the companion):
+
+| what Agda did | times |
+|---|---|
+| entered the fast machine (`fastReduce'`) | 270,100 |
+| fell back to the slow engine (`slowReduceTerm`) | 94,200 |
+| decoded a closure to a term (`decodeClosure`) | 934,200 |
+| performed a Kan operation (`primTransHComp`) | 24,500 |
+
+Thirty-eight decodings per Kan operation; a fallback every third machine entry. The sharing the
+machine built is written out as trees nearly a million times, at exactly the operations a cubical
+computation is made of. The design decision is that the fast engine's instruction set stops at the
+literal primitives; the cost is that cubical Agda's evaluator is, for cubical work, the slow engine
+with a decoding step in front of it.
+
+What would mend it, from the design: the Kan operations and the interval connectives as machine
+instructions (a `CKan` beside `CPrimOp`), so that a composition's arguments stay thunks; or one
+engine. The machine on our side has one evaluator: a Kan operation is a cell like any other, and its
+arguments are shared through duplicators like any other's.
+
+### 1.2 Names resolved at run time, inside the type-checking monad
+
+Every step that needs a builtin or a definition asks the monad's state for it. `Agda/TypeChecking/
+Reduce/Monad.hs` lines 27 to 30: `getBuiltinThing` does two `Map.lookup`s, one in the local builtins
+and one in the imported, and unions the results. The fast engine knows this is expensive: its header
+says "a big chunk of the time during reduction is spent looking up definitions in the signature", and
+`memoQName` (lines 420 to 432) memoises the lookup in an `IORef`'d `Map` behind `unsafeDupablePerformIO`.
+But the table lives inside one entry of the machine, and §1.1 counted 270,100 entries per computation.
+
+| what Agda did, per computation | times |
+|---|---|
+| asked the monad for a builtin (`getBuiltinThing`) | 16,907,800 |
+| computed a compact definition (`compactDef`) | 493,300 |
+| entries in the name memo (`memoQName`) | 1,048,200 |
+
+Forty-three builtin lookups per interaction of ours. In the sampled profile of the optimised build,
+the monad's lookups are 10.5% of the computation (`HasBuiltins ReduceM` 4.4%, `BuiltinAccess` 2.1%,
+`lookupCont` 1.8%, `defaultGetConstInfo` 0.4%). The design decision is evaluation as a monadic
+program over the checker's state, which lets the evaluator see metavariables, options and the
+signature as they change; the cost is that the identity of `primIMax` is a map lookup at every use
+rather than a pointer fixed when the term was elaborated. Our machine fixes it: a compiled record
+(`build_m`) points at the cells it uses, and a run does no lookup by name.
+
+### 1.3 Substitution rebuilds the tree, and recomputes sorts on the way
+
+`Agda/TypeChecking/Substitute.hs` lines 904 to 950, `applySubstTerm`: a substitution meeting a
+variable looks it up; meeting a λ, an application, a constructor, a Π, it rebuilds the node with the
+substitution pushed into every child. The comment dated 2026-03-17 states the intent: create no
+thunks "until we hit the next inductive layer of terms", that is, eagerly one layer at a time. Every
+face case of a composition substitutes a dimension by 0 or 1 through the term this way, and a term
+of this computation is a large cube read at a few faces.
+
+| what Agda did, per computation | times |
+|---|---|
+| applied a substitution to a term (`applySubst`) | 5,420,900 |
+| traversed an argument wrapper (`traverse`, Agda.Syntax.Common) | 1,049,400 |
+
+Fourteen substitution applications per interaction of ours. And the Π case computes a sort: lines
+1499 to 1547, `mkPiSort a b = piSort (unEl <$> a) (getSort $ unDom a) (getSort <$> b)`, called from
+the Π constructors used in substitution. In the sampled profile `mkPiSort` is 7.5% of the computation
+(`mkPiSort_subE1` 4.6%, `mkPiSort31` 2.8%): a type's sort recomputed under every substitution that
+passes a Π, for a computation that never asks for a sort.
+
+The design decision is substitution as a function on trees, which is simple and correct. The cost is
+work proportional to the term rather than to what is read. Our machine holds a substitution on a
+reference and applies it one level as a value is read (`rule_subst`, `ref_read`, `subst_compose`); a
+part never read is never substituted, and no sort is recomputed because no run asks the type of a
+Π it merely passes through.
+
+### 1.4 Terms without sharing nodes: the allocation bill
+
+`Agda/Syntax/Internal.hs` lines 346 onward define `Term` as a tree: variable with eliminations, λ,
+literal, defined name applied, constructor applied, Π, sort, level, metavariable. There is no node
+that says "the same as that one". So the fast engine's sharing (thunks) is a property of the engine's
+heap, not of the term, and is lost at every decoding (§1.1) and absent in every substitution (§1.3).
+
+The bill, from GHC's runtime statistics (`+RTS -s`, profiles.log): loading `brunerie'` allocates
+3,769,873,992 bytes; loading and computing it twenty times allocates 13,054,708,568; the difference
+is 464 MB per computation of one integer. The collector takes 34% of the computation's samples
+(`evacuate` alone 23.9%), and part of the 18% in the kernel is the heap growing. Memory management is
+about 40% of Agda's time on this computation. Our machine's allocator is 20% of the reading, and a cell
+freed by a rule is reused from a free list; a value nobody reads is erased level by level instead of
+surviving to a collection.
+
+### 1.5 Argument wrappers carrying metadata that every substitution resets
+
+Each argument in Agda is `Arg { argInfo :: ArgInfo, unArg :: e }` with a derived `Traversable`
+(`Agda/Syntax/Common.hs` lines 2903 to 2906), and `ArgInfo` carries, among else, a free-variable
+annotation. `applySubstTerm`'s `subE` (Substitute.hs, lines 940 to 948, the reset at 944 to 945) resets that annotation to
+"unknown" on every argument it substitutes under. In the profiled computing run the single largest
+cost centre is this derived `traverse` at 8.2% of profiled ticks, entered 1,049,400 times per
+computation. A profiled build distorts shares (the cost centres cost), so 8.2% is not a measurement of
+the optimised binary; the count is exact. The design decision is metadata on every argument node; the
+cost is a traversal and a reset per argument per substitution, for metadata this computation never
+consults.
+
+### 1.6 Face formulas decomposed from their syntax at each use
+
+`Agda/TypeChecking/Primitive/Cubical/Base.hs` lines 354 to 391, `decomposeInterval'`: a conjunction
+is the cartesian product of its parts' assignments, a disjunction their union, a negation flips them;
+the result is a list of partial assignments with leftover neutral terms. Two "TODO"s on lines 360 and
+361 (`primIMinDep`, `forall`) are the authors' own marks. The decomposition is computed from the
+formula's syntax each time a system is matched, 108,900 times per computation, beside 564,900
+`intervalView'`s (the view that reads a term as an interval connective, itself a builtin lookup each
+time: `Agda/TypeChecking/Monad/Builtin.hs` lines 663 to 679, as the profile locates it).
+
+The sampled profile prices the cubical primitives at 1.7% of the computation, so this is a flaw of
+method rather than the gap's cause on these numbers. Our machine keeps faces as canonical De Morgan
+normal forms (dnf.c) and compares them in place.
+
+### 1.7 Loading dominates the user's time
+
+Agda's own profiler on the computing module (`--profile=all`, profiles.log):
+
+| phase | time |
+|---|---|
+| Total | 2,363 ms |
+| Deserialization | 1,989 ms |
+| Typing.CheckRHS (the computation) | 238 ms |
+| Import | 93 ms |
+| Parsing | 11 ms |
+
+Eighty-four percent of a module's time is reading interface files. This is not an evaluator flaw and
+the design (serialised interfaces, re-read per invocation) is a deliberate trade; it is listed because
+anyone timing Agda from the shell measures this and not the computation, and because our machine
+has the same shape in a milder form (§2.3).
+
+### 1.8 The evaluator cannot be observed from outside
+
+Agda's profiler attributes the normalisation to `Typing.CheckRHS` and prints no count of reductions,
+Kan operations or face cases; the counts above needed a second Agda built with GHC profiling
+(`-prof`, every dependency rebuilt with profiling libraries, one day of this work), and the time
+profile of the optimised binary needed a difference of two perf recordings (compute twenty times,
+subtract the load). Neither Agda nor our machine prints a measure of work common to both, so the
+comparison of 395,608 interactions against 24,500 Kan operations is of two different units. A design
+that exposed its evaluator's counters (`--profile=all` already has the hooks: `whenProfile
+Profile.Conversion $ tick "compare"`, Conversion.hs line 158) would have made this report a day
+shorter.
+
+### 1.9 What the Agda findings add up to
+
+| share of Agda's computation | what it is | counterpart in the machine |
+|---|---|---|
+| about 40% | allocation and collection (§1.4) | allocator 20% of the reading |
+| 12% | GHC runtime: thunk updates, partial applications, maps | none |
+| 10.5% | monad lookups (§1.2) | none; pointers in records |
+| 10.6% | substitution, 7.5% of it sorts of Π (§1.3) | held substitutions and faces, 13% |
+| about 9% | the evaluator proper: fast engine 4.3%, slow engine 3.2%, cubical primitives 1.7% | interactions 47% |
+
+About a tenth of Agda's time on this computation is its evaluator evaluating. The rest is memory it
+allocates and collects, names it looks up, sorts it recomputes, and trees it rebuilds. Each of those is
+a design decision with a reason (a term that is a tree is easy to reason about; a monadic evaluator
+sees the checker's state; a two-engine design let the fast engine be added without touching the
+slow one), and each is priced above. The result is 0.236 s against the machine's 0.072 s, 3.2 times,
+with 95% intervals that do not overlap (companion §3.1).
+
+## 2. Our machine
+
+The same investigation found design flaws of ours, two of them larger in their own terms than any of
+Agda's.
+
+### 2.1 An optimisation that was a pessimisation: the bound on pending operations (A8b)
+
+The free-dimension cut (A8) stops a read where no dimension is free. Its bound (A8b) refused the cut
+when the pending net below the port was too large, walking that net (fd_pending, fd_port, fd_cell,
+box_fd) to decide. Thirty interleaved rounds by the step-counter clock (a8b.log):
+
+| machine | reading's time | steps |
+|---|---|---|
+| A8 and A8b on (as it was) | 0.167 s | 358,691 |
+| A8 on, A8b off | 0.070 s | 395,608 |
+| A8 off | 0.088 s | 405,568 |
+
+The bound saved 13% of steps and cost 2.4 times the time: the walk that decided whether to cut cost
+more than the cut saved. The reading's time fell from 0.167 s to 0.070 s when it was switched off and
+the comparison with Agda went from 1.5 times to 3.2 times. The design flaw is a general one: a bound
+computed by inspection of the structure it bounds is a traversal, and a traversal is the cost the cut
+was meant to avoid. The memory-is-local rule says it the other way: the cost of a process is derived
+from its definition, never measured; had the bound's cost been derived, it would have been seen to be
+of the order of what it saved. Avik: "Sure we can drop it or disable it by default". Switched off at
+8dcef6d36, removed at ecf0dc6c9, recorded in lib/guard.cub.
+
+### 2.2 Parallelism that slows the machine down: the worker threads, and why
+
+An earlier version of this section measured four workers slower than one and proposed removal.
+Avik, 2026-11-21: "You measured something slower on one workload and proposed deletion? Instead of
+asking about cache layout, contention? The things that cause slowness with scaling?" The diagnosis
+is in the handoff (docs/handoff-brunerie-measurement-session-2026-11-21.md §3.1); its results:
+
+| Brunerie whole run, 5 rounds | 0 workers | 1 | 2 | 3 | 4 |
+|---|---|---|---|---|---|
+| elapsed | 2.78 s | 5.88 s | 6.71 s | 7.69 s | 7.99 s |
+| processor time | 2.77 s | 8.56 s | 12.78 s | 17.87 s | 18.49 s |
+| sched_yield calls | 0 | 3.1 M | 2.5 M | 2.9 M | 2.6 M |
+| futex calls | 0 | 31 k | 83 k | 132 k | 150 k |
+
+The loss is there with one extra thread and grows slowly after, three threads on four cores being
+as slow as four: not contention growing with cores, not oversubscription. The width of the work,
+measured on one thread with a scratch copy of the machine that histograms pending pairs at each pop:
+on Brunerie 42% of pops find one pending pair, 85% find four or fewer, mean 3.4; on the library 47%
+find one, mean 8.1 (258 M pops). At the granularity this executor distributes, one active pair of
+about 87 ns, the computation under one observation is a chain. The mechanisms the code and counts
+show: an idle thread polls the owner's queue lines at every steal attempt (51% of all samples in
+`pop` with four workers), takes the chain's single next pair after a millisecond idle so the chain
+and its cells migrate between cores, yields in a system call per idle iteration (3.1 M per Brunerie
+run, 32 M per library run), and is woken and parked once per observation (1.4 to 1.7 M futex calls
+on the library, whose readback observes once per node: the library's eleven times). Hardware
+counters are not exposed on this machine, so coherence misses were not counted.
+
+The design flaw is therefore not "threads" but the granularity, and the granularity has a derived
+answer (Avik: "There is always a pure math answer as to the right way"), measured with the same
+scratch copy: the steps' dependency graph has work W and depth D, no executor beats max(W/p, D), and
+W/D is the available speedup. Inside observations, which run in sequence today, W/ΣD is 4.5 on
+Brunerie and 3.9 on the library, and the Brunerie computation itself is a chain (W/D = 2.6); across
+observations, which share no cell, the whole run's W/D is 57 and 32. The pair-level executor
+distributes where the width is under 5 and the cost of a hand-off equals a step; the width is at
+the observation level, where the cut is zero and the host's sequencing is what remains (the handoff
+§3.1 has the derivation and the table).
+
+### 2.3 The front end is expensive, and the remembered elaboration hides it
+
+Removing the remembered elaboration (x_checked: the solved type and term of a declaration kept in the
+store under the hash of its surface forms) was tried. Every value and verdict stayed identical, and
+every warm run was five times slower: Brunerie 0.91 s with it against 2.69 s without, the library
+4.42 s against 23.3 s, because each miss re-runs the elaboration's rounds, each of which runs the
+checker to solve holes. The removal was reverted. Two flaws are visible here. The remembered
+elaboration's key does not record what the elaboration observed (the signatures and instances it
+depended on; the code's own comment says so), so a stale elaboration can be replayed, and it is sound
+only because acceptance is never taken from it: §10.1 of the paper asks for a certificate, and this is
+not one. And the front end it hides costs 2.7 s on a computation whose evaluation is 0.07 s: like
+Agda's 2 s of deserialisation (§1.7), the user's time is the load, not the computation, in a ratio of
+about forty to one.
+
+### 2.4 Measuring a switch that was gone: the memo series
+
+A hundred-pair series on 2026-11-20 compared the machine with its memo table on against off and found
+no difference. The memo and its keys had been removed from main two days earlier (0bace3c2e, by
+another session); the series compared one machine with itself. The flaw was in the investigation's
+control: a switch's existence was taken from a record (the workflow node said the memo was present)
+and not from the current net.c. The twelve-pair series of 2026-11-17 at e14aaba1, the last machine
+with the memo, stands: switched off, 13% more steps on the reading and no difference in whole-run
+time. The rule that came out of it: "Never answer anything about any code without reading that exact
+line of code" (Avik, 2026-11-18), applied to measurement.
+
+### 2.5 The pool's index is rebuilt without a lock
+
+The source is a pool of entries read through an index that `index_sync` (syntax.c lines 2350 to
+2433) rebuilds whenever the stamp of the entries differs from the stamp recorded: it clears an
+`index-next` directory, reads every entry, writes the new index beside the old, then renames each
+file over the old one and writes the stamp. Nothing in those lines excludes a second process. On
+2026-11-21 a leftover four-worker run of the library (from the series of §2.2) and a `./hyperactive`
+command rebuilt the index together; the result was an index in which lib/check.cub could not be
+opened ("a file loaded without the checker"), repaired by killing the stray process and removing the
+stamp so that one process rebuilt cleanly (live 497, modules 476, alternatives 0). The design flaw is a
+rebuild in place that is correct for one process and undefined for two.
+
+### 2.6 Merging two pools makes alternatives
+
+Merging main's pool into this session's converted 24 stale name pointers into root entries
+(`replaced=-`) beside main's own entries for the same paths (commit c77b0972f). The pool's rule is that
+two live entries at a path are alternatives, which merge while they bind equal text and block every
+read of the path the moment one side moves; the standard library moved first, and the path was
+unreadable until the extra entry was stated dead. All 24 are now dead with the reason recorded. The
+flaw is that a merge of two pools has no notion of "the same entry arrived twice"; the fix in design
+terms is an entry identity that survives the merge, or a rule that a root entry binding the text
+another live entry already binds is dead on arrival.
+
+## 3. Flaws of method in this investigation, and their corrections
+
+These were the previous session's and mine, and Avik caught each one.
+
+| flaw | how it was corrected |
+|---|---|
+| single measurements reported as numbers ("obviously don't just do one measurement") | every number from repeated, interleaved runs with mean, sd and se; 100 rounds where cheap, 30 where not; the rule "A number is never one measurement" in the welcome file |
+| the comparison was against Agda 2.6.3, three years old ("you used a 3 year old version") | 2.9.0 and 2.8.0.2 built from Hackage; the rule "A comparison is against the current release of the other system" |
+| the reading's time was inferred from step counts and stated as a measurement | the step-counter clock (progress lines timestamped under strace) measures it directly; checked against perf's realtime window |
+| perf attributed by stacks through `readback_at`, which dwarf unwinding truncated | the window is taken from the realtime clock, not from stacks |
+| "whose belief" was left ambiguous | every corrected belief named as this session's or the previous one's |
+| tables put the two systems' numbers apart | the same thing on both systems adjacent |
+
+## 4. What this report does not claim
+
+Not that Agda's design is wrong for Agda: a type checker's evaluator must see metavariables and
+options, and trees are what a checker reasons about; the flaws above are costs of those choices on
+this computation. Not that our machine is well designed where it was not measured: §2 is what the
+investigation found, not an audit. Not that the gap is explained: §1.9's shares add to how Agda spends
+its time, and the companion's §6 says which causes are known and which are conjecture. And not that
+the comparison is more than one computation on one machine, against one other system, at one date.
+
+## 5. Open
+
+- Agda side: a count of the terms decoded at each fallback (sizes, not entries) would turn §1.1's
+  conjecture of lost sharing into a measurement; a `CKan` experiment in `Fast.hs` would price it.
+- Our side: the worker threads' diagnosis leaves the granularity question (handoff §3.1); the remembered elaboration's key is to be
+  completed into a certificate (paper §10.1); `index_sync` needs exclusion or an atomic rename of the
+  whole index; the pool needs an entry identity across merges.
+- Both: a unit of work both systems print, so that a comparison is of counts and not only of seconds.
