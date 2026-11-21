@@ -1,0 +1,20 @@
+-- nk-safe-commute: the test is sound. Whenever nk-safe? says yes for two wires, stepping them in
+-- either order leaves memories that read the same at every wire (part of machine-in-hyperactive)
+nk-safe-commute : (sl : NkSlots) (u1 n1 u2 n2 : Word) → (nk-safe? sl u1 n1 u2 n2 ≡ true) → nk-same (nk-step-at u2 n2 (nk-step-at u1 n1 sl)) (nk-step-at u1 n1 (nk-step-at u2 n2 sl))
+nk-safe-commute sl u1 n1 u2 n2 h =
+  let f1 = nk-plan-fx sl u1 n1
+      f2 = nk-plan-fx sl u2 n2
+      a = nk-oks? f1 f2
+      b = nk-clear? u1 f2
+      c = nk-clear? (nk-rw (nk-get sl u1) u1) f2
+      d = nk-clear? u2 f1
+      e = nk-clear? (nk-rw (nk-get sl u2) u2) f1
+      h2 = nk-and-r a (nk-and b (nk-and c (nk-and d e))) h
+      h3 = nk-and-r b (nk-and c (nk-and d e)) h2
+      h4 = nk-and-r c (nk-and d e) h3
+  in nk-step-commute-ok sl u1 n1 u2 n2
+       (nk-oks?-sound f1 f2 (nk-and-l a (nk-and b (nk-and c (nk-and d e))) h))
+       (nk-clear?-sound u1 f2 (nk-and-l b (nk-and c (nk-and d e)) h2))
+       (nk-clear?-sound (nk-rw (nk-get sl u1) u1) f2 (nk-and-l c (nk-and d e) h3))
+       (nk-clear?-sound u2 f1 (nk-and-l d e h4))
+       (nk-clear?-sound (nk-rw (nk-get sl u2) u2) f1 (nk-and-r d e h4))
