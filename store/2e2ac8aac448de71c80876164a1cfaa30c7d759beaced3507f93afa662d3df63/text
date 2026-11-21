@@ -1,0 +1,15 @@
+-- nk-do-swap-ok: two plans commute when each two of their requests are on different wires, or on one
+-- wire with changes that commute (a value arriving and an operation arriving: nk-arrive-comm). This
+-- is the form two neighbouring pairs need: both write the wire between them, from its two ends
+-- (part of machine-in-hyperactive)
+nk-do-swap-ok : (fx1 fx2 : NkFx) (sl : NkSlots) → nk-oks fx1 fx2 → nk-same (nk-do fx2 (nk-do fx1 sl)) (nk-do fx1 (nk-do fx2 sl))
+nk-do-swap-ok nkf-nil fx2 sl ap x = refl
+nk-do-swap-ok (nkf-val w v r) fx2 sl ap x =
+  nk-do-swap-ok r fx2 (nk-upd sl w (nk-arrive-val v)) (snd ap) x
+  ∙ nk-do-same r (nk-do fx2 (nk-upd sl w (nk-arrive-val v))) (nk-upd (nk-do fx2 sl) w (nk-arrive-val v)) (nk-do-upd-ok fx2 sl w (nk-arrive-val v) (fst ap)) x
+nk-do-swap-ok (nkf-op w o r) fx2 sl ap x =
+  nk-do-swap-ok r fx2 (nk-upd sl w (nk-arrive-op o)) (snd ap) x
+  ∙ nk-do-same r (nk-do fx2 (nk-upd sl w (nk-arrive-op o))) (nk-upd (nk-do fx2 sl) w (nk-arrive-op o)) (nk-do-upd-ok fx2 sl w (nk-arrive-op o) (fst ap)) x
+nk-do-swap-ok (nkf-put w s r) fx2 sl ap x =
+  nk-do-swap-ok r fx2 (nk-upd sl w (λ s0 → s)) (snd ap) x
+  ∙ nk-do-same r (nk-do fx2 (nk-upd sl w (λ s0 → s))) (nk-upd (nk-do fx2 sl) w (λ s0 → s)) (nk-do-upd-ok fx2 sl w (λ s0 → s) (fst ap)) x
