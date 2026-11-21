@@ -587,93 +587,24 @@ static void fd_merge(FdSet *x, const FdSet *y) { for (int i = 0; i < y->n && x->
 static __thread long fd_budget;
 static __thread int fd_why;   /* why a set is unknown (profile): 1 root not there, 2 an unbuilt part, 3 a part not there, 4 budget, 5 tries, 6 a pending part may make a dimension */
 long prof_fd_why[7], prof_fd_pending;
-/* A8b is off unless CUBICAL_A8B is set (2026-11-21, Avik: "Sure we can drop it or disable it by
- * default"; brunerie-comparison, "Why"). Measured on the Brunerie reading, thirty interleaved rounds
- * by the step counter: with it 0.167 s (358,691 steps), without it 0.070 s (395,608 steps): the walks
- * over pending operations cost more than the steps they save, and whole runs of Brunerie and the
- * library do not change. Off, a set with a pending part is unknown (fd_why 2, 3 or 1 below), so the
- * cut applies only to sets found exact from built values and a substitution it would have dropped is
- * kept, which is what every step was before A8b: values and verdicts identical (262 and 2810 passed,
- * 0 failed either way), the step counts printed differ. */
-static int a8b_off = -1;
-static inline bool a8b_on(void) { if (a8b_off < 0) a8b_off = getenv("CUBICAL_A8B") == NULL; return net_solo && !a8b_off; }
+/* A8b, the bound on a pending operation's dimensions from its inputs' (PLAN.md revision 7.9, 6 Nov
+ * 2026, git 2ca8d747aaa5:PLAN.md, §18.16 “A8 — Proposal: formal transported compositions”, its part
+ * A8b), is gone (2026-11-21, Avik: "Sure we can drop it or disable it by default"; brunerie-comparison,
+ * "Why"; docs/the-brunerie-number-in-two-evaluators.md §5.1). Measured on the Brunerie reading,
+ * thirty interleaved rounds by the step counter: with it 0.167 s (358,691 steps), without it 0.070 s
+ * (395,608 steps): its walks over pending operations cost more than the steps they saved, and whole
+ * runs of Brunerie and the library did not change. What remains is A8 on built values only: a set is
+ * known exactly or not at all (fd_why 1, 2 or 3 below), and where it is not known the substitution is
+ * kept, which is what every step was before A8b. The code below is the code with A8b's switch false and
+ * the branches that switch made dead removed; values and verdicts identical (262 and 2810 passed, 0
+ * failed either way), the step counts printed differ. */
 static FdInfo *box_fd(Box *b);
 static bool fd_port(Port p, FdSet *x, int depth);
-/* may this value's record (or table, or global) make a dimension when built or applied? Asked only
- * on one worker (the analysis' caches are not shared); elsewhere taken to (conservative) */
-static bool fd_taint_of(const Cell *v) {
-    if (!a8b_on()) return true;
-    switch (v->kind) {
-    case V_LAM: case V_THUNK: return record_mkdim((Record *)v->p);
-    case V_SUSP: case V_CASEF: return casetab_mkdim((const CaseTab *)v->p);
-    case V_GLOBAL: return global_mkdim((long)v->a);
-    case V_REC: return true;
-    case V_DEFER:
-        /* as fd_pending refuses a pending operation */
-        switch ((int)v->ty) {
-        case O_CASE: return casetab_mkdim((const CaseTab *)v->p);
-        case O_MKDIM: case O_GLOB: case O_ERA: return true;
-        case O_NATIVE: return global_mkdim((long)v->a);
-        default: return false;
-        }
-    default: return false;
-    }
-}
-/* A8b (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.16 “A8 — Proposal: formal transported compositions”, its part A8b): a pending operation's result mentions only its inputs' dimensions (and those its payload
- * names), unless something it may run can make one: O_MKDIM itself, the checker's tables, a
- * record, table or global among the inputs that reaches %dim (record_mkdim). Binders (O_MKPLAM,
- * O_FORALL) remove their dimension. A bound, not the set: the value is still being built */
-static bool fd_pending(Cell *o, int arrive, FdSet *x, int depth) {
-    if (o->kind == O_MKDIM || o->kind == O_GLOB || o->kind == O_ERA) { fd_why = 6; return false; }
-    FdSet *y = malloc(sizeof *y); y->n = 0; y->taint = false; y->inexact = true;
-    bool ok = true;
-    if (o->kind == O_DUP) ok = arrive != 0 && fd_port(o->port[0], y, depth + 1);
-    else for (int k = 0; k < o->n && ok; k++) if (k != arrive) ok = fd_port(o->port[k], y, depth + 1);
-    if (ok) {
-        if (owns_dnf(o->kind)) fd_dnf(y, o->p);
-        if (o->kind == O_SUBST && o->p) { const Subst *s = o->p; for (uint32_t k = 0; k < s->n; k++) fd_dnf(y, s->v[k]); }
-        if (o->kind == O_CASE && casetab_mkdim((const CaseTab *)o->p)) y->taint = true;
-        if (o->kind == O_NATIVE && global_mkdim((long)o->a)) y->taint = true;
-        if (y->taint) { fd_why = 6; ok = false; }
-    }
-    if (ok && y->n <= 256) {
-        if (o->kind == O_MKPLAM || o->kind == O_FORALL) { Dim i = (Dim)o->a; for (int q = 0; q < y->n; q++) if (y->d[q] == i) { y->d[q] = y->d[--y->n]; break; } }
-        fd_merge(x, y);
-    } else ok = false;
-    free(y);
-    if (ok && prof_on) prof_fd_pending++;
-    return ok && x->n <= 256;
-}
 static bool fd_cell(Cell *v, FdSet *x, int depth) {
     if (--fd_budget < 0 || depth > 200 || x->n > 256) { fd_why = 4; return false; }
     if (!is_value(v->kind)) { fd_why = 3; return false; }
-    if (unbuilt(v->kind)) {
-        /* an unbuilt subterm: its environment's dimensions bound what building it gives (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.16 “A8 — Proposal: formal transported compositions”, its part A8b) */
-        if (!a8b_on()) { fd_why = 2; return false; }
-        if (fd_taint_of(v)) { fd_why = 6; return false; }
-        x->inexact = true;
-        /* a thunk's pending substitution (applied when it is built) brings its values' dimensions */
-        if (v->kind == V_THUNK && v->a) { const Subst *s = (const Subst *)(uintptr_t)v->a; for (uint32_t k = 0; k < s->n; k++) fd_dnf(x, s->v[k]); }
-        if (v->kind == V_DEFER) {
-            /* a deferred operation: its inputs' dimensions and its payload's, less a binder's own;
-             * refused when running it may make a dimension (a record, table or global among its
-             * inputs reaching %dim), as a pending operation is (fd_pending) */
-            FdSet *y = malloc(sizeof *y); y->n = 0; y->taint = false; y->inexact = true;
-            bool ok = true;
-            for (int k = 1; k < v->n && ok; k++) ok = fd_port(v->port[k], y, depth + 1);
-            if (ok && y->taint) { fd_why = 6; ok = false; }
-            if (ok && owns_dnf((int)v->ty)) fd_dnf(y, v->p);
-            if (ok && y->n <= 256) {
-                if (v->ty == O_MKPLAM || v->ty == O_FORALL) for (int q = 0; q < y->n; q++) if (y->d[q] == (Dim)v->a) { y->d[q] = y->d[--y->n]; break; }
-                fd_merge(x, y);
-            } else ok = false;
-            free(y);
-            return ok && x->n <= 256;
-        }
-        for (int k = 1; k < v->n; k++) if (!fd_port(v->port[k], x, depth + 1)) return false;
-        return x->n <= 256;
-    }
-    if (fd_taint_of(v)) x->taint = true;
+    if (unbuilt(v->kind)) { fd_why = 2; return false; }   /* an unbuilt subterm: its set is not known */
+    x->taint = true;
     if (v->kind == V_REF) {
         FdInfo *fi = v->p ? box_fd(v->p) : NULL;
         if (!fi) { if (!fd_why) fd_why = 1; return false; }
@@ -706,10 +637,8 @@ static bool fd_port(Port p, FdSet *x, int depth) {
     if (!q || is_var(q)) { fd_why = 3; if (prof_on) prof_fd_var++; return false; }
     Cell *c = PC(q);
     if (PI(q) != 0 || !is_value(c->kind)) {
-        /* the result of an operation still pending, or its input */
-        if (!a8b_on() || PI(q) == 0) { fd_why = 3; if (prof_on && c->kind < 512) prof_fd_prin[c->kind]++; return false; }
-        if (--fd_budget < 0 || depth > 200) { fd_why = 4; return false; }
-        return fd_pending(c, PI(q), x, depth);
+        /* the result of an operation still pending, or its input: not known */
+        fd_why = 3; if (prof_on && c->kind < 512) prof_fd_prin[c->kind]++; return false;
     }
     return fd_cell(c, x, depth);
 }
@@ -725,10 +654,10 @@ static FdInfo *box_fd(Box *b) {
     __atomic_fetch_add(&b->fdtries, 1, __ATOMIC_RELAXED);
     Port q = sload(&b->root->port[0]);
     if (!q || is_var(q)) { q = peek(q); if (!q || is_var(q)) { fd_why = 1; return fi; } }
-    if (PI(q) != 0 && !a8b_on()) { fd_why = 1; return fi; }
+    if (PI(q) != 0) { fd_why = 1; return fi; }   /* the root still pending: not known */
     FdSet *y = malloc(sizeof *y); y->n = 0; y->taint = false; y->inexact = false;
     long saved = fd_budget; fd_budget = 4000;
-    bool ok = PI(q) != 0 ? fd_pending(PC(q), PI(q), y, 0) : fd_cell(PC(q), y, 0);
+    bool ok = fd_cell(PC(q), y, 0);
     fd_budget = saved;
     if (ok && y->n <= 256) {
         FdInfo *nf = malloc(sizeof(FdInfo) + (size_t)y->n * sizeof(Dim)); nf->n = (uint32_t)y->n;
