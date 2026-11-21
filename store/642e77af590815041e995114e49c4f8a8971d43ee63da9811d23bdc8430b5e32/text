@@ -1,0 +1,474 @@
+# The Brunerie number in two evaluators: where the time goes
+
+2026-11-21. Avik, 2026-11-21: "Do everything needed; this should be an at length document you write,
+it should go deep into the differences of evaluation between the two, and if "why" isn't fully
+understood due to lack of profile data you should speculate honestly. But also profiler should at
+least tell you where agda is spending time vs us. It'd be good to have profile data. And reference the
+states of what you ran by hash ie each term of this work is content addressable."
+
+Everything below was run on one machine, in this container: four virtual cores of an Intel Xeon at
+2.10 GHz, 16 GB, Linux 6.18.44, nothing else running during any timed series. Every number is from
+repeated runs, the configurations compared alternating run by run, and is given with its spread. Where
+a claim is a measurement it says so and names the log; where it is read from code it names the file
+and the lines; where it is a conjecture it is marked as one. The numbers in `brunerie-comparison`
+(the workflow node) are the same numbers.
+
+## 1. What was run, by content
+
+Our side, the machine and the source at commit 8dcef6d36b92795b8595784d892e1a03d55726c5 (main,
+2026-11-21):
+
+| object | address |
+|---|---|
+| the machine `build/cubical` (built from that commit's `src/`, gcc, `-O2 -g`) | sha256 c9b8e8d77907957d6011af495436faf321d9bdbbee5a1d95657be547927196ca |
+| `src/net.c` as the guard records it (lib/guard.cub, g-frozen) | git object 08a3512246289d9ccdf81d7a1e0132d96c922f01 |
+| the definition `brunerie` (its checked type and term, canonical form) | key 1c2c5439c5b7 |
+| `g8`, `encodeTruncS2`, `encodeTruncS1`, `g10` | keys 1af5e26293af, 96160293f939, 024e9bd312bd, 44d8518655e3 |
+| the module experiments/brunerie/typed.cub (82 pieces) | module 7e4864cd5c70ae25ae7c0f18176c0338178974cc4e62c31c3926d2c3e563b489, bound by entry abacb50bb32260dc… |
+| the module experiments/brunerie/run-typed.cub (2 pieces) | module c1cac0ae7081494f3373a20534b07af37b99768e69d9c51e8ff6d5758e9a2f2d |
+| the module lib/core.cub (the core's import list, 1 piece) | module 54d218d8885d2d855ee9e7c046073df11b63dd59568d1569e4b2b8ef6bee7a13 |
+| the module lib/check.cub (the checker, 336 pieces) | module 701cd45afbb4e4c9efbe2b5875123d272ca1c35f111bca195346f780af64dd50 |
+| the module lib/prelude.cub (33 pieces) | module df4eb49d20d5b7819b90a7576f1292c04af9c639e89de9f907b74ea52a7a5202 |
+
+The earlier series (the twelve-round whole-process table of 2026-11-17) ran the machine at commit
+e14aaba1 and the reading's first direct clock at ab3ac3301; the node says which number came from which.
+
+Agda's side:
+
+| object | address |
+|---|---|
+| Agda 2.9.0, built from Hackage with GHC 9.4.7 and cabal 3.8.1.0, Hackage's default flags (`optimise-heavily`) | binary sha256 e3067f7577079598a30aeefea0c041bff95726731b1d7468ac718a8ae01eb095; source tarball Agda-2.9.0.tar.gz sha256 cef2143d6fc420e2c3250bbdd3bfe27c6ca9c64c114fb7cb00e919bdb019575b |
+| Agda 2.8.0.2, the same way | binary sha256 255f951a8fa06ca10b5efb2c535e4a6e540dd5d3f8a63bad9bb2f78463763e97 |
+| Agda 2.6.3, Ubuntu 24.04's package | 2.6.3-1build1 |
+| the cubical library, master | agda/cubical commit 8f0a71b3b3c2435cd1f579328314ae10233b1308 (2026-11-19 14:34:36 +0100); its README states Agda v2.8.0 for master |
+| the cubical library at the paper's date (used with 2.6.3 only) | commit cd8c842d799dce1d9c8680b9021788b39ed8cdba (2023-02-01) |
+| the one-line test modules | TimeLoadExp.agda sha256 97b3da7a…, TimeComputeExp.agda 73cf1a62…, TimeCompute20Exp.agda 89431bda…, TimeLoadBeta3.agda ceb5c864…, TimeComputeBeta3.agda 77cb24d6… (full digests in profiles.log) |
+
+The scripts and logs (in the measuring run's scratchpad; their digests are their identity, the scripts are
+short and quoted where they matter): agda-timing.sh 8180b883…, hyp-timing.sh c49fbee1…,
+reading-steps.sh ce23b00a…, current-agda.sh e019c5e3…, more-runs.sh 7e4283e7…, why.sh 57ba868d…,
+a8b.sh 9c55917c…, a8-whole.sh e4978845…, verify-default.sh 84877529…, profiles.sh 76cf9ea4…; logs
+agda-timing.log 93726f16…, hyp-timing.log 822f6a8a…, reading-steps.log d4280541…, more-runs.log
+0ca6e1d6…, current-agda.log efafc80f…, why.log 792b4f72…, a8b.log c462906b…, a8-whole.log c84259de…,
+memo-timing.log be287a53…, profiles.log 1a8b980c…, agda29-profile-compute.txt da18413d…, pa-diff.sym
+fc6e526d….
+
+## 2. The computation
+
+Ljungström's `brunerie'` (Cubical/Homotopy/Group/Pi4S3/BrunerieExperiments.agda, both commits):
+
+    brunerie' = g10 (g9 (g8 λ i j → f7' λ k → η₃ .fst (push (loop i) (loop j) k)))
+
+with `g8 = mapΩrefl encodeTruncS²`, `g9 = encodeTruncS¹`, `g10 = SetTrunc.rec isSetℤ (idfun ℤ)`,
+`f7' = f7stuff.encode north`. A two-dimensional loop in the join of two circles is pushed through
+the Hopf-type encoding into the 4-truncation of the 2-sphere, decoded through the 3-truncation of
+the circle to an integer: the Brunerie number, −2. Every step of that is a path computation: a
+transport along a line of types given by univalence (`ua`), compositions in higher inductive types
+(the truncations, the join, the spheres), a Glue type unglued. There is no numerical shortcut; the
+answer comes out only because every one of the cubical rules computes.
+
+Our port, experiments/brunerie/typed.cub: `brunerie = g10 (encodeTruncS1 g8)` with
+`g8 = λ i → encodeTruncS2 (λ j → F i j)`, the same composition with `g9` and the λs written in; its
+`K2` is the 4-truncation of `S2` as a higher inductive type with the eight-argument constructor
+`squash4`, `CodeK` is the family over the suspension of `S2` given by `ua (K2eq a)`, `HopfS2` the Hopf
+fibration as a Glue type. It is 82 pieces of text; with lib/core.cub it is 262 checked declarations,
+all accepted. The checker that accepts them is lib/check.cub, a program of the language that the same
+net runs; the result is read at the declared type `Int` and prints `negsuc (suc zero)`, which is −2.
+
+What "the computation" measures on each side. In Agda: the check of the declaration
+`test : brunerie' ≡ -2; test = refl`, which Agda's profiler accounts under Typing.CheckRHS: the two
+sides are normalised and compared. On our side: the reading `#show brunerie` at type `Int`, which
+builds the net for the term and runs it to its normal form: 395,608 interaction steps as the machine
+now stands (358,691 with the free-dimension bound on, 405,568 with the whole cut off). Both include
+building the term from its definition and nothing of loading or checking the definitions.
+
+## 3. The measurements
+
+### 3.1 The computation alone
+
+| system | runs | median | mean | sd | se | method |
+|---|---|---|---|---|---|---|
+| machine, as it now stands (bound off) | 30 | 0.072 s | 0.074 | 0.008 | 0.0015 | step-counter clock |
+| machine, as it stood (bound on) | 100 | 0.151 s | 0.154 | 0.012 | 0.0012 | step-counter clock |
+| Agda 2.9.0 | 100 | 0.231 s | 0.236 | 0.018 | 0.0018 | its profiler, Typing.CheckRHS |
+| Agda 2.8.0.2 | 100 | 0.334 s | 0.336 | 0.021 | 0.0021 | its profiler |
+| Agda 2.6.3 (2023 library) | 100 | 0.720 s | 0.728 | 0.046 | 0.0046 | its profiler |
+
+The hundred-round rows ran interleaved in the same loop (current-agda.sh: one of ours, one of 2.9.0,
+one of 2.8.0.2 per round; more-runs.sh for 2.6.3 beside ours). Ratios of means to the machine as it
+stood: 1.53 (95% interval 1.50 to 1.57) against 2.9.0, 2.18 (2.13 to 2.23) against 2.8.0.2, 4.48
+against 2.6.3. To the machine as it now stands: 3.2 against 2.9.0, 4.5 against 2.8.0.2.
+
+The step-counter clock: `CUBICAL_PROGRESS=20000` makes the machine print its thread's step count to
+stderr every 20,000 steps; `strace -ttt -e trace=write` on a line-buffered run timestamps every such
+write and the result's write; the reading is the last K steps of the run's N (K from the result line,
+N from the run's summary line), so it begins where the counter crosses N − K, interpolated between the
+two progress lines around it, and ends at the write of its result, which the machine prints after the
+reading (lang.c: `readback_at` is called before `out_term`). Checked once by the other route: three
+perf recordings with a realtime clock gave 519, 569 and 590 samples of the machine inside the same
+windows at 4 kHz, 0.130 to 0.148 s, where the clock gave 0.21 to 0.23 s under strace's overhead (why.log);
+the clock's numbers in the table are without perf. The clock's own cost is in it: about eighteen
+timestamped writes per reading.
+
+Agda's profiler: `--profile=all` prints per-phase milliseconds; Typing.CheckRHS is the checking of the
+right-hand side `refl` against `brunerie' ≡ -2`, which is exactly the normalisation and the comparison.
+Both methods measure the computation without the load; neither measures the other's definition of
+"the computation" and the two are as alike as the two systems permit.
+
+### 3.2 Whole processes
+
+Twelve rounds each, medians, wall seconds (current-agda.log, hyp-timing.log):
+
+| system | load `brunerie'`, no computation | load and compute | load β₃ | load and compute β₃ |
+|---|---|---|---|---|
+| Agda 2.9.0, current library | 2.13 | 2.38 (CheckRHS 241 ms) | 3.47 | 4.07 (CheckRHS 547 ms) |
+| Agda 2.8.0.2, current library | 4.23 | 4.58 (332 ms) | 7.50 | 8.13 (738 ms) |
+| Agda 2.6.3, 2023 library | 3.93 | 4.68 | 8.25 | 9.98 |
+| machine at e14aaba1: core alone 1.48; core and port checked 3.45; and computed 3.51 | | | | |
+
+Agda "loads" by reading the compiled interfaces of 138 modules (deserialisation is 1,989 ms of its
+2,363 ms on the computing module, by its own profiler); the machine re-reads and re-checks the core
+and the port from text with no cache. They are not the same work and the whole-process rows compare
+nothing about the evaluators; they are here because a reader will ask.
+
+β₃, the paper's own figure (`fst computer η₃' ≡ -2` in DirectProof.agda Part 2, "just under 4 seconds
+on a regular laptop" in February 2023): Agda 2.9.0 computes it in 0.55 s here. The machine has no
+number: the port of `computer` reaches through 90 modules and 22,018 lines of Agda the port does not
+have (S3PushoutIso, BlakersMassey, Freudenthal, the Hopf invariant, the cohomology ring, Gysin).
+
+### 3.3 Memory
+
+Agda, GHC's runtime statistics (`+RTS -s`, profiles.log): loading `brunerie'` allocates 3.77 GB over
+its run and collects for 0.615 s of 2.268 s; loading and computing once allocates 4.23 GB and
+collects 0.733 s of 2.576 s; computing twenty times allocates 13.05 GB and collects 2.40 s of 7.00 s.
+So one computation allocates about 464 MB and spends about 0.089 s of its 0.236 s, 38%, in garbage
+collection, with a maximum residency of 204 to 264 MB for the process. The machine's allocation
+volume per computation was not measured; its process ends the Brunerie run with 56,837 cells and
+66,064 interval payloads live, and its allocator's share of the computation's time is in §5.2.
+
+## 4. How each evaluates, from the code
+
+### 4.1 Agda
+
+Terms are trees. `Agda/Syntax/Internal.hs` lines 346 onward: a `Term` is a variable with
+eliminations, a λ, a literal, a defined name applied to eliminations, a constructor applied, a Π, a
+sort, a level, a metavariable. There is no sharing node: two occurrences of a subterm are two trees.
+
+Substitution is applied through the term. `Agda/TypeChecking/Substitute.hs` lines 904 to 950,
+`applySubstTerm`: a substitution meeting a variable looks it up; meeting a λ, a definition applied, a
+constructor applied, a Π, it rebuilds the node with the substitution pushed into every part; the
+comment at 2026-03-17 says the intent is to create no thunks "until we hit the next inductive layer
+of terms", so a substitution is eager one layer at a time, and the Π case computes sorts
+(`mkPiSort`, which the profile below shows). Substituting a dimension variable by an interval
+expression is this same operation: the whole term is rebuilt.
+
+Two reducers. `Agda/TypeChecking/Reduce.hs` line 604: reducing a term tries the fast reducer for a
+definition or constructor applied (`maybeFastReduceTerm`, lines 610 to 618), the slow one otherwise
+(`slowReduceTerm`, 635 onward, which unfolds a definition by its compiled clauses and reduces path
+applications by `reduceIApply`). The fast reducer, `Agda/TypeChecking/Reduce/Fast.hs`, describes
+itself (lines 4 to 25): "a call-by-need environment machine with an implicit heap maintained using
+STRefs", with memoised definition lookup and compacted case trees; closures are a term, an environment
+and a spine of eliminations whose arguments are pointers to thunks (lines 493 to 620). So Agda does
+share work inside the fast machine: an argument is a thunk evaluated once. But the machine handles
+only what it knows (lines 100 to 120: functions, constructors, `primForce`, `primErase`, type
+constructors, axioms, and primitives it can run on literals, `CPrimOp`; everything else is `COther`,
+"in this case we fall back to slow reduction"). The primitives of the interval and the Kan operations
+(`primTransp`, `primHComp`, `primComp`, Glue) are not in its list of literal primitives (lines 166 to
+270 name natural-number, character and string primitives), so as far as I read they are `COther`. On
+meeting one, `fallbackEval` (lines 1466 to 1478) "decode[s] the current focus to a Term, call[s] slow
+reduction and pack[s] up the result in a value closure": the shared closures are written out as a
+tree, reduced as a tree by the slow reducer, and the result re-entered as a value. A path application
+whose dimension is 0 or 1 is taken by the machine itself (`evalIApplyAM`, lines 1439 to 1450);
+one whose dimension is anything else is left in the spine.
+
+The Kan operations. `Agda/TypeChecking/Primitive/Cubical.hs` line 414, `primTransHComp`: reduce the
+face formula φ, view it; if it is 1, answer at once; otherwise reduce the type family, and go by cases
+on what it is (Π, Σ, Path, a data type, Glue, the universe …), each case building the answer as a
+term with `runNamesT`, a term-building monad over names. The face formula is decomposed where a
+system is matched: `Agda/TypeChecking/Primitive/Cubical/Base.hs` lines 354 to 391,
+`decomposeInterval'`: a conjunction is the cartesian product of its parts' assignments, a disjunction
+their union, a negation flips them; the result is a list of partial assignments of the variables to
+0 or 1 with leftover neutral terms. This is computed where it is needed, from the formula's syntax,
+each time.
+
+Conversion. `Agda/TypeChecking/Conversion.hs` line 144, `compareTerm`, through `compareAs` (152) and
+`compareTerm'` (279): the two sides are reduced to weak head normal form and compared, constructor
+against constructor, then their arguments, recursively; for `refl : brunerie' ≡ -2` the left side
+is normalised until it is a constructor of ℤ and compared with `-2`. The profiler's counters on that
+check (agda29-profile-compute.txt) are small: 15 comparisons, 5 by reduction; the work is inside the
+one normalisation.
+
+All of it runs in the type-checking monad, a state monad over the signature (every definition's
+clauses, type, compiled form), the builtins table, the metavariables and the options; a reduction
+step that needs a definition asks the monad for it (`getConstInfo`; the fast reducer memoises this,
+line 8 to 11 of its header, because "a big chunk of the time during reduction is spent looking up
+definitions in the signature").
+
+### 4.2 The machine
+
+Read in full this week: src/net.c (4366 lines), src/lang.c (5114), src/syntax.c (6426), src/store.c
+(595), src/dnf.c (378), src/big.c (147), core.h (486), drivers.c (211), sha256.c (45); the
+classification of every part is `core-forced-by-paper`.
+
+A term is a net of cells joined by wires (core.h, lines 1 to 10). A cell has a kind and a few ports;
+one port is principal. Values provide on their principal port, operations consume there. An active
+pair is an operation wired to a value at both principal ports; a rule replaces the two cells by a
+small net on their other wires (net.c, "the rules", lines 2218 onward in the version read). Running
+is performing active pairs until none remains. Sharing is a cell: a value read twice is wired through
+a duplicator (`O_DUP`), which copies the value's top cell when it arrives and wires the parts through
+new duplicators, one level at a time; a value read by nobody meets an eraser (`O_ERA`) and is freed
+level by level. There is no tree anywhere: what Agda would copy, the net duplicates lazily; what
+Agda's garbage collector would find, the net erases as it goes.
+
+Call by need. net.c, "Call by need", lines 4150 onward: every operand is compiled unrun, built as a
+deferred cell (`V_DEFER`: the operation's kind, payload and inputs) and run by its reader, held once by
+a duplicator, erased unrun if nobody reads it. The strict exceptions are the inputs an operation
+always reads (`syn_reads`).
+
+Substitution is held, not pushed. net.c, lines 1185 to 1208 in the version read, `rule_subst`: a
+substitution of dimensions meeting a value with parts puts the value in a box and makes a reference
+carrying the substitution; the substitution is applied one level when the reference is read
+(`ref_read`), and composed with any substitution already pending (`subst_compose`, 2.9% of the
+reading's samples). A value never read under the substitution is never substituted.
+
+Faces and intervals are canonical forms. src/dnf.c: an interval expression is a join of meets of
+literals (a dimension or its negation) kept as an antichain, a face formula a join of meets of
+equations `i = 0`, `i = 1`; meet, join, negation and substitution produce canonical forms, and 0, 1
+and equality are read off; payloads are immutable and reference-counted, single literals immortal.
+A face is decided once by comparison, not decomposed per use.
+
+Code is compiled once into records. lang.c, "compiling" (1773 onward) and "interning compiled code"
+(1920): a definition's body is a `Syn` tree with binders as distances and names as definition
+numbers; a λ or a thunk carries a pointer to its record, and equal records are one pointer. Building
+a net from a record (`build_m`) follows pointers; there is no lookup by name during a run.
+
+The checker is a program on the net (lib/check.cub); it is not involved in the reading measured here
+except that the definitions it accepted are the ones built.
+
+The free-dimension cut, net.c lines 941 to 1184 (A8 and A8b, from PLAN.md revision 7.9, §18.16
+"A8 — Proposal: formal transported compositions"): once a value is built, walk it for the dimensions
+it mentions and keep the set on its box, so a pending substitution of other dimensions is dropped
+(A8); for an operation still pending, bound the set by its inputs' (A8b). This is the one mechanism
+measured in §5.1; A8b was turned off by default at 8dcef6d36 on Avik's word and its code removed at
+ecf0dc6c9 (src/net.c git object c966f478c5dae452b4af3db7ce4e1cbc4d8a966a), the outputs of the
+rebuilt machine equal to the switched-off ones, the reading 0.069 s median over thirty rounds after
+the removal.
+
+## 5. The profiles
+
+### 5.1 One mechanism of ours, switched
+
+The reading's own time with each part of the cut off, thirty interleaved rounds by the step-counter
+clock (a8b.log):
+
+| machine | median | mean ± se | steps |
+|---|---|---|---|
+| as it was (A8 and A8b on) | 0.167 s | 0.174 ± 0.004 | 358,691 |
+| A8 off, A8b on | 0.088 s | 0.095 ± 0.003 | 405,568 |
+| A8 on, A8b off | 0.070 s | 0.077 ± 0.002 | 395,608 |
+| both off | 0.088 s | 0.092 ± 0.002 | 405,568 |
+
+Fewer steps, more time: the bound on pending operations walked the pending net (fd_pending,
+fd_port, fd_cell, box_fd) at a cost above the 13% of steps it saved. Over whole runs it changed
+nothing (Brunerie 2.65 s against 2.67 s, the library 45.3 s against 45.0 s, twelve pairs each; a8-whole.log); values and verdicts
+identical either way (262 and 2810 passed, 0 failed), the step counts printed not. The memo table
+(one value per key, so that two producers of one term shared one value) was measured once, at
+e14aaba1 on 2026-11-17, the last machine that had it: switched off, every value and verdict the
+same, 13% more steps on the reading, no difference in whole-run time over twelve pairs
+(memo-timing.log). Another session then removed the memo and the keys from the machine on
+2026-11-18 (commit 0bace3c2e, Avik: "two processes unaware of each other computing the same thing
+share nothing"), so the hundred-pair "memo on against off" series of 2026-11-20 (more-runs.log)
+measured one machine against itself and says nothing; I did not re-read the current net before
+running it, and the node said the memo was present until 2026-11-21. So of the machine's mechanisms
+that could be switched, one contributed nothing to this computation's speed (the memo, since
+removed) and one less than nothing (the bound, since removed). Whatever makes the reading fast is in
+what cannot be switched off: the net itself, the deferred operands, the held substitutions, the
+canonical faces, the compiled records.
+
+The third switch the machine has is its worker count (`CUBICAL_WORKERS`; every measurement in this
+document is on one worker). Four workers against one, whole runs, alternating (workers-timing.log,
+sha256 66f99d1f…): Brunerie 8.53 s against 2.85 s (12 pairs, se 0.07 and 0.06; 17.0 s of processor time against 2.7),
+the library 506 s against 44.9 s (5 pairs against 6, se 17 and 0.3; 732 s against 44); outputs identical but for
+counts. The parallel machine is three to eleven times slower than the sequential one and burns six to
+seventeen times the processor time: whatever the Chase–Lev deques and the shard locks were written for,
+on this hardware and these workloads they are a cost, and the comparison with Agda above is of one
+thread against one thread.
+
+### 5.2 Where the machine's reading spends its time
+
+perf at 4 kHz with a realtime clock, the machine's own process inside the reading's window (as
+defined in §3.1), three runs pooled, 1,120 samples (profiles.log, step (4); the symbols with at least
+seven samples):
+
+| share | part | symbols |
+|---|---|---|
+| 47% | the interactions: taking an active pair, making and freeing cells, wiring, copying a value's top | interact 9.0, cell 6.3, link_now 6.2, cell_free 5.5, link 4.6, net_observe 2.7, flush_frees 2.7, pop 2.1, retire_boxes 2.0, rule_subst 1.7, clone 1.3, lazy_copy 1.0, ref_read 1.0, copy_top 0.9 |
+| 20% | the C allocator | _int_malloc 5.2, malloc 4.6, unlink_chunk 2.4, memset 1.9, cfree 1.8, malloc_consolidate 1.5, _int_free 1.3, _int_free_merge_chunk 1.2 |
+| 13% | substitutions and faces | subst_compose 2.9, subst_release 2.1, dnf_moved 1.8, dnf_release 1.7, iv_subst 1.2, subst_retain 0.8, dnf_meet 0.8, dnf_lit 0.8, subst_range_mentions 0.6 |
+| 5% | building bodies from records | build_m 2.9, run_frame 1.2, bind 0.8 |
+| 4% | the cut's walks (A8, the part still on) | box_fd 1.7, fd_cell 1.3, fd_port 0.9 |
+| 2% | the kernel (strace's and the scheduler's) | _raw_spin_unlock_irqrestore 1.1, finish_task_switch 0.8 |
+| 9% | the rest, each under 0.6% | |
+
+The machine's step kinds over the whole Brunerie run (profiles.log, step (5); the per-reading
+kind counts are not separated by the profile): erasures 3.15 M, case steps 1.69 M, duplications
+1.06 M, calls 0.79 M, views 0.67 M, substitutions 0.26 M, applications 0.25 M, word operations 0.17 M,
+path applications 0.14 M plus 0.10 M at a point. Erasure and duplication, the two structural rules,
+are nearly half of all steps: the price of sharing a graph is paid in copying and discarding levels,
+and it is paid at about 60 ns a step (the interactions' 47% of 0.074 s over about 400,000 steps is
+about 87 ns a step including everything).
+
+### 5.3 Where Agda's computation spends its time
+
+Agda has no window of its own that perf can see, so the computation's profile is a difference: perf
+at 4 kHz on the module that loads `brunerie'` without computing it, and on a module that computes it
+twenty times (`t01 … t20 : brunerie' ≡ -2`, each `refl`; Agda checks each separately, and its
+profiler confirms the twenty cost 4.73 s, 0.236 s each, the same as one). Three recordings of each,
+pooled: 30,558 samples loading, 91,126 computing twenty times; the difference, 64,954 samples, is the
+twenty computations with the load subtracted (pa-diff.sym). By module (GHC's symbol names decoded):
+
+| share | part | what it is |
+|---|---|---|
+| 34% | GHC's garbage collector | evacuate 23.9% of the whole run, scavenge_block 3.7%, compaction, GC bookkeeping |
+| 18% | kernel, libc and unresolved addresses | page faults and clearing (the heap growing), spin locks, addresses perf could not name |
+| 12% | GHC's runtime and libraries | thunk update frames (stg_upd_frame), partial applications (stg_PAP_apply, stg_ap_*), Data.Map and IntMap |
+| 10.5% | the type-checking monad | `HasBuiltins ReduceM` lookups 4.4%, `BuiltinAccess` 2.1%, signature lookup (`lookupCont`) 1.8%, `defaultGetConstInfo` 0.4% |
+| 7.5% | Substitute: `mkPiSort` | computing the sort of a Π type while substituting (`mkPiSort_subE1` 4.6%, `mkPiSort31` 2.8%) |
+| 4.3% | Reduce.Fast | the abstract machine proper (`goETS` 1.0%, `fastReduce'` 0.8%, `compactDef` 0.7%) |
+| 3.2% | Reduce | the slow reducer and `Normalise` instances |
+| 3.1% | Substitute (other) | `defApp` 1.1%, `lookupS'` 0.6%, `applyE` |
+| 1.7% | Primitive.Cubical | `intervalView'` 0.5% and the rest |
+| 1.8% | Syntax | term constructors and traversals |
+| 2% | everything else | |
+
+Two cautions. The 18% "kernel and unresolved" is partly page faults from a heap that grows by
+464 MB per computation (which is the collector's cost by another name) and partly addresses without
+symbols; it is not attributed. And a difference of two sampled runs carries the load's noise; the
+groups above 3% are stable across the three recordings, the ones under 2% are not to be read closely.
+
+### 5.3a Agda's own cost centres: what the computation does, counted
+
+A second Agda 2.9.0 was built with GHC profiling (every package, cost centres on top-level functions;
+binary sha256 47eb35558ae6d4613204946ab26a48fd73edaa815de8908bd30915096fd71793, GHC 9.4.7, the
+same source tarball) and run with `+RTS -p` on the twenty-fold computing module and on the loading
+module (profiles agda-TimeCompute20Exp.prof, sha256 31eae6fe…, and agda-TimeLoadExp2.prof, a72a6ba2…; the
+profiled binary's first run, agda-TimeLoadExp.prof 8342b973…, re-checked the whole library because
+its interfaces are its own, and is the library's profile, not the load's). A profiled build is slower
+and its time shares are distorted by the cost centres themselves, so the times are not compared with
+§5.3; what a profile counts exactly is entries: how many times each function was called. The
+computing run's count less the loading run's, divided by twenty, per computation of `brunerie'`:
+
+| what Agda did, per computation | times |
+|---|---|
+| entered its abstract machine (`fastReduce'`) | 270,100 |
+| computed a compact definition for it (`compactDef`); its memo table's entries (`memoQName`) | 493,300; 1,048,200 |
+| fell back to the slow reducer (`slowReduceTerm`) | 94,200 |
+| decoded a closure to a term (`decodeClosure`) | 934,200 |
+| performed a Kan operation (`primTransHComp`: transport or composition) | 24,500 |
+| viewed an interval expression (`intervalView'`) | 564,900 |
+| decomposed a face formula (`decomposeInterval'`) | 108,900 |
+| applied a substitution to a term (`applySubst`) | 5,420,900 |
+| traversed an argument structure (`traverse` of Agda.Syntax.Common) | 1,049,400 |
+| reduced a term (`reduceB'`) | 2,927,800 |
+| asked the monad for a builtin (`getBuiltinThing`) | 16,907,800 |
+| compared two terms (`compareTerm'`) | 84,700 |
+| allocated (the runtime's count, unprofiled) | 464 MB |
+
+Against the machine's 395,608 interaction steps for the same computation. The loading run's own
+counts, subtracted above, are of checking the test's type: 1,232,066 machine entries, 6,434,314
+builtin lookups, 257,551 substitutions, no Kan operation.
+
+What the counts settle. The abstract machine is not entered once per computation and left running: it
+is entered 270,100 times, each entry computing its compact definitions afresh (its memoisation of
+`getConstInfo` lives inside one entry, Fast.hs lines 6 to 12 and 470 to 489: 493,300 compact
+definitions per computation), and it falls back to the slow reducer 94,200 times, decoding 934,200
+closures to terms on the way: 38 decodes per Kan operation. That is conjecture (b) of §6 made a count:
+the sharing the machine builds is written out as trees nearly a million times per computation, at the
+primitives this computation is made of. And 16.9 million builtin lookups and 5.4 million
+substitutions against 395,608 interactions says the same of (e) and (c): every step of Agda's
+reduction asks its state for the names of the interval's constants, where a cell of the net has its
+kind, and substitutes through terms where the net holds the substitution on a reference.
+
+### 5.4 Side by side
+
+| | Agda 2.9.0 | the machine |
+|---|---|---|
+| the computation | 0.236 s | 0.074 s |
+| memory management | garbage collection 34% + heap growth in the kernel's share: about 40% | the C allocator 20% (plus the erasures inside the 47%) |
+| the evaluator's own stepping | abstract machine 4% + slow reducer 3% + cubical primitives 2%: about 9% | interactions 47% |
+| substitution | 7.5% sorts of Π + 3.1% other: about 11% | held substitutions and faces 13% |
+| finding definitions and builtins | 10.5% (monad lookups) | 0 (pointers in records; build 5%) |
+| the runtime's own machinery | 12% (thunks, applications, maps) | 0 |
+
+Roughly a tenth of Agda's time is its evaluator evaluating; roughly half of ours is. The rest of
+Agda's is memory it allocates and collects, lookups it repeats, and sorts it recomputes.
+
+## 6. Why the machine is faster: what is known, what is conjecture
+
+Known, from the measurements above:
+
+1. The lead is 3.2 times against current Agda on this computation (0.074 s against 0.236 s), 4.5
+   against the version the library declares, and it was 1.5 until a mechanism of ours that cost time
+   was switched off. No other mechanism of ours that can be switched contributes to the lead.
+2. Agda's computation allocates about 464 MB and spends about 38% of its time collecting it (two
+   independent measures agree: the runtime's own statistics and the sampled profile). The machine's
+   allocator takes 20% of the reading, and its cells are recycled through per-thread free lists and
+   slabs (net.c, "cells and variables", lines 17 to 193).
+3. About 10% of Agda's computation is looking things up in its monad's state (builtins, the
+   signature) and 7.5% is recomputing the sorts of Π types under substitution; neither has a
+   counterpart in the machine, where a compiled record points at what it uses and a type's sort is
+   never recomputed by a run.
+4. The parts of Agda that are the evaluator (the abstract machine, the slow reducer, the cubical
+   primitives) are about 9% of its computation; the machine's interactions are 47% of its reading.
+
+Conjecture, honestly marked, in the order of how much I would bet on each:
+
+- (a) Memory is the first difference. A tree evaluator builds a new tree for every substitution
+  and every reduct and leaves the old to the collector; 464 MB for one integer is the size of that.
+  A net rewrites in place: a rule frees its two cells and allocates a handful, and a value nobody reads
+  is erased level by level instead of surviving to a collection. If Agda's 40% of memory management
+  and most of its runtime overhead went to zero, its 0.236 s would be near 0.12 s, still not 0.074 s:
+  memory is about half the gap, on these numbers, not all of it.
+- (b) Sharing lost at the cubical primitives. Agda's fast machine shares by thunks, but a Kan
+  operation or a Glue is not among what it computes; it decodes the closure to a term and hands it to
+  the slow reducer (Fast.hs 1466 to 1478), which works on trees: at exactly the operations this
+  computation is made of (transport along `ua`, composition in the truncations, unglue), the sharing
+  the machine had is written out as copies. The net has one evaluator for everything, and a Kan
+  operation is a cell like any other, its arguments shared through duplicators like any other. The
+  3.2% of slow reducer against 4.3% of fast machine in the profile is consistent with this, not proof
+  of it; proof would be a count of decoded closure sizes, which Agda does not print.
+- (c) Substitution of dimensions. Every face case of a composition substitutes a dimension by 0 or 1
+  through the term in Agda (applySubstTerm rebuilds every layer, recomputing Π sorts on the way:
+  the 7.5%). The machine holds the substitution on a reference and applies it one level as the value is
+  read; a part never read is never substituted (rule_subst, ref_read; 13% of the reading goes to
+  substitutions and faces, including their composition). On a computation whose terms are large
+  cubes read at a few faces, this is the difference between work proportional to the term and work
+  proportional to what is read.
+- (d) Faces decided once. Agda decomposes a face formula into assignments by a cartesian product of
+  its syntax each time a system is matched (decomposeInterval', Base.hs 354 to 391); the machine's
+  faces are canonical normal forms compared in place (dnf.c). The profile puts Agda's cubical
+  primitives at 1.7% and our face operations inside 13%, so this is not where the gap is, on these
+  numbers; it is listed because it is a real difference of method.
+- (e) Lookups. 10% of Agda's computation is lookups the machine does not do. This is known, not
+  conjecture; what is conjecture is that it is a consequence of evaluating inside a type-checking
+  monad rather than from compiled code, and so not removable by tuning.
+
+What would turn conjecture into measurement: on our side, switches for the deferred operands, the
+held substitutions and the record interning (each off in turn, the reading timed, as the cut was);
+on Agda's side, a build with GHC profiling (`-prof`), which attributes time to cost centres across
+the monad and the collector, and a count of the terms the fast machine decodes at each fallback; and
+for both, a measure of work common to the two (the number of Kan operations performed, the number of
+face cases taken) that neither prints today.
+
+## 7. What is not claimed
+
+Not that the machine is faster than every cubical implementation: no other has run this computation
+(the paper's conclusion: "It would be interesting to run this in other cubical systems, like
+cubicaltt, redtt, cooltt"; Tom Jack's cubicaltt result is a different Brunerie number). Not that it
+is faster on β₃: unported. Not that the lead holds on other computations: lib/library.cub's 2810
+checks are a different workload (the front end, compiling and interning, is 12% there and the
+interactions 30%, evaluator-speed). Not that the Agda build here is the fastest possible Agda: GHC
+9.4.7 with Hackage's flags; a newer GHC or a different runtime configuration (a larger nursery would
+cut the collector's share) was not tried, and the 2.9.0 against 2.8.0.2 difference shows the system
+moving. And not that the cause is understood: §6 is measured as far as it goes and conjecture past
+that, and says which is which.
