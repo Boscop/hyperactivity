@@ -1,0 +1,34 @@
+-- the theorem: when every division in e was by an interval holding no zero, e's interval encloses every
+-- exact value of e, for every exact value of the inputs their intervals enclose
+ie-sound : (S S2 : List Bool) → (env : Nat → IV) → (E : Nat → (Nat × Nat) × Nat) →
+  bcanon S ≡ true → le (suc zero) (bin-to-nat S) → bin-to-nat S2 ≡ times (bin-to-nat S) (bin-to-nat S) →
+  ((k : Nat) → ivc (env k)) → ((k : Nat) → encl S (env k) (fst (E k)) (snd (E k))) → ((k : Nat) → le (suc zero) (snd (E k))) →
+  (e : IE) → (v : (Nat × Nat) × Nat) → isval E e v → snd (ieval S S2 env e) ≡ true →
+  ivc (fst (ieval S S2 env e)) × encl S (fst (ieval S S2 env e)) (fst v) (snd v)
+ie-sound S S2 env E cS hS hS2 cv ev pE e = case e return λ w → (v : (Nat × Nat) × Nat) → isval E w v → snd (ieval S S2 env w) ≡ true → ivc (fst (ieval S S2 env w)) × encl S (fst (ieval S S2 env w)) (fst v) (snd v) of
+  ie-var k → λ v h ok → (cv k , encl-qeq S (env k) (fst (E k)) (snd (E k)) (fst v) (snd v) (ev k) (snd h) (pE k))
+  ie-int k → λ v h ok → op-int S k v cS (snd h)
+  ie-rat n d → λ v h ok → op-rat S n d v (snd h)
+  ie-add a b → λ v h ok → op-add S (fst (ieval S S2 env a)) (fst (ieval S S2 env b)) v (fst h) (fst (snd h))
+      (rec a (fst h) (fst (fst (snd (snd h)))) (both-true-l (snd (ieval S S2 env a)) (snd (ieval S S2 env b)) ok))
+      (rec b (fst (snd h)) (snd (fst (snd (snd h)))) (both-true-r (snd (ieval S S2 env a)) (snd (ieval S S2 env b)) ok))
+      (isval-pos E a (fst h) (fst (fst (snd (snd h))))) (isval-pos E b (fst (snd h)) (snd (fst (snd (snd h)))))
+      (snd (snd (snd (snd h))))
+  ie-sub a b → λ v h ok → op-sub S (fst (ieval S S2 env a)) (fst (ieval S S2 env b)) v (fst h) (fst (snd h))
+      (rec a (fst h) (fst (fst (snd (snd h)))) (both-true-l (snd (ieval S S2 env a)) (snd (ieval S S2 env b)) ok))
+      (rec b (fst (snd h)) (snd (fst (snd (snd h)))) (both-true-r (snd (ieval S S2 env a)) (snd (ieval S S2 env b)) ok))
+      (isval-pos E a (fst h) (fst (fst (snd (snd h))))) (isval-pos E b (fst (snd h)) (snd (fst (snd (snd h)))))
+      (snd (snd (snd (snd h))))
+  ie-mul a b → λ v h ok → op-mul S (fst (ieval S S2 env a)) (fst (ieval S S2 env b)) v (fst h) (fst (snd h)) cS hS
+      (rec a (fst h) (fst (fst (snd (snd h)))) (both-true-l (snd (ieval S S2 env a)) (snd (ieval S S2 env b)) ok))
+      (rec b (fst (snd h)) (snd (fst (snd (snd h)))) (both-true-r (snd (ieval S S2 env a)) (snd (ieval S S2 env b)) ok))
+      (isval-pos E a (fst h) (fst (fst (snd (snd h))))) (isval-pos E b (fst (snd h)) (snd (fst (snd (snd h)))))
+      (snd (snd (snd (snd h))))
+  ie-div a b → λ v h ok → op-div S S2 (fst (ieval S S2 env a)) (fst (ieval S S2 env b)) v (fst h) (fst (snd h)) cS hS hS2
+      (rec a (fst h) (fst (fst (snd (snd h))))
+         (both-true-l (snd (ieval S S2 env a)) (snd (ieval S S2 env b)) (both-true-l (both (snd (ieval S S2 env a)) (snd (ieval S S2 env b))) (not (iv-has-zero (fst (ieval S S2 env b)))) ok)))
+      (rec b (fst (snd h)) (snd (fst (snd (snd h))))
+         (both-true-r (snd (ieval S S2 env a)) (snd (ieval S S2 env b)) (both-true-l (both (snd (ieval S S2 env a)) (snd (ieval S S2 env b))) (not (iv-has-zero (fst (ieval S S2 env b)))) ok)))
+      (isval-pos E a (fst h) (fst (fst (snd (snd h))))) (isval-pos E b (fst (snd h)) (snd (fst (snd (snd h)))))
+      (bnot-true (iv-has-zero (fst (ieval S S2 env b))) (both-true-r (both (snd (ieval S S2 env a)) (snd (ieval S S2 env b))) (not (iv-has-zero (fst (ieval S S2 env b)))) ok))
+      (snd (snd (snd (snd h))))
