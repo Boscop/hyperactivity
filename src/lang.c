@@ -5273,6 +5273,17 @@ int main(int argc, char **argv)
                 free(t); free(k); } closedir(d); }
             printf("%d texts attached\n", n); fflush(stdout); _Exit(0);
         }
+        if (!strcmp(argv[i], "--carried")) {
+            /* `--carried`: of the names this machine's paths and labels hold now (written/), how many have a key the pool can give back
+             * (forms, or a declaration), and the names of those it cannot (load_key has nothing to read) */
+            index_sync(); char *bd = path_in(idx_dir(), "written", ""); DIR *d = opendir(bd); free(bd); int n = 0, nf = 0, nd = 0, no = 0;
+            if (d) { struct dirent *de; while ((de = readdir(d))) if (de->d_name[0] != '.' && !strstr(de->d_name, ".tmp")) {
+                char *k = store_read("bound", de->d_name); if (!k || strlen(k) < 64) { free(k); n++; no++; char *nm = w_unhex(de->d_name); printf("- %s (no key)\n", nm); free(nm); continue; } k[64] = 0; n++;
+                char *a = kobj_read(k, "forms"), *b = a ? NULL : kobj_read(k, "decl");
+                if (a) nf++; else if (b) nd++; else { no++; char *nm = w_unhex(de->d_name); printf("- %s\n", nm); free(nm); }
+                free(a); free(b); free(k); } closedir(d); }
+            printf("%d names: %d with forms, %d with a declaration, %d with neither\n", n, nf, nd, no); fflush(stdout); _Exit(0);
+        }
         if (!strcmp(argv[i], "--root")) {
             idx_lock(); index_sync(); char *h = root_make(); { SBuf l = {0}; sb_put(&l, h); sb_put(&l, "\n"); src_write("ROOT", "root", l.b); free(l.b); } idx_unlock();   /* named beside the pool, for a machine with no labels */
             printf("%s\n", h); fflush(stdout); _Exit(0);
