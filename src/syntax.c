@@ -4631,17 +4631,21 @@ static Node *el_declarations(Node *Ts) {
     free(a.b);
     return r;
 }
+static void lk_label(const char *s, bool defs);
 static Node *el(Node *t) {
     Node *ex = syn_expect; syn_expect = NULL;
     bool tickpos = tick_pos || (ex && is_later(ex)); tick_pos = false;
     if (t->list && t->n == 2 && !t->it[0]->list && !strcmp(t->it[0]->s, "declarations") && !e_find("declarations") && global_lookup("declarations") < 0) {
         Node *r = el_declarations(t->it[1]); syn_expect = ex; return el(r);
     }
+    /* a name bound by nothing local that the machine does not hold: taken from the store by this machine's label (lk_label) */
+    if (t->list && t->n > 0 && !t->it[0]->list && !e_find(t->it[0]->s)) lk_label(t->it[0]->s, true);
     if (t->list && t->n > 0 && (t->it[0]->list || !e_head_kw(t->it[0]->s))) { app_expect = ex; return el_app(t, t->it[0], t->it + 1, t->n - 1); }
     if (!t->list) {
         if (!strcmp(t->s, "%hole")) { bool p = false; Node *h = hole_or_sol(t, 0, &p); return p ? sym2("%spine", h) : h; }
         if (!strcmp(t->s, "by-lin") && !e_find(t->s) && global_lookup(t->s) < 0) return by_lin(ex, t);
         if (e_find(t->s)) return t;
+        lk_label(t->s, true);
         if (imask_of(t->s)) { app_expect = ex; return el_app(t, t, NULL, 0); }
         if (!ford_head && con_lookup(t->s) >= 0 && ford_of(t->s)) { app_expect = ex; return el_app(t, t, NULL, 0); }   /* an indexed constructor without fields: its refl */
         return t;
@@ -6382,9 +6386,123 @@ static void el_release(ElMark e) {
 static void no_ctor_name(const char *name) {
     if (name && con_lookup(name) >= 0) die("a definition may not reuse a constructor's name (the constructor would be read instead):", name);
 }
+/* ---- a definition taken from the store by its key (2026-11-22; PLAN.md revision 7.9, §18.4 “F34 —
+ * The store as the codebase: two keys”; Avik: a caller holds what it calls by content). The store
+ * holds every checked definition under the hash of its canonical type and term, what it mentions
+ * inside it by key, and its certificate. load_key takes one into the machine with nothing read
+ * from a module: the keys its forms mention first, then its forms read back (decanon) and given
+ * to the checked form's handler, which finds the certificate and does not run the checker. A data
+ * type is read back from the declaration kept beside its key (ser_decl, at the time it is
+ * checked). What the key does not hold and elaboration of a use needs is kept beside it too: the
+ * implicit-argument mask with the instance bits, and whether the definition computes. A name the
+ * text being checked mentions that the machine does not hold is looked up among this machine's
+ * labels (bound/NAME: its key; conof/NAME: the data type a constructor or field belongs to) and
+ * loaded (lk_label), so a check loads what it mentions and no more. ---- */
+static bool lk_key_loaded(const char *K) {
+    for (int i = nchecked - 1; i >= 0; i--) if (!CHKHIDE[i] && !strcmp(ckey_of(i), K)) return true;
+    return data_of_dkey(K) >= 0;
+}
+static const char *lk_name_of(const char *K) {
+    names_load();
+    for (int i = nnb - 1; i >= 0; i--) if (NB[i].key && !strcmp(NB[i].key, K)) return NB[i].name;
+    return NULL;
+}
+static bool load_key(const char *K, const char *want, int depth);
+static void lk_load_mentioned(const char *t, int depth) {
+    for (const char *p = t; *p; p++) if ((*p == 'G' || *p == 'D' || *p == 'C' || *p == 'F') && (p == t || !isalnum((unsigned char)p[-1]))) {
+        size_t n = 0; while (isxdigit((unsigned char)p[1 + n]) && n < 64) n++;
+        if (n == 64) { char kk[65]; memcpy(kk, p + 1, 64); kk[64] = 0; load_key(kk, NULL, depth + 1); p += 64; }
+    }
+}
+static Node *lk_item(Node *it) {
+    /* (B) or (B T): the type read in the scope before the binder */
+    if (it->n == 2) { Node *T = dc_node(it->it[1]); Node *x = dc_binder(it->it[0]); Node *r = nlist(2); r->it[0] = x; r->it[1] = T; return r; }
+    return dc_binder(it->it[0]);
+}
+static bool load_decl(const char *text) {
+    const char *saved = src; src = text; Node *n = read_node(); src = saved;
+    if (!n || !n->list || n->n < 4 || !is(n->it[0], "decl")) return false;
+    const char *kind = n->it[1]->s, *name = n->it[2]->s; bool codata = !strcmp(kind, "codata");
+    if (data_lookup(name) >= 0 || global_lookup(name) >= 0) return false;
+    /* the constructors' and fields' names, for self's (Cself.i, Fself.i) */
+    lk_self = name; lk_ncons = lk_nflds = 0; free(lk_cons); free(lk_flds); lk_cons = lk_flds = NULL; size_t cc = 0, cf = 0;
+    for (int i = 4; i < n->n; i++) { Node *c = n->it[i]; if (!c->list || c->n < 2) continue;
+        if (is(c->it[0], "c")) { GROW(lk_cons, cc, (size_t)lk_ncons + 1); lk_cons[lk_ncons++] = (char *)c->it[1]->s; }
+        else { GROW(lk_flds, cf, (size_t)lk_nflds + 1); lk_flds[lk_nflds++] = (char *)c->it[1]->s; } }
+    dc_bad = false; ndscope = 0;
+    Node *ps = n->it[3]; int np = ps->n - 1;
+    Node *hd;
+    if (np) { hd = nlist(np + 1); hd->it[0] = nsym(name); for (int k = 0; k < np; k++) hd->it[k + 1] = lk_item(ps->it[k + 1]); } else hd = nsym(name);
+    Node *dd = nlist(n->n - 2); dd->it[0] = nsym(kind); dd->it[1] = hd;
+    for (int i = 4; i < n->n; i++) {
+        Node *c = n->it[i]; Node *cd;
+        if (codata) { cd = nlist(c->n - 1); cd->it[0] = nsym(c->it[1]->s); if (c->n > 2) cd->it[1] = dc_node(c->it[2]);
+            GROW(dscope, capdscope, (size_t)ndscope + 1); dscope[ndscope++] = cd->it[0]->s; dd->it[i - 2] = cd; continue; }
+        int base = ndscope;
+        cd = nlist(c->n - 1); cd->it[0] = nsym(c->it[1]->s);
+        for (int j = 2; j < c->n; j++) {
+            Node *it = c->it[j];
+            if (it->list && it->n >= 1 && is(it->it[0], "dims")) { Node *dl = nlist(it->n); dl->it[0] = nsym("dims");
+                for (int k = 1; k < it->n; k++) { dl->it[k] = nsym(it->it[k]->s); GROW(dscope, capdscope, (size_t)ndscope + 1); dscope[ndscope++] = dl->it[k]->s; }
+                cd->it[j - 1] = dl; }
+            else if (it->list && it->n == 2 && is(it->it[0], "t")) cd->it[j - 1] = dc_node(it->it[1]);
+            else cd->it[j - 1] = lk_item(it);
+        }
+        ndscope = base; dd->it[i - 2] = cd;
+    }
+    lk_self = NULL;
+    if (dc_bad) return false;
+    toplevel(lst(2, nsym(codata ? "checked-codata" : "checked-data"), dd));
+    return data_lookup(name) >= 0;
+}
+static bool load_key(const char *K, const char *want, int depth) {
+    if (depth > 100000 || lk_key_loaded(K) || !store_dir()) return true;
+    char *decl = store_read(K, "decl");
+    if (decl) { lk_load_mentioned(decl, depth); bool ok = lk_key_loaded(K) || load_decl(decl); free(decl); return ok; }
+    char *ty = store_read(K, "type"), *cd = store_read(K, "code");
+    if (!ty || !cd || !*cd) { free(ty); free(cd); return false; }
+    lk_load_mentioned(ty, depth); lk_load_mentioned(cd, depth);
+    if (lk_key_loaded(K)) { free(ty); free(cd); return true; }
+    Node *T = decanon(ty), *t = decanon(cd); free(ty); free(cd);
+    if (!T || !t) return false;
+    const char *nm = want ? want : lk_name_of(K); char gen[80];
+    if (!nm || global_lookup(nm) >= 0 || data_lookup(nm) >= 0 || con_lookup(nm) >= 0) { snprintf(gen, sizeof gen, "%%k%.24s", K); nm = intern(gen); }
+    char *mk = store_read(K, "mask");
+    if (mk) { unsigned long long m = 0, b = 0; int len = 0; if (sscanf(mk, "%llx %d %llx", &m, &len, &b) >= 2 && m) { imask_set(nm, m, len); int i = nix_get(&IMIX, nm); if (i >= 0) IM[i].inst = b; } free(mk); }
+    char *cp = store_read(K, "computing");
+    if (cp) { GROW(COMPUTING, capcomputing, (size_t)ncomputing + 1); COMPUTING[ncomputing++] = strdup(nm); free(cp); }
+    bool sbw = bind_work; bind_work = false;   /* taken from the store: it binds no name anew */
+    toplevel(lst(4, nsym("checked"), nsym(nm), T, t));
+    bind_work = sbw;
+    int ck = checked_index(nm);
+    return ck >= 0;
+}
+/* a name the machine does not hold, looked up among this machine's labels and loaded */
+static bool lk_busy;
+/* defs: a definition's or a type's name too (asked where the elaborator has found the name bound by
+ * nothing local, el); without it only a constructor's or field's name (asked of every symbol of a
+ * declaration before it is elaborated, lk_scan: a pattern names constructors, and no variable can
+ * be named as a constructor is) */
+static void lk_label(const char *s, bool defs) {
+    if (lk_busy || !store_dir() || !chk_salt[0] || s[0] == '%' || s[0] == '#' || s[0] == '@') return;
+    if (global_lookup(s) >= 0 || data_lookup(s) >= 0 || con_lookup(s) >= 0 || fld_lookup(s) >= 0) return;
+    for (int i = 0; i < nxlater; i++) if (!strcmp(xlater[i], s)) return;   /* declared later in the file being read */
+    SBuf hx = {0}; w_hex(&hx, s); if (!hx.b || hx.n > 250) { free(hx.b); return; }
+    char *k = defs ? store_read("bound", hx.b) : NULL; const char *want = s;
+    if (!k || strlen(k) < 64) { free(k); k = store_read("conof", hx.b); want = NULL; }
+    free(hx.b);
+    if (k && strlen(k) >= 64) { k[64] = 0; lk_busy = true; load_key(k, want, 0); lk_busy = false; }
+    free(k);
+}
+static void lk_scan(Node *t) {
+    if (!t) return;
+    if (!t->list) { lk_label(t->s, false); return; }
+    for (int i = 0; i < t->n; i++) lk_scan(t->it[i]);
+}
 static void x_checked(const char *name, Node *sig, Node *body, bool expect, uint64_t mask, int mlen) {
     no_ctor_name(name);
     neh = neg = 0; nbk = 0;
+    lk_scan(sig); lk_scan(body);   /* what it mentions that the machine does not hold: taken by key (load_key) */
     /* its own calls (a copattern definition's) take implicit arguments as later uses do */
     if (name && mask) imask_set(name, mask, mlen);
     if (name && mask) imask_inst(name, sig);
@@ -6502,6 +6620,17 @@ static void x_checked(const char *name, Node *sig, Node *body, bool expect, uint
     bool kept = x_collecting;   /* a collected form is read later: its type and term stay */
     if (name) x_top(lst(4, nsym(expect ? "checked" : "checked-fail"), nsym(name), T, t));
     else x_top(lst(3, nsym(expect ? "check" : "check-fail"), T, t));
+    /* beside its key, what the key does not hold and a use's elaboration needs: the implicit mask
+     * with the instance bits, and whether it computes (read by load_key) */
+    if (name && expect && store_dir()) {
+        int ck = checked_index(name); const char *k = ck >= 0 ? ckey_of(ck) : "?";
+        if (k[0] != '?') {
+            IMask *im = imask_of(name);
+            if (im) { char l[96]; snprintf(l, sizeof l, "%llx %d %llx\n", (unsigned long long)im->m, im->len, (unsigned long long)im->inst);
+                char *cur = store_read(k, "mask"); if (!cur || strcmp(cur, l)) store_write(k, "mask", l, false); free(cur); }
+            if (is_computing(name)) { char *c = store_read(k, "computing"); if (!c) store_write(k, "computing", "1\n", false); free(c); }
+        }
+    }
     /* the copies are the checked form's, which keeps none of them once handled (its tables take
      * their own copies, perm_copy): freed (CUBICAL_NOELFREE keeps them, to compare) */
     { static int keepc = -1; if (keepc < 0) keepc = getenv("CUBICAL_NOELFREE") != NULL;

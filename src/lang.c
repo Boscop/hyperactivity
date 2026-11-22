@@ -4126,7 +4126,7 @@ static void toplevel_in(Node *f) {
         free(r); free(tr);
         chk_pending = -1;
         if (!accepted) { nchkdata--; free(kcode); return; }
-        dkey_set(di, key); deps_take(&DDEPS, &capddeps, di); store_put(DATA[d].name, key, kcode, "", steps, NULL); free(kcode);
+        dkey_set(di, key); deps_take(&DDEPS, &capddeps, di); store_put(DATA[d].name, key, kcode, "", steps, NULL); store_decl(key, dd, d); free(kcode);
         char dent[32]; snprintf(dent, sizeof dent, "%%dent%d", di);
         Node *ed = nlist(3); ed->it[0] = nsym("def"); ed->it[1] = nsym(dent); ed->it[2] = nl3("%%data-entry", word(di), ent);
         toplevel(ed);
@@ -4183,7 +4183,7 @@ static void toplevel_in(Node *f) {
         free(r);
         chk_pending = -1;
         if (!accepted) { nchkdata--; free(kcode); return; }
-        dkey_set(di, key); deps_take(&DDEPS, &capddeps, di); store_put(D, key, kcode, "", steps, NULL); free(kcode);
+        dkey_set(di, key); deps_take(&DDEPS, &capddeps, di); store_put(D, key, kcode, "", steps, NULL); store_decl(key, dd, d); free(kcode);
         char dent[32]; snprintf(dent, sizeof dent, "%%dent%d", di);
         Node *ed = nlist(3); ed->it[0] = nsym("def"); ed->it[1] = nsym(dent); ed->it[2] = nl3("%%codata-entry", word(di), ent);
         toplevel(ed);

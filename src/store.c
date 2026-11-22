@@ -187,6 +187,44 @@ static void canon_decl(SBuf *o, Node *dd) {
     kself = saved_self;
 }
 
+/* a declaration as it is kept beside its key: (decl KIND NAME (B [T])... (c CNAME item...)...), a
+ * parameter or field a binder with its type, dims and the terms after them as they stand */
+static void ser_item(SBuf *o, Node *p) {
+    sb_put(o, " (");
+    if (p->list && p->n == 2) { canon_lbinder(o, p->it[0]); sb_put(o, " "); canon(o, p->it[1]); kpush(p->it[0]->list ? "" : p->it[0]->s); }
+    else { canon_lbinder(o, p); kpush(p->list ? "" : p->s); }
+    sb_put(o, ")");
+}
+static void ser_decl(SBuf *o, Node *dd) {
+    Node *hd = dd->it[1];
+    const char *saved_self = kself; int base = nkscope; bool sk = kser_on, sf = kfresh_on;
+    kser_on = true; kfresh_on = true; nkfresh = 0;
+    kself = hd->list ? hd->it[0]->s : hd->s;
+    sb_put(o, "(decl "); sb_put(o, dd->it[0]->s); sb_put(o, " "); sb_put(o, kself); sb_put(o, " (params");
+    if (hd->list) for (int k = 1; k < hd->n; k++) ser_item(o, hd->it[k]);
+    sb_put(o, ")");
+    bool codata = !strcmp(dd->it[0]->s, "codata");
+    for (int ci = 2; ci < dd->n; ci++) {
+        Node *cd = dd->it[ci];
+        if (!cd->list || cd->n < 1) continue;
+        if (codata) { sb_put(o, " (f "); sb_put(o, cd->it[0]->s); if (cd->n > 1) { sb_put(o, " "); canon(o, cd->it[1]); } sb_put(o, ")"); kpush(cd->it[0]->s); continue; }
+        int n0 = nkscope;
+        sb_put(o, " (c "); sb_put(o, cd->it[0]->s);
+        int i = 1;
+        for (; i < cd->n; i++) { Node *it = cd->it[i]; if (it->list && it->n >= 1 && is(it->it[0], "dims")) break; ser_item(o, it); }
+        if (i < cd->n) {
+            Node *dl = cd->it[i++];
+            sb_put(o, " (dims");
+            for (int k = 1; k < dl->n; k++) { sb_put(o, " "); sb_put(o, dl->it[k]->list ? "_" : dl->it[k]->s); kpush(dl->it[k]->list ? "" : dl->it[k]->s); }
+            sb_put(o, ")");
+            for (; i < cd->n; i++) { sb_put(o, " (t "); canon(o, cd->it[i]); sb_put(o, ")"); }
+        }
+        sb_put(o, ")");
+        nkscope = n0;
+    }
+    sb_put(o, ")");
+    nkscope = base; kself = saved_self; kser_on = sk; kfresh_on = sf;
+}
 /* ---- reading a canonical form back (2026-11-12): the inverse of canon for the forms canon
  * keeps whole. Bound variables get fresh names; G<key>, D<key>, C<key>.i, F<key>.i are rendered
  * through the current bindings (the unhidden checked definition, the checked data type with that
@@ -194,7 +232,13 @@ static void canon_decl(SBuf *o, Node *dd) {
 static const char **dscope; static size_t capdscope; static int ndscope; static long dfresh;
 static bool dc_bad;
 static int data_of_dkey(const char *k) { for (int i = 0; i < nchkdata; i++) if (!strcmp(dkey_of(i), k)) return CHKDATA[i]; return -1; }
+static const char *lk_self; static char **lk_cons; static int lk_ncons; static char **lk_flds; static int lk_nflds;   /* a declaration being read back (src/syntax.c, load_decl): its own name and its constructors' and fields' */
 static const char *dc_sym(const char *s) {
+    if (lk_self) {
+        if (!strcmp(s, "self")) return lk_self;
+        if (!strncmp(s, "Cself.", 6)) { int ix = atoi(s + 6); if (ix >= 0 && ix < lk_ncons) return lk_cons[ix]; dc_bad = true; return s; }
+        if (!strncmp(s, "Fself.", 6)) { int ix = atoi(s + 6); if (ix >= 0 && ix < lk_nflds) return lk_flds[ix]; dc_bad = true; return s; }
+    }
     if (s[0] == '@' && s[1] >= '0' && s[1] <= '9') { int k = atoi(s + 1); if (k < ndscope) return dscope[ndscope - 1 - k]; dc_bad = true; return s; }
     size_t n = strlen(s);
     if (s[0] == 'G' && n == 65) { for (int i = nchecked - 1; i >= 0; i--) if (!CHKHIDE[i] && !strcmp(ckey_of(i), s + 1)) return CHECKED[i]; dc_bad = true; return s; }
@@ -464,6 +508,25 @@ static void store_put(const char *name, const char *key, const char *code, const
     if (name) names_bind(name, key);
 }
 
+/* a data type's declaration kept beside its key, and each of its constructors' and fields' names
+ * pointed at the key (conof/NAME), so a name of either finds the type that holds it */
+static void store_decl(const char *key, Node *dd, int d) {
+    if (!store_dir()) return;
+    char *have = store_read(key, "decl");
+    if (!have) { SBuf s = { 0 }; int sd = cur_deps.n; ser_decl(&s, dd); cur_deps.n = sd; if (s.b) store_write(key, "decl", s.b, false); free(s.b); }
+    free(have);
+    if (!bind_work) return;
+    for (int pass = 0; pass < 2; pass++) {
+        int n = pass == 0 ? DATA[d].ncons : nfld;
+        for (int i = 0; i < n; i++) {
+            const char *nm = pass == 0 ? CON[DATA[d].cons[i]].name : FLD[i].data == d ? FLD[i].name : NULL;
+            if (!nm) continue;
+            SBuf hx = { 0 }; for (const unsigned char *c = (const unsigned char *)nm; *c; c++) sb_fmt(&hx, "%02x", *c);
+            if (hx.b && hx.n <= 250) { char *cur = store_read("conof", hx.b); if (!cur || strcmp(cur, key)) store_write("conof", hx.b, key, false); free(cur); }
+            free(hx.b);
+        }
+    }
+}
 /* A data type's key includes its declared name: two declarations of one content (List in
  * lib/prelude.cub, Lst in lib/code.cub) are two types to the checker (data types are generative), so
  * they are two keys, as Unison's unique types carry a salt (2026-11-12). */
