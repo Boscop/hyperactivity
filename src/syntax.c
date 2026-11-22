@@ -946,6 +946,10 @@ static Node *pat_norm(Node *p) {
     if (p->list) { Node *r = nlist(p->n); for (int i = 0; i < p->n; i++) r->it[i] = i ? pat_norm(p->it[i]) : p->it[i]; return r; }
     return p;
 }
+static Node *x_copy(Node *t) {
+    if (!t->list) { Node *s = nsym(t->s); s->cmt = t->cmt; return s; }
+    Node *r = nlist(t->n); r->cmt = t->cmt; for (int i = 0; i < t->n; i++) r->it[i] = x_copy(t->it[i]); return r;
+}
 static Node *cc_match(Node **vars, int nv, Row *rows, int nr, const char *fname);
 static Node *cc_match(Node **vars, int nv, Row *rows, int nr, const char *fname) {
     if (!nr) die("the clauses do not cover every case of", fname);
@@ -962,7 +966,11 @@ static Node *cc_match(Node **vars, int nv, Row *rows, int nr, const char *fname)
         }
     }
     if (j < 0) {
-        Node *e = rows[0].rhs; row_reached(&rows[0]);
+        /* the clause's right side, a copy of its own for this case: a catch-all clause is reached in
+         * several cases, and one node placed in all of them was elaborated once, so the implicit
+         * arguments solved in the first case stood in the others (2026-11-22: zq-sym _ _ = refl
+         * refused, refl's point zq-eq a false in the case where b is true) */
+        Node *e = x_copy(rows[0].rhs); row_reached(&rows[0]);
         for (int q = 0; q < nv; q++) if (!pat_wild(rows[0].p[q]) && strcmp(rows[0].p[q]->s, vars[q]->s)) e = x_rename(e, rows[0].p[q]->s, vars[q]->s);
         return e;
     }
@@ -5366,7 +5374,11 @@ static Node *ccm_t(Node **vars, int nv, Row *rows, int nr) {
         }
     }
     if (j < 0) {
-        Node *e = rows[0].rhs; row_reached(&rows[0]);
+        /* the clause's right side, a copy of its own for this case: a catch-all clause is reached in
+         * several cases, and one node placed in all of them was elaborated once, so the implicit
+         * arguments solved in the first case stood in the others (2026-11-22: zq-sym _ _ = refl
+         * refused, refl's point zq-eq a false in the case where b is true) */
+        Node *e = x_copy(rows[0].rhs); row_reached(&rows[0]);
         for (int q = 0; q < nv; q++) if (!pat_wild(rows[0].p[q]) && strcmp(rows[0].p[q]->s, vars[q]->s)) e = x_rename(e, rows[0].p[q]->s, vars[q]->s);
         return rec_xform(sg_apply(e));
     }
@@ -6544,7 +6556,10 @@ static bool load_decl(const char *text) {
     return data_lookup(name) >= 0;
 }
 static bool load_key(const char *K, const char *want, int depth) {
-    if (depth > 100000 || lk_key_loaded(K) || !store_dir()) return true;
+    /* a key the machine holds under another name (two names of one object: identical code is one
+     * key) is still taken when the name asked for holds nothing, so that name is bound to it too */
+    bool named = want && global_lookup(want) < 0 && data_lookup(want) < 0 && con_lookup(want) < 0;
+    if (depth > 100000 || (lk_key_loaded(K) && !named) || !store_dir()) return true;
     char *decl = kobj_read(K, "decl");
     if (decl) { lk_load_mentioned(decl, depth); bool ok = lk_key_loaded(K) || load_decl(decl); free(decl); return ok; }
     /* forms: its type, a newline, its term, as elaborated and written to be read back (x_checked) */
@@ -6552,10 +6567,11 @@ static bool load_key(const char *K, const char *want, int depth) {
     if (!fm) return false;
     char *nl = strchr(fm, '\n'); if (!nl) { free(fm); return false; }
     lk_load_mentioned(fm, depth);
-    if (lk_key_loaded(K)) { free(fm); return true; }
+    if (lk_key_loaded(K) && !named) { free(fm); return true; }
     *nl = 0;
-    Node *T = decanon(fm), *t = decanon(nl + 1); free(fm);
-    if (!T || !t) return false;
+    Node *T = decanon(fm), *t = decanon(nl + 1);
+    if (!T || !t) { if (getenv("CUBICAL_LK")) fprintf(stderr, "[lk] key %s: its forms are not read back (%s)\n", K, !T ? "type" : "term"); free(fm); return false; }
+    free(fm);
     const char *nm = want ? want : lk_name_of(K); char gen[80];
     if (!nm || global_lookup(nm) >= 0 || data_lookup(nm) >= 0 || con_lookup(nm) >= 0) { snprintf(gen, sizeof gen, "%%k%.24s", K); nm = intern(gen); }
     char *mk = kobj_read(K, "mask");
@@ -6577,7 +6593,7 @@ static bool lk_busy;
  * be named as a constructor is) */
 static void lk_label(const char *s, bool defs) {
     /* only in a text that is not a module of the work (a probe, one declaration being checked): a module declares its names in order, and one taken early would be declared again */
-    if (getenv("CUBICAL_LK") && !strncmp(s, "nk-", 3)) fprintf(stderr, "[lk] ask %s defs=%d work=%d busy=%d salt=%d known=%d\n", s, defs, bind_work, lk_busy, chk_salt[0] != 0, global_lookup(s) >= 0 || data_lookup(s) >= 0 || con_lookup(s) >= 0);
+    if (getenv("CUBICAL_LK") && (!strncmp(s, "nk-", 3) || !strncmp(s, "zq-", 3))) fprintf(stderr, "[lk] ask %s defs=%d work=%d busy=%d salt=%d known=%d\n", s, defs, bind_work, lk_busy, chk_salt[0] != 0, global_lookup(s) >= 0 || data_lookup(s) >= 0 || con_lookup(s) >= 0);
     if (lk_busy || !store_dir() || !chk_salt[0] || s[0] == '%' || s[0] == '#' || s[0] == '@') return;
     if (global_lookup(s) >= 0 || data_lookup(s) >= 0 || con_lookup(s) >= 0 || fld_lookup(s) >= 0) return;
     for (int i = 0; i < nxlater; i++) if (!strcmp(xlater[i], s)) return;   /* declared later in the file being read */
