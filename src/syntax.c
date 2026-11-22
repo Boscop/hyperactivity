@@ -6452,6 +6452,7 @@ static bool load_decl(const char *text) {
     }
     lk_self = NULL;
     if (dc_bad) return false;
+    if (getenv("CUBICAL_LK")) { fprintf(stderr, "[lk] decl %s\n  from %s\n  form ", name, text); print_node(stderr, dd); fputc(10, stderr); }
     toplevel(lst(2, nsym(codata ? "checked-codata" : "checked-data"), dd));
     return data_lookup(name) >= 0;
 }
@@ -6459,11 +6460,14 @@ static bool load_key(const char *K, const char *want, int depth) {
     if (depth > 100000 || lk_key_loaded(K) || !store_dir()) return true;
     char *decl = store_read(K, "decl");
     if (decl) { lk_load_mentioned(decl, depth); bool ok = lk_key_loaded(K) || load_decl(decl); free(decl); return ok; }
-    char *ty = store_read(K, "type"), *cd = store_read(K, "code");
-    if (!ty || !cd || !*cd) { free(ty); free(cd); return false; }
-    lk_load_mentioned(ty, depth); lk_load_mentioned(cd, depth);
-    if (lk_key_loaded(K)) { free(ty); free(cd); return true; }
-    Node *T = decanon(ty), *t = decanon(cd); free(ty); free(cd);
+    /* forms: its type, a newline, its term, as elaborated and written to be read back (x_checked) */
+    char *fm = store_read(K, "forms");
+    if (!fm) return false;
+    char *nl = strchr(fm, '\n'); if (!nl) { free(fm); return false; }
+    lk_load_mentioned(fm, depth);
+    if (lk_key_loaded(K)) { free(fm); return true; }
+    *nl = 0;
+    Node *T = decanon(fm), *t = decanon(nl + 1); free(fm);
     if (!T || !t) return false;
     const char *nm = want ? want : lk_name_of(K); char gen[80];
     if (!nm || global_lookup(nm) >= 0 || data_lookup(nm) >= 0 || con_lookup(nm) >= 0) { snprintf(gen, sizeof gen, "%%k%.24s", K); nm = intern(gen); }
@@ -6472,6 +6476,7 @@ static bool load_key(const char *K, const char *want, int depth) {
     char *cp = store_read(K, "computing");
     if (cp) { GROW(COMPUTING, capcomputing, (size_t)ncomputing + 1); COMPUTING[ncomputing++] = strdup(nm); free(cp); }
     bool sbw = bind_work; bind_work = false;   /* taken from the store: it binds no name anew */
+    if (getenv("CUBICAL_LK")) { fprintf(stderr, "[lk] def %s key %s\n  T ", nm, K); print_node(stderr, T); fputc(10, stderr); }
     toplevel(lst(4, nsym("checked"), nsym(nm), T, t));
     bind_work = sbw;
     int ck = checked_index(nm);
@@ -6484,7 +6489,9 @@ static bool lk_busy;
  * declaration before it is elaborated, lk_scan: a pattern names constructors, and no variable can
  * be named as a constructor is) */
 static void lk_label(const char *s, bool defs) {
-    if (lk_busy || !store_dir() || !chk_salt[0] || s[0] == '%' || s[0] == '#' || s[0] == '@') return;
+    /* only in a text that is not a module of the work (a probe, one declaration being checked): a module declares its names in order, and one taken early would be declared again */
+    if (getenv("CUBICAL_LK") && !strncmp(s, "nk-", 3)) fprintf(stderr, "[lk] ask %s defs=%d work=%d busy=%d salt=%d known=%d\n", s, defs, bind_work, lk_busy, chk_salt[0] != 0, global_lookup(s) >= 0 || data_lookup(s) >= 0 || con_lookup(s) >= 0);
+    if (bind_work || lk_busy || !store_dir() || !chk_salt[0] || s[0] == '%' || s[0] == '#' || s[0] == '@') return;
     if (global_lookup(s) >= 0 || data_lookup(s) >= 0 || con_lookup(s) >= 0 || fld_lookup(s) >= 0) return;
     for (int i = 0; i < nxlater; i++) if (!strcmp(xlater[i], s)) return;   /* declared later in the file being read */
     SBuf hx = {0}; w_hex(&hx, s); if (!hx.b || hx.n > 250) { free(hx.b); return; }
@@ -6629,6 +6636,15 @@ static void x_checked(const char *name, Node *sig, Node *body, bool expect, uint
             if (im) { char l[96]; snprintf(l, sizeof l, "%llx %d %llx\n", (unsigned long long)im->m, im->len, (unsigned long long)im->inst);
                 char *cur = store_read(k, "mask"); if (!cur || strcmp(cur, l)) store_write(k, "mask", l, false); free(cur); }
             if (is_computing(name)) { char *c = store_read(k, "computing"); if (!c) store_write(k, "computing", "1\n", false); free(c); }
+            /* its type and term as elaborated, in the form that is read back (as the elaboration's
+             * own record is): what load_key gives the checked form's handler */
+            { char *have = store_read(k, "forms");
+              if (!have && !has_hole(T) && !has_hole(t)) {
+                  SBuf a = { 0 }, b = { 0 }; int sd = cur_deps.n; kfresh_on = kser_on = true; nkfresh = 0; canon(&a, T); canon(&b, t); kfresh_on = kser_on = false; cur_deps.n = sd;
+                  if (a.b && b.b) { SBuf w = { 0 }; sb_put(&w, a.b); sb_put(&w, "\n"); sb_put(&w, b.b); store_write(k, "forms", w.b, false); free(w.b); }
+                  free(a.b); free(b.b);
+              }
+              free(have); }
         }
     }
     /* the copies are the checked form's, which keeps none of them once handled (its tables take
