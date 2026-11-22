@@ -8,6 +8,18 @@ AI-AGENTS-WELCOME-TO-HYPERACTIVITY.md, “How to work”, says. No file holds th
 `write`, `remove`, by name or by path); `make` builds the machine first. A path below names a module
 of the source.
 
+There is no canonical state (Avik, 2026-11-13, the welcome file's “There is no canonical state”;
+2026-11-22: "They are literally different mathematical objects"). The source is a pool of objects
+named by their content and never changed. What a name or a path holds is this session's own label
+for one of them: set by this session's writes and by nothing else. Nothing another session wrote
+changes it; there is nothing to merge, resolve or keep current between sessions. A session starts
+from a root, one hash naming everything its labels hold (a new checkout takes the one `store/ROOT`
+names), and ends by saying its own (`./hyperactive root`). Another session's work enters only as
+this session's act: `./hyperactive take ROOT`, or `./hyperactive apply PATH BASE OTHER`. Claude
+sessions built the opposite on top of this between 2026-11-16 and 2026-11-22 while quoting him
+(entries that replace entries, what is "live", alternatives, merges by name, a write lock, a
+journal, a versions record) and it is removed. None of it is rebuilt, under any name.
+
 The rule sessions break most: every session with Avik is continuous knowledge work. Nothing he says
 is casual conversation. In the same turn, each message's content goes where it acts: material for
 the book into a unit of it, in his terms (Part I carries a unit once it is declared equivalent to
