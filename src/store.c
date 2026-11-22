@@ -35,8 +35,47 @@ static SKey *DKEY; static size_t capdkey;    /* by checked data index */
 static char chk_salt[65];                   /* the checker's name, "" before %%chk-def is defined */
 static const char *ckey_of(int ck) { return ck >= 0 && (size_t)ck < capckey && CKEY[ck][0] ? CKEY[ck] : "?"; }
 static const char *dkey_of(int di) { return di >= 0 && (size_t)di < capdkey && DKEY[di][0] ? DKEY[di] : "?"; }
-static void ckey_set(int ck, const char *k) { if ((size_t)ck >= capckey) { size_t o = capckey; GROW(CKEY, capckey, (size_t)ck + 1); memset(CKEY + o, 0, (capckey - o) * sizeof(SKey)); } snprintf(CKEY[ck], sizeof(SKey), "%s", k); }
-static void dkey_set(int di, const char *k) { if ((size_t)di >= capdkey) { size_t o = capdkey; GROW(DKEY, capdkey, (size_t)di + 1); memset(DKEY + o, 0, (capdkey - o) * sizeof(SKey)); } snprintf(DKEY[di], sizeof(SKey), "%s", k); }
+/* The number a code names a checked definition or a checked data type by (cglob n, cdata d ..., and
+ * the tables %gval, %gty, %dtab, %dent, %dtrans, %gsteps read with it). It was the place in this
+ * machine's tables, the order things were loaded in, so a program that takes the number out of a
+ * code literal (step-d in lib/elf.cub) and every term that held one had a key that what was loaded
+ * before changed (2026-11-22). The number is the first 60 bits of the key: the same on every
+ * machine. Before a key is known (the members of a recursive group, while it is checked) the
+ * number is 2^62 + the place, and stays readable afterwards. w: 0 definitions, 1 data types */
+#define PUB_PROV ((uint64_t)1 << 62)
+typedef struct { uint64_t k; int v; } PubE;
+static PubE *PUBM[2]; static size_t PUBCAP[2], PUBN[2];
+static uint64_t *PUBOF[2]; static size_t PUBOFCAP[2];
+static int pub_get(int w, uint64_t n) {
+    if (n >= PUB_PROV) return n - PUB_PROV < 0x7fffffff ? (int)(n - PUB_PROV) : -1;
+    if (!PUBCAP[w]) return -1;
+    for (size_t h = (size_t)(n * 0x9E3779B97F4A7C15ULL) & (PUBCAP[w] - 1); ; h = (h + 1) & (PUBCAP[w] - 1)) {
+        if (PUBM[w][h].v < 0) return -1;
+        if (PUBM[w][h].k == n) return PUBM[w][h].v;
+    }
+}
+static void pub_put(int w, uint64_t n, int v) {
+    if ((PUBN[w] + 1) * 2 > PUBCAP[w]) {
+        size_t oc = PUBCAP[w], nc = oc ? oc * 2 : 1024; PubE *old = PUBM[w];
+        PUBM[w] = malloc(nc * sizeof(PubE)); for (size_t i = 0; i < nc; i++) PUBM[w][i].v = -1;
+        PUBCAP[w] = nc; PUBN[w] = 0;
+        for (size_t i = 0; i < oc; i++) if (old[i].v >= 0) pub_put(w, old[i].k, old[i].v);
+        free(old);
+    }
+    size_t h = (size_t)(n * 0x9E3779B97F4A7C15ULL) & (PUBCAP[w] - 1);
+    while (PUBM[w][h].v >= 0) h = (h + 1) & (PUBCAP[w] - 1);
+    PUBM[w][h].k = n; PUBM[w][h].v = v; PUBN[w]++;
+}
+static uint64_t pub_of(int w, int i) { return i >= 0 && (size_t)i < PUBOFCAP[w] && PUBOF[w][i] ? PUBOF[w][i] : PUB_PROV + (uint64_t)i; }
+static void pub_set(int w, int i, const char *key) {
+    if (i < 0 || strlen(key) < 15) return;
+    char b[16]; memcpy(b, key, 15); b[15] = 0; uint64_t n = strtoull(b, NULL, 16); if (!n) n = 1;
+    if ((size_t)i >= PUBOFCAP[w]) { size_t o = PUBOFCAP[w]; GROW(PUBOF[w], PUBOFCAP[w], (size_t)i + 1); memset(PUBOF[w] + o, 0, (PUBOFCAP[w] - o) * sizeof(uint64_t)); }
+    PUBOF[w][i] = n;
+    if (pub_get(w, n) < 0) pub_put(w, n, i);   /* two places holding one key are one object: the first stands for it */
+}
+static void ckey_set(int ck, const char *k) { if ((size_t)ck >= capckey) { size_t o = capckey; GROW(CKEY, capckey, (size_t)ck + 1); memset(CKEY + o, 0, (capckey - o) * sizeof(SKey)); } snprintf(CKEY[ck], sizeof(SKey), "%s", k); pub_set(0, ck, k); }
+static void dkey_set(int di, const char *k) { if ((size_t)di >= capdkey) { size_t o = capdkey; GROW(DKEY, capdkey, (size_t)di + 1); memset(DKEY + o, 0, (capdkey - o) * sizeof(SKey)); } snprintf(DKEY[di], sizeof(SKey), "%s", k); pub_set(1, di, k); }
 static void key_hash(const char *s, size_t n, char out[65]) { Sha256 h; unsigned char d[32]; sha256_init(&h); sha256_update(&h, s, n); sha256_final(&h, d); sha256_hex(d, out); }
 
 /* ---- the canonical form ---- */
@@ -124,7 +163,7 @@ static void canon(SBuf *o, Node *t) {
          * loaded before it (2026-11-22: ce-demo2-c in lib/x86.cub had one key on the machine that
          * wrote it and another on a machine that took its root, #2261 and #2412) */
         if (!kser_on && !strcmp(k, "app") && t->n == 3 && !t->it[1]->list && !t->it[2]->list && t->it[2]->s[0] == '#' && !strncmp(t->it[1]->s, "%%c", 3)) {
-            const char *c = t->it[1]->s + 2, *key = NULL; int n = atoi(t->it[2]->s + 1); char tag = 0;
+            const char *c = t->it[1]->s + 2, *key = NULL; uint64_t pn = strtoull(t->it[2]->s + 1, NULL, 10); int n = pn >= PUB_PROV && pn - PUB_PROV < 0x7fffffff ? (int)(pn - PUB_PROV) : -1; char tag = 0;   /* a number of the key is the same everywhere and stays; one of the place is written as the key when it has one */
             if (!strcmp(c, "cglob")) { tag = 'G'; key = ckey_of(n); }
             else if (!strcmp(c, "ccon") || !strcmp(c, "cdata") || !strcmp(c, "cproj") || !strcmp(c, "crec") || !strcmp(c, "celim") || !strcmp(c, "ccase")) { tag = 'D'; key = dkey_of(n); }
             if (tag && key && key[0] != '?') { sb_put(o, "(app "); canon_sym(o, t->it[1]->s); sb_fmt(o, " %c%s)", tag, key); return; }

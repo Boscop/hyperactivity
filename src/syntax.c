@@ -3600,7 +3600,7 @@ static Node *cn(Node *c) {
         /* an elimination: each branch binds its fields, a hypothesis per recursive field (written
          * (rec x)), its dimensions */
         bool el = h[1] == 'e';
-        long di = cn_word(c->it[1]); if (di < 0 || di >= nchkdata) return NULL;
+        long di = pub_get(1, (uint64_t)cn_word(c->it[1])); if (di < 0 || di >= nchkdata) return NULL;
         int D = CHKDATA[di];
         Node *P = el ? cn(c->it[2]) : NULL; if (el && !P) return NULL;
         Node *x = cn(c->it[el ? 4 : 3]); if (!x) return NULL;
@@ -3653,7 +3653,7 @@ static Node *cn(Node *c) {
         return r;
     }
     if (!strcmp(h, "cfree")) { Node *v = c->it[1]; return !v->list && !(v->s[0] == 'v' && isdigit((unsigned char)v->s[1])) && strcmp(v->s, "?") ? v : NULL; }
-    if (!strcmp(h, "cglob")) { long k = cn_word(c->it[1]); return k >= 0 && k < nchecked && !CHKHIDE[k] ? nsym(CHECKED[k]) : NULL; }
+    if (!strcmp(h, "cglob")) { long k = pub_get(0, (uint64_t)cn_word(c->it[1])); return k >= 0 && k < nchecked && !CHKHIDE[k] ? nsym(CHECKED[k]) : NULL; }
     if (!strcmp(h, "clam") || !strcmp(h, "cdlam")) { b = cn_bound("q", c->it[1], &x); return b ? sym3("lam", x, b) : NULL; }
     if (!strcmp(h, "cplam")) { b = cn_bound("j", c->it[1], &x); return b ? sym3("plam", x, b) : NULL; }
     if (!strcmp(h, "cforall")) { b = cn_bound("j", c->it[1], &x); return b ? sym3("forall", x, b) : NULL; }
@@ -3662,7 +3662,7 @@ static Node *cn(Node *c) {
     if (!strcmp(h, "clet")) { a = cn(c->it[1]); if (!a) return NULL; b = cn_bound("q", c->it[2], &x); return b ? sym4("let", x, a, b) : NULL; }
     if (!strcmp(h, "cuniv")) { a = cn(c->it[1]); if (!a) return NULL; return is(a, "lzero") ? nsym("U") : sym2("U", a); }
     if (!strcmp(h, "cdata")) {
-        long di = cn_word(c->it[1]); if (di < 0 || di >= nchkdata) return NULL;
+        long di = pub_get(1, (uint64_t)cn_word(c->it[1])); if (di < 0 || di >= nchkdata) return NULL;
         Node *ps[64]; int n = cn_list(c->it[2], ps, 64); if (n < 0) return NULL;
         if (!n) return nsym(DATA[CHKDATA[di]].name);
         Node *r = nlist(n + 1); r->it[0] = nsym(DATA[CHKDATA[di]].name);
@@ -3670,7 +3670,7 @@ static Node *cn(Node *c) {
         return r;
     }
     if (!strcmp(h, "ccon")) {
-        long di = cn_word(c->it[1]), k = cn_word(c->it[2]); if (di < 0 || di >= nchkdata || k < 0 || k >= DATA[CHKDATA[di]].ncons) return NULL;
+        long di = pub_get(1, (uint64_t)cn_word(c->it[1])), k = cn_word(c->it[2]); if (di < 0 || di >= nchkdata || k < 0 || k >= DATA[CHKDATA[di]].ncons) return NULL;
         Node *fs[64], *ds_[16]; int n = cn_list(c->it[3], fs, 64), m = cn_list(c->it[4], ds_, 16); if (n < 0 || m < 0) return NULL;
         const char *cname = CON[DATA[CHKDATA[di]].cons[k]].name;
         if (!n && !m) return nsym(cname);
@@ -3680,7 +3680,7 @@ static Node *cn(Node *c) {
         return r;
     }
     if (!strcmp(h, "cproj")) {
-        long di = cn_word(c->it[1]), k = cn_word(c->it[2]); if (di < 0 || di >= nchkdata || k < 0 || k >= DATA[CHKDATA[di]].nflds) return NULL;
+        long di = pub_get(1, (uint64_t)cn_word(c->it[1])), k = cn_word(c->it[2]); if (di < 0 || di >= nchkdata || k < 0 || k >= DATA[CHKDATA[di]].nflds) return NULL;
         a = cn(c->it[3]); return a ? lst(2, nsym(FLD[DATA[CHKDATA[di]].flds[k]].name), a) : NULL;
     }
     if (!strcmp(h, "ceq0") || !strcmp(h, "ceq1")) { a = cn(c->it[1]); return a ? sym3("=", a, nsym(h[3] == '0' ? "0" : "1")) : NULL; }
