@@ -2272,6 +2272,42 @@ static char *mp_apply(const char *base, const char *cur, const char *mine) {
 }
 /* this machine's root: the modules its paths hold, written to the pool under its hash */
 static int root_cmp(const void *a, const void *b) { return strcmp(*(char *const *)a, *(char *const *)b); }
+/* this machine's labels of names, an object of the pool (HASH/names): a line `b NAMEHEX KEY` for each
+ * name bound to a checked definition or type, a line `c NAMEHEX KEY` for each constructor's or
+ * field's name and the type that holds it; in order. With it a machine that has checked nothing
+ * finds a definition from its name (load_key). One flat object for every name: it is held whole
+ * to be made and taken, which memory-is-local does not allow of a structure of the whole work; a
+ * tree of names is its form */
+static char *names_make(void) {
+    SBuf t = {0}; sb_put(&t, "");
+    static const char *kd[] = { "bound", "conof", NULL }; static const char *tag[] = { "b", "c" };
+    for (int q = 0; kd[q]; q++) {
+        char *dp = store_path(kd[q], ""); DIR *d = dp ? opendir(dp) : NULL; free(dp);
+        char **hs = NULL; size_t cap = 0; int n = 0;
+        if (d) { struct dirent *de; while ((de = readdir(d))) if (de->d_name[0] != '.' && !strstr(de->d_name, ".tmp")) { GROW(hs, cap, (size_t)n + 1); hs[n++] = strdup(de->d_name); } closedir(d); }
+        qsort(hs, (size_t)n, sizeof *hs, root_cmp);
+        for (int i = 0; i < n; i++) {
+            char *k = store_read(kd[q], hs[i]);
+            if (k && strlen(k) >= 64) { k[64] = 0; sb_put(&t, tag[q]); sb_put(&t, " "); sb_put(&t, hs[i]); sb_put(&t, " "); sb_put(&t, k); sb_put(&t, "\n"); }
+            free(k); free(hs[i]);
+        }
+        free(hs);
+    }
+    char h[65]; key_hash(t.b, t.n, h);
+    char *p = src_path(h, "names"); struct stat st; if (stat(p, &st) != 0) src_write(h, "names", t.b); free(p);
+    free(t.b);
+    return strdup(h);
+}
+static void names_take(const char *h) {
+    char *t = store_dir() ? src_read(h, "names") : NULL; if (!t) return;
+    for (char *l = t; *l; ) {
+        char *e = strchr(l, '\n'); if (e) *e = 0;
+        char kind = l[0]; char *hx = l[1] == ' ' ? l + 2 : NULL; char *sp = hx ? strchr(hx, ' ') : NULL;
+        if (sp && (kind == 'b' || kind == 'c')) { *sp = 0; store_write(kind == 'b' ? "bound" : "conof", hx, sp + 1, false); }
+        if (!e) break; l = e + 1;
+    }
+    free(t);
+}
 static char *root_make(void) {
     char *md = path_in(idx_dir(), "modules", ""); DIR *d = opendir(md); free(md);
     char **hs = NULL; size_t cap = 0; int n = 0;
@@ -2284,6 +2320,8 @@ static char *root_make(void) {
         free(hs[i]);
     }
     free(hs);
+    /* and the names: a first line `names HASH`, the object that holds each name's key */
+    if (store_dir()) { char *nh = names_make(); SBuf t2 = {0}; sb_put(&t2, "names "); sb_put(&t2, nh); sb_put(&t2, "\n"); sb_put(&t2, t.b ? t.b : ""); free(t.b); t = t2; free(nh); }
     char h[65]; key_hash(t.b, t.n, h);
     char *p = src_path(h, "root"); struct stat st; if (stat(p, &st) != 0) src_write(h, "root", t.b); free(p);
     free(t.b);
@@ -2298,7 +2336,8 @@ static bool root_take(const char *h) {
     for (char *l = t; *l; ) {
         char *e = strchr(l, '\n'); if (e) *e = 0;
         char *sp = strchr(l, ' ');
-        if (sp) {
+        if (sp && !strncmp(l, "names ", 6)) names_take(sp + 1);
+        else if (sp) {
             *sp = 0; char *rel = w_unhex(l); char *text = w_module_text(sp + 1, NULL);
             if (text) {
                 char *ab = malloc(strlen(repo_root) + strlen(rel) + 2); sprintf(ab, "%s/%s", repo_root, rel);
