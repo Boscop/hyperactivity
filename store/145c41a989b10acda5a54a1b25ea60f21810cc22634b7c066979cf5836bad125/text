@@ -1,0 +1,31 @@
+x-push-n : Nat → Code → Code
+x-push-n zero c = c
+x-push-n (suc k) (capp f a) = x-push-app c-fuel (x-push-n k f) (x-push-n k a)
+x-push-n (suc k) (clam b) = x-eta (x-push-n k b)
+x-push-n (suc k) (clet t b) = clet (x-push-n k t) (x-push-n k b)
+x-push-n (suc k) (cann t T) = x-push-n k t
+x-push-n (suc k) (cthunk t) = x-push-n k t
+x-push-n (suc k) (cforce t) = x-push-n k t
+x-push-n (suc k) (cpair a b) = cpair (x-push-n k a) (x-push-n k b)
+x-push-n (suc k) (crec dd fs) = crec dd (x-delay (codata-recs dd) (l-map (λ x → x-push-n k x) fs))
+x-push-n (suc k) (cproj dd j p) =
+  if l-at false (codata-recs dd) j then capp (cproj dd j (x-push-n k p)) (cwlit #0) else cproj dd j (x-push-n k p)
+x-push-n (suc k) (cfst p) = cfst (x-push-n k p)
+x-push-n (suc k) (csnd p) = csnd (x-push-n k p)
+x-push-n (suc k) (ccon dd j fs ds) = ccon dd j (l-map (λ x → x-push-n k x) fs) ds
+x-push-n (suc k) (ccase dd B x) = ccase dd (l-map (λ br → x-lo c-fuel (x-push-lams-f (λ y → x-push-n k y) br)) B) (x-push-n k x)
+x-push-n (suc k) (celim dd P B x) = celim dd P (l-map (λ br → x-lo c-fuel (x-push-lams-f (λ y → x-push-n k y) br)) B) (x-push-n k x)
+x-push-n (suc k) (cwsucc a) = cwsucc (x-push-n k a)
+x-push-n (suc k) (cwop j a b) = cwop j (x-push-n k a) (x-push-n k b)
+x-push-n (suc k) (cprim j as) = cprim j (l-map (λ x → x-push-n k x) as)
+x-push-n (suc k) (cwelim w z s mo) = cwelim (x-push-n k w) (x-push-n k z) (x-push-lams-f (λ y → x-push-n k y) s) mo
+-- a type as a value (an argument instantiating a polymorphic function, a process at its answer
+-- type): nothing in the fragment reads one (only composition does, which is refused; motives are
+-- not computed), so it is the word 0
+x-push-n (suc k) cword = cwlit #0
+x-push-n (suc k) (cpty j n) = cwlit #0
+x-push-n (suc k) (cpi m A B) = cwlit #0
+x-push-n (suc k) (csigma A B) = cwlit #0
+x-push-n (suc k) (cuniv l) = cwlit #0
+x-push-n (suc k) (cdata dd ps) = cwlit #0
+x-push-n (suc k) c = c
