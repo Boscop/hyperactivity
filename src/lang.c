@@ -4998,6 +4998,10 @@ static char *session_key(void) {
         char *mh = hx.b && hx.n <= 250 ? idx_read("modules", hx.b) : NULL;
         sb_put(&k, mh ? mh : "-"); sb_put(&k, "\n"); free(mh); free(hx.b);
     }
+    /* and the machine as built: a process kept from before a rebuild is stale (2026-11-22: after
+     * `make`, views went on being answered by the machine from before it) */
+    { root_init(); char *p = malloc(strlen(repo_root) + 24); sprintf(p, "%s/build/cubical", repo_root); struct stat st;
+      if (stat(p, &st) == 0) sb_fmt(&k, "%ld %ld\n", (long)st.st_mtime, (long)st.st_size); free(p); }
     return k.b;
 }
 static int session_connect(void) {
