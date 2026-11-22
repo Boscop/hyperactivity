@@ -1,0 +1,22 @@
+-- variables carrying their types' structure, for normalizing (typing uses the plain variables).
+-- With the flag false: the body t with every free variable replaced by its form at its type.
+-- With the flag true: the form of the blocked body e at the type t. At a function type it is the
+-- function that, given an argument, is the form of e applied to it at the codomain there; at a
+-- path type it is the path that at a point is e at that point and at an end of the interval is
+-- the end the type names; at a pair type the pair of the forms of its two parts; at any other
+-- type it is e
+nk-rf : Nat → Bool → NkTm → Word → NkTm → NkTm → NkTm
+nk-rf zero m ctx n t e = if m then e else t
+nk-rf (suc k) false ctx n (nk-free x) e = nk-rf k true ctx n (nk-nth ctx (%wsub (%wsub n #1) x)) (nk-free x)
+nk-rf (suc k) false ctx n (nk-lam b) e = nk-lam (nk-rf k false ctx n b e)
+nk-rf (suc k) false ctx n (nk-con c as) e = nk-con c (nk-rf k false ctx n as e)
+nk-rf (suc k) false ctx n (nk-op h p as) e = nk-op h (nk-rf k false ctx n p e) (nk-rf k false ctx n as e)
+nk-rf (suc k) false ctx n (nk-match h p cs) e = nk-match h (nk-rf k false ctx n p e) (nk-rf k false ctx n cs e)
+nk-rf (suc k) false ctx n (nk-cons t r) e = nk-cons (nk-rf k false ctx n t e) (nk-rf k false ctx n r e)
+nk-rf (suc k) false ctx n t e = t
+nk-rf (suc k) true ctx n (nk-con c (nk-cons a (nk-cons f r))) e =
+  if %weq c #1
+  then nk-lam (nk-abs n #0 (nk-rf k true (nk-cons a ctx) (%wsucc n) (nk-norm (nk-rf k false (nk-cons a ctx) (%wsucc n) (nk-app f (nk-free n)) nk-nil)) (nk-app e (nk-free n))))
+  else (if %weq c #6 then nk-con #0 (nk-cons (nk-rf k true ctx n a (nk-op #9 e nk-nil)) (nk-cons (nk-rf k true ctx n (nk-norm (nk-rf k false ctx n (nk-app f (nk-op #9 e nk-nil)) nk-nil)) (nk-op #10 e nk-nil)) nk-nil))
+  else (if %weq c #4 then nk-lam (nk-op #8 (nk-var #0) (nk-cons e (nk-cons f (nk-cons (nk-nth r #0) nk-nil)))) else e))
+nk-rf (suc k) true ctx n t e = e

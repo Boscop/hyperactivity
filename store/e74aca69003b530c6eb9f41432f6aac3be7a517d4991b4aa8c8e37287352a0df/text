@@ -1,0 +1,57 @@
+-- the type of a body, in normal form, or nk-fail: in a context of the types of its free variables
+-- (the newest first, n of them), against the type expected if one is. One clause for each form
+-- of body. A variable has its type in the context. A λ is checked against a function type by
+-- checking its body, opened with a new variable, against the codomain at that variable; against a
+-- path type by checking its body, opened with a new interval variable, against the line at that
+-- variable, and its body at each end of the interval against that end. An application has the
+-- codomain of its function's type at its argument, or, of a path, the line at its point. A type
+-- former has type U
+nk-ty : Nat → NkTm → Word → NkTm → NkTm → NkTm
+nk-ty zero ctx n t ex = nk-fail
+nk-ty (suc k) ctx n (nk-free x) ex = nk-agree (nk-nth ctx (%wsub (%wsub n #1) x)) ex
+nk-ty (suc k) ctx n (nk-num m) ex = nk-agree nk-N ex
+nk-ty (suc k) ctx n (nk-lam b) (nk-con c (nk-cons a (nk-cons f r))) =
+  if %weq c #1
+  then (if nk-failed (nk-ty k (nk-cons a ctx) (%wsucc n) (nk-subst b #0 (nk-free n)) (nk-norm-in (nk-cons a ctx) (%wsucc n) (nk-app f (nk-free n)))) then nk-fail else nk-pi a f)
+  else (if %weq c #4
+        then (if nk-failed (nk-ty k (nk-cons nk-I ctx) (%wsucc n) (nk-subst b #0 (nk-free n)) (nk-norm-in (nk-cons nk-I ctx) (%wsucc n) (nk-app a (nk-free n)))) then nk-fail
+              else (if nk-and (nk-tm-eq (nk-norm-in ctx n (nk-subst b #0 nk-i0)) f) (nk-tm-eq (nk-norm-in ctx n (nk-subst b #0 nk-i1)) (nk-nth r #0)) then nk-con c (nk-cons a (nk-cons f r)) else nk-fail))
+        else nk-fail)
+nk-ty (suc k) ctx n (nk-op h f as) ex =
+  nk-agree
+    (if %weq h #0
+     then (let tf = nk-ty k ctx n f nk-nil
+           in if nk-con-is tf #4
+              then (if nk-failed (nk-ty k ctx n (nk-nth as #0) nk-I) then nk-fail else nk-norm-in ctx n (nk-app (nk-nth (nk-args tf) #0) (nk-nth as #0)))
+              else (if nk-failed (nk-ty k ctx n (nk-nth as #0) (nk-nth (nk-args tf) #0)) then nk-fail else nk-norm-in ctx n (nk-app (nk-nth (nk-args tf) #1) (nk-nth as #0))))
+     else (if %weq h #1 then (if nk-failed (nk-ty k ctx n f nk-N) then nk-fail else nk-N)
+     else (if %weq h #5 then (if nk-failed (nk-ty k ctx n f nk-I) then nk-fail else nk-I)
+     else (if (if %weq h #6 then true else %weq h #7) then (if nk-failed (nk-ty k ctx n f nk-I) then nk-fail else (if nk-failed (nk-ty k ctx n (nk-nth as #0) nk-I) then nk-fail else nk-I))
+     else (if %weq h #20 then (if nk-failed (nk-ty k ctx n f (nk-pi nk-I (nk-lam nk-U))) then nk-fail else (if nk-failed (nk-ty k ctx n (nk-nth as #0) nk-I) then nk-fail else (if nk-failed (nk-ty k ctx n (nk-nth as #1) (nk-norm-in ctx n (nk-app f nk-i0))) then nk-fail else nk-norm-in ctx n (nk-app f nk-i1))))
+     else (if %weq h #9 then (let tp = nk-ty k ctx n f nk-nil in if nk-con-is tp #6 then nk-nth (nk-args tp) #0 else nk-fail)
+     else (if %weq h #10 then (let tp = nk-ty k ctx n f nk-nil in if nk-con-is tp #6 then nk-norm-in ctx n (nk-app (nk-nth (nk-args tp) #1) (nk-op #9 f nk-nil)) else nk-fail)
+     else (if %weq h #21 then (if nk-failed (nk-ty k ctx n f nk-U) then nk-fail else (if nk-failed (nk-ty k ctx n (nk-nth as #1) (nk-norm-in ctx n f)) then nk-fail else (if nk-failed (nk-ty k ctx n (nk-nth as #0) (nk-con #32 (nk-cons f (nk-cons (nk-nth as #1) nk-nil)))) then nk-fail else (if nk-compat ctx n (nk-args (nk-nth as #0)) then nk-norm-in ctx n f else nk-fail))))
+     else (if %weq h #8
+           then (let tp = nk-ty k ctx n (nk-nth as #0) nk-nil
+                 in if nk-con-is tp #4 then (if nk-failed (nk-ty k ctx n f nk-I) then nk-fail else nk-norm-in ctx n (nk-app (nk-nth (nk-args tp) #0) f)) else nk-fail)
+           else nk-fail)))))))))
+    ex
+nk-ty (suc k) ctx n (nk-con c as) ex =
+  if %weq c #30 then (if nk-tm-eq as nk-nil then nk-U else (if nk-failed (nk-ty k ctx n (nk-nth as #0) ex) then nk-fail else nk-ty k ctx n (nk-con #30 (nk-tail as)) ex))
+  else (if %weq c #31 then (if nk-failed (nk-ty k ctx n (nk-nth as #0) nk-I) then nk-fail else nk-ty k ctx n (nk-con #33 (nk-cons (nk-clauses-of (nk-norm-in ctx n (nk-nth as #0))) (nk-cons (nk-nth as #1) nk-nil))) ex)
+  else (if %weq c #0 then (if nk-con-is ex #6 then (if nk-failed (nk-ty k ctx n (nk-nth as #0) (nk-nth (nk-args ex) #0)) then nk-fail else (if nk-failed (nk-ty k ctx n (nk-nth as #1) (nk-norm-in ctx n (nk-app (nk-nth (nk-args ex) #1) (nk-nth as #0)))) then nk-fail else ex)) else nk-fail)
+  else (if %weq c #33 then (if nk-tm-eq (nk-nth as #0) nk-nil then nk-U
+        else (if nk-failed (nk-ty k ctx n (nk-sub-clause (nk-nth (nk-nth as #0) #0) (nk-nth as #1)) (nk-pi nk-I (nk-lam (nk-norm-in ctx n (nk-sub-clause (nk-nth (nk-nth as #0) #0) (nk-nth (nk-args ex) #0)))))) then nk-fail
+        else (if nk-tm-eq (nk-norm-in ctx n (nk-app (nk-sub-clause (nk-nth (nk-nth as #0) #0) (nk-nth as #1)) nk-i0)) (nk-norm-in ctx n (nk-sub-clause (nk-nth (nk-nth as #0) #0) (nk-nth (nk-args ex) #1))) then nk-ty k ctx n (nk-con #33 (nk-cons (nk-tail (nk-nth as #0)) (nk-cons (nk-nth as #1) nk-nil))) ex else nk-fail)))
+  else
+  nk-agree
+    (if (if %weq c #1 then true else %weq c #6)
+     then (if nk-failed (nk-ty k ctx n (nk-nth as #0) nk-U) then nk-fail else (if nk-failed (nk-ty k ctx n (nk-nth as #1) (nk-pi (nk-norm-in ctx n (nk-nth as #0)) (nk-lam nk-U))) then nk-fail else nk-U))
+     else (if %weq c #4
+           then (if nk-failed (nk-ty k ctx n (nk-nth as #0) (nk-pi nk-I (nk-lam nk-U))) then nk-fail
+                 else (if nk-failed (nk-ty k ctx n (nk-nth as #1) (nk-norm-in ctx n (nk-app (nk-nth as #0) nk-i0))) then nk-fail
+                 else (if nk-failed (nk-ty k ctx n (nk-nth as #2) (nk-norm-in ctx n (nk-app (nk-nth as #0) nk-i1))) then nk-fail else nk-U)))
+     else (if %weq c #10 then nk-I else (if %weq c #11 then nk-I
+     else (if %weq c #2 then nk-U else (if %weq c #3 then nk-U else (if %weq c #5 then nk-U else nk-fail)))))))
+    ex)))
+nk-ty (suc k) ctx n t ex = nk-fail
