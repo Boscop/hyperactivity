@@ -5260,7 +5260,7 @@ int main(int argc, char **argv)
             printf("%s\n", use); idx_unlock(); fflush(stdout); _Exit(0);
         }
         if (!strcmp(argv[i], "--root")) {
-            idx_lock(); index_sync(); char *h = root_make(); { SBuf l = {0}; sb_put(&l, h); sb_put(&l, "\n"); src_write("ROOT", "", l.b); free(l.b); } idx_unlock();   /* named beside the pool, for a machine with no labels */
+            idx_lock(); index_sync(); char *h = root_make(); { SBuf l = {0}; sb_put(&l, h); sb_put(&l, "\n"); src_write("ROOT", "root", l.b); free(l.b); } idx_unlock();   /* named beside the pool, for a machine with no labels */
             printf("%s\n", h); fflush(stdout); _Exit(0);
         }
         if (!strcmp(argv[i], "--take") && i + 1 < argc) {

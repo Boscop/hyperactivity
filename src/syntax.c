@@ -2313,7 +2313,7 @@ static bool root_take(const char *h) {
     idx_write("meta", "root", h); free(t);
     return true;
 }
-/* a machine with no labels takes the root named beside the pool (ROOT in the pool's directory: the first 64 hex digits in it); one that has
+/* a machine with no labels takes the root named beside the pool (ROOT/root in the pool's directory: the first 64 hex digits in it); one that has
  * labels keeps them: nothing another machine wrote changes them */
 static bool idx_synced;
 static void index_sync(void) {
@@ -2322,7 +2322,7 @@ static void index_sync(void) {
     char *old = idx_read("meta", "stamp");   /* labels computed before roots: they are this machine's */
     if (old) { free(old); idx_write("meta", "root", "-\n"); return; }
     root_init();
-    char *p = malloc(strlen(source_dir()) + 16); sprintf(p, "%s/ROOT", source_dir()); FILE *f = fopen(p, "rb"); free(p);
+    char *p = malloc(strlen(source_dir()) + 16); sprintf(p, "%s/ROOT/root", source_dir()); FILE *f = fopen(p, "rb"); free(p);
     if (!f) return;
     char buf[4096]; size_t n = fread(buf, 1, sizeof buf - 1, f); fclose(f); buf[n] = 0;
     for (char *q = buf; *q; q++) {
