@@ -2300,14 +2300,15 @@ static char *names_make(void) {
         }
         free(hs);
     }
-    /* and each name written on its own (no module holds it): a line `t NAMEHEX TEXT`, its text's hash */
+    /* and of each name held now: a line `t NAMEHEX TEXT`, its text, and `m NAMEHEX PATHHEX`, the module that holds it (none: it is written on its own) */
     { char *dp = path_in(idx_dir(), "written", ""); DIR *d = opendir(dp); free(dp);
       char **hs = NULL; size_t cap = 0; int n = 0;
       if (d) { struct dirent *de; while ((de = readdir(d))) if (de->d_name[0] != '.' && !strstr(de->d_name, ".tmp")) { GROW(hs, cap, (size_t)n + 1); hs[n++] = strdup(de->d_name); } closedir(d); }
       qsort(hs, (size_t)n, sizeof *hs, root_cmp);
       for (int i = 0; i < n; i++) {
-          char *mo = idx_read("module-of", hs[i]), *w = mo ? NULL : idx_read("written", hs[i]);
+          char *mo = idx_read("module-of", hs[i]), *w = idx_read("written", hs[i]);
           if (w && strlen(w) >= 64) { w[64] = 0; names_line(bk, "t", hs[i], w); }
+          if (mo) { mo[strcspn(mo, "\n")] = 0; SBuf mh = {0}; w_hex(&mh, mo); if (mh.b) names_line(bk, "m", hs[i], mh.b); free(mh.b); }
           free(mo); free(w); free(hs[i]);
       }
       free(hs); }
@@ -2329,6 +2330,7 @@ static void names_take(const char *h) {
         char kind = l[0]; char *hx = l[1] == ' ' ? l + 2 : NULL; char *sp = hx ? strchr(hx, ' ') : NULL;
         if (sp && (kind == 'b' || kind == 'c')) { *sp = 0; store_write(kind == 'b' ? "bound" : "conof", hx, sp + 1, false); }
         else if (sp && kind == 't') { *sp = 0; idx_write("written", hx, sp + 1); }
+        else if (sp && kind == 'm') { *sp = 0; char *mp = w_unhex(sp + 1); idx_write("module-of", hx, mp); free(mp); }
         else if (sp && kind == 'n' && strlen(sp + 1) >= 64) names_take(sp + 1);
         if (!e) break; l = e + 1;
     }
@@ -2358,11 +2360,11 @@ static bool root_take(const char *h) {
     char *t = src_read(h, "root"); if (!t) return false;
     static const char *dirs[] = { "modules", "names-of", "written", "module-of", NULL };
     for (int i = 0; dirs[i]; i++) idx_clear_in(idx_dir(), dirs[i]);
-    w_indexing = true;
+    w_indexing = true; char *nmh = NULL;
     for (char *l = t; *l; ) {
         char *e = strchr(l, '\n'); if (e) *e = 0;
         char *sp = strchr(l, ' ');
-        if (sp && !strncmp(l, "names ", 6)) names_take(sp + 1);
+        if (sp && !strncmp(l, "names ", 6)) { free(nmh); nmh = strdup(sp + 1); }
         else if (sp) {
             *sp = 0; char *rel = w_unhex(l); char *text = w_module_text(sp + 1, NULL);
             if (text) {
@@ -2375,6 +2377,9 @@ static bool root_take(const char *h) {
         if (!e) break; l = e + 1;
     }
     w_indexing = false;
+    /* the names last: a name declared in more than one module is pointed where the root says, not
+     * where the order the modules were recorded in left it */
+    if (nmh) { names_take(nmh); free(nmh); }
     idx_write("meta", "root", h); free(t);
     return true;
 }
@@ -2505,7 +2510,14 @@ static void w_file(const char *text, const char *path) {
                   free(ns); free(ph.b);
               }
               free(mo); free(nh.b); }
-            if (claim) { w_point("written", ps[i].name, h); w_point("module-of", ps[i].name, r1); }
+            if (claim) { w_point("written", ps[i].name, h); w_point("module-of", ps[i].name, r1);
+                /* and the name's key is the one it has in this module (names_bind binds nothing for a
+                 * name another module holds, so reading a module moves no other module's label) */
+                int ck = checked_index(ps[i].name); const char *k = ck >= 0 ? ckey_of(ck) : NULL;
+                if (!k) { int dt = data_lookup(ps[i].name); if (dt >= 0) for (int j = 0; j < nchkdata; j++) if (CHKDATA[j] == dt) k = dkey_of(j); }
+                SBuf bh = {0}; w_hex(&bh, ps[i].name);
+                if (k && k[0] != '?' && store_dir() && bh.b && bh.n <= 250 && bind_rel && !strcmp(bind_rel, r1)) {   /* only while this module is the one being read: a module recorded from a root has checked nothing */ char *cur = store_read("bound", bh.b); if (!cur || strncmp(cur, k, 64)) store_write("bound", bh.b, k, false); free(cur); }
+                free(bh.b); }
             free(r1);
             sb_put(&names, ps[i].name); sb_put(&names, "\n");
         }
@@ -2582,7 +2594,7 @@ static void load_surface(const char *text, const char *path, bool imports_only) 
     const char *s_file = x_file; bool s_typed = x_typed, s_fail = x_fail_next;
     xt = NULL; nxt = capxt = 0; lt = NULL; nlt = caplt = 0; xlater = NULL; nxlater = capxlater = 0;
     x_file = path; x_fail_next = false;
-    bool s_bw = bind_work; { char *r0 = w_rel(path); bind_work = w_held(r0); free(r0); }
+    bool s_bw = bind_work; const char *s_br = bind_rel; char *r0 = w_rel(path); bind_work = w_held(r0); bind_rel = bind_work ? r0 : NULL;
     x_lex(text); x_layout();
     for (int i = 0; i < nlt; i++) if ((i == 0 || lt[i - 1].k == X_VS) && lt[i].k == X_ID && !reserved(lt[i].s) && lt[i].s[0] != '#') {
         GROW(xlater, capxlater, (size_t)nxlater + 1); xlater[nxlater++] = lt[i].s;
@@ -2608,7 +2620,7 @@ static void load_surface(const char *text, const char *path, bool imports_only) 
     if (!imports_only) w_file(text, path);
     xt = s_xt; nxt = s_nxt; capxt = s_capxt; lt = s_lt; nlt = s_nlt; caplt = s_caplt; xp = s_xp;
     xlater = s_later; nxlater = s_nlater; capxlater = s_caplater; x_file = s_file; x_typed = s_typed; x_fail_next = s_fail;
-    bind_work = s_bw;
+    bind_work = s_bw; bind_rel = s_br; free(r0);
 }
 
 /* ---------------- printing the core forms in the surface language ----------------

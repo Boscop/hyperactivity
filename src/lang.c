@@ -5124,6 +5124,45 @@ static void memend_report(void) {
     fprintf(stderr, "memend: definitions' top bodies %ld MB; records built from %ld (%ld MB), unreached %ld (%ld MB); %ld sweeps: %ld records freed, %ld tables freed\n",
             gb >> 20, nn[0], nb[0] >> 20, nn[1], nb[1] >> 20, stat_sweeps, stat_swept_recs, stat_swept_tabs);
 }
+/* a machine with no pool: the tool is a program of the pool, so the first objects cannot be fetched by
+ * it. `hyperactive take ROOT` with HYPERACTIVE_PLACE set and no pool fetches here what the tool's
+ * hy-fetch fetches (lib/hyperactive.cub): the list the place holds under roots/ROOT, then each pack
+ * under packs/HASH, kept only when its hash is its name, only its objects of the pool taken out (curl
+ * and tar, run as programs). The packs had are noted, and the tool then takes the root as always */
+static int place_run(char *const av[]) {
+    pid_t pid; if (posix_spawnp(&pid, av[0], NULL, NULL, av, environ) != 0) return 127;
+    int st = 0; waitpid(pid, &st, 0); return WIFEXITED(st) ? WEXITSTATUS(st) : 126;
+}
+static char *place_slurp(const char *path, size_t *len) {
+    FILE *f = fopen(path, "rb"); if (!f) return NULL;
+    size_t cap = 1 << 16, n = 0, k; char *b = malloc(cap);
+    while ((k = fread(b + n, 1, cap - n - 1, f)) > 0) { n += k; if (cap - n < 2) { cap *= 2; b = realloc(b, cap); } }
+    fclose(f); b[n] = 0; if (len) *len = n; return b;
+}
+static void place_first(const char *place, const char *root) {
+    mkdir("build", 0777); mkdir(".cubical-store", 0777);
+    size_t ul = strlen(place) + 96; char *url = malloc(ul);
+    snprintf(url, ul, "%s/roots/%s", place, root);
+    char *a1[] = { "curl", "-fsS", "-o", "build/root-list", url, NULL };
+    if (place_run(a1) != 0) die("the place holds no list of packs for the root", root);
+    char *l = place_slurp("build/root-list", NULL); if (!l) die("cannot read", "build/root-list");
+    for (char *p = l; *p; ) {
+        char *e = strchr(p, '\n'); if (e) *e = 0;
+        if (strlen(p) == 64 && strspn(p, "0123456789abcdef") == 64) {
+            snprintf(url, ul, "%s/packs/%s", place, p);
+            char *a2[] = { "curl", "-fsS", "-o", "build/pack.tgz", url, NULL };
+            size_t n = 0; char *b = place_run(a2) == 0 ? place_slurp("build/pack.tgz", &n) : NULL;
+            char h[65]; h[0] = 0; if (b) key_hash(b, n, h);
+            if (!b || strcmp(h, p)) die("the place gave no pack of that name, or one that is not what its name says", p);
+            free(b);
+            char *a3[] = { "tar", "-xzf", "build/pack.tgz", "--skip-old-files", "store", NULL };
+            if (place_run(a3) != 0) die("cannot take the objects out of the pack", p);
+            FILE *f = fopen(".cubical-store/packs", "a"); if (f) { fprintf(f, "%s\n", p); fclose(f); }
+        }
+        if (!e) break; p = e + 1;
+    }
+    free(l); free(url);
+}
 #ifdef CUBICAL_LIB
 int cubical_main(int argc, char **argv)
 #else
@@ -5136,6 +5175,7 @@ int main(int argc, char **argv)
         const char *b = strrchr(argv[0], '/'); b = b ? b + 1 : argv[0];
         const char *prog = !strcmp(b, "hyperactive") ? "lib/hyperactive.cub" : !strcmp(b, "pre-commit") ? "lib/guard.cub" : NULL;
         if (prog) {
+            if (!strcmp(b, "hyperactive") && argc >= 3 && !strcmp(argv[1], "take") && getenv("HYPERACTIVE_PLACE")) { struct stat ps; if (stat("store", &ps) != 0) place_first(getenv("HYPERACTIVE_PLACE"), argv[2]); }
             if (!strcmp(b, "hyperactive")) session_client(argc, argv);   /* returns when it ran nothing */
             char **nv = malloc((size_t)(argc + 2) * sizeof(char *));
             nv[0] = "build/cubical"; nv[1] = (char *)prog;

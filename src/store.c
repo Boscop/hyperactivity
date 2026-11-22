@@ -118,6 +118,17 @@ static void canon(SBuf *o, Node *t) {
         /* %rebuilt is kept: the compiler reads it (a scrutinee the elaborator rebuilt), so a form
          * read back without it would compile differently (2026-11-12) */
         if (!strcmp(k, "%spine") && t->n == 2) { canon(o, t->it[1]); return; }
+        /* a code literal (`code X`, src/lang.c to_code) names a checked definition or a checked data
+         * type by its number in this machine's tables, which is the order they were loaded in: in a
+         * key the number is written as that one's key, so one definition has one key whatever was
+         * loaded before it (2026-11-22: ce-demo2-c in lib/x86.cub had one key on the machine that
+         * wrote it and another on a machine that took its root, #2261 and #2412) */
+        if (!kser_on && !strcmp(k, "app") && t->n == 3 && !t->it[1]->list && !t->it[2]->list && t->it[2]->s[0] == '#' && !strncmp(t->it[1]->s, "%%c", 3)) {
+            const char *c = t->it[1]->s + 2, *key = NULL; int n = atoi(t->it[2]->s + 1); char tag = 0;
+            if (!strcmp(c, "cglob")) { tag = 'G'; key = ckey_of(n); }
+            else if (!strcmp(c, "ccon") || !strcmp(c, "cdata") || !strcmp(c, "cproj") || !strcmp(c, "crec") || !strcmp(c, "celim") || !strcmp(c, "ccase")) { tag = 'D'; key = dkey_of(n); }
+            if (tag && key && key[0] != '?') { sb_put(o, "(app "); canon_sym(o, t->it[1]->s); sb_fmt(o, " %c%s)", tag, key); return; }
+        }
         if ((!strcmp(k, "lam") || !strcmp(k, "plam") || !strcmp(k, "forall")) && t->n >= 3) {
             sb_put(o, "("); sb_put(o, k);
             int nb = t->n - 2;
@@ -443,10 +454,18 @@ static bool bind_work = true;
  * forms, mask and declaration beside their keys): one declaration being written on its own, which
  * is labelled once it has checked (src/lang.c, --keep) */
 static bool keep_free;
+/* the module being read, when it is one of the work (src/syntax.c): a name another module holds
+ * (module-of/NAME names that one) is not bound from this one, so what a name's label is does not
+ * depend on which module was read last; a name this module comes to hold is bound when it is
+ * claimed (w_file) */
+static const char *bind_rel;
+static char *idx_read(const char *dir, const char *hx);
 static void names_bind(const char *name, const char *key) {
     if (!store_dir() || !bind_work) return;
     /* bound/<name in hex>: the name's key now, read by name with no log to scan */
     SBuf hx = {0}; for (const unsigned char *c = (const unsigned char *)name; *c; c++) sb_fmt(&hx, "%02x", *c);
+    if (bind_rel && hx.b && hx.n <= 250) { char *mo = idx_read("module-of", hx.b); if (mo) mo[strcspn(mo, "\n")] = 0;
+        if (mo && strcmp(mo, bind_rel)) { free(mo); free(hx.b); return; } free(mo); }
     if (hx.b && hx.n <= 250) { char *cur = store_read("bound", hx.b); if (!cur || strcmp(cur, key)) store_write("bound", hx.b, key, false); free(cur); }
     free(hx.b);
     names_load();
