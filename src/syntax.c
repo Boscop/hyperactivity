@@ -2152,6 +2152,8 @@ static bool w_held(const char *rel) { return rel[0] != '/' && strncmp(rel, "buil
  * own, held for the moment of the change (idx_lock) */
 static const char *rec_follows;   /* --follows: the entries the recorded text was made from, joined by commas, or - */
 static bool rec_beside;           /* the record's entry was written beside another: the index is to be computed again */
+static const char *rec_base;      /* --base: the module the recorded text was made from */
+static bool rec_refused;          /* the record conflicts with what another writer recorded: nothing was written */
 static struct { char *rel; char *text; size_t n; } ovs[16]; static int novs;   /* --with: texts read in place of the source's */
 static int idx_lock_fd = -1;
 static void root_init(void);
@@ -2490,6 +2492,26 @@ static void e_bind(const char *rel, const char *mh) {
          * is written beside what is live, and the index is computed again from the pool by the next
          * run (the stamp is dropped), which merges the two or names them as alternatives */
         bool beside = rec_follows && strcmp(reps.n ? reps.b : "-", rec_follows);
+        if (beside && rec_base) {
+            /* written beside only what it merges with: a name this text changed from its base that the
+             * path's module changed differently is a conflict, and then nothing is recorded (the first
+             * writer's stands, the second is told and makes its change again from what is there), so a
+             * path never comes to hold alternatives from two writers of one machine */
+            char *curm = alt ? NULL : idx_read("modules", hx.b);
+            MPieces B, L, M; memset(&B, 0, sizeof B); memset(&L, 0, sizeof L); memset(&M, 0, sizeof M);
+            bool ok = curm && mp_read(rec_base, &B) && mp_read(curm, &L) && mp_read(mh, &M);
+            const char *clash = NULL;
+            for (int i = 0; ok && !clash && i < M.n; i++) { const char *b = mp_get(&B, M.nm[i]), *l = mp_get(&L, M.nm[i]);
+                if (!mp_eq(b, M.ph[i]) && !mp_eq(b, l) && !mp_eq(l, M.ph[i])) clash = M.nm[i]; }
+            for (int i = 0; ok && !clash && i < B.n; i++) { const char *m = mp_get(&M, B.nm[i]), *l = mp_get(&L, B.nm[i]);
+                if (!m && l && !mp_eq(B.ph[i], l)) clash = B.nm[i]; }
+            if (!ok || clash) {
+                printf("conflict %s\n", clash ? (clash[0] == 1 ? "(the head)" : clash) : "(the path holds alternatives)");
+                rec_refused = true; idx_remove("meta", "stamp");   /* the name pointers set on the way here are computed again from the pool */
+                mp_free(&B); mp_free(&L); mp_free(&M); free(curm); free(reps.b); free(live); free(alt); free(hx.b); return;
+            }
+            mp_free(&B); mp_free(&L); mp_free(&M); free(curm);
+        }
         SBuf c = {0}; sb_put(&c, "bind "); sb_put(&c, hx.b); sb_put(&c, " "); sb_put(&c, mh); sb_put(&c, " "); sb_put(&c, beside ? rec_follows : reps.n ? reps.b : "-"); sb_put(&c, "\n");
         char id[65]; key_hash(c.b, c.n, id);
         char *ed = path_in(source_dir(), "entries", ""); char *had = read_in(ed, id, ""); free(ed);
@@ -2631,7 +2653,7 @@ static void w_file(const char *text, const char *path) {
         free(p);
         char *rel = w_rel(path);
         e_bind(rel, mh);   /* first: it compares mh with what the source holds, which the pointers below overwrite */
-        if (!rec_beside) {   /* written beside another entry: what the path holds is the two merged, computed with the index */
+        if (!rec_beside && !rec_refused) {   /* written beside another entry: what the path holds is the two merged, computed with the index */
             w_forget(rel, names.b, mod.b);
             w_point("modules", rel, mh);
             w_point("names-of", rel, names.b);

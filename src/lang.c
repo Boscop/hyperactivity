@@ -5177,6 +5177,7 @@ int main(int argc, char **argv)
         ovs[novs].rel = w_rel(argv[i + 1]); ovs[novs].text = b; ovs[novs].n = n; novs++;
     }
     for (int i = 1; i + 1 < argc; i++) if (!strcmp(argv[i], "--follows")) rec_follows = argv[i + 1];
+    for (int i = 1; i + 1 < argc; i++) if (!strcmp(argv[i], "--base")) rec_base = argv[i + 1];
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--ingest") || (!strcmp(argv[i], "--record") && i + 2 < argc)) {
         /* the one reader (src/syntax.c, record_source): files on the disk recorded in the source */
         bool rec = !strcmp(argv[i], "--record");
@@ -5198,7 +5199,7 @@ int main(int argc, char **argv)
             free(ab); free(rel); free(b);
             if (rec) break;
         }
-        fflush(stdout); _Exit(0);
+        fflush(stdout); _Exit(rec_refused ? 3 : 0);   /* 3: the record conflicts with another writer's; nothing was written (src/syntax.c, e_bind) */
     }
     /* the view's other entries (src/syntax.c, e_bind): `--unrecord PATH` drops the path; `--dead ENTRY
      * REASON` states an entry dead; `--put HASH KIND FILE` takes an object received (text, module or
@@ -5267,7 +5268,7 @@ int main(int argc, char **argv)
         if (!strcmp(argv[i], "--session")) continue;
         if (!strcmp(argv[i], "--read")) continue;
         if (!strcmp(argv[i], "--with")) { i += 2; continue; }
-        if (!strcmp(argv[i], "--follows")) { i += 1; continue; }
+        if (!strcmp(argv[i], "--follows") || !strcmp(argv[i], "--base")) { i += 1; continue; }
         load_root = argv[i];   /* roots/<file>: the given file that loads it (src/syntax.c, w_file) */
         load_file(argv[i], true);
     }
