@@ -1,0 +1,15 @@
+-- writers that do not wait for one another (part of language-implementation-remainder; Avik,
+-- 2026-11-22: "Anything that is blocking sane max throughout work cannot be delayed"; "These
+-- behavioral policies you propose are a failure of judgment"). The source is a pool of entries,
+-- each naming the entries it follows; entries live together at a path merge by definition
+-- (src/syntax.c). A write was the one place that worked against it: it recorded a whole module
+-- before its check, following whatever was live when it landed, so writers had to take turns
+-- under one lock and an interrupted one had to be put back. Now a writer reads the head of the
+-- path (the live entries and the module, as one: hy-head), makes its text from that, has it
+-- checked without recording it (the roots read with the text in place of the source's:
+-- hy-verdicts-with), and only then records it naming the entries it was made from
+-- (hy-record-as). Another writer's entry arriving in between leaves two live entries, merged by
+-- definition or named as alternatives. Nothing unchecked is recorded; there is no lock on the
+-- source and no journal.
+hy-cand : Word → Proc W (List Word)
+hy-cand k = bind (sys-call #39 #0 #0 #0 #0 #0 #0) (λ p → ret (list-append "build/cand-" (list-append (h-decimal p) (list-append "-" (h-decimal k)))))

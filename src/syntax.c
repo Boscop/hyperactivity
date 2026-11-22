@@ -1,5 +1,8 @@
 #include <setjmp.h>
 #include <sys/stat.h>
+#include <sys/file.h>
+#include <fcntl.h>
+extern int close(int);   /* unistd.h is not included: its `link` is a name of this file */
 /* syntax.c — the surface language: tokens, layout, parsing into the core forms, and printing the
  * core forms back in the surface language. Included by lang.c (it uses its Node and tables).
  *
@@ -2137,6 +2140,28 @@ static bool w_held(const char *rel) { return rel[0] != '/' && strncmp(rel, "buil
  * module-of/ by hex, live/, alternatives/) is computed from the entries into the machine's index,
  * .cubical-store/index, and computed again whenever the set of entries (and held ones) it was computed
  * from is not the pool's */
+/* writers that do not wait for one another (2026-11-22; Avik: "Anything that is blocking sane max
+ * throughout work cannot be delayed"). A writer reads what is live at a path, makes its text, has it
+ * checked without recording it (`--with PATH FILE` on a read: PATH's text is FILE's for that run
+ * only), and records it naming the entries it was made from (`--record PATH FILE --follows IDS`).
+ * When those are still the entries live there, its entry follows them. When another writer's entry
+ * arrived in between, its entry is written beside that one, both live, and the index is computed
+ * again from the pool: they merge by definition, or are named as alternatives (e_merge_alternatives).
+ * Nothing unchecked is ever recorded, so there is nothing to put back and no writer holds the
+ * source while it checks. The index, a cache computed from the pool, is changed under a lock of its
+ * own, held for the moment of the change (idx_lock) */
+static const char *rec_follows;   /* --follows: the entries the recorded text was made from, joined by commas, or - */
+static bool rec_beside;           /* the record's entry was written beside another: the index is to be computed again */
+static struct { char *rel; char *text; size_t n; } ovs[16]; static int novs;   /* --with: texts read in place of the source's */
+static int idx_lock_fd = -1;
+static void root_init(void);
+static void idx_lock(void) {
+    if (idx_lock_fd >= 0) return;
+    root_init(); char *p = malloc(strlen(repo_root) + 40); sprintf(p, "%s/.cubical-store", repo_root); mkdir(p, 0777);
+    strcat(p, "/index.lock"); idx_lock_fd = open(p, O_CREAT | O_RDWR, 0666); free(p);
+    if (idx_lock_fd >= 0) flock(idx_lock_fd, LOCK_EX);
+}
+static void idx_unlock(void) { if (idx_lock_fd >= 0) { flock(idx_lock_fd, LOCK_UN); close(idx_lock_fd); idx_lock_fd = -1; } }
 static bool w_indexing;   /* the index being computed: no entry is written */
 static char *idx_next;   /* the index being computed beside the one in use (index_sync) */
 static char *idx_dir(void) {
@@ -2349,8 +2374,11 @@ static char *e_merge_alternatives(Ent *es, int i, int j, SBuf *why) {
 static bool idx_synced;
 static void index_sync(void) {
     if (idx_synced) return; idx_synced = true;
+    /* the index is changed by one machine at a time: the lock is taken here unless this run holds it
+     * already (a record), and the stamp is read under it, so a second machine finds the first's work */
+    bool took = idx_lock_fd < 0; idx_lock();
     char *st = e_stamp(); char *cur = idx_read("meta", "stamp");
-    if (cur && !strcmp(cur, st)) { free(cur); free(st); return; }
+    if (cur && !strcmp(cur, st)) { free(cur); free(st); if (took) idx_unlock(); return; }
     free(cur);
     static const char *dirs[] = { "modules", "names-of", "written", "module-of", "live", "alternatives", "conflicts", NULL };
     char *in_use = strdup(idx_dir()); char *nx = malloc(strlen(in_use) + 8); sprintf(nx, "%s-next", in_use);
@@ -2430,6 +2458,17 @@ static void index_sync(void) {
     for (int i = 0; i < ng; i++) free(gone[i]);
     free(es); free(gone);
     idx_write("meta", "stamp", st); free(st); free(in_use); free(nx);
+    if (took) idx_unlock();
+}
+/* the stamp of the set the index was computed from, with one more entry of the pool in it: the
+ * count one higher and the id xored in (not the pool read again: an entry another machine wrote
+ * since is not in the index, and the stamp must not say it is) */
+static char *e_stamp_with(const char *st, const char *id) {
+    long na = 0, nb = 0; char a[65] = {0}, b[65] = {0};
+    if (!st || sscanf(st, "%ld %64s %ld %64s", &na, a, &nb, b) != 4) return NULL;
+    SBuf s = {0}; sb_fmt(&s, "%ld ", na + 1);
+    for (int i = 0; i < 32; i++) { unsigned x = 0, y = 0; sscanf(a + 2 * i, "%2x", &x); sscanf(id + 2 * i, "%2x", &y); sb_fmt(&s, "%02x", (x ^ y) & 255u); }
+    sb_fmt(&s, " %ld %s\n", nb, b); return s.b;
 }
 /* the source at a path set to a module (or - : dropped): an entry following what is live there, unless
  * the one live entry there already binds it */
@@ -2447,13 +2486,22 @@ static void e_bind(const char *rel, const char *mh) {
         for (const char *l = src; *l; ) { const char *e = strchr(l, '\n'); size_t n = e ? (size_t)(e - l) : strlen(l); const char *sp = memchr(l, ' ', n); size_t k = sp ? (size_t)(sp - l) : n;
             if (k == 64) { if (reps.n) sb_put(&reps, ","); char id[65]; memcpy(id, l, 64); id[64] = 0; sb_put(&reps, id); }
             l = e ? e + 1 : l + n; }
-        SBuf c = {0}; sb_put(&c, "bind "); sb_put(&c, hx.b); sb_put(&c, " "); sb_put(&c, mh); sb_put(&c, " "); sb_put(&c, reps.n ? reps.b : "-"); sb_put(&c, "\n");
+        /* a record made from other entries than are live here now (--follows): its entry names those,
+         * is written beside what is live, and the index is computed again from the pool by the next
+         * run (the stamp is dropped), which merges the two or names them as alternatives */
+        bool beside = rec_follows && strcmp(reps.n ? reps.b : "-", rec_follows);
+        SBuf c = {0}; sb_put(&c, "bind "); sb_put(&c, hx.b); sb_put(&c, " "); sb_put(&c, mh); sb_put(&c, " "); sb_put(&c, beside ? rec_follows : reps.n ? reps.b : "-"); sb_put(&c, "\n");
         char id[65]; key_hash(c.b, c.n, id);
         char *ed = path_in(source_dir(), "entries", ""); char *had = read_in(ed, id, ""); free(ed);
+        bool fresh = !had;
         if (!had) src_write("entries", id, c.b); free(had);
-        SBuf l = {0}; sb_fmt(&l, "%s\n", id); idx_write("live", hx.b, l.b); free(l.b);
-        idx_remove("alternatives", hx.b);
-        char *st = e_stamp(); idx_write("meta", "stamp", st); free(st);
+        if (beside) { rec_beside = true; idx_remove("meta", "stamp"); }
+        else {
+            SBuf l = {0}; sb_fmt(&l, "%s\n", id); idx_write("live", hx.b, l.b); free(l.b);
+            idx_remove("alternatives", hx.b);
+            /* the stamp: the index's own with this entry in it (e_stamp_with), not the pool's read again */
+            if (fresh) { char *cur = idx_read("meta", "stamp"); char *st = e_stamp_with(cur, id); if (st) idx_write("meta", "stamp", st); else idx_remove("meta", "stamp"); free(st); free(cur); }
+        }
         free(c.b); free(reps.b);
     }
     free(live); free(alt); free(hx.b);
@@ -2462,6 +2510,8 @@ static void e_bind(const char *rel, const char *mh) {
  * not hold yet, read from the disk (the one reader), when it is there; else NULL. A path holding
  * alternatives is not read: they are named */
 static char *src_text(const char *rel, size_t *len) {
+    /* --with PATH FILE: for this run the path's text is the file's (a change checked before it is recorded) */
+    for (int i = 0; i < novs; i++) if (!strcmp(rel, ovs[i].rel)) { char *t = malloc(ovs[i].n + 1); memcpy(t, ovs[i].text, ovs[i].n + 1); if (len) *len = ovs[i].n; return t; }
     index_sync();
     SBuf hx = {0}; w_hex(&hx, rel);
     char *mh = hx.b && hx.n <= 250 ? idx_read("modules", hx.b) : NULL;
@@ -2528,7 +2578,10 @@ static void w_forget(const char *rel, const char *names, const char *pieces) {
     free(old); free(oldm); free(oldp);
 }
 static void w_file(const char *text, const char *path) {
-    { char *r0 = w_rel(path); bool held = w_held(r0); free(r0); if (!held) { nwitems = 0; return; } }
+    { char *r0 = w_rel(path); bool held = w_held(r0);
+      /* a path read from a file given by --with is a change being checked: the run that reads it records nothing of it */
+      for (int i = 0; i < novs && held; i++) if (!strcmp(r0, ovs[i].rel)) held = false;
+      free(r0); if (!held) { nwitems = 0; return; } }
     size_t len = strlen(text);
     int nl = 0; size_t *off = malloc((len + 2) * sizeof(size_t));
     off[++nl] = 0;   /* off[k]: where line k begins (1-based) */
@@ -2578,9 +2631,11 @@ static void w_file(const char *text, const char *path) {
         free(p);
         char *rel = w_rel(path);
         e_bind(rel, mh);   /* first: it compares mh with what the source holds, which the pointers below overwrite */
-        w_forget(rel, names.b, mod.b);
-        w_point("modules", rel, mh);
-        w_point("names-of", rel, names.b);
+        if (!rec_beside) {   /* written beside another entry: what the path holds is the two merged, computed with the index */
+            w_forget(rel, names.b, mod.b);
+            w_point("modules", rel, mh);
+            w_point("names-of", rel, names.b);
+        }
         if (load_root && store_dir() && !w_indexing) {
             /* roots/<path>: the file given to this machine that loads it (the machine's own, not the
              * source's), only a module of the work being a root */

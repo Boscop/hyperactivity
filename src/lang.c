@@ -5167,9 +5167,21 @@ int main(int argc, char **argv)
     }
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--read")) read_only = true;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--session")) session_loading = true;
+    /* --with PATH FILE (any number): PATH's text is FILE's for this run; --follows IDS: the entries a
+     * record's text was made from (src/syntax.c, rec_follows) */
+    for (int i = 1; i + 2 < argc; i++) if (!strcmp(argv[i], "--with") && novs < 16) {
+        FILE *f = fopen(argv[i + 2], "rb"); if (!f) die("cannot open", argv[i + 2]);
+        size_t cap = 65536, n = 0, k; char *b = malloc(cap);
+        while ((k = fread(b + n, 1, cap - n - 1, f)) > 0) { n += k; if (cap - n < 2) { cap *= 2; b = realloc(b, cap); } }
+        fclose(f); b[n] = 0;
+        ovs[novs].rel = w_rel(argv[i + 1]); ovs[novs].text = b; ovs[novs].n = n; novs++;
+    }
+    for (int i = 1; i + 1 < argc; i++) if (!strcmp(argv[i], "--follows")) rec_follows = argv[i + 1];
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--ingest") || (!strcmp(argv[i], "--record") && i + 2 < argc)) {
         /* the one reader (src/syntax.c, record_source): files on the disk recorded in the source */
         bool rec = !strcmp(argv[i], "--record");
+        /* a record changes the index: it holds the index's lock for its own moment (src/syntax.c, idx_lock) */
+        if (rec) idx_lock();
         for (int j = i + 1; j < argc; j += rec ? 2 : 1) {
             /* --record: FILE's text; --ingest: the path as the source holds it, else as the disk does */
             const char *from = rec ? argv[j + 1] : argv[j];
@@ -5195,6 +5207,20 @@ int main(int argc, char **argv)
      * pointers derived from them (written/, module-of/, names-of/) */
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--index")) { index_sync(); fflush(stdout); _Exit(0); }   /* the index brought to the pool's entries */
     for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--head") && i + 1 < argc) {
+            /* `--head PATH`: what a writer makes its text from, read as one: the entries live at the
+             * path (or its alternatives), joined by commas, or -; then the module the path holds, or - */
+            char *rel = w_rel(argv[i + 1]); idx_lock(); index_sync();
+            SBuf hx = {0}; w_hex(&hx, rel);
+            char *live = hx.b && hx.n <= 250 ? idx_read("live", hx.b) : NULL, *alt = hx.b && hx.n <= 250 ? idx_read("alternatives", hx.b) : NULL;
+            char *mh = hx.b && hx.n <= 250 ? idx_read("modules", hx.b) : NULL;
+            const char *src = alt ? alt : live ? live : ""; bool any = false;
+            for (const char *l = src; *l; ) { const char *e = strchr(l, '\n'); size_t n = e ? (size_t)(e - l) : strlen(l); const char *sp = memchr(l, ' ', n); size_t k = sp ? (size_t)(sp - l) : n;
+                if (k == 64) { printf("%s%.64s", any ? "," : "", l); any = true; }
+                l = e ? e + 1 : l + n; }
+            printf("%s\n%s\n", any ? "" : "-", mh && !alt ? mh : "-");
+            idx_unlock(); fflush(stdout); _Exit(0);
+        }
         if (!strcmp(argv[i], "--unrecord") && i + 1 < argc) {
             char *rel = w_rel(argv[i + 1]); index_sync(); w_forget(rel, "", "");
             SBuf hx = {0}; w_hex(&hx, rel); if (hx.b && hx.n <= 250) { idx_remove("modules", hx.b); idx_remove("names-of", hx.b); }
@@ -5240,6 +5266,8 @@ int main(int argc, char **argv)
         if (!strcmp(argv[i], "--serve")) continue;
         if (!strcmp(argv[i], "--session")) continue;
         if (!strcmp(argv[i], "--read")) continue;
+        if (!strcmp(argv[i], "--with")) { i += 2; continue; }
+        if (!strcmp(argv[i], "--follows")) { i += 1; continue; }
         load_root = argv[i];   /* roots/<file>: the given file that loads it (src/syntax.c, w_file) */
         load_file(argv[i], true);
     }
