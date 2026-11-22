@@ -2128,32 +2128,20 @@ static char *w_rel(const char *path) {
  * and probes (build/) nor anything outside it; only the work's text is recorded, only a module of
  * the work is a root, and only the work binds names, so a scratch file read once never repoints a name */
 static bool w_held(const char *rel) { return rel[0] != '/' && strncmp(rel, "build/", 6) && strcmp(rel, "<printed>"); }
-/* the view (2026-11-17; Avik: "There is no canonical state", “State, change and collaboration”,
- * docs/to-be-incorporated-into-paper.cub): what the source holds at a path is not a pointer written
- * over in place but entries of the pool, store/entries/<id>, each named by the hash of its content and
- * never changed: `bind HEXPATH MODULE REPLACED` (MODULE a module's hash, or - for the path dropped;
- * REPLACED the entries it follows, joined by commas, or -) and `dead ENTRY HEXREASON`. An entry is
- * live when no entry replaces it, no statement says it is dead and this machine does not hold it back
- * (.cubical-store/held/<id>: it did not check here). One live entry at a path is what the source holds
- * there; two or more are alternatives, named to whoever reads the path, until all but one are stated
- * dead or a new entry follows them. What is read by path or by name (modules/, names-of/, written/,
- * module-of/ by hex, live/, alternatives/) is computed from the entries into the machine's index,
- * .cubical-store/index, and computed again whenever the set of entries (and held ones) it was computed
- * from is not the pool's */
-/* writers that do not wait for one another (2026-11-22; Avik: "Anything that is blocking sane max
- * throughout work cannot be delayed"). A writer reads what is live at a path, makes its text, has it
- * checked without recording it (`--with PATH FILE` on a read: PATH's text is FILE's for that run
- * only), and records it naming the entries it was made from (`--record PATH FILE --follows IDS`).
- * When those are still the entries live there, its entry follows them. When another writer's entry
- * arrived in between, its entry is written beside that one, both live, and the index is computed
- * again from the pool: they merge by definition, or are named as alternatives (e_merge_alternatives).
- * Nothing unchecked is ever recorded, so there is nothing to put back and no writer holds the
- * source while it checks. The index, a cache computed from the pool, is changed under a lock of its
- * own, held for the moment of the change (idx_lock) */
-static const char *rec_follows;   /* --follows: the entries the recorded text was made from, joined by commas, or - */
-static bool rec_beside;           /* the record's entry was written beside another: the index is to be computed again */
+/* the pool and the labels (2026-11-22; Avik: "There is no canonical state"; "They are literally
+ * different mathematical objects"). The source, store/, is a pool of objects named by the hash of
+ * their content and never changed: a text (HASH/text), a module, texts in order (HASH/module), a root,
+ * the modules a machine's paths hold (HASH/root). What a path or a name holds on this machine
+ * (modules/, names-of/, written/, module-of/, by hex, in .cubical-store/index) is this machine's label
+ * for an object: set when this machine records a text and when it takes a root (root_take), and by
+ * nothing else. Nothing another machine wrote changes it, so there is nothing to merge, replace,
+ * keep live or settle between machines.
+ * A change is checked before it is recorded: `--with PATH FILE` on a read makes PATH's text FILE's
+ * for that run, and that run records nothing of the path. A record names the module its text was
+ * made from (`--base MODULE`): when the path holds another by then (a second record of this machine
+ * made at the same time), the record's changes are applied to what the path holds (mp_apply). The
+ * labels are changed under a lock held for the moment of the change (idx_lock) */
 static const char *rec_base;      /* --base: the module the recorded text was made from */
-static bool rec_refused;          /* the record conflicts with what another writer recorded: nothing was written */
 static struct { char *rel; char *text; size_t n; } ovs[16]; static int novs;   /* --with: texts read in place of the source's */
 static int idx_lock_fd = -1;
 static void root_init(void);
@@ -2165,13 +2153,12 @@ static void idx_lock(void) {
 }
 static void idx_unlock(void) { if (idx_lock_fd >= 0) { flock(idx_lock_fd, LOCK_UN); close(idx_lock_fd); idx_lock_fd = -1; } }
 static bool w_indexing;   /* the index being computed: no entry is written */
-static char *idx_next;   /* the index being computed beside the one in use (index_sync) */
+static char *idx_next;   /* (never set: the labels are changed in place, under idx_lock) */
 static char *idx_dir(void) {
     static char *d; if (idx_next) return idx_next; if (d) return d;
     root_init(); d = malloc(strlen(repo_root) + 32); sprintf(d, "%s/.cubical-store", repo_root); mkdir(d, 0777);
     strcat(d, "/index"); mkdir(d, 0777); return d;
 }
-static char *held_dir(void) { static char *d; if (!d) { root_init(); d = malloc(strlen(repo_root) + 32); sprintf(d, "%s/.cubical-store/held", repo_root); } return d; }
 static char *idx_read(const char *dir, const char *hx) { return read_in(idx_dir(), dir, hx); }
 static void idx_write(const char *dir, const char *hx, const char *v) { write_in(idx_dir(), dir, hx, v, false); }
 static void idx_remove(const char *dir, const char *hx) { char *p = path_in(idx_dir(), dir, hx); remove(p); free(p); }
@@ -2200,57 +2187,23 @@ static char *w_module_text(const char *mh, size_t *len) {
     }
     free(mod); if (len) *len = o.n; return o.b;
 }
-/* the stamp of a set of entries: their number and the bytewise xor of their ids (the same set gives the
- * same stamp, in any order), the pool's and the held ones' */
-static void e_stamp_of(const char *d, unsigned char x[32], long *n) {
-    DIR *dir = opendir(d); if (!dir) return;
-    struct dirent *de;
-    while ((de = readdir(dir))) {
-        if (strlen(de->d_name) != 64) continue;
-        (*n)++;
-        for (int i = 0; i < 32; i++) { unsigned v = 0; sscanf(de->d_name + 2 * i, "%2x", &v); x[i] ^= (unsigned char)v; }
-    }
-    closedir(dir);
-}
-static char *e_stamp(void) {
-    unsigned char a[32] = {0}, b[32] = {0}; long na = 0, nb = 0;
-    char *ed = path_in(source_dir(), "entries", ""); e_stamp_of(ed, a, &na); free(ed);
-    e_stamp_of(held_dir(), b, &nb);
-    SBuf s = {0}; sb_fmt(&s, "%ld ", na);
-    for (int i = 0; i < 32; i++) sb_fmt(&s, "%02x", a[i]);
-    sb_fmt(&s, " %ld ", nb);
-    for (int i = 0; i < 32; i++) sb_fmt(&s, "%02x", b[i]);
-    sb_put(&s, "\n"); return s.b;
-}
 static void idx_clear_in(const char *base, const char *dir) {
     char *p = path_in(base, dir, ""); DIR *d = opendir(p);
     if (d) { struct dirent *de; while ((de = readdir(d))) if (de->d_name[0] != '.') { char *f = path_in(p, de->d_name, ""); remove(f); free(f); } closedir(d); }
     free(p);
 }
-/* an entry's words: kind, then (bind) hex path, module, replaced, or (dead) entry, hex reason */
-typedef struct { char *w[4]; char id[65]; } Ent;
-static bool e_read(const char *id, Ent *e) {
-    char *ed = path_in(source_dir(), "entries", ""); char *c = read_in(ed, id, ""); free(ed);
-    if (!c) return false;
-    memset(e, 0, sizeof *e); snprintf(e->id, sizeof e->id, "%s", id);
-    char *s = c; for (int i = 0; i < 4; i++) { while (*s == ' ' || *s == '\n') s++; if (!*s) break; char *b = s; while (*s && *s != ' ' && *s != '\n') s++; e->w[i] = strndup(b, (size_t)(s - b)); }
-    free(c);
-    return e->w[0] && e->w[1];
-}
-static void e_free(Ent *e) { for (int i = 0; i < 4; i++) free(e->w[i]); }
-static int e_cmp_id(const void *a, const void *b) { return strcmp(*(char *const *)a, *(char *const *)b); }
-static int e_cmp_path(const void *a, const void *b) { const Ent *x = a, *y = b; int c = strcmp(x->w[1], y->w[1]); return c ? c : strcmp(x->id, y->id); }
-static bool e_in(char **set, int n, const char *id) { return n && bsearch(&id, set, (size_t)n, sizeof *set, e_cmp_id) != NULL; }
 static void record_source(const char *text, const char *path);
-/* alternatives that commute merge (Avik, 2026-11-18 08:16 UTC: "this all is contrary to the design of
- * hyperactive ... it is made to work decentralized"): identity is the definition, a piece, not the path.
- * Two entries live at one path are each a module, an order of pieces; each piece is keyed by the name it
- * declares (the module's first piece, its head, by "head"; a piece declaring nothing by its own hash).
- * Against the module of the nearest entry both follow (their base), a name changed on one side only
- * takes that side's piece (dropped if that side dropped it), a name changed alike on both takes it, and
- * the order is the first's with the second's new pieces after the piece that precedes them there. Only
- * a name both sides changed differently stays alternatives, and those names are said. The merge reads
- * only the pool, so every machine computes the same module from the same entries */
+/* what a path holds is a label of this machine: set by its own records and by taking a root, and by
+ * nothing else (2026-11-22; Avik: "They cited there no canonical state, and created a canonical state
+ * called 'live'?"). The entries of the pool, what replaced what, what was live, the alternatives and
+ * their merge computed a state for every machine from what all had written; they are gone. The pool
+ * is objects named by their content and never changed: texts, modules (texts in order), and roots. A
+ * root is the modules a machine's paths hold, a line each, `HEXPATH MODULE`, in order of path: one
+ * hash names a whole system. Two pools joined are the union of their objects, and joining changes
+ * what no machine's paths hold. A machine with no labels takes the root named beside the pool (ROOT, in the
+ * pool's directory); a machine is told to take another with `--take ROOT`, and gives its own with
+ * `--root`. A module's pieces are keyed here by the name each declares (the first piece, its head,
+ * by "head"; a piece declaring nothing by its own hash) */
 typedef struct { char **nm, **ph; int n; } MPieces;
 static void mp_free(MPieces *m) { for (int i = 0; i < m->n; i++) { free(m->nm[i]); free(m->ph[i]); } free(m->nm); free(m->ph); m->nm = m->ph = NULL; m->n = 0; }
 static char *mp_name(const char *ph, bool first) {
@@ -2284,249 +2237,99 @@ static bool mp_read(const char *mh, MPieces *m) {
 }
 static const char *mp_get(const MPieces *m, const char *name) { for (int i = 0; i < m->n; i++) if (!strcmp(m->nm[i], name)) return m->ph[i]; return NULL; }
 static bool mp_eq(const char *a, const char *b) { return a == b || (a && b && !strcmp(a, b)); }
-/* the nearest entry that the entries in as (the first side's) and b both follow: its module, or "-" */
-static void e_ancestors(const char *id, char ***set, int *n, size_t *cap) {
-    char **queue = NULL; size_t capq = 0; int nq = 0, qi = 0;
-    GROW(queue, capq, 1); queue[nq++] = strdup(id);
-    while (qi < nq) {
-        char *x = queue[qi++]; bool seen = false; for (int i = 0; i < *n; i++) if (!strcmp((*set)[i], x)) { seen = true; break; }
-        if (seen) continue;
-        GROW(*set, *cap, (size_t)*n + 1); (*set)[(*n)++] = strdup(x);
-        Ent e; if (!e_read(x, &e)) continue;
-        if (!strcmp(e.w[0], "bind") && e.w[3] && strcmp(e.w[3], "-")) { char *r = strdup(e.w[3]); for (char *t = strtok(r, ","); t; t = strtok(NULL, ",")) { GROW(queue, capq, (size_t)nq + 1); queue[nq++] = strdup(t); } free(r); }
-        e_free(&e);
+/* a record made from a module other than the one its path holds now (two records of one machine made
+ * at the same time from one module): its changes applied to what the path holds. A name whose piece
+ * the record changed from its base takes the record's piece, or goes if the record dropped it; a name
+ * the record added goes after the nearest piece before it that is there; every other name stays as
+ * the path holds it. Of two records that set one name the later stands; both pieces are in the pool */
+static char *mp_apply(const char *base, const char *cur, const char *mine) {
+    MPieces B, L, M, O; memset(&B, 0, sizeof B); memset(&L, 0, sizeof L); memset(&M, 0, sizeof M); memset(&O, 0, sizeof O);
+    if (!mp_read(base, &B) || !mp_read(cur, &L) || !mp_read(mine, &M)) { mp_free(&B); mp_free(&L); mp_free(&M); return strdup(mine); }
+    size_t cap = 0;
+    #define MP_PUT(N, P) do { GROW(O.nm, cap, (size_t)O.n + 1); O.ph = realloc(O.ph, cap * sizeof *O.ph); O.nm[O.n] = strdup(N); O.ph[O.n] = strdup(P); O.n++; } while (0)
+    for (int i = 0; i < L.n; i++) {
+        const char *n = L.nm[i], *pm = mp_get(&M, n), *pb = mp_get(&B, n);
+        if (pb && !pm) continue;
+        if (pm && !mp_eq(pm, pb)) MP_PUT(n, pm); else MP_PUT(n, L.ph[i]);
     }
-    for (int i = 0; i < nq; i++) free(queue[i]); free(queue);
-}
-static char *e_base_module(char **as, int nas, const char *b) {
-    char **anc = NULL; int na = 0; size_t capa = 0;
-    for (int i = 0; i < nas; i++) e_ancestors(as[i], &anc, &na, &capa);
-    char **queue = NULL; size_t capq = 0; int nq = 0, qi = 0; char *found = NULL;
-    GROW(queue, capq, 1); queue[nq++] = strdup(b);
-    while (qi < nq && !found) {
-        char *x = queue[qi++];
-        if (strcmp(x, b)) for (int i = 0; i < na; i++) if (!strcmp(anc[i], x)) { found = strdup(x); break; }
-        if (found) break;
-        Ent e; if (!e_read(x, &e)) continue;
-        if (!strcmp(e.w[0], "bind") && e.w[3] && strcmp(e.w[3], "-")) { char *r = strdup(e.w[3]); for (char *t = strtok(r, ","); t; t = strtok(NULL, ",")) { GROW(queue, capq, (size_t)nq + 1); queue[nq++] = strdup(t); } free(r); }
-        e_free(&e);
-    }
-    char *mh = strdup("-");
-    if (found) { Ent e; if (e_read(found, &e)) { if (e.w[2]) { free(mh); mh = strdup(e.w[2]); } e_free(&e); } free(found); }
-    for (int i = 0; i < na; i++) free(anc[i]); free(anc);
-    for (int i = 0; i < nq; i++) free(queue[i]); free(queue);
-    return mh;
-}
-/* a and b merged against base into out (its pieces in order); false, with the conflicting names in why,
- * when some name changed differently on both sides */
-static bool mp_merge(const MPieces *base, const MPieces *a, const MPieces *b, MPieces *out, SBuf *why) {
-    memset(out, 0, sizeof *out); size_t cap = 0; bool ok = true;
-    #define MP_PUT(N, P) do { GROW(out->nm, cap, (size_t)out->n + 1); out->ph = realloc(out->ph, cap * sizeof *out->ph); out->nm[out->n] = strdup(N); out->ph[out->n] = strdup(P); out->n++; } while (0)
-    /* the pieces a's order holds, each name resolved */
-    for (int i = 0; i < a->n; i++) {
-        const char *n = a->nm[i], *pa = a->ph[i], *pb = mp_get(b, n), *p0 = mp_get(base, n);
-        const char *r;
-        if (mp_eq(pa, pb)) r = pa; else if (mp_eq(pa, p0)) r = pb; else if (mp_eq(pb, p0)) r = pa;
-        else { ok = false; sb_fmt(why, "  %s\n", n[0] == 1 ? "(the module's head)" : n); r = pa; }
-        if (r) MP_PUT(n, r);
-    }
-    /* b's names a lacks: added by b, or dropped by a (dropped stays dropped unless b changed it) */
-    for (int i = 0; i < b->n; i++) {
-        const char *n = b->nm[i]; if (mp_get(a, n)) continue;
-        const char *p0 = mp_get(base, n);
-        if (p0 && mp_eq(p0, b->ph[i])) continue;           /* a dropped it, b left it: dropped */
-        if (p0) { ok = false; sb_fmt(why, "  %s (dropped on one side, changed on the other)\n", n); continue; }
-        /* new on b: after the nearest piece before it in b's order that out holds */
+    for (int i = 0; i < M.n; i++) {
+        const char *n = M.nm[i]; if (mp_get(&L, n)) continue;
+        const char *pb = mp_get(&B, n);
+        if (pb && mp_eq(pb, M.ph[i])) continue;
         int at = 0;
-        for (int k = i - 1; k >= 0; k--) { int f = -1; for (int j = 0; j < out->n; j++) if (!strcmp(out->nm[j], b->nm[k])) { f = j; break; } if (f >= 0) { at = f + 1; break; } }
-        MP_PUT(n, b->ph[i]);
-        char *ln = out->nm[out->n - 1], *lp = out->ph[out->n - 1];
-        for (int j = out->n - 1; j > at; j--) { out->nm[j] = out->nm[j - 1]; out->ph[j] = out->ph[j - 1]; }
-        out->nm[at] = ln; out->ph[at] = lp;
+        for (int k = i - 1; k >= 0; k--) { int f = -1; for (int j = 0; j < O.n; j++) if (!strcmp(O.nm[j], M.nm[k])) { f = j; break; } if (f >= 0) { at = f + 1; break; } }
+        MP_PUT(n, M.ph[i]);
+        char *ln = O.nm[O.n - 1], *lp = O.ph[O.n - 1];
+        for (int j = O.n - 1; j > at; j--) { O.nm[j] = O.nm[j - 1]; O.ph[j] = O.ph[j - 1]; }
+        O.nm[at] = ln; O.ph[at] = lp;
     }
     #undef MP_PUT
-    return ok;
-}
-/* the alternatives es[i..j) merged into one module, written to the pool under its hash (it is the same
- * on every machine); its hash, or NULL with the conflicting names in why */
-static char *e_merge_alternatives(Ent *es, int i, int j, SBuf *why) {
-    MPieces acc; if (!mp_read(es[i].w[2], &acc)) return NULL;
-    char **done = NULL; size_t capd = 0; int nd = 0;
-    GROW(done, capd, 1); done[nd++] = es[i].id;
-    for (int k = i + 1; k < j; k++) {
-        MPieces b, base, out;
-        if (!mp_read(es[k].w[2], &b)) { mp_free(&acc); free(done); return NULL; }
-        char *bm = e_base_module(done, nd, es[k].id);
-        if (!mp_read(bm, &base)) { free(bm); mp_free(&b); mp_free(&acc); free(done); return NULL; }
-        free(bm);
-        bool ok = mp_merge(&base, &acc, &b, &out, why);
-        mp_free(&b); mp_free(&base); mp_free(&acc); acc = out;
-        if (!ok) { mp_free(&acc); free(done); return NULL; }
-        GROW(done, capd, (size_t)nd + 1); done[nd++] = es[k].id;
-    }
-    free(done);
-    SBuf mod = {0}; sb_put(&mod, ""); for (int k = 0; k < acc.n; k++) { sb_put(&mod, acc.ph[k]); sb_put(&mod, "\n"); }
+    SBuf mod = {0}; sb_put(&mod, ""); for (int k = 0; k < O.n; k++) { sb_put(&mod, O.ph[k]); sb_put(&mod, "\n"); }
     char mh[65]; key_hash(mod.b, mod.n, mh);
     char *p = src_path(mh, "module"); struct stat st; if (stat(p, &st) != 0) src_write(mh, "module", mod.b); free(p);
-    free(mod.b); mp_free(&acc);
+    free(mod.b); mp_free(&B); mp_free(&L); mp_free(&M); mp_free(&O);
     return strdup(mh);
 }
-/* the index computed from the pool's entries, once per run (once per request of a session, which
- * clears idx_synced), when its stamp is not the pool's */
-static bool idx_synced;
-static void index_sync(void) {
-    if (idx_synced) return; idx_synced = true;
-    /* the index is changed by one machine at a time: the lock is taken here unless this run holds it
-     * already (a record), and the stamp is read under it, so a second machine finds the first's work */
-    bool took = idx_lock_fd < 0; idx_lock();
-    char *st = e_stamp(); char *cur = idx_read("meta", "stamp");
-    if (cur && !strcmp(cur, st)) { free(cur); free(st); if (took) idx_unlock(); return; }
-    free(cur);
-    static const char *dirs[] = { "modules", "names-of", "written", "module-of", "live", "alternatives", "conflicts", NULL };
-    char *in_use = strdup(idx_dir()); char *nx = malloc(strlen(in_use) + 8); sprintf(nx, "%s-next", in_use);
-    mkdir(nx, 0777); for (int i = 0; dirs[i]; i++) idx_clear_in(nx, dirs[i]);
-    idx_next = nx;
-    Ent *es = NULL; size_t cape = 0; int ne = 0;
-    char **gone = NULL; size_t capg = 0; int ng = 0;   /* replaced or stated dead */
-    char *ed = path_in(source_dir(), "entries", ""); DIR *d = opendir(ed); free(ed);
-    if (d) {
-        struct dirent *de;
-        while ((de = readdir(d))) {
-            if (strlen(de->d_name) != 64) continue;
-            char *h = read_in(held_dir(), de->d_name, ""); if (h) { free(h); continue; }
-            Ent e; if (!e_read(de->d_name, &e)) continue;
-            if (!strcmp(e.w[0], "dead")) { GROW(gone, capg, (size_t)ng + 1); gone[ng++] = strdup(e.w[1]); e_free(&e); continue; }
-            if (strcmp(e.w[0], "bind") || !e.w[2] || !e.w[3]) { e_free(&e); continue; }
-            if (strcmp(e.w[3], "-")) for (char *t = strtok(e.w[3], ","); t; t = strtok(NULL, ",")) { GROW(gone, capg, (size_t)ng + 1); gone[ng++] = strdup(t); }
-            GROW(es, cape, (size_t)ne + 1); es[ne++] = e;
-        }
-        closedir(d);
+/* this machine's root: the modules its paths hold, written to the pool under its hash */
+static int root_cmp(const void *a, const void *b) { return strcmp(*(char *const *)a, *(char *const *)b); }
+static char *root_make(void) {
+    char *md = path_in(idx_dir(), "modules", ""); DIR *d = opendir(md); free(md);
+    char **hs = NULL; size_t cap = 0; int n = 0;
+    if (d) { struct dirent *de; while ((de = readdir(d))) if (de->d_name[0] != '.' && !strstr(de->d_name, ".tmp")) { GROW(hs, cap, (size_t)n + 1); hs[n++] = strdup(de->d_name); } closedir(d); }
+    qsort(hs, (size_t)n, sizeof *hs, root_cmp);
+    SBuf t = {0}; sb_put(&t, "");
+    for (int i = 0; i < n; i++) {
+        char *m = idx_read("modules", hs[i]);
+        if (m) { m[strcspn(m, "\n")] = 0; sb_put(&t, hs[i]); sb_put(&t, " "); sb_put(&t, m); sb_put(&t, "\n"); free(m); }
+        free(hs[i]);
     }
-    qsort(gone, (size_t)ng, sizeof *gone, e_cmp_id);
-    int nl = 0; for (int i = 0; i < ne; i++) { if (e_in(gone, ng, es[i].id)) e_free(&es[i]); else es[nl++] = es[i]; }
-    qsort(es, (size_t)nl, sizeof *es, e_cmp_path);
+    free(hs);
+    char h[65]; key_hash(t.b, t.n, h);
+    char *p = src_path(h, "root"); struct stat st; if (stat(p, &st) != 0) src_write(h, "root", t.b); free(p);
+    free(t.b);
+    return strdup(h);
+}
+/* a root taken: this machine's paths hold what it says, and the names are pointed from its modules */
+static bool root_take(const char *h) {
+    char *t = src_read(h, "root"); if (!t) return false;
+    static const char *dirs[] = { "modules", "names-of", "written", "module-of", NULL };
+    for (int i = 0; dirs[i]; i++) idx_clear_in(idx_dir(), dirs[i]);
     w_indexing = true;
-    for (int i = 0; i < nl; ) {
-        int j = i; while (j < nl && !strcmp(es[j].w[1], es[i].w[1])) j++;
-        SBuf why = {0}; char *merged = j - i > 1 ? e_merge_alternatives(es, i, j, &why) : NULL;
-        if (j - i > 1 && !merged) {
-            SBuf a = {0}; for (int k = i; k < j; k++) sb_fmt(&a, "%s %s\n", es[k].id, es[k].w[2]);
-            idx_write("alternatives", es[i].w[1], a.b); free(a.b);
-            idx_write("conflicts", es[i].w[1], why.b ? why.b : ""); free(why.b);
-        } else if (merged) {
-            /* the alternatives merged: all of them are what is live here, and the next entry follows them all */
-            SBuf l = {0}; for (int k = i; k < j; k++) sb_fmt(&l, "%s\n", es[k].id); idx_write("live", es[i].w[1], l.b); free(l.b);
-            char *rel = w_unhex(es[i].w[1]); char *t = w_module_text(merged, NULL);
-            if (t) {
+    for (char *l = t; *l; ) {
+        char *e = strchr(l, '\n'); if (e) *e = 0;
+        char *sp = strchr(l, ' ');
+        if (sp) {
+            *sp = 0; char *rel = w_unhex(l); char *text = w_module_text(sp + 1, NULL);
+            if (text) {
                 char *ab = malloc(strlen(repo_root) + strlen(rel) + 2); sprintf(ab, "%s/%s", repo_root, rel);
-                record_source(t, ab); idx_write("modules", es[i].w[1], merged);
-                free(ab); free(t);
-            }
-            free(rel); free(merged); free(why.b);
-        } else {
-            free(why.b);
-            SBuf l = {0}; sb_fmt(&l, "%s\n", es[i].id); idx_write("live", es[i].w[1], l.b); free(l.b);
-            char *rel = w_unhex(es[i].w[1]); char *t = strcmp(es[i].w[2], "-") ? w_module_text(es[i].w[2], NULL) : NULL;
-            if (t) {
-                char *ab = malloc(strlen(repo_root) + strlen(rel) + 2); sprintf(ab, "%s/%s", repo_root, rel);
-                record_source(t, ab); idx_write("modules", es[i].w[1], es[i].w[2]);
-                free(ab); free(t);
+                record_source(text, ab); idx_write("modules", l, sp + 1);
+                free(ab); free(text);
             }
             free(rel);
         }
-        i = j;
+        if (!e) break; l = e + 1;
     }
-    w_indexing = false; idx_next = NULL;
-    /* the index in use made the one computed, file by file: a file whose content is unchanged is kept as
-     * it was (its time is when it last changed, which lib/host.cub reads as the path's change), one the
-     * computed index lacks is removed */
-    for (int i = 0; dirs[i]; i++) {
-        char *np = path_in(nx, dirs[i], ""), *op = path_in(in_use, dirs[i], ""); mkdir(op, 0777);
-        DIR *dold = opendir(op);
-        if (dold) { struct dirent *de; while ((de = readdir(dold))) if (de->d_name[0] != '.') {
-            char *f = path_in(np, de->d_name, ""); struct stat sn;
-            if (stat(f, &sn) != 0) { char *g = path_in(op, de->d_name, ""); remove(g); free(g); }
-            free(f); } closedir(dold); }
-        DIR *dn = opendir(np);
-        if (dn) { struct dirent *de; while ((de = readdir(dn))) if (de->d_name[0] != '.') {
-            char *a = read_in(np, de->d_name, ""), *b = read_in(op, de->d_name, "");
-            char *f = path_in(np, de->d_name, ""), *g = path_in(op, de->d_name, "");
-            if (a && b && !strcmp(a, b)) remove(f); else rename(f, g);
-            free(a); free(b); free(f); free(g); } closedir(dn); }
-        rmdir(np); free(np); free(op);
-    }
-    rmdir(nx);
-    for (int i = 0; i < nl; i++) e_free(&es[i]);
-    for (int i = 0; i < ng; i++) free(gone[i]);
-    free(es); free(gone);
-    idx_write("meta", "stamp", st); free(st); free(in_use); free(nx);
-    if (took) idx_unlock();
+    w_indexing = false;
+    idx_write("meta", "root", h); free(t);
+    return true;
 }
-/* the stamp of the set the index was computed from, with one more entry of the pool in it: the
- * count one higher and the id xored in (not the pool read again: an entry another machine wrote
- * since is not in the index, and the stamp must not say it is) */
-static char *e_stamp_with(const char *st, const char *id) {
-    long na = 0, nb = 0; char a[65] = {0}, b[65] = {0};
-    if (!st || sscanf(st, "%ld %64s %ld %64s", &na, a, &nb, b) != 4) return NULL;
-    SBuf s = {0}; sb_fmt(&s, "%ld ", na + 1);
-    for (int i = 0; i < 32; i++) { unsigned x = 0, y = 0; sscanf(a + 2 * i, "%2x", &x); sscanf(id + 2 * i, "%2x", &y); sb_fmt(&s, "%02x", (x ^ y) & 255u); }
-    sb_fmt(&s, " %ld %s\n", nb, b); return s.b;
-}
-/* the source at a path set to a module (or - : dropped): an entry following what is live there, unless
- * the one live entry there already binds it */
-static void e_bind(const char *rel, const char *mh) {
-    if (w_indexing || !w_held(rel)) return;
-    index_sync();
-    SBuf hx = {0}; w_hex(&hx, rel); if (!hx.b || hx.n > 250) { free(hx.b); return; }
-    char *live = idx_read("live", hx.b), *alt = idx_read("alternatives", hx.b);
-    bool same = !live && !alt && !strcmp(mh, "-");
-    if (live && !alt) { char *cur = idx_read("modules", hx.b); same = cur && !strcmp(cur, mh); free(cur);   /* what the source holds here: the one live entry's module, or the merge of several */
-        if (!same && !strchr(strchr(live, '\n') ? strchr(live, '\n') + 1 : "", '\n')) { char id[65] = {0}; Ent e; sscanf(live, "%64s", id); if (e_read(id, &e)) { same = e.w[2] && !strcmp(e.w[2], mh); e_free(&e); } } }
-    if (!same) {
-        SBuf reps = {0}; sb_put(&reps, "");
-        const char *src = alt ? alt : live ? live : "";
-        for (const char *l = src; *l; ) { const char *e = strchr(l, '\n'); size_t n = e ? (size_t)(e - l) : strlen(l); const char *sp = memchr(l, ' ', n); size_t k = sp ? (size_t)(sp - l) : n;
-            if (k == 64) { if (reps.n) sb_put(&reps, ","); char id[65]; memcpy(id, l, 64); id[64] = 0; sb_put(&reps, id); }
-            l = e ? e + 1 : l + n; }
-        /* a record made from other entries than are live here now (--follows): its entry names those,
-         * is written beside what is live, and the index is computed again from the pool by the next
-         * run (the stamp is dropped), which merges the two or names them as alternatives */
-        bool beside = rec_follows && strcmp(reps.n ? reps.b : "-", rec_follows);
-        if (beside && rec_base) {
-            /* written beside only what it merges with: a name this text changed from its base that the
-             * path's module changed differently is a conflict, and then nothing is recorded (the first
-             * writer's stands, the second is told and makes its change again from what is there), so a
-             * path never comes to hold alternatives from two writers of one machine */
-            char *curm = alt ? NULL : idx_read("modules", hx.b);
-            MPieces B, L, M; memset(&B, 0, sizeof B); memset(&L, 0, sizeof L); memset(&M, 0, sizeof M);
-            bool ok = curm && mp_read(rec_base, &B) && mp_read(curm, &L) && mp_read(mh, &M);
-            const char *clash = NULL;
-            for (int i = 0; ok && !clash && i < M.n; i++) { const char *b = mp_get(&B, M.nm[i]), *l = mp_get(&L, M.nm[i]);
-                if (!mp_eq(b, M.ph[i]) && !mp_eq(b, l) && !mp_eq(l, M.ph[i])) clash = M.nm[i]; }
-            for (int i = 0; ok && !clash && i < B.n; i++) { const char *m = mp_get(&M, B.nm[i]), *l = mp_get(&L, B.nm[i]);
-                if (!m && l && !mp_eq(B.ph[i], l)) clash = B.nm[i]; }
-            if (!ok || clash) {
-                printf("conflict %s\n", clash ? (clash[0] == 1 ? "(the head)" : clash) : "(the path holds alternatives)");
-                rec_refused = true; idx_remove("meta", "stamp");   /* the name pointers set on the way here are computed again from the pool */
-                mp_free(&B); mp_free(&L); mp_free(&M); free(curm); free(reps.b); free(live); free(alt); free(hx.b); return;
-            }
-            mp_free(&B); mp_free(&L); mp_free(&M); free(curm);
-        }
-        SBuf c = {0}; sb_put(&c, "bind "); sb_put(&c, hx.b); sb_put(&c, " "); sb_put(&c, mh); sb_put(&c, " "); sb_put(&c, beside ? rec_follows : reps.n ? reps.b : "-"); sb_put(&c, "\n");
-        char id[65]; key_hash(c.b, c.n, id);
-        char *ed = path_in(source_dir(), "entries", ""); char *had = read_in(ed, id, ""); free(ed);
-        bool fresh = !had;
-        if (!had) src_write("entries", id, c.b); free(had);
-        if (beside) { rec_beside = true; idx_remove("meta", "stamp"); }
-        else {
-            SBuf l = {0}; sb_fmt(&l, "%s\n", id); idx_write("live", hx.b, l.b); free(l.b);
-            idx_remove("alternatives", hx.b);
-            /* the stamp: the index's own with this entry in it (e_stamp_with), not the pool's read again */
-            if (fresh) { char *cur = idx_read("meta", "stamp"); char *st = e_stamp_with(cur, id); if (st) idx_write("meta", "stamp", st); else idx_remove("meta", "stamp"); free(st); free(cur); }
-        }
-        free(c.b); free(reps.b);
+/* a machine with no labels takes the root named beside the pool (ROOT in the pool's directory: the first 64 hex digits in it); one that has
+ * labels keeps them: nothing another machine wrote changes them */
+static bool idx_synced;
+static void index_sync(void) {
+    if (idx_synced) return; idx_synced = true;
+    char *have = idx_read("meta", "root"); if (have) { free(have); return; }
+    char *old = idx_read("meta", "stamp");   /* labels computed before roots: they are this machine's */
+    if (old) { free(old); idx_write("meta", "root", "-\n"); return; }
+    root_init();
+    char *p = malloc(strlen(source_dir()) + 16); sprintf(p, "%s/ROOT", source_dir()); FILE *f = fopen(p, "rb"); free(p);
+    if (!f) return;
+    char buf[4096]; size_t n = fread(buf, 1, sizeof buf - 1, f); fclose(f); buf[n] = 0;
+    for (char *q = buf; *q; q++) {
+        size_t k = 0; while (isxdigit((unsigned char)q[k])) k++;
+        if (k == 64) { char h[65]; memcpy(h, q, 64); h[64] = 0; bool took = idx_lock_fd < 0; idx_lock(); root_take(h); if (took) idx_unlock(); return; }
+        if (k) q += k - 1;
     }
-    free(live); free(alt); free(hx.b);
 }
 /* a file of the repository as the source holds it, its module's pieces in order; one the source does
  * not hold yet, read from the disk (the one reader), when it is there; else NULL. A path holding
@@ -2537,9 +2340,7 @@ static char *src_text(const char *rel, size_t *len) {
     index_sync();
     SBuf hx = {0}; w_hex(&hx, rel);
     char *mh = hx.b && hx.n <= 250 ? idx_read("modules", hx.b) : NULL;
-    char *alt = !mh && hx.b && hx.n <= 250 ? idx_read("alternatives", hx.b) : NULL; free(hx.b);
-    if (alt) { SBuf hx2 = {0}; w_hex(&hx2, rel); char *cf = hx2.b ? idx_read("conflicts", hx2.b) : NULL; free(hx2.b);
-        fprintf(stderr, "%s holds alternatives (entry, module) that do not merge: these definitions were changed differently on each side, so none is read until all but one are stated dead (hyperactive dead ENTRY REASON) or a new entry follows them:\n%s%s", rel, cf ? cf : "", alt); exit(1); }
+    free(hx.b);
     if (mh) { char *t = w_module_text(mh, len); free(mh); if (t) return t; }
     root_init();
     char *abs = rel[0] == '/' ? strdup(rel) : malloc(strlen(repo_root) + strlen(rel) + 2);
@@ -2557,7 +2358,6 @@ static void w_whole(const char *text, const char *rel) {
     SBuf mod = {0}; sb_put(&mod, h); sb_put(&mod, "\n");
     char mh[65]; key_hash(mod.b, mod.n, mh);
     char *p = src_path(mh, "module"); struct stat st; if (!w_indexing && stat(p, &st) != 0) src_write(mh, "module", mod.b); free(p);
-    e_bind(rel, mh);   /* before w_point: e_bind compares mh with what the source holds, which w_point overwrites */
     w_point("modules", rel, mh);
     free(mod.b);
 }
@@ -2652,12 +2452,24 @@ static void w_file(const char *text, const char *path) {
         struct stat st; if (p && !w_indexing && stat(p, &st) != 0) src_write(mh, "module", mod.b);
         free(p);
         char *rel = w_rel(path);
-        e_bind(rel, mh);   /* first: it compares mh with what the source holds, which the pointers below overwrite */
-        if (!rec_beside && !rec_refused) {   /* written beside another entry: what the path holds is the two merged, computed with the index */
-            w_forget(rel, names.b, mod.b);
-            w_point("modules", rel, mh);
-            w_point("names-of", rel, names.b);
+        if (rec_base && !w_indexing) {
+            /* made from another module than the path holds now: its changes applied to that one, and the
+             * result recorded in its place (mp_apply) */
+            SBuf hb = {0}; w_hex(&hb, rel); char *cur = hb.b && hb.n <= 250 ? idx_read("modules", hb.b) : NULL; free(hb.b);
+            if (cur) cur[strcspn(cur, "\n")] = 0;
+            char *use = cur && strcmp(cur, rec_base) && strcmp(cur, mh) ? mp_apply(rec_base, cur, mh) : NULL;
+            free(cur);
+            if (use && strcmp(use, mh)) {
+                char *t2 = w_module_text(use, NULL); const char *sb = rec_base; rec_base = NULL;
+                free(use); free(rel); free(names.b); free(mod.b); free(ps); free(off); nwitems = 0;
+                if (t2) { record_source(t2, path); free(t2); }
+                rec_base = sb; return;
+            }
+            free(use);
         }
+        w_forget(rel, names.b, mod.b);
+        w_point("modules", rel, mh);
+        w_point("names-of", rel, names.b);
         if (load_root && store_dir() && !w_indexing) {
             /* roots/<path>: the file given to this machine that loads it (the machine's own, not the
              * source's), only a module of the work being a root */

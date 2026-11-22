@@ -5167,8 +5167,8 @@ int main(int argc, char **argv)
     }
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--read")) read_only = true;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--session")) session_loading = true;
-    /* --with PATH FILE (any number): PATH's text is FILE's for this run; --follows IDS: the entries a
-     * record's text was made from (src/syntax.c, rec_follows) */
+    /* --with PATH FILE (any number): PATH's text is FILE's for this run; --base MODULE: the module a
+     * record's text was made from (src/syntax.c, rec_base) */
     for (int i = 1; i + 2 < argc; i++) if (!strcmp(argv[i], "--with") && novs < 16) {
         FILE *f = fopen(argv[i + 2], "rb"); if (!f) die("cannot open", argv[i + 2]);
         size_t cap = 65536, n = 0, k; char *b = malloc(cap);
@@ -5176,7 +5176,6 @@ int main(int argc, char **argv)
         fclose(f); b[n] = 0;
         ovs[novs].rel = w_rel(argv[i + 1]); ovs[novs].text = b; ovs[novs].n = n; novs++;
     }
-    for (int i = 1; i + 1 < argc; i++) if (!strcmp(argv[i], "--follows")) rec_follows = argv[i + 1];
     for (int i = 1; i + 1 < argc; i++) if (!strcmp(argv[i], "--base")) rec_base = argv[i + 1];
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--ingest") || (!strcmp(argv[i], "--record") && i + 2 < argc)) {
         /* the one reader (src/syntax.c, record_source): files on the disk recorded in the source */
@@ -5199,37 +5198,74 @@ int main(int argc, char **argv)
             free(ab); free(rel); free(b);
             if (rec) break;
         }
-        fflush(stdout); _Exit(rec_refused ? 3 : 0);   /* 3: the record conflicts with another writer's; nothing was written (src/syntax.c, e_bind) */
+        fflush(stdout); _Exit(0);
     }
-    /* the view's other entries (src/syntax.c, e_bind): `--unrecord PATH` drops the path; `--dead ENTRY
-     * REASON` states an entry dead; `--put HASH KIND FILE` takes an object received (text, module or
-     * entry) into the pool when FILE's hash is HASH, and says ok, or refused; `--convert` turns the
-     * pointers of the source before the view (store/modules) into entries, and removes them with the
-     * pointers derived from them (written/, module-of/, names-of/) */
-    for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--index")) { index_sync(); fflush(stdout); _Exit(0); }   /* the index brought to the pool's entries */
+    /* this machine's labels and the pool (src/syntax.c): `--head PATH` gives the module the path holds
+     * (a line `-`, kept for the tool's reader, then the module or -); `--unrecord PATH` drops the path's
+     * label; `--root` writes this machine's root to the pool and gives its hash; `--take ROOT` makes
+     * this machine's paths hold what the root says; `--put HASH KIND FILE` takes an object received
+     * (text, module or root) into the pool when FILE's hash is HASH, and says ok, or refused */
+    for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--index")) { index_sync(); fflush(stdout); _Exit(0); }
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--head") && i + 1 < argc) {
-            /* `--head PATH`: what a writer makes its text from, read as one: the entries live at the
-             * path (or its alternatives), joined by commas, or -; then the module the path holds, or - */
             char *rel = w_rel(argv[i + 1]); idx_lock(); index_sync();
             SBuf hx = {0}; w_hex(&hx, rel);
-            char *live = hx.b && hx.n <= 250 ? idx_read("live", hx.b) : NULL, *alt = hx.b && hx.n <= 250 ? idx_read("alternatives", hx.b) : NULL;
             char *mh = hx.b && hx.n <= 250 ? idx_read("modules", hx.b) : NULL;
-            const char *src = alt ? alt : live ? live : ""; bool any = false;
-            for (const char *l = src; *l; ) { const char *e = strchr(l, '\n'); size_t n = e ? (size_t)(e - l) : strlen(l); const char *sp = memchr(l, ' ', n); size_t k = sp ? (size_t)(sp - l) : n;
-                if (k == 64) { printf("%s%.64s", any ? "," : "", l); any = true; }
-                l = e ? e + 1 : l + n; }
-            printf("%s\n%s\n", any ? "" : "-", mh && !alt ? mh : "-");
+            if (mh) mh[strcspn(mh, "\n")] = 0;
+            printf("-\n%s\n", mh ? mh : "-");
             idx_unlock(); fflush(stdout); _Exit(0);
         }
         if (!strcmp(argv[i], "--unrecord") && i + 1 < argc) {
-            char *rel = w_rel(argv[i + 1]); index_sync(); w_forget(rel, "", "");
+            char *rel = w_rel(argv[i + 1]); idx_lock(); index_sync(); w_forget(rel, "", "");
             SBuf hx = {0}; w_hex(&hx, rel); if (hx.b && hx.n <= 250) { idx_remove("modules", hx.b); idx_remove("names-of", hx.b); }
-            e_bind(rel, "-"); free(hx.b); free(rel); fflush(stdout); _Exit(0);
+            idx_unlock(); free(hx.b); free(rel); fflush(stdout); _Exit(0);
         }
-        if (!strcmp(argv[i], "--dead") && i + 2 < argc) {
-            SBuf r = {0}; w_hex(&r, argv[i + 2]); SBuf c = {0}; sb_put(&c, "dead "); sb_put(&c, argv[i + 1]); sb_put(&c, " "); sb_put(&c, r.b ? r.b : "-"); sb_put(&c, "\n");
-            char id[65]; key_hash(c.b, c.n, id); src_write("entries", id, c.b); printf("%s\n", id); fflush(stdout); _Exit(0);
+        if (!strcmp(argv[i], "--drop-view")) {
+            /* what the removed layer left in the pool and in the labels: the entries, the versions
+             * records, and the index's live, alternatives and conflicts. Run once on a pool that has them */
+            static const char *sd[] = { "entries", "versions", NULL }; static const char *xd[] = { "live", "alternatives", "conflicts", NULL };
+            int n = 0;
+            for (int j = 0; sd[j]; j++) {
+                char *p = path_in(source_dir(), sd[j], ""); DIR *o = opendir(p);
+                if (o) { struct dirent *de; while ((de = readdir(o))) if (de->d_name[0] != '.') { char *f = path_in(p, de->d_name, ""); if (remove(f) == 0) n++; free(f); } closedir(o); }
+                rmdir(p); free(p);
+            }
+            for (int j = 0; xd[j]; j++) { idx_clear_in(idx_dir(), xd[j]); char *p = path_in(idx_dir(), xd[j], ""); rmdir(p); free(p); }
+            idx_remove("meta", "stamp");
+            printf("%d objects of the removed layer dropped\n", n); fflush(stdout); _Exit(0);
+        }
+        if (!strcmp(argv[i], "--export") && i + 3 < argc) {
+            /* `--export HASH KIND FILE`: an object of the pool written to FILE (to be put into another pool) */
+            char *t = src_read(argv[i + 1], argv[i + 2]); if (!t) { printf("absent\n"); fflush(stdout); _Exit(1); }
+            FILE *f = fopen(argv[i + 3], "wb"); if (!f) die("cannot open", argv[i + 3]);
+            fputs(t, f); fclose(f); printf("ok\n"); fflush(stdout); _Exit(0);
+        }
+        if (!strcmp(argv[i], "--apply") && i + 3 < argc) {
+            /* `--apply PATH BASE OTHER`: the changes OTHER made to BASE applied to what PATH holds here
+             * (mp_apply), a construction this machine makes from another's work. The names both changed
+             * differently are said, a line `both NAME` each; with `--dry` nothing is recorded */
+            bool dry = false; for (int j = 1; j < argc; j++) if (!strcmp(argv[j], "--dry")) dry = true;
+            char *rel = w_rel(argv[i + 1]); idx_lock(); index_sync();
+            SBuf hx = {0}; w_hex(&hx, rel); char *cur = hx.b && hx.n <= 250 ? idx_read("modules", hx.b) : NULL; if (cur) cur[strcspn(cur, "\n")] = 0;
+            const char *base = argv[i + 2], *other = argv[i + 3];
+            if (cur && strcmp(cur, base) && strcmp(cur, other)) {
+                MPieces B, L, M; memset(&B, 0, sizeof B); memset(&L, 0, sizeof L); memset(&M, 0, sizeof M);
+                if (mp_read(base, &B) && mp_read(cur, &L) && mp_read(other, &M))
+                    for (int k = 0; k < M.n; k++) { const char *b = mp_get(&B, M.nm[k]), *l = mp_get(&L, M.nm[k]);
+                        if (!mp_eq(b, M.ph[k]) && !mp_eq(b, l) && !mp_eq(l, M.ph[k])) printf("both %s\n", M.nm[k][0] == 1 ? "(the head)" : M.nm[k]); }
+            }
+            char *use = !cur || !strcmp(cur, base) ? strdup(other) : !strcmp(cur, other) ? strdup(cur) : mp_apply(base, cur, other);
+            char *t = dry ? NULL : w_module_text(use, NULL);
+            if (t) { char *ab = abs_of(rel); record_source(t, ab); }
+            printf("%s\n", use); idx_unlock(); fflush(stdout); _Exit(0);
+        }
+        if (!strcmp(argv[i], "--root")) {
+            idx_lock(); index_sync(); char *h = root_make(); { SBuf l = {0}; sb_put(&l, h); sb_put(&l, "\n"); src_write("ROOT", "", l.b); free(l.b); } idx_unlock();   /* named beside the pool, for a machine with no labels */
+            printf("%s\n", h); fflush(stdout); _Exit(0);
+        }
+        if (!strcmp(argv[i], "--take") && i + 1 < argc) {
+            idx_lock(); bool ok = root_take(argv[i + 1]); idx_unlock();
+            printf("%s\n", ok ? "taken" : "no such root in the pool"); fflush(stdout); _Exit(ok ? 0 : 1);
         }
         if (!strcmp(argv[i], "--put") && i + 3 < argc) {
             FILE *f = fopen(argv[i + 3], "rb"); if (!f) die("cannot open", argv[i + 3]);
@@ -5237,25 +5273,9 @@ int main(int argc, char **argv)
             while ((k = fread(b + n, 1, cap - n - 1, f)) > 0) { n += k; if (cap - n < 2) { cap *= 2; b = realloc(b, cap); } }
             fclose(f); b[n] = 0;
             char h[65]; key_hash(b, n, h); const char *kind = argv[i + 2];
-            bool ok = !strcmp(h, argv[i + 1]) && strlen(b) == n && (!strcmp(kind, "text") || !strcmp(kind, "module") || !strcmp(kind, "entry"));
-            if (ok && !strcmp(kind, "entry")) src_write("entries", h, b); else if (ok) { char *p = src_path(h, kind); struct stat st; if (stat(p, &st) != 0) src_write(h, kind, b); free(p); }
+            bool ok = !strcmp(h, argv[i + 1]) && strlen(b) == n && (!strcmp(kind, "text") || !strcmp(kind, "module") || !strcmp(kind, "root"));
+            if (ok) { char *p = src_path(h, kind); struct stat st; if (stat(p, &st) != 0) src_write(h, kind, b); free(p); }
             printf("%s\n", ok ? "ok" : "refused"); fflush(stdout); _Exit(ok ? 0 : 1);
-        }
-        if (!strcmp(argv[i], "--convert")) {
-            char *md = path_in(source_dir(), "modules", ""); DIR *d = opendir(md); int n = 0;
-            if (d) { struct dirent *de; while ((de = readdir(d))) if (de->d_name[0] != '.') {
-                char *mh = read_in(md, de->d_name, ""); char *rel = w_unhex(de->d_name);
-                if (mh) { mh[strcspn(mh, "\n")] = 0; e_bind(rel, mh); n++; }
-                free(mh); free(rel); } closedir(d); }
-            free(md);
-            static const char *old[] = { "modules", "written", "module-of", "names-of", NULL };
-            for (int j = 0; old[j]; j++) {
-                char *p = path_in(source_dir(), old[j], ""); DIR *o = opendir(p);
-                if (o) { struct dirent *de; while ((de = readdir(o))) if (de->d_name[0] != '.') { char *f = path_in(p, de->d_name, ""); remove(f); free(f); } closedir(o); }
-                rmdir(p); free(p);
-            }
-            idx_remove("meta", "stamp");
-            printf("%d paths converted\n", n); fflush(stdout); _Exit(0);
         }
     }
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--imports")) { for (int j = i + 1; j < argc; j++) imports_of(argv[j]); fflush(stdout); _Exit(0); }
