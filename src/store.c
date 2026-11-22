@@ -439,6 +439,10 @@ static void names_load(void) {
 /* whether the file being read is part of the work (src/syntax.c, w_held): a scratch file's definitions
  * are checked like any, but bind no name and enter no name's history */
 static bool bind_work = true;
+/* a text that is no module of the work whose definitions are kept in the pool all the same (their
+ * forms, mask and declaration beside their keys): one declaration being written on its own, which
+ * is labelled once it has checked (src/lang.c, --keep) */
+static bool keep_free;
 static void names_bind(const char *name, const char *key) {
     if (!store_dir() || !bind_work) return;
     /* bound/<name in hex>: the name's key now, read by name with no log to scan */
@@ -523,7 +527,7 @@ static void store_put(const char *name, const char *key, const char *code, const
 static void store_decl(const char *key, Node *dd, int d) {
     if (!store_dir()) return;
     char *have = kobj_read(key, "decl");
-    if (!have) { SBuf s = { 0 }; int sd = cur_deps.n; ser_decl(&s, dd); cur_deps.n = sd; if (s.b && bind_work) kobj_write(key, "decl", s.b); free(s.b); }
+    if (!have) { SBuf s = { 0 }; int sd = cur_deps.n; ser_decl(&s, dd); cur_deps.n = sd; if (s.b && (bind_work || keep_free)) kobj_write(key, "decl", s.b); free(s.b); }
     free(have);
     if (!bind_work) return;
     for (int pass = 0; pass < 2; pass++) {

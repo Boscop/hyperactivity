@@ -2293,6 +2293,17 @@ static char *names_make(void) {
         }
         free(hs);
     }
+    /* and each name written on its own (no module holds it): a line `t NAMEHEX TEXT`, its text's hash */
+    { char *dp = path_in(idx_dir(), "written", ""); DIR *d = opendir(dp); free(dp);
+      char **hs = NULL; size_t cap = 0; int n = 0;
+      if (d) { struct dirent *de; while ((de = readdir(d))) if (de->d_name[0] != '.' && !strstr(de->d_name, ".tmp")) { GROW(hs, cap, (size_t)n + 1); hs[n++] = strdup(de->d_name); } closedir(d); }
+      qsort(hs, (size_t)n, sizeof *hs, root_cmp);
+      for (int i = 0; i < n; i++) {
+          char *mo = idx_read("module-of", hs[i]), *w = mo ? NULL : idx_read("written", hs[i]);
+          if (w && strlen(w) >= 64) { w[64] = 0; sb_put(&t, "t "); sb_put(&t, hs[i]); sb_put(&t, " "); sb_put(&t, w); sb_put(&t, "\n"); }
+          free(mo); free(w); free(hs[i]);
+      }
+      free(hs); }
     char h[65]; key_hash(t.b, t.n, h);
     char *p = src_path(h, "names"); struct stat st; if (stat(p, &st) != 0) src_write(h, "names", t.b); free(p);
     free(t.b);
@@ -2304,6 +2315,7 @@ static void names_take(const char *h) {
         char *e = strchr(l, '\n'); if (e) *e = 0;
         char kind = l[0]; char *hx = l[1] == ' ' ? l + 2 : NULL; char *sp = hx ? strchr(hx, ' ') : NULL;
         if (sp && (kind == 'b' || kind == 'c')) { *sp = 0; store_write(kind == 'b' ? "bound" : "conof", hx, sp + 1, false); }
+        else if (sp && kind == 't') { *sp = 0; idx_write("written", hx, sp + 1); }
         if (!e) break; l = e + 1;
     }
     free(t);
@@ -6514,10 +6526,10 @@ static bool load_key(const char *K, const char *want, int depth) {
     if (mk) { unsigned long long m = 0, b = 0; int len = 0; if (sscanf(mk, "%llx %d %llx", &m, &len, &b) >= 2 && m) { imask_set(nm, m, len); int i = nix_get(&IMIX, nm); if (i >= 0) IM[i].inst = b; } free(mk); }
     char *cp = kobj_read(K, "computing");
     if (cp) { GROW(COMPUTING, capcomputing, (size_t)ncomputing + 1); COMPUTING[ncomputing++] = strdup(nm); free(cp); }
-    bool sbw = bind_work; bind_work = false;   /* taken from the store: it binds no name anew */
+    bool sbw = bind_work, skf = keep_free; bind_work = keep_free = false;   /* taken from the store: it binds no name anew */
     if (getenv("CUBICAL_LK")) { fprintf(stderr, "[lk] def %s key %s\n  T ", nm, K); print_node(stderr, T); fputc(10, stderr); }
     toplevel(lst(4, nsym("checked"), nsym(nm), T, t));
-    bind_work = sbw;
+    bind_work = sbw; keep_free = skf;
     int ck = checked_index(nm);
     return ck >= 0;
 }
@@ -6668,7 +6680,7 @@ static void x_checked(const char *name, Node *sig, Node *body, bool expect, uint
     else x_top(lst(3, nsym(expect ? "check" : "check-fail"), T, t));
     /* beside its key, what the key does not hold and a use's elaboration needs: the implicit mask
      * with the instance bits, and whether it computes (read by load_key) */
-    if (name && expect && store_dir() && bind_work) {
+    if (name && expect && store_dir() && (bind_work || keep_free)) {
         int ck = checked_index(name); const char *k = ck >= 0 ? ckey_of(ck) : "?";
         if (k[0] != '?') {
             IMask *im = imask_of(name);

@@ -5292,6 +5292,14 @@ int main(int argc, char **argv)
             printf("%s\n", ok ? "ok" : "refused"); fflush(stdout); _Exit(ok ? 0 : 1);
         }
     }
+    /* `--read FILE --keep NAME TEXT`: FILE holds one declaration of NAME (after what it imports), checked
+     * with what it mentions taken by key; its objects are kept in the pool, and when nothing fails NAME
+     * is made this machine's label of the definition's key, with TEXT (the declaration alone) its text */
+    const char *keep_name = NULL, *keep_text = NULL;
+    for (int i = 1; i + 2 < argc; i++) if (!strcmp(argv[i], "--keep")) { keep_name = argv[i + 1]; keep_text = argv[i + 2]; keep_free = true; }
+    if (keep_name) { index_sync(); SBuf hx = {0}; w_hex(&hx, keep_name); char *mo = hx.b && hx.n <= 250 ? idx_read("module-of", hx.b) : NULL;
+        if (mo || !hx.b || hx.n > 250) { printf("refused: %s is written in the module %s\n", keep_name, mo ? mo : "?"); fflush(stdout); _Exit(1); }
+        free(hx.b); }
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--imports")) { for (int j = i + 1; j < argc; j++) imports_of(argv[j]); fflush(stdout); _Exit(0); }
     for (int i = 1; i < argc; i++) {
         /* --print f: f's core forms in the surface language; --roundtrip f: each printed form parsed
@@ -5301,10 +5309,27 @@ int main(int argc, char **argv)
         if (!strcmp(argv[i], "--serve")) continue;
         if (!strcmp(argv[i], "--session")) continue;
         if (!strcmp(argv[i], "--read")) continue;
-        if (!strcmp(argv[i], "--with")) { i += 2; continue; }
+        if (!strcmp(argv[i], "--with") || !strcmp(argv[i], "--keep")) { i += 2; continue; }
         if (!strcmp(argv[i], "--follows") || !strcmp(argv[i], "--base")) { i += 1; continue; }
         load_root = argv[i];   /* roots/<file>: the given file that loads it (src/syntax.c, w_file) */
         load_file(argv[i], true);
+    }
+    if (keep_name) {
+        int ck = checked_index(keep_name), dt = ck >= 0 ? -1 : data_lookup(keep_name); const char *k = "?";
+        if (ck >= 0) k = ckey_of(ck);
+        else if (dt >= 0) for (int j = 0; j < nchkdata; j++) if (CHKDATA[j] == dt) k = dkey_of(j);
+        FILE *f = failures || k[0] == '?' ? NULL : fopen(keep_text, "rb");
+        if (!f) printf("nothing labelled: %s\n", failures ? "a check fails" : k[0] == '?' ? "the text declares no checked definition of that name" : "its text cannot be read");
+        else {
+            size_t cap = 65536, n = 0, r; char *b = malloc(cap);
+            while ((r = fread(b + n, 1, cap - n - 1, f)) > 0) { n += r; if (cap - n < 2) { cap *= 2; b = realloc(b, cap); } }
+            fclose(f); b[n] = 0;
+            char h[65]; key_hash(b, n, h); { char *p = src_path(h, "text"); struct stat st; if (stat(p, &st) != 0) src_write(h, "text", b); free(p); }
+            kobj_write(k, "text", h);
+            keep_free = false; bind_work = true; names_bind(keep_name, k); if (dt >= 0) store_decl(k, NULL, dt);
+            idx_lock(); SBuf hx = {0}; w_hex(&hx, keep_name); idx_write("written", hx.b, h); idx_unlock();
+            printf("free %s %s\n", keep_name, k);
+        }
     }
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--serve")) serve();
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--session")) { session_loading = false; session_serve(); }
