@@ -2312,6 +2312,13 @@ static char *names_make(void) {
           free(mo); free(w); free(hs[i]);
       }
       free(hs); }
+    /* and each constructor or field of a type written on its own: `f NAMEHEX KEY` */
+    { char *dp = path_in(idx_dir(), "free-con", ""); DIR *d = opendir(dp); free(dp);
+      char **hs = NULL; size_t cap = 0; int n = 0;
+      if (d) { struct dirent *de; while ((de = readdir(d))) if (de->d_name[0] != '.' && !strstr(de->d_name, ".tmp")) { GROW(hs, cap, (size_t)n + 1); hs[n++] = strdup(de->d_name); } closedir(d); }
+      qsort(hs, (size_t)n, sizeof *hs, root_cmp);
+      for (int i = 0; i < n; i++) { char *k = idx_read("free-con", hs[i]); if (k && strlen(k) >= 64) { k[strcspn(k, "\n")] = 0; for (char *q = k; *q; q++) if (*q == 0x20) *q = 0x2f; names_line(bk, "f", hs[i], k); } free(k); free(hs[i]); }
+      free(hs); }
     for (int b = 0; b < 256; b++) if (bk[b].b) {
         char bh[65]; key_hash(bk[b].b, bk[b].n, bh);
         char *bp = src_path(bh, "names"); struct stat bs; if (stat(bp, &bs) != 0) src_write(bh, "names", bk[b].b); free(bp);
@@ -2330,6 +2337,7 @@ static void names_take(const char *h) {
         char kind = l[0]; char *hx = l[1] == ' ' ? l + 2 : NULL; char *sp = hx ? strchr(hx, ' ') : NULL;
         if (sp && (kind == 'b' || kind == 'c')) { *sp = 0; store_write(kind == 'b' ? "bound" : "conof", hx, sp + 1, false); }
         else if (sp && kind == 't') { *sp = 0; idx_write("written", hx, sp + 1); }
+        else if (sp && kind == 'f') { *sp = 0; idx_write("free-con", hx, sp + 1); }
         else if (sp && kind == 'm') { *sp = 0; char *mp = w_unhex(sp + 1); idx_write("module-of", hx, mp); free(mp); }
         else if (sp && kind == 'n' && strlen(sp + 1) >= 64) names_take(sp + 1);
         if (!e) break; l = e + 1;
@@ -2358,7 +2366,7 @@ static char *root_make(void) {
 /* a root taken: this machine's paths hold what it says, and the names are pointed from its modules */
 static bool root_take(const char *h) {
     char *t = src_read(h, "root"); if (!t) return false;
-    static const char *dirs[] = { "modules", "names-of", "written", "module-of", NULL };
+    static const char *dirs[] = { "modules", "names-of", "written", "module-of", "free-con", NULL };
     for (int i = 0; dirs[i]; i++) idx_clear_in(idx_dir(), dirs[i]);
     w_indexing = true; char *nmh = NULL;
     for (char *l = t; *l; ) {
@@ -6530,7 +6538,9 @@ static bool load_decl(const char *text) {
     lk_self = NULL;
     if (dc_bad) return false;
     if (getenv("CUBICAL_LK")) { fprintf(stderr, "[lk] decl %s\n  from %s\n  form ", name, text); print_node(stderr, dd); fputc(10, stderr); }
-    toplevel(lst(2, nsym(codata ? "checked-codata" : "checked-data"), dd));
+    { bool sbw = bind_work, skf = keep_free; bind_work = keep_free = false;   /* taken from the pool: it binds no name anew */
+      toplevel(lst(2, nsym(codata ? "checked-codata" : "checked-data"), dd));
+      bind_work = sbw; keep_free = skf; }
     return data_lookup(name) >= 0;
 }
 static bool load_key(const char *K, const char *want, int depth) {
@@ -6568,12 +6578,30 @@ static bool lk_busy;
 static void lk_label(const char *s, bool defs) {
     /* only in a text that is not a module of the work (a probe, one declaration being checked): a module declares its names in order, and one taken early would be declared again */
     if (getenv("CUBICAL_LK") && !strncmp(s, "nk-", 3)) fprintf(stderr, "[lk] ask %s defs=%d work=%d busy=%d salt=%d known=%d\n", s, defs, bind_work, lk_busy, chk_salt[0] != 0, global_lookup(s) >= 0 || data_lookup(s) >= 0 || con_lookup(s) >= 0);
-    if (bind_work || lk_busy || !store_dir() || !chk_salt[0] || s[0] == '%' || s[0] == '#' || s[0] == '@') return;
+    if (lk_busy || !store_dir() || !chk_salt[0] || s[0] == '%' || s[0] == '#' || s[0] == '@') return;
     if (global_lookup(s) >= 0 || data_lookup(s) >= 0 || con_lookup(s) >= 0 || fld_lookup(s) >= 0) return;
     for (int i = 0; i < nxlater; i++) if (!strcmp(xlater[i], s)) return;   /* declared later in the file being read */
+    /* in a module of the work only a name no module holds is taken (a definition written on its own,
+     * or a constructor or field of a type written on its own, free-con/NAME): what a module holds is
+     * declared by the module that holds it. A name asked and not found is remembered, so the
+     * symbols of a module's declarations are not each a read of the labels */
+    static unsigned long lk_no[4096]; unsigned long hs = 1469598103934665603UL; for (const unsigned char *c = (const unsigned char *)s; *c; c++) hs = (hs ^ *c) * 1099511628211UL;
+    hs = hs * 2 + (defs ? 1 : 0) + 2;
+    if (bind_work && lk_no[hs % 4096] == hs) return;
     SBuf hx = {0}; w_hex(&hx, s); if (!hx.b || hx.n > 250) { free(hx.b); return; }
-    char *k = defs ? store_read("bound", hx.b) : NULL; const char *want = s;
-    if (!k || strlen(k) < 64) { free(k); k = store_read("conof", hx.b); want = NULL; }
+    char *k = NULL; const char *want = s;
+    if (bind_work) {
+        char *w = defs ? idx_read("written", hx.b) : NULL, *mo = w ? idx_read("module-of", hx.b) : NULL;
+        if (w && !mo) k = store_read("bound", hx.b);
+        free(w); free(mo);
+        if (!k || strlen(k) < 64) { free(k); k = idx_read("free-con", hx.b); want = NULL;
+            /* `KEY TYPENAMEHEX`: only while the type is still held, and by no module */
+            if (k && strlen(k) > 65) { char *tw = idx_read("written", k + 65), *tm = tw ? idx_read("module-of", k + 65) : NULL; if (!tw || tm) { free(k); k = NULL; } free(tw); free(tm); } }
+        if (!k || strlen(k) < 64) lk_no[hs % 4096] = hs;
+    } else {
+        k = defs ? store_read("bound", hx.b) : NULL;
+        if (!k || strlen(k) < 64) { free(k); k = store_read("conof", hx.b); want = NULL; }
+    }
     free(hx.b);
     if (k && strlen(k) >= 64) { k[64] = 0; lk_busy = true; load_key(k, want, 0); lk_busy = false; }
     free(k);

@@ -3851,6 +3851,10 @@ static void toplevel_in(Node *f) {
         /* its codebase key (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.4 “F34 — The store as the codebase: two keys”): a definition the store holds as checked is not checked again */
         char key[65]; char *kcode = NULL, *ktype = NULL;
         key_def(dT, dt, key, &kcode, &ktype);
+        /* the name already holds this very definition (taken from the pool by its key before the
+         * module that declares it was read): the same object under the same name is declared once */
+        if (define && expect) { int c0 = checked_index(f->it[1]->s);
+            if (c0 >= 0 && !strcmp(ckey_of(c0), key)) { passes++; free(kcode); free(ktype); if (forced_result) { free((char *)forced_result); forced_result = NULL; } if (!nochk) ar_release(cm); return; } }
         bool remembered = forced_result && forced_steps < 0;   /* the store's answer, acceptance or refusal */
         bool stored = define && expect && (forced_result ? remembered && !strcmp(forced_result, "ok") : store_checked(key));
         Node *cT = nl2("%raw", aclosed(dT)), *ct = stored ? NULL : nl2("%raw", aclosed(dt));
@@ -4090,6 +4094,10 @@ static void toplevel_in(Node *f) {
         } else {
             if (f->n != 2 || !f->it[1]->list || !is(f->it[1]->it[0], "data")) die("(checked-data[-fail] (data ...))", NULL);
             dd = f->it[1];
+            /* the name already holds this very type (taken from the pool by its key): declared once */
+            if (expect) { Node *hd = dd->it[1]; int d0 = data_lookup(hd->list ? hd->it[0]->s : hd->s), j0 = -1;
+                if (d0 >= 0) for (int j = 0; j < nchkdata; j++) if (CHKDATA[j] == d0) j0 = j;
+                if (j0 >= 0) { char k0[65]; char *kc = NULL; key_decl(dd, k0, &kc); free(kc); if (!strcmp(k0, dkey_of(j0))) { passes++; return; } } }
             toplevel(dd);
             d = ndata - 1;
         }
@@ -5378,7 +5386,13 @@ int main(int argc, char **argv)
             char h[65]; key_hash(b, n, h); { char *p = src_path(h, "text"); struct stat st; if (stat(p, &st) != 0) src_write(h, "text", b); free(p); }
             kobj_write(k, "text", h);
             keep_free = false; bind_work = true; names_bind(keep_name, k); if (dt >= 0) store_decl(k, NULL, dt);
-            idx_lock(); SBuf hx = {0}; w_hex(&hx, keep_name); idx_write("written", hx.b, h); idx_unlock();
+            idx_lock(); SBuf hx = {0}; w_hex(&hx, keep_name); idx_write("written", hx.b, h);
+            /* a type written on its own: each constructor's and field's name pointed at its key and its
+             * name (free-con/NAME: `KEY TYPENAMEHEX`), which a module of the work reads (lk_label) */
+            if (dt >= 0) for (int pass = 0; pass < 2; pass++) { int cn = pass == 0 ? DATA[dt].ncons : nfld;
+                for (int q = 0; q < cn; q++) { const char *cnm = pass == 0 ? CON[DATA[dt].cons[q]].name : FLD[q].data == dt ? FLD[q].name : NULL; if (!cnm) continue;
+                    SBuf ch = {0}, v = {0}; w_hex(&ch, cnm); sb_put(&v, k); sb_put(&v, " "); sb_put(&v, hx.b); if (ch.b && ch.n <= 250) idx_write("free-con", ch.b, v.b); free(ch.b); free(v.b); } }
+            idx_unlock();
             printf("free %s %s\n", keep_name, k);
         }
     }
