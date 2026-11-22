@@ -5103,7 +5103,8 @@ static void session_serve(void) {
  * changed); then the cold start runs, and a session is started beside it for the next command */
 extern char **environ;
 static void session_client(int argc, char **argv) {
-    if (getenv("CUBICAL_STORE") || getenv("HYPERACTIVE_SERVER") || getenv("HYPERACTIVE_COLD")) return;
+    /* the process kept warm has the environment it was started in, not this command's: a command that names a place (send, take) runs in a machine of its own (2026-11-22: send answered "names no place" with the place named) */
+    if (getenv("CUBICAL_STORE") || getenv("HYPERACTIVE_SERVER") || getenv("HYPERACTIVE_COLD") || getenv("HYPERACTIVE_PLACE")) return;
     int s = session_connect();
     if (s < 0) {
         pid_t pid; posix_spawn_file_actions_t fa; posix_spawn_file_actions_init(&fa);
