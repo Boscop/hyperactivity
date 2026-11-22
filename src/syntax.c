@@ -2275,11 +2275,17 @@ static int root_cmp(const void *a, const void *b) { return strcmp(*(char *const 
 /* this machine's labels of names, an object of the pool (HASH/names): a line `b NAMEHEX KEY` for each
  * name bound to a checked definition or type, a line `c NAMEHEX KEY` for each constructor's or
  * field's name and the type that holds it; in order. With it a machine that has checked nothing
- * finds a definition from its name (load_key). One flat object for every name: it is held whole
- * to be made and taken, which memory-is-local does not allow of a structure of the whole work; a
- * tree of names is its form */
+ * finds a definition from its name (load_key). The object is a tree: its lines are
+ * `n XX HASH`, one for each of the 256 parts the names fall into by the first byte of the hash of a
+ * name, and HASH/names holds that part's lines. A part no label changed in is the same object in
+ * the next root; taking reads one part at a time. Only a name held now is said (bound/ keeps the
+ * key of every name this machine ever checked) */
+static void names_line(SBuf *bk, const char *tag, const char *hx, const char *v) {
+    char h[65]; key_hash(hx, strlen(hx), h); unsigned b = 0; sscanf(h, "%2x", &b);
+    sb_put(&bk[b], tag); sb_put(&bk[b], " "); sb_put(&bk[b], hx); sb_put(&bk[b], " "); sb_put(&bk[b], v); sb_put(&bk[b], "\n");
+}
 static char *names_make(void) {
-    SBuf t = {0}; sb_put(&t, "");
+    SBuf t = {0}; sb_put(&t, ""); SBuf *bk = calloc(256, sizeof *bk);
     static const char *kd[] = { "bound", "conof", NULL }; static const char *tag[] = { "b", "c" };
     for (int q = 0; kd[q]; q++) {
         char *dp = store_path(kd[q], ""); DIR *d = dp ? opendir(dp) : NULL; free(dp);
@@ -2287,8 +2293,9 @@ static char *names_make(void) {
         if (d) { struct dirent *de; while ((de = readdir(d))) if (de->d_name[0] != '.' && !strstr(de->d_name, ".tmp")) { GROW(hs, cap, (size_t)n + 1); hs[n++] = strdup(de->d_name); } closedir(d); }
         qsort(hs, (size_t)n, sizeof *hs, root_cmp);
         for (int i = 0; i < n; i++) {
-            char *k = store_read(kd[q], hs[i]);
-            if (k && strlen(k) >= 64) { k[64] = 0; sb_put(&t, tag[q]); sb_put(&t, " "); sb_put(&t, hs[i]); sb_put(&t, " "); sb_put(&t, k); sb_put(&t, "\n"); }
+            char *held = q == 0 ? idx_read("written", hs[i]) : NULL;
+            char *k = q == 0 && !held ? NULL : store_read(kd[q], hs[i]); free(held);
+            if (k && strlen(k) >= 64) { k[64] = 0; names_line(bk, tag[q], hs[i], k); }
             free(k); free(hs[i]);
         }
         free(hs);
@@ -2300,10 +2307,16 @@ static char *names_make(void) {
       qsort(hs, (size_t)n, sizeof *hs, root_cmp);
       for (int i = 0; i < n; i++) {
           char *mo = idx_read("module-of", hs[i]), *w = mo ? NULL : idx_read("written", hs[i]);
-          if (w && strlen(w) >= 64) { w[64] = 0; sb_put(&t, "t "); sb_put(&t, hs[i]); sb_put(&t, " "); sb_put(&t, w); sb_put(&t, "\n"); }
+          if (w && strlen(w) >= 64) { w[64] = 0; names_line(bk, "t", hs[i], w); }
           free(mo); free(w); free(hs[i]);
       }
       free(hs); }
+    for (int b = 0; b < 256; b++) if (bk[b].b) {
+        char bh[65]; key_hash(bk[b].b, bk[b].n, bh);
+        char *bp = src_path(bh, "names"); struct stat bs; if (stat(bp, &bs) != 0) src_write(bh, "names", bk[b].b); free(bp);
+        sb_fmt(&t, "n %02x %s\n", b, bh); free(bk[b].b);
+    }
+    free(bk);
     char h[65]; key_hash(t.b, t.n, h);
     char *p = src_path(h, "names"); struct stat st; if (stat(p, &st) != 0) src_write(h, "names", t.b); free(p);
     free(t.b);
@@ -2316,6 +2329,7 @@ static void names_take(const char *h) {
         char kind = l[0]; char *hx = l[1] == ' ' ? l + 2 : NULL; char *sp = hx ? strchr(hx, ' ') : NULL;
         if (sp && (kind == 'b' || kind == 'c')) { *sp = 0; store_write(kind == 'b' ? "bound" : "conof", hx, sp + 1, false); }
         else if (sp && kind == 't') { *sp = 0; idx_write("written", hx, sp + 1); }
+        else if (sp && kind == 'n' && strlen(sp + 1) >= 64) names_take(sp + 1);
         if (!e) break; l = e + 1;
     }
     free(t);
