@@ -359,6 +359,16 @@ static void write_in(const char *d, const char *key, const char *file, const cha
     if (!ok || rename(t, p) != 0) unlink(t);
     free(t); free(p);
 }
+/* what is kept beside a key for every machine (2026-11-22): a checked definition's forms as
+ * elaborated, its implicit mask, whether it computes, a data type's declaration, a definition's
+ * text. They are objects of the pool, under the key, written once: a machine that never checked
+ * the definition takes it by key from them (src/syntax.c, load_key) and checks it itself */
+static char *kobj_read(const char *key, const char *file) { return src_read(key, file); }
+static void kobj_write(const char *key, const char *file, const char *text) {
+    char *p = src_path(key, file); if (!p) return;
+    FILE *f = fopen(p, "rb"); if (f) fclose(f); else src_write(key, file, text);
+    free(p);
+}
 /* a `check` line by the current checker */
 static bool store_checked(const char *key) {
     if (!chk_salt[0]) return false;
@@ -512,8 +522,8 @@ static void store_put(const char *name, const char *key, const char *code, const
  * pointed at the key (conof/NAME), so a name of either finds the type that holds it */
 static void store_decl(const char *key, Node *dd, int d) {
     if (!store_dir()) return;
-    char *have = store_read(key, "decl");
-    if (!have) { SBuf s = { 0 }; int sd = cur_deps.n; ser_decl(&s, dd); cur_deps.n = sd; if (s.b) store_write(key, "decl", s.b, false); free(s.b); }
+    char *have = kobj_read(key, "decl");
+    if (!have) { SBuf s = { 0 }; int sd = cur_deps.n; ser_decl(&s, dd); cur_deps.n = sd; if (s.b && bind_work) kobj_write(key, "decl", s.b); free(s.b); }
     free(have);
     if (!bind_work) return;
     for (int pass = 0; pass < 2; pass++) {

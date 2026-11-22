@@ -5263,6 +5263,16 @@ int main(int argc, char **argv)
             if (t) { char *ab = abs_of(rel); record_source(t, ab); }
             printf("%s\n", use); idx_unlock(); fflush(stdout); _Exit(0);
         }
+        if (!strcmp(argv[i], "--attach")) {
+            /* `--attach`: each name's written text attached to the key the name is bound to (KEY/text:
+             * the text's hash), so a definition's text is found from its key */
+            index_sync(); char *wd = path_in(idx_dir(), "written", ""); DIR *d = opendir(wd); free(wd); int n = 0;
+            if (d) { struct dirent *de; while ((de = readdir(d))) if (de->d_name[0] != '.' && !strstr(de->d_name, ".tmp")) {
+                char *t = idx_read("written", de->d_name), *k = store_read("bound", de->d_name);
+                if (t && k && strlen(k) >= 64 && strlen(t) >= 64) { k[64] = 0; t[64] = 0; kobj_write(k, "text", t); n++; }
+                free(t); free(k); } closedir(d); }
+            printf("%d texts attached\n", n); fflush(stdout); _Exit(0);
+        }
         if (!strcmp(argv[i], "--root")) {
             idx_lock(); index_sync(); char *h = root_make(); { SBuf l = {0}; sb_put(&l, h); sb_put(&l, "\n"); src_write("ROOT", "root", l.b); free(l.b); } idx_unlock();   /* named beside the pool, for a machine with no labels */
             printf("%s\n", h); fflush(stdout); _Exit(0);

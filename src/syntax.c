@@ -6458,10 +6458,10 @@ static bool load_decl(const char *text) {
 }
 static bool load_key(const char *K, const char *want, int depth) {
     if (depth > 100000 || lk_key_loaded(K) || !store_dir()) return true;
-    char *decl = store_read(K, "decl");
+    char *decl = kobj_read(K, "decl");
     if (decl) { lk_load_mentioned(decl, depth); bool ok = lk_key_loaded(K) || load_decl(decl); free(decl); return ok; }
     /* forms: its type, a newline, its term, as elaborated and written to be read back (x_checked) */
-    char *fm = store_read(K, "forms");
+    char *fm = kobj_read(K, "forms");
     if (!fm) return false;
     char *nl = strchr(fm, '\n'); if (!nl) { free(fm); return false; }
     lk_load_mentioned(fm, depth);
@@ -6471,9 +6471,9 @@ static bool load_key(const char *K, const char *want, int depth) {
     if (!T || !t) return false;
     const char *nm = want ? want : lk_name_of(K); char gen[80];
     if (!nm || global_lookup(nm) >= 0 || data_lookup(nm) >= 0 || con_lookup(nm) >= 0) { snprintf(gen, sizeof gen, "%%k%.24s", K); nm = intern(gen); }
-    char *mk = store_read(K, "mask");
+    char *mk = kobj_read(K, "mask");
     if (mk) { unsigned long long m = 0, b = 0; int len = 0; if (sscanf(mk, "%llx %d %llx", &m, &len, &b) >= 2 && m) { imask_set(nm, m, len); int i = nix_get(&IMIX, nm); if (i >= 0) IM[i].inst = b; } free(mk); }
-    char *cp = store_read(K, "computing");
+    char *cp = kobj_read(K, "computing");
     if (cp) { GROW(COMPUTING, capcomputing, (size_t)ncomputing + 1); COMPUTING[ncomputing++] = strdup(nm); free(cp); }
     bool sbw = bind_work; bind_work = false;   /* taken from the store: it binds no name anew */
     if (getenv("CUBICAL_LK")) { fprintf(stderr, "[lk] def %s key %s\n  T ", nm, K); print_node(stderr, T); fputc(10, stderr); }
@@ -6629,19 +6629,19 @@ static void x_checked(const char *name, Node *sig, Node *body, bool expect, uint
     else x_top(lst(3, nsym(expect ? "check" : "check-fail"), T, t));
     /* beside its key, what the key does not hold and a use's elaboration needs: the implicit mask
      * with the instance bits, and whether it computes (read by load_key) */
-    if (name && expect && store_dir()) {
+    if (name && expect && store_dir() && bind_work) {
         int ck = checked_index(name); const char *k = ck >= 0 ? ckey_of(ck) : "?";
         if (k[0] != '?') {
             IMask *im = imask_of(name);
             if (im) { char l[96]; snprintf(l, sizeof l, "%llx %d %llx\n", (unsigned long long)im->m, im->len, (unsigned long long)im->inst);
-                char *cur = store_read(k, "mask"); if (!cur || strcmp(cur, l)) store_write(k, "mask", l, false); free(cur); }
-            if (is_computing(name)) { char *c = store_read(k, "computing"); if (!c) store_write(k, "computing", "1\n", false); free(c); }
+                kobj_write(k, "mask", l); }
+            if (is_computing(name)) { char *c = NULL; kobj_write(k, "computing", "1\n"); free(c); }
             /* its type and term as elaborated, in the form that is read back (as the elaboration's
              * own record is): what load_key gives the checked form's handler */
-            { char *have = store_read(k, "forms");
+            { char *have = kobj_read(k, "forms");
               if (!have && !has_hole(T) && !has_hole(t)) {
                   SBuf a = { 0 }, b = { 0 }; int sd = cur_deps.n; kfresh_on = kser_on = true; nkfresh = 0; canon(&a, T); canon(&b, t); kfresh_on = kser_on = false; cur_deps.n = sd;
-                  if (a.b && b.b) { SBuf w = { 0 }; sb_put(&w, a.b); sb_put(&w, "\n"); sb_put(&w, b.b); store_write(k, "forms", w.b, false); free(w.b); }
+                  if (a.b && b.b) { SBuf w = { 0 }; sb_put(&w, a.b); sb_put(&w, "\n"); sb_put(&w, b.b); kobj_write(k, "forms", w.b); free(w.b); }
                   free(a.b); free(b.b);
               }
               free(have); }
