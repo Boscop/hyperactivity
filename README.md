@@ -1,9 +1,9 @@
 <p align="center">
   <a href="https://hyperactivity.ai">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://hyperactivity.ai/logo.svg?v=hopf5" />
-      <source media="(prefers-color-scheme: light)" srcset="https://hyperactivity.ai/logo-light.svg?v=hopf5" />
-      <img src="https://hyperactivity.ai/logo.svg?v=hopf5" alt="hyperactivity — 4D Hopf Fibration S³ → S²" width="108" />
+      <source media="(prefers-color-scheme: dark)" srcset="https://hyperactivity.ai/logo.svg?v=lv2" />
+      <source media="(prefers-color-scheme: light)" srcset="https://hyperactivity.ai/logo-light.svg?v=lv2" />
+      <img src="https://hyperactivity.ai/logo.svg?v=lv2" alt="hyperactivity — Coherent Lightvirus" width="108" />
     </picture>
   </a>
 </p>
