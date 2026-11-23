@@ -2413,7 +2413,7 @@ static void index_sync(void) {
     char buf[4096]; size_t n = fread(buf, 1, sizeof buf - 1, f); fclose(f); buf[n] = 0;
     for (char *q = buf; *q; q++) {
         size_t k = 0; while (isxdigit((unsigned char)q[k])) k++;
-        if (k == 64) { char h[65]; memcpy(h, q, 64); h[64] = 0; bool took = idx_lock_fd < 0; idx_lock(); root_take(h); if (took) idx_unlock(); return; }
+        if (k == 64) { char h[65]; memcpy(h, q, 64); h[64] = 0; bool took = idx_lock_fd < 0; idx_lock(); char *h2 = idx_read("meta", "root"); if (!h2) root_take(h); else free(h2); if (took) idx_unlock(); return; }
         if (k) q += k - 1;
     }
 }

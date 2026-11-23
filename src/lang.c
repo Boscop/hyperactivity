@@ -5104,9 +5104,10 @@ static void session_serve(void) {
 extern char **environ;
 static void session_client(int argc, char **argv) {
     /* the process kept warm has the environment it was started in, not this command's: a command that names a place (send, take) runs in a machine of its own (2026-11-22: send answered "names no place" with the place named) */
-    if (getenv("CUBICAL_STORE") || getenv("HYPERACTIVE_SERVER") || getenv("HYPERACTIVE_COLD") || getenv("HYPERACTIVE_PLACE")) return;
+    if (getenv("CUBICAL_STORE") || getenv("HYPERACTIVE_SERVER") || getenv("HYPERACTIVE_COLD") || getenv("HYPERACTIVE_PLACE") || getenv("RENDER")) return;
     int s = session_connect();
     if (s < 0) {
+        struct stat rs; if (stat(".cubical-store/index/meta/root", &rs) != 0) return;
         pid_t pid; posix_spawn_file_actions_t fa; posix_spawn_file_actions_init(&fa);
         posix_spawn_file_actions_addopen(&fa, 0, "/dev/null", 0, 0);
         posix_spawn_file_actions_addopen(&fa, 1, "/dev/null", 1, 0);
