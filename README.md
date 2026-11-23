@@ -27,7 +27,6 @@
   <a href="https://hyperactivity.ai/physics"><code>/physics</code></a> ·
   <a href="https://hyperactivity.ai/compression"><code>/compression</code></a> ·
   <a href="https://hyperactivity.ai/chip-design"><code>/chip-design</code></a> ·
-  <a href="https://hyperactivity.ai/music"><code>/music</code></a> ·
   <a href="https://hyperactivity.ai/pdf">Monograph (PDF)</a> ·
   <a href="LICENSE">License</a>
 </p>
@@ -49,7 +48,7 @@ Everything in this document is live, self-hosted, and executable. You can enter 
   - [**`hyperactivity.ai/physics`**](https://hyperactivity.ai/physics) — Relational Quantum Mechanics, $SU(2)$ spin networks, Loop Quantum Cosmology Big Bounce, relativistic Dirac atoms ($Z \le 137$), superconductivity, zero-float quantum chemistry, peptide kinematics, and bioelectric morphogenesis.
   - [**`hyperactivity.ai/compression`**](https://hyperactivity.ai/compression) — Zero-search causal context-fiber rANS compression with exact `refl` benchmarks vs `deflate -9`, `gzip -9`, `bzip2 -9`, and `lzma`.
   - [**`hyperactivity.ai/chip-design`**](https://hyperactivity.ai/chip-design) — Circuit lower bounds, ISCAS-85/EPFL/Clifford+T benchmarks, 3nm GDSII v6.0 round-trip proofs, and clockless GALS interaction-net silicon tiles.
-  - [**`hyperactivity.ai/music`**](https://hyperactivity.ai/music) & [**`hyperactivity.ai/learn`**](https://hyperactivity.ai/learn) — Interactive synesthetic & pedagogical labs.
+  - [**`hyperactivity.ai/learn`**](https://hyperactivity.ai/learn) — Ground-up interactive textbook on interaction nets with live inline programs.
 
 ### On Your Machine (Requires `gcc` or `clang` and `make`)
 
