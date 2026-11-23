@@ -162,9 +162,30 @@ The order in which an executor steps safe wires therefore never changes the memo
 
 Infinite reactive processes (event loops, HTTP servers, excitable neural membranes, closed-loop neural co-processors, and artificial life, `life ▸ κ` at [`hyperactivity.ai/nets?preset=life`](https://hyperactivity.ai/nets?preset=life)) run forever in constant memory: recursive unfolding is guarded by a clock modality `▸ κ` and steps only when an external observation forces it.
 
-### Complete Core Interaction Laws
+### The Table (`nk-act`)
 
-Read each law as `operation ⋈ value ⟶ replacement net`:
+The machine's whole calculus is these rows. An eliminator meeting a value either builds a body on the wires (with the eliminator's wires innermost, `act-ap`; with the value's parts innermost, `act-rp`; or with the value itself innermost, `act-self`), returns a value outright (`act-hd`), or is kept whole holding the value (`act-stuck`), read back and computed on bodies.
+
+```text
+apply (0)          ⋈  closure                  ⟶  its body, the argument first
+increment (1)      ⋈  number m                 ⟶  m + 1
+case (2)           ⋈  constructor c            ⟶  body of branch c, its fields bound
+first (9)          ⋈  pair                     ⟶  the first part
+second (10)        ⋈  pair                     ⟶  the second part
+path at a point (8) ⋈ end of the interval      ⟶  that end of the path; the path is not read
+path at a point (8) ⋈ blocked point            ⟶  the path applied to the point
+reversal (5)       ⋈  interval point           ⟶  its De Morgan negation, in normal form
+meet (6), join (7) ⋈  interval point           ⟶  wait on the second point carrying the first (16, 17)
+meet (16)          ⋈  second point             ⟶  the meet, in normal form
+join (17)          ⋈  second point             ⟶  the join, in normal form
+transport, composition (20 and up)             ⟶  kept whole, computed on the read-back body
+```
+
+An interval point is a join of meets of literals, each meet sorted, no meet containing another, so two points equal in the De Morgan algebra have one form.
+
+### The Bootstrap's Laws
+
+`src/` runs the same rule natively with a wider table: Kan composition, Glue and higher inductive types are rows there rather than read-back computations. Read each law as `operation ⋈ value ⟶ replacement net`:
 
 **Functions, pairs & guarded corecursion**
 ```text
