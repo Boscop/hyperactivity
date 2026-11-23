@@ -1,0 +1,26 @@
+s-boot-data : List Word → Proc W (List Word × List Word)
+s-boot-data m =
+  bind h-cwd (λ cwd →
+  let abs-m = if h-prefix "/" m then m else list-append cwd (cons #47 m) in
+  bind (h-read "store/ROOT/root") (λ br0 →
+  let boot-r = h-trim (h-before (cons #10 nil) (s-or nil br0)) in
+  bind (h-env "HYPERACTIVE_DATA") (λ ed →
+  case ed of
+    inl u → bind (s-make-bootstrap "bootstrap.tgz") (λ mb → ret {lzero} {W} (abs-m , boot-r))
+    inr ddir →
+      if h-null ddir then bind (s-make-bootstrap "bootstrap.tgz") (λ mb → ret {lzero} {W} (abs-m , boot-r))
+      else bind (h-mkdir ddir) (λ d0 →
+        bind (h-file-time ddir) (λ dt →
+        if h-not (wlt #0 dt) then bind (s-make-bootstrap "bootstrap.tgz") (λ mb → ret {lzero} {W} (abs-m , boot-r))
+        else bind (h-mkdir (list-append ddir "/store")) (λ d1 →
+        bind (h-mkdir (list-append ddir "/.cubical-store")) (λ d2 →
+        bind (s-make-bootstrap (list-append ddir "/bootstrap.tgz")) (λ mb →
+        bind (h-read (list-append ddir "/.cubical-store/boot-root")) (λ prev →
+        let same = andB (h-not (h-null boot-r)) (h-eq boot-r (h-trim (h-before (cons #10 nil) (s-or nil prev)))) in
+        bind (h-file-time "store") (λ st0 →
+        bind (if andB (wlt #0 st0) (h-not same) then h-run (cons "/bin/sh" (cons "-c" (cons "IFS=; cp -rn store/. $1/store/ && cp -f store/ROOT/root $1/store/ROOT/root 2>/dev/null || true" (cons "_" (cons ddir nil))))) else ret {lzero} {W} #0) (λ cp1 →
+        bind (h-file-time ".cubical-store") (λ cs0 →
+        bind (if wlt #0 cs0 then h-run (cons "/bin/sh" (cons "-c" (cons "IFS=; for p in .cubical-store/mod-* .cubical-store/site-* .cubical-store/site-stamp; do [ -e $p ] && cp -f $p $1/.cubical-store/ 2>/dev/null || true; done; for d in paper views index site; do [ -d .cubical-store/$d ] && cp -rf .cubical-store/$d $1/.cubical-store/ 2>/dev/null || true; done; true" (cons "_" (cons ddir nil))))) else ret {lzero} {W} #0) (λ cp2 →
+        bind (s-chdir ddir) (λ cd →
+        bind (if andB (s-hex64 boot-r) (h-not same) then h-run (cons abs-m (cons "--take" (cons boot-r nil))) else ret {lzero} {W} #0) (λ ix →
+        ret {lzero} {W} (abs-m , boot-r))))))))))))))))
