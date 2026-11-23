@@ -1,0 +1,56 @@
+hyperinet-v2-exec : List Word
+hyperinet-v2-exec =
+  sv-concat
+    (cons "  task automatic rewire(input [4:0] dst, input [4:0] new_ref);" (cons sv-nl
+    (cons "    begin" (cons sv-nl
+    (cons "      if (dst[1:0] == 2'd0)      p0[dst[4:2]] <= new_ref;" (cons sv-nl
+    (cons "      else if (dst[1:0] == 2'd1) p1[dst[4:2]] <= new_ref;" (cons sv-nl
+    (cons "      else if (dst[1:0] == 2'd2) p2[dst[4:2]] <= new_ref;" (cons sv-nl
+    (cons "    end" (cons sv-nl
+    (cons "  endtask" (cons sv-nl
+    (cons "  // Single-lane interaction rule executor (shared by Lane 0 and Lane 1)" (cons sv-nl
+    (cons "  task automatic fire_pair(input [2:0] ua, input [2:0] va, input allow_comm);" (cons sv-nl
+    (cons "    reg [2:0] cn, dn;" (cons sv-nl
+    (cons "    begin" (cons sv-nl
+    (cons "      if (kind[ua] == kind[va]) begin" (cons sv-nl
+    (cons "        // Annihilation: CON⋈CON, DUP⋈DUP, ERA⋈ERA" (cons sv-nl
+    (cons "        if (kind[ua] == K_CON || kind[ua] == K_DUP) begin" (cons sv-nl
+    (cons "          rewire(p1[ua], p1[va]); rewire(p1[va], p1[ua]);" (cons sv-nl
+    (cons "          rewire(p2[ua], p2[va]); rewire(p2[va], p2[ua]);" (cons sv-nl
+    (cons "        end" (cons sv-nl
+    (cons "        kind[ua] <= K_FREE; kind[va] <= K_FREE;" (cons sv-nl
+    (cons "      end else if (kind[ua] == K_ERA || kind[va] == K_ERA) begin" (cons sv-nl
+    (cons "        cn = (kind[ua] == K_ERA) ? va : ua; dn = (kind[ua] == K_ERA) ? ua : va;" (cons sv-nl
+    (cons "        if (kind[cn] == K_NUM) begin" (cons sv-nl
+    (cons "          kind[cn] <= K_FREE; kind[dn] <= K_FREE;" (cons sv-nl
+    (cons "        end else begin" (cons sv-nl
+    (cons "          kind[cn] <= K_ERA; p0[cn] <= p1[cn]; rewire(p1[cn], {cn, 2'd0});" (cons sv-nl
+    (cons "          kind[dn] <= K_ERA; p0[dn] <= p2[cn]; rewire(p2[cn], {dn, 2'd0});" (cons sv-nl
+    (cons "        end" (cons sv-nl
+    (cons "      end else if ((kind[ua]==K_NUM && kind[va]==K_ADD) || (kind[ua]==K_ADD && kind[va]==K_NUM)) begin" (cons sv-nl
+    (cons "        // Fused curry: NUM(x) ⋈ ADD(op2, out) -> ADD1(x) wired to op2" (cons sv-nl
+    (cons "        cn = (kind[ua]==K_NUM) ? ua : va; dn = (kind[ua]==K_NUM) ? va : ua;" (cons sv-nl
+    (cons "        kind[cn] <= K_FREE;" (cons sv-nl
+    (cons "        kind[dn] <= K_ADD1; val[dn] <= val[cn];" (cons sv-nl
+    (cons "        p0[dn] <= p1[dn]; p1[dn] <= p2[dn]; rewire(p1[dn], {dn, 2'd0});" (cons sv-nl
+    (cons "      end else if ((kind[ua]==K_NUM && kind[va]==K_ADD1) || (kind[ua]==K_ADD1 && kind[va]==K_NUM)) begin" (cons sv-nl
+    (cons "        // Fused 8-bit add: NUM(y) ⋈ ADD1(x, out) -> NUM(x + y) wired to out" (cons sv-nl
+    (cons "        cn = (kind[ua]==K_NUM) ? ua : va; dn = (kind[ua]==K_NUM) ? va : ua;" (cons sv-nl
+    (cons "        kind[dn] <= K_FREE;" (cons sv-nl
+    (cons "        kind[cn] <= K_NUM; val[cn] <= val[dn] + val[cn];" (cons sv-nl
+    (cons "        p0[cn] <= p1[dn]; rewire(p1[dn], {cn, 2'd0});" (cons sv-nl
+    (cons "      end else if ((kind[ua]==K_NUM && kind[va]==K_DUP) || (kind[ua]==K_DUP && kind[va]==K_NUM)) begin" (cons sv-nl
+    (cons "        // Unboxed NUM duplication: NUM(x) ⋈ DUP(o1, o2) -> 2x NUM(x) in-place" (cons sv-nl
+    (cons "        cn = (kind[ua]==K_NUM) ? ua : va; dn = (kind[ua]==K_NUM) ? va : ua;" (cons sv-nl
+    (cons "        kind[cn] <= K_NUM; val[cn] <= val[cn]; p0[cn] <= p1[dn]; rewire(p1[dn], {cn, 2'd0});" (cons sv-nl
+    (cons "        kind[dn] <= K_NUM; val[dn] <= val[cn]; p0[dn] <= p2[dn]; rewire(p2[dn], {dn, 2'd0});" (cons sv-nl
+    (cons "      end else if (allow_comm && free_cnt == 2'd2) begin" (cons sv-nl
+    (cons "        // Commutation Diamond: CON ⋈ DUP" (cons sv-nl
+    (cons "        cn = (kind[ua]==K_CON) ? ua : va; dn = (kind[ua]==K_CON) ? va : ua;" (cons sv-nl
+    (cons "        kind[cn]     <= K_DUP; p0[cn]     <= p1[cn]; p1[cn]     <= {dn, 2'd1}; p2[cn]     <= {f1_idx, 2'd1}; rewire(p1[cn], {cn, 2'd0});" (cons sv-nl
+    (cons "        kind[f0_idx] <= K_DUP; p0[f0_idx] <= p2[cn]; p1[f0_idx] <= {dn, 2'd2}; p2[f0_idx] <= {f1_idx, 2'd2}; rewire(p2[cn], {f0_idx, 2'd0});" (cons sv-nl
+    (cons "        kind[dn]     <= K_CON; p0[dn]     <= p1[dn]; p1[dn]     <= {cn, 2'd1}; p2[dn]     <= {f0_idx, 2'd1}; rewire(p1[dn], {dn, 2'd0});" (cons sv-nl
+    (cons "        kind[f1_idx] <= K_CON; p0[f1_idx] <= p2[dn]; p1[f1_idx] <= {cn, 2'd2}; p2[f1_idx] <= {f0_idx, 2'd2}; rewire(p2[dn], {f1_idx, 2'd0});" (cons sv-nl
+    (cons "      end" (cons sv-nl
+    (cons "    end" (cons sv-nl
+    (cons "  endtask" (cons sv-nl nil))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
