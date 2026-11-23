@@ -1,0 +1,47 @@
+sv-hypernet-vs-rv32-tb : List Word
+sv-hypernet-vs-rv32-tb =
+  sv-lines
+    (cons "`timescale 1ns/1ps"
+    (cons "module hypernet_vs_rv32_tb;"
+    (cons "  logic        clk = 1'b0, rst = 1'b1, start = 1'b0;"
+    (cons "  logic [1:0]  prog_sel = 2'd0;"
+    (cons "  logic        hn_done, rv_done;"
+    (cons "  logic [31:0] hn_res, rv_res;"
+    (cons "  logic [15:0] hn_steps, hn_steal, hn_prune, hn_alloc, hn_gated;"
+    (cons "  logic [7:0]  hn_free;"
+    (cons "  logic [15:0] rv_cyc, rv_inst;"
+    (cons "  hypernet_mesh_4tile u_hn ("
+    (cons "    .clk(clk), .rst(rst), .start(start), .prog_sel(prog_sel),"
+    (cons "    .quiescent(hn_done), .root_result(hn_res), .total_steps(hn_steps),"
+    (cons "    .stolen_count(hn_steal), .pruned_count(hn_prune), .alloc_count(hn_alloc),"
+    (cons "    .gated_tile_cycles(hn_gated), .total_free_cells(hn_free)"
+    (cons "  );"
+    (cons "  riscv32_pipe u_rv ("
+    (cons "    .clk(clk), .rst(rst), .start(start), .prog_sel(prog_sel),"
+    (cons "    .halted(rv_done), .result_out(rv_res), .cycle_count(rv_cyc), .inst_retired(rv_inst)"
+    (cons "  );"
+    (cons "  task automatic tick; begin #5 clk = 1'b1; #5 clk = 1'b0; end endtask"
+    (cons "  integer p, hn_c, guard;"
+    (cons "  logic [31:0] exp_val;"
+    (cons "  initial begin"
+    (cons "    rst = 1'b1; tick(); rst = 1'b0;"
+    (cons "    for (p = 0; p < 3; p = p + 1) begin"
+    (cons "      prog_sel = p[1:0]; exp_val = (p == 1) ? 32'd144 : 32'd36;"
+    (cons "      start = 1'b1; tick(); start = 1'b0;"
+    (cons "      hn_c = 0; guard = 0;"
+    (cons "      while ((!hn_done || !rv_done) && guard < 200) begin"
+    (cons "        if (!hn_done) hn_c = hn_c + 1;"
+    (cons "        tick(); guard = guard + 1;"
+    (cons "      end"
+    (cons (list-append "      if (!hn_done || !rv_done)" (sv-fatal "Timeout waiting for completion"))
+    (cons (list-append "      if (hn_res !== exp_val || rv_res !== exp_val)" (sv-fatal "Normal-form value mismatch"))
+    (cons (list-append "      if (hn_free !== 8'd32)" (sv-fatal "Freelist cell leak detected"))
+    (cons (list-append "      if (p == 0 && hn_steal < 16'd2)" (sv-fatal "Expected multi-tile work stealing"))
+    (cons (list-append "      if (p == 2 && hn_prune !== 16'd1)" (sv-fatal "Expected 1-cycle cubical face prune"))
+    (cons (list-append "      $display("
+            (list-append (sv-q "BENCH_PROG_%0d: ans=%0d | HyperNet_4Tile(cycles=%0d, steps=%0d, stolen=%0d, pruned=%0d, allocs=%0d, free=%0d/32, gated_tile_cyc=%0d) | RISCV32(cycles=%0d, inst=%0d)")
+              ", p, hn_res, hn_c, hn_steps, hn_steal, hn_prune, hn_alloc, hn_free, hn_gated, rv_cyc, rv_inst);"))
+    (cons "    end"
+    (cons "    $finish;"
+    (cons "  end"
+    (cons "endmodule" nil))))))))))))))))))))))))))))))))))))))))))
