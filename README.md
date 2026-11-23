@@ -4,6 +4,8 @@ A decentralized safe superintelligent operating system language.
 
 Knowledge graphs as interaction networks. Mathematical knowledge graphs as cubical interaction networks.
 
+**Live decentralized web seed:** [hyperactivity.ai](https://hyperactivity.ai) — [Knowledge Graph (`/kg`)](https://hyperactivity.ai/kg) · [Browser Kernel (`/kernel`)](https://hyperactivity.ai/kernel) · [Interaction Net Lab (`/nets`)](https://hyperactivity.ai/nets) · [Paper (`/paper`)](https://hyperactivity.ai/paper) · [PDF (`/pdf`)](https://hyperactivity.ai/pdf) · [AI (`/ai`)](https://hyperactivity.ai/ai) · [Neuro (`/neuro`)](https://hyperactivity.ai/neuro) · [Physics (`/physics`)](https://hyperactivity.ai/physics) · [Compression (`/compression`)](https://hyperactivity.ai/compression)
+
 ## The whole picture
 
 There is no primitive thing, only a primitive law of interaction. A term is a net of cells, and the only
