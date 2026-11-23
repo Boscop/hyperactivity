@@ -1,0 +1,31 @@
+lv-field : Word → Word → SInt
+lv-field ix iy =
+  -- Normalized coordinates x, y ∈ [0, 1.004] (scale 10000), h = 32 tenths, R_unit = 1020 tenths
+  let x = wquot (wmul ix #320000) #1020
+      y = wquot (wmul iy #320000) #1020
+      r2 = wadd (wmul x x) (wmul y y)
+      r = isqrt r2
+      outer = si-sub (sp #9400) (sp r)
+  in if si-lt outer (sn #500) then sn #10000
+     else let dx1 = wadd x #4000
+              dx2 = if wlt x #4000 then wsub #4000 x else wsub x #4000
+              r1sq = wadd (wmul dx1 dx1) (wmul y y)
+              r2sq = wadd (wmul dx2 dx2) (wmul y y)
+              r1 = isqrt r1sq
+              r2d = isqrt r2sq
+              -- k = 9.5 = 95000 (scale 10000)
+              kr1 = fx-mul (sp #95000) (sp r1)
+              kr2 = fx-mul (sp #95000) (sp r2d)
+              additive = si-div-w (si-add (fx-cos kr1) (fx-cos kr2)) #2
+              hypFringes = fx-cos (si-sub kr1 kr2)
+              wave = si-add (fx-mul (sp #7000) additive) (fx-mul (sp #3000) hypFringes)
+              -- Blazing twin light cores at ±0.4: 0.55 * (exp(-28*r1²) + exp(-28*r2²))
+              u1 = wquot (wmul #28 r1sq) #10000
+              u2 = wquot (wmul #28 r2sq) #10000
+              e1 = fx-exp-neg u1
+              e2 = fx-exp-neg u2
+              cores = sp (wquot (wmul #5500 (wadd e1 e2)) #10000)
+              val = si-sub (si-add wave cores) (sp #500)
+              clip = si-mul outer (sp #10)
+              raw = si-min val clip
+          in if si-eq raw si-zero then sn #1 else raw
