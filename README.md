@@ -65,7 +65,7 @@ make brunerie                                   # compute Brunerie's number (-2)
 ### Table of Contents
 
 1. [The Structural Failure of the 1970s Computing Stack](#1-the-structural-failure-of-the-1970s-computing-stack)
-2. [Interaction Nets: The Local Execution Primitive (`src/core.h`, `src/net.c`)](#2-interaction-nets-the-local-execution-primitive)
+2. [Interaction Nets: The Local Execution Primitive (`lib/kernel.hypercubical`)](#2-interaction-nets-the-local-execution-primitive)
 3. [Cubical Type Theory, Kan Composition & Computational Univalence (`lib/check.hypercubical`)](#3-cubical-type-theory-kan-composition--computational-univalence)
 4. [Observation Fibers, Warrant, Split Witnesses & Standpoint Alignment (`lib/observation.hypercubical`)](#4-observation-fibers-warrant-split-witnesses--standpoint-alignment)
 5. [No Filesystems, No Canonical State: Content-Addressed Set Union & Conserved Credit (`store/`, `lib/credit.hypercubical`)](#5-no-filesystems-no-canonical-state-content-addressed-set-union--conserved-credit)
@@ -104,7 +104,7 @@ Every major crisis across contemporary computing and science is a downstream sym
 
 Hyperactivity replaces all four 1970s assumptions simultaneously with one self-hosted architecture:
 
-1. **Local interaction nets** (`src/core.h`, `src/net.c`) as the lock-free, clockless execution primitive;
+1. **Local interaction nets** (`lib/kernel.hypercubical`) as the lock-free, clockless execution primitive;
 2. **CCHM cubical type theory** (`lib/check.hypercubical`) with computational univalence (`ua`) as the universal language of programs, types, proofs, and equivalences;
 3. **Observation fibers & split witnesses** (`lib/observation.hypercubical`) as the epistemic foundation of knowledge, compression, alignment, and control;
 4. **An immutable SHA-256 content-addressed store** (`store/`) with no mutable filesystems, no canonical state, convergence by pure set union, and conserved multi-dimensional credit (`lib/credit.hypercubical`).
@@ -115,44 +115,54 @@ Hyperactivity replaces all four 1970s assumptions simultaneously with one self-h
 
 There is no primitive static "thing" in nature, only a primitive law of local interaction. A cortical microcircuit, an $SU(2)$ spin-network vertex, a biochemical reaction complex, an asynchronous hardware tile, and a peer-to-peer network of agents have no global clock, no central address bus, and no global call stack. They are **interaction networks** (Lafont, 1990).
 
-### Graph Topology: Cells, Ports, Wires, and Active Pairs
+### The Machine, Written in Hyperactivity ([`lib/kernel.hypercubical`](https://hyperactivity.ai/kg?mod=lib/kernel.hypercubical))
 
-In [`src/core.h`](src/core.h) and [`src/net.c`](src/net.c), every term, type, proof, interval, face, and computation in Hyperactivity is represented as a graph of **cells** connected by **wires**:
+The machine is a definition in the language, checked like every other definition. It has one rule: **an eliminator meets a value, and a table (`nk-act`) says what is built on the wires the two held.** Nothing else in it belongs to any particular calculus:
 
-- **Cell:** A node with exactly one **principal port** (port `0`) and zero or more **auxiliary ports** (ports `1..k`).
-- **Value (`V_*`):** A cell with a *positive* principal port — it offers data:
-  - Core values: `V_LAM` (closure with `Record` + environment ports), `V_PAIR`, `V_PI`, `V_SIGMA`, `V_U` (universe level), `V_PATHP`, `V_PLAM` (path abstraction binding a `Dim`), `V_IV` (interval `Dnf`), `V_FACE` (face `Dnf`), `V_SYS` (partial system of branches), `V_GLUE`, `V_GLUEV`.
-  - Data & codata values: `V_DATA`, `V_CON` (constructor with fields and interval dimensions), `V_HCOMP` (formal homogeneous composition), `V_TRANSH` (formal transported composition), `V_CASEF` (elimination as a function), `V_REC` (copattern body for guarded corecursion).
-  - Sharing & laziness values: `V_REF` (shared box — copying it copies the reference; an operation meeting it copies only the top cell out), `V_THUNK` (unbuilt subterm), `V_DEFER` (deferred operation, built on demand), `V_SUSP` / `V_WSUSP` (lazy induction hypotheses).
-  - Exact machine values: `V_WORD` (64-bit fast path or arbitrary-precision `Big` limb array from `src/big.c`), `V_PVAL` (`I64`, `U32`, `F64`, `F32`), `V_BYTES` (refcounted immutable byte buffer), `V_TEXT` (lazy `List Word` view over `Bytes` at offset `a`, costing zero cells until characters are read).
-  - Blocked neutrals (for open terms during type checking and specialization): `V_NVAR`, `V_NAPP`, `V_NFST`, `V_NSND`, `V_NPAPP`, `V_NCOMP`, `V_NUNGLUE`, `V_NCASE`, `V_NTRANS`, `V_NPROJ`, `V_WPLUS`, `V_NWOP`, `V_NWELIM`, `V_NPRIM`.
-- **Operation (`O_*`):** A cell with a *negative* principal port — it demands one value at port `0` and writes its output to its last port: `O_APP`, `O_CALL`, `O_FORCE`, `O_FST`, `O_SND`, `O_PAPPR`, `O_PAPPP`, `O_SUBST`, `O_DUP`, `O_ERA`, `O_COMP`, `O_COMPA`, `O_COMPH`, `O_COMPW`, `O_MKPLAM`, `O_MKGLUE`, `O_MKGLUEV`, `O_UNGLUE`, `O_CASE`, `O_HCOMP`, `O_TRANSD1`, `O_TRANSD2`, `O_VIEW`, `O_WEQ..O_WSHR`, `O_LOAD`, `O_STORE`, `O_NATIVE`, `O_FFI`.
-- **Wire:** Connects two ports directly. A wire may be empty while one side is still computing: whichever side arrives first writes its port into the wire slot; the second side finds it and immediately forms the active pair. Waiting is not a step.
-- **Active pair (`operation ⋈ value`):** An operation's principal port wired directly to a value's principal port. **This is the only site where computation occurs.** Two values wired principal-to-principal, or two operations wired principal-to-principal, cannot interact.
-- **Rewrite step:** The two cells of an active pair are atomically removed and replaced by a small fixed local net wired to the auxiliary ports they held. No other cell in memory is read or written.
+- **Bodies** (`NkTm`): variables by index into the environment, constructors with their arguments, and numbered eliminators (`nk-op`) carrying the body they eliminate and their other arguments. Application, increment and case are eliminators `#0`, `#1`, `#2`.
+- **Wires** (`NkW`): a wire's name is a binary number, lowest digit first; `nk-s` gives the next name.
+- **Slots** (`NkSlot`): a wire is empty, holds a value, holds a waiting operation, or holds the pair that meets: `nks-none | nks-val | nks-op | nks-pair`.
+- **Changes** (`NkCh`): a step asks for changes to wires. A value arrives, an operation arrives, or a slot is set. A value waits or meets the operation waiting; an operation waits or meets the value waiting. Waiting is not a step.
+- **Sharing**: a value with parts is held once and read by reference (`nkv-ref`). Duplication (`nko-dup`), erasure (`nko-era`) and forwarding (`nko-fwd`) are operations like any other.
+- **Blocked values**: an eliminator meeting a blocked value becomes a blocked value, so open terms reduce under binders during type checking.
+- **Quotation** (`nko-quote`, `nko-gather`): reads a value back as a body.
+- **The executor** (`NkExec`) stands outside the rule. It only chooses which wire steps next and hands out fresh names.
+
+A new type former is rows of the table plus bodies written with `nk-con` and `nk-op`: no new rule and no new proof. The interval rows (`nk-act-i`) are how De Morgan intervals, paths, Kan composition, Glue and univalence enter the same machine.
+
+- **Active pair:** an operation and a value meeting on one wire. **This is the only site where computation occurs.**
+- **Rewrite step** (`nk-step-at`): the pair is replaced by what the table builds on the wires it held. No other slot is read or written.
 
 ```text
    arg ──┐
-         O_APP ●────● V_LAM ── body      ⟶      out ── body   (arg wired to param)
+         app ●────● λ ── body      ⟶      out ── body   (arg wired to param)
    out ──┘
 ```
 
-### Memory Layout, Lock-Free Parallelism & Zero Ambient Context
+### Parallelism Is a Theorem of the Machine
 
-Three choices in the machine make cubical interaction nets fast enough to self-host a full operating system and compute Brunerie's number in seconds:
+Lock-free, clockless execution is proved in `lib/kernel.hypercubical`, not assumed of an implementation:
 
-1. **Dual-mode reference counting (`net_solo`):**
-   When running single-threaded (`net_solo = true`, set once at `net_start`), reference counts and step counters use plain integer arithmetic with zero atomic bus-lock overhead. When worker threads are active (`net_solo = false`), the exact same code switches to lock-free `__atomic_fetch_add(..., __ATOMIC_RELAXED)` and `__atomic_sub_fetch(..., __ATOMIC_ACQ_REL)`. There is no global heap lock and no stop-the-world garbage collector.
-2. **Immutable DNF payloads & zero ambient face context:**
-   Every dimension name `Dim` is a monotonically allocated `uint64_t` (never reused). Intervals (`V_IV`) and faces (`V_FACE`) carry immutable, reference-counted Disjunctive Normal Form (`Dnf`) arrays of sorted `Clause`s, where each literal packs `dim << 1 | polarity`. Because a face clause is literally a substitution of endpoints (`0` or `1`) for dimensions, working under a face is purely local reindexing via `O_SUBST` — **no cell ever consults an ambient typing or face context.**
-3. **Optimal lazy sharing (`O_DUP`, `V_REF`, `V_THUNK`, `V_DEFER`, `V_TEXT`):**
-   - Duplicating a compound value (`O_DUP ⋈ value`) never deep-copies its subgraph; it wraps the value once in `V_REF` and hands each consumer a reference. When an operation meets `V_REF`, only the top cell is copied out while all subparts remain shared `V_REF` pointers.
-   - Deferred operations (`V_DEFER`) avoid eagerly duplicating eliminators across every branch of a partial system `V_SYS`: each branch holds a deferred operation that only runs if that branch is demanded.
-   - `V_TEXT` represents a string of bytes as a `List Word` (`cons #b (cons #b ... nil)`) lazily one character at a time from a shared `Bytes` buffer, so copying a text shares the underlying bytes in $O(1)$.
-4. **Guarded corecursion (`▸ κ`) in bounded $O(1)$ memory:**
-   Infinite reactive processes — OS event loops, HTTP servers, excitable neural membranes, closed-loop neural co-processors, and artificial life (`life ▸ κ` at [`hyperactivity.ai/nets?preset=life`](https://hyperactivity.ai/nets?preset=life)) — execute forever in constant memory because recursive unfolding is guarded by a clock modality `▸ κ` (`V_REC` / `O_FORCE`) and only steps when forced by an external observation.
+- **`nk-meet-comm`**: a value arriving and an operation arriving at the two ends of one wire commute, whatever the wire held.
+- **`nk-safe-commute`**: whenever the executor's test `nk-safe?` accepts two wires, stepping them in either order leaves memories that read the same at every wire.
+- **`nk-get-set`, `nk-get-set-other`, `nk-upd-swap-at`**: the memory laws both rest on.
 
-### Complete Core Interaction Laws (`src/net.c`)
+The order in which an executor steps safe wires therefore never changes the memory. One thread, a pool of workers, a browser tab and a grid of asynchronous silicon tiles are all executors of the same machine; `lib/silicon/inet.hypercubical` carries the same two facts (`wslot-order-indep`, `net-step-commute`) to the clockless GALS tile.
+
+### The Machine Checks Its Own Computation
+
+- Two evaluators written in the language, the net (`nk-nf`) and an environment machine (`nk-ev-nf`), are checked to reach the same normal forms (`nk-ev-agree-*`): sharing, open bodies, De Morgan interval laws, path endpoints.
+- Kan composition and univalence compute inside the machine: `nk-kan-ua` transports the pair `(1, 2)` along `ua swap` to `(2, 1)`, and `nk-ty-ua-over` types the glued value over the univalence path.
+- [`lib/check.hypercubical`](https://hyperactivity.ai/kg?mod=lib/check.hypercubical) is the type checker, written in the language.
+- [`lib/singularity.hypercubical`](https://hyperactivity.ai/kg?mod=lib/singularity.hypercubical) crawls `store/` cold from disk, checks each definition's body against its type with the definition's own slot masked (so a recursive definition cannot justify itself), and emits itself both as ISO C (`sg-c`) and as a static x86-64 ELF written byte by byte by [`lib/elf.hypercubical`](https://hyperactivity.ai/kg?mod=lib/elf.hypercubical), with no `gcc` and no libc (`sg-elf`). The pool's verifier is a binary hyperactivity wrote.
+
+`src/` is the bootstrap that runs these laws natively today; [`/kernel`](https://hyperactivity.ai/kernel) runs it compiled to WebAssembly.
+
+### Guarded Corecursion in Bounded Memory
+
+Infinite reactive processes (event loops, HTTP servers, excitable neural membranes, closed-loop neural co-processors, and artificial life, `life ▸ κ` at [`hyperactivity.ai/nets?preset=life`](https://hyperactivity.ai/nets?preset=life)) run forever in constant memory: recursive unfolding is guarded by a clock modality `▸ κ` and steps only when an external observation forces it.
+
+### Complete Core Interaction Laws
 
 Read each law as `operation ⋈ value ⟶ replacement net`:
 
@@ -218,7 +228,7 @@ O_CASE          ⋈  V_HCOMP                ⟶  composition in the elimination 
 
 **Machine words, exact bignums, primitives & native boundaries**
 ```text
-O_WADD..O_WSHR  ⋈  V_WORD (64-bit / Big)  ⟶  exact arbitrary-precision natural arithmetic (src/big.c)
+O_WADD..O_WSHR  ⋈  V_WORD (64-bit / Big)  ⟶  exact arbitrary-precision natural arithmetic
 O_POP1 / O_POP2 ⋈  V_PVAL (I64/U32/F64)   ⟶  exact IEEE/machine primitive operations
 O_LOAD / O_STORE ⋈ V_BYTES                ⟶  bounds-checked immutable byte-region access
 O_NATIVE        ⋈  crossing arguments     ⟶  direct jump into verified #jit native x86-64 code
@@ -242,7 +252,7 @@ The interval $I$ carries two endpoints $0, 1 : I$ and a De Morgan algebra $(\wed
 1 - (1 - r) = r, \qquad 1 - (r \wedge s) = (1 - r) \vee (1 - s), \qquad 1 - (r \vee s) = (1 - r) \wedge (1 - s)
 ```
 
-In `src/dnf.c`, every interval expression normalizes canonically to Disjunctive Normal Form, so interval equality (`O_IEQ`) is decided in normal form.
+In the machine, every interval expression is held in Disjunctive Normal Form (`nk-dnf-of`, `nk-and-d`, and De Morgan negation `nk-not-d` in `lib/kernel.hypercubical`), so interval equality is decided in normal form.
 
 Given a line of types $A : I \to \mathcal{U}$ and endpoints $a_0 : A(0)$, $a_1 : A(1)$, a **dependent path** is a continuous map out of $I$ agreeing definitionally with its endpoints:
 
@@ -440,7 +450,7 @@ readings {S} {M} {A} R s u = (s' : S) × (a : A) × R s u s' a
 
 There are no mutable source files in Hyperactivity. Every declaration, module, proof, treatise, SVG, and web route lives as an immutable SHA-256 content-addressed object inside `store/` (generalizing Unison's content-addressed code to an entire operating system and decentralized knowledge graph).
 
-### Anatomy of `store/` (`src/store.c`, `src/sha256.c`)
+### Anatomy of `store/`
 
 1. **Declaration-level items:** Every top-level declaration in a module is hashed individually by SHA-256 into two immutable objects:
    - `store/<item_hash>/text` — the exact source text of the declaration;
@@ -532,7 +542,7 @@ The specializer itself never needs to be trusted or proved correct as a monolith
 
 ### Native x86-64 JIT (`#jit`) and Standalone ELF64 (`#build`)
 
-- [`lib/x86.hypercubical`](https://hyperactivity.ai/kg?mod=lib/x86.hypercubical) emits native x86-64 machine code for `#jit` definitions (`O_NATIVE` in `src/core.h`): when all arguments cross the machine-value boundary, the interaction net jumps directly into the native bytes; when an argument is symbolic/neutral, it falls back seamlessly to the cubical term.
+- [`lib/x86.hypercubical`](https://hyperactivity.ai/kg?mod=lib/x86.hypercubical) emits native x86-64 machine code for `#jit` definitions: when all arguments cross the machine-value boundary, the interaction net jumps directly into the native bytes; when an argument is symbolic/neutral, it falls back seamlessly to the cubical term.
 - [`lib/elf.hypercubical`](https://hyperactivity.ai/kg?mod=lib/elf.hypercubical) packages native machine code into standalone Linux ELF64 executables (`#build`) with zero external assembler or linker required.
 - [`lib/first-order.hypercubical`](https://hyperactivity.ai/kg?mod=lib/first-order.hypercubical), [`lib/emit-c.hypercubical`](https://hyperactivity.ai/kg?mod=lib/emit-c.hypercubical), [`lib/emit-c-proof.hypercubical`](https://hyperactivity.ai/kg?mod=lib/emit-c-proof.hypercubical), and [`lib/singularity.hypercubical`](https://hyperactivity.ai/kg?mod=lib/singularity.hypercubical) lower higher-order definitions and `WCmd` world commands to both standalone ISO C11 (`sg-c`, UBSan-clean, operational UB-freedom and simulation proofs `cs-compile-closed-sound`, `cs-compile-closed-no-ub`) and a zero-`gcc`, zero-libc static Linux x86-64 ELF64 binary (`sg-elf`, 699 KB via `lib/elf.hypercubical`). Crawling `store/<d>/decl` and `store/<g>/forms` cold from disk over pure-`Word` Linux syscalls (`WCmd` tags 4, 11–14) with zero baked-in signatures, both binaries verify kernel definitions, `chem/lithium-exact.hypercubical`, and `lib/singularity.hypercubical`'s own definitions cold (`sg-c` through 80.9 KB `nk-ty-s`), reject forged `forms` (`rc=1`), and pair with productive `Clock`/`Tick` Lawvere fixed points (`sg-lawvere-unfold`) and metacircular theory transport (`sg-theory-transport` via `lib/portal.hypercubical`).
 
@@ -825,7 +835,7 @@ phys-bdg-dispersion-id = λ i → true
 
 ### Build, Inspect & Run Locally
 
-Both `.hypercubical` and `.cub` extensions resolve bidirectionally across `src/syntax.c`, `src/lang.c`, `lib/guard.hypercubical`, and `/api/kg/module`:
+Both `.hypercubical` and `.cub` extensions resolve bidirectionally across the bootstrap's module reader, `lib/guard.hypercubical`, and `/api/kg/module`:
 
 ```sh
 # Build the machine (gcc or clang, and make)
