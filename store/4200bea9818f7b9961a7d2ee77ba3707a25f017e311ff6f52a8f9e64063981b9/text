@@ -1,0 +1,22 @@
+-- exact cubical round-trip path: embedding GProc into RProc over const-ds and projecting back
+-- is path-equal to the original guarded process (by guarded Löb induction and pfix)
+gproc-rproc-id-step : {S : Sig} {A : Type}
+                    → ▸ κ ((p : GProc κ S A) → rproc-to-gproc unit (gproc-to-rproc p) ≡ p)
+                    → (p : GProc κ S A) → rproc-to-gproc unit (gproc-to-rproc p) ≡ p
+gproc-rproc-id-step {κ} {S} {A} ih (gret a) = refl
+gproc-rproc-id-step {κ} {S} {A} ih (gcmd c k) =
+  λ j → gcmd c (λ r → λ α →
+    concat {lzero} {GProc κ S A}
+           {dfix (r2g-step {κ} {S} {A}) α unit (dfix (g2r-step {κ} {S} {A}) α (k r α))}
+           {rproc-to-gproc unit (gproc-to-rproc (k r α))}
+           {k r α}
+           (λ i → pfix {lzero} {κ} (r2g-step {κ} {S} {A}) i α unit (pfix {lzero} {κ} (g2r-step {κ} {S} {A}) i α (k r α)))
+           (ih α (k r α)) j)
+gproc-rproc-id-step {κ} {S} {A} ih (gtau t) =
+  λ j → gtau (λ α →
+    concat {lzero} {GProc κ S A}
+           {dfix (r2g-step {κ} {S} {A}) α unit (dfix (g2r-step {κ} {S} {A}) α (t α))}
+           {rproc-to-gproc unit (gproc-to-rproc (t α))}
+           {t α}
+           (λ i → pfix {lzero} {κ} (r2g-step {κ} {S} {A}) i α unit (pfix {lzero} {κ} (g2r-step {κ} {S} {A}) i α (t α)))
+           (ih α (t α)) j)

@@ -1,0 +1,11 @@
+-- a continuing reshaping process: internal state X carries its current interface index idx x
+rloop : {D : DynSig} {X A : Type}
+      → (idx : X → ds-idx D)
+      → (step-cmd : (x : X) → Cmd (ds-sig D (idx x)))
+      → (step-st : (x : X) → Resp (ds-sig D (idx x)) (step-cmd x) → X)
+      → (coh : (x : X) → (r : Resp (ds-sig D (idx x)) (step-cmd x))
+             → idx (step-st x r) ≡ ds-next D (idx x) (step-cmd x) r)
+      → (x : X) → RProc κ D A (idx x)
+rloop {κ} {D} {X} {A} idx step-cmd step-st coh x =
+  rcmd (idx x) (step-cmd x)
+       (λ r → λ α → transport (λ j → RProc κ D A (coh x r j)) (rloop idx step-cmd step-st coh (step-st x r)))
