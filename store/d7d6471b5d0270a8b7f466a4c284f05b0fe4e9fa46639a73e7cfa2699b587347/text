@@ -1,0 +1,10 @@
+-- GET /api/p2p/signal?id=<peer>&msg=<sdp> : stateless WebRTC rendezvous mailbox (zero media/compute on server)
+s-p2p-signal : List Word → List Word → Proc W (List Word)
+s-p2p-signal st q =
+  bind (h-mkdir (list-append st "/p2p")) (λ mk →
+  bind (if h-null (hi-clean (s-param "id" q)) then ret {lzero} {W} false
+        else if h-null (s-param "msg" q) then ret {lzero} {W} false
+        else h-write (list-append st (list-append "/p2p/" (hi-clean (s-param "id" q)))) (s-unescape (s-param "msg" q))) (λ wr →
+  bind (h-list (list-append st "/p2p")) (λ ids →
+  bind (s-live-read 24 (list-append st "/p2p") ids) (λ items →
+    ret {lzero} {W} (s-response "application/json" (h-concat (cons "{" (cons (s-cj-str "peers") (cons ":[" (cons (s-commas items) (cons "]}" nil)))))))))))

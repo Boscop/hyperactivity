@@ -1,0 +1,9 @@
+-- GET /api/live/pulse?id=<anon>&node=<path> : stateless O(1) presence beacon (zero open sockets)
+s-live-pulse : List Word → List Word → Proc W (List Word)
+s-live-pulse st q =
+  bind (h-mkdir (list-append st "/live")) (λ mk →
+  bind (if h-null (hi-clean (s-param "id" q)) then ret {lzero} {W} false
+        else h-write (list-append st (list-append "/live/" (hi-clean (s-param "id" q)))) (s-unescape (s-param "node" q))) (λ wr →
+  bind (h-list (list-append st "/live")) (λ ids →
+  bind (s-live-read 48 (list-append st "/live") ids) (λ items →
+    ret {lzero} {W} (s-response "application/json" (h-concat (cons "{" (cons (s-cj-str "live") (cons ":[" (cons (s-commas items) (cons "]}" nil)))))))))))
