@@ -1,0 +1,12 @@
+s-handle-text : Bool → List Word → List Word → Sum Unit (List Word) → Word → List Word → Proc W Unit
+s-handle-text pub st m tok c hdr =
+  let clen = h-number (um-header "content-length" hdr) in
+  let cap = if s-allowed pub tok hdr then #16777216 else #65536 in
+  if wlt cap clen
+  then bind (fd-write c (s-respond "413 Payload Too Large" "text/plain" "payload too large")) (λ w → ret {lzero} {W} unit)
+  else bind (if andB (wlt #0 clen) (h-infix "100-continue" (sx-lower (um-header "expect" hdr)))
+             then fd-write c (list-append "HTTP/1.1 100 Continue" (list-append h-crlf h-crlf))
+             else ret {lzero} {W} #0) (λ cont →
+    bind (s-read-body (toNat #4096) c clen nil) (λ body →
+    bind (s-request pub st m tok (list-append hdr body)) (λ resp →
+    bind (fd-write c resp) (λ w → ret {lzero} {W} unit))))

@@ -1,0 +1,7 @@
+-- stream a pre-built HTTP response file (already holding status + headers + body) straight to socket c in 64 KiB chunks (zero List Word allocation)
+s-stream-raw : Word → List Word → Proc W Bool
+s-stream-raw c path =
+  bind (s-open-ro path) (λ ffd →
+  if wlt #9223372036854775807 ffd then ret {lzero} {W} false
+  else bind (with-bytes {Bool} #65536 (λ buf → s-pump-all (toNat #1048576) ffd c buf)) (λ ok →
+    bind (sys-call #3 ffd #0 #0 #0 #0 #0) (λ cl → ret {lzero} {W} true)))

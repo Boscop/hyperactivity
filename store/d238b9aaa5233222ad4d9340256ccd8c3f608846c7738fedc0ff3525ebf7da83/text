@@ -1,0 +1,8 @@
+-- one connection answered: /healthz fast-path, zero-copy 64 KiB raw streaming for cached pages & binary packs, bounded body for dynamic routes
+s-handle-cached : Bool → List Word → List Word → Sum Unit (List Word) → Word → List Word → Proc W Unit
+s-handle-cached pub st m tok c hdr =
+  let p = h-before "?" (s-request-path hdr) in
+  bind (s-cached-route-file st p) (λ cf →
+  bind (if h-null cf then ret {lzero} {W} false else s-stream-raw c cf) (λ streamed →
+  if streamed then ret {lzero} {W} unit
+  else bind (s-request pub st m tok hdr) (λ resp → bind (fd-write c resp) (λ w → ret {lzero} {W} unit))))

@@ -5251,6 +5251,7 @@ int main(int argc, char **argv)
         }
     }
     const char *w = getenv("CUBICAL_WORKERS");
+    signal(SIGPIPE, SIG_IGN);
     prof_on = getenv("CUBICAL_PROFILE") != NULL;
     if (prof_on) signal(SIGTERM, prof_signal);
     prof_enter("(top level)");

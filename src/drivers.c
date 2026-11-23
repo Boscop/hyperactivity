@@ -87,7 +87,14 @@ static long hy_apple_sys(const uint64_t a[7]) {
     case 45: return (long)recvfrom((int)a[1], (void *)(uintptr_t)a[2], (size_t)a[3], (a[4] & 2u) ? MSG_PEEK : 0, (struct sockaddr *)(uintptr_t)a[5], (socklen_t *)(uintptr_t)a[6]);
     case 49: { uint8_t sa[128]; socklen_t sl = 0; hy_apple_sockaddr((const void *)(uintptr_t)a[2], (socklen_t)a[3], sa, &sl); return (long)bind((int)a[1], (const struct sockaddr *)sa, sl); }
     case 50: return (long)listen((int)a[1], (int)a[2]);
-    case 54: return (long)setsockopt((int)a[1], a[2] == 1 ? SOL_SOCKET : (int)a[2], (a[2] == 1 && a[3] == 2) ? SO_REUSEADDR : (int)a[3], (const void *)(uintptr_t)a[4], (socklen_t)a[5]);
+    case 54: {
+        int lvl = a[2] == 1 ? SOL_SOCKET : (int)a[2];
+        int opt = (a[2] == 1 && a[3] == 2) ? SO_REUSEADDR
+                : (a[2] == 1 && a[3] == 20) ? SO_RCVTIMEO
+                : (a[2] == 1 && a[3] == 21) ? SO_SNDTIMEO
+                : (int)a[3];
+        return (long)setsockopt((int)a[1], lvl, opt, (const void *)(uintptr_t)a[4], (socklen_t)a[5]);
+    }
     case 57: return (long)fork();
     case 59: return (long)execve((const char *)(uintptr_t)a[1], (char *const *)(uintptr_t)a[2], (char *const *)(uintptr_t)a[3]);
     case 61: { int st = 0; pid_t r = waitpid((pid_t)(int64_t)a[1], a[2] ? &st : NULL, (a[3] & 1u) ? WNOHANG : 0); if (r >= 0 && a[2]) *(uint64_t *)(uintptr_t)a[2] = (uint64_t)(uint32_t)st; return (long)r; }
