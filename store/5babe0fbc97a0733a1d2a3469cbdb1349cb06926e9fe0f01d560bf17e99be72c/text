@@ -1,0 +1,24 @@
+cs-hy-app-mono : (ev : CsHeap → CsEnv → CsExp → CsRes) →
+  ((hp1 : CsHeap) (env1 : CsEnv) (e : CsExp) → cs-res-mono hp1 (ev hp1 env1 e)) →
+  (fns : CsFns) (hp : CsHeap) (clo vx : CsVal) →
+  cs-res-mono hp (cs-hy-app ev fns hp clo vx)
+cs-hy-app-mono ev hev fns hp clo vx =
+  cs-opt-res-mono hp (cs-load hp clo zero)
+    (λ vfn → cs-bind-word vfn (λ fn → cs-bind-opt (cs-load hp clo (suc zero)) (λ var → cs-bind-word var (λ ar → cs-bind-opt (cs-load hp clo (suc (suc zero))) (λ vn → cs-bind-word vn (λ n → cs-bind-opt (cs-read-range hp clo (suc (suc (suc zero))) (toNat n)) (λ held → let all = cs-snoc CsVal held vx in if %weq (%wadd n #1) ar then cs-call-fn ev fns hp fn all else cs-hy-clo hp fn ar (%wadd n #1) all)))))))
+    (λ vfn → cs-word-res-mono hp vfn
+      (λ fn → cs-bind-opt (cs-load hp clo (suc zero)) (λ var → cs-bind-word var (λ ar → cs-bind-opt (cs-load hp clo (suc (suc zero))) (λ vn → cs-bind-word vn (λ n → cs-bind-opt (cs-read-range hp clo (suc (suc (suc zero))) (toNat n)) (λ held → let all = cs-snoc CsVal held vx in if %weq (%wadd n #1) ar then cs-call-fn ev fns hp fn all else cs-hy-clo hp fn ar (%wadd n #1) all))))))
+      (λ fn → cs-opt-res-mono hp (cs-load hp clo (suc zero))
+        (λ var → cs-bind-word var (λ ar → cs-bind-opt (cs-load hp clo (suc (suc zero))) (λ vn → cs-bind-word vn (λ n → cs-bind-opt (cs-read-range hp clo (suc (suc (suc zero))) (toNat n)) (λ held → let all = cs-snoc CsVal held vx in if %weq (%wadd n #1) ar then cs-call-fn ev fns hp fn all else cs-hy-clo hp fn ar (%wadd n #1) all)))))
+        (λ var → cs-word-res-mono hp var
+          (λ ar → cs-bind-opt (cs-load hp clo (suc (suc zero))) (λ vn → cs-bind-word vn (λ n → cs-bind-opt (cs-read-range hp clo (suc (suc (suc zero))) (toNat n)) (λ held → let all = cs-snoc CsVal held vx in if %weq (%wadd n #1) ar then cs-call-fn ev fns hp fn all else cs-hy-clo hp fn ar (%wadd n #1) all))))
+          (λ ar → cs-opt-res-mono hp (cs-load hp clo (suc (suc zero)))
+            (λ vn → cs-bind-word vn (λ n → cs-bind-opt (cs-read-range hp clo (suc (suc (suc zero))) (toNat n)) (λ held → let all = cs-snoc CsVal held vx in if %weq (%wadd n #1) ar then cs-call-fn ev fns hp fn all else cs-hy-clo hp fn ar (%wadd n #1) all)))
+            (λ vn → cs-word-res-mono hp vn
+              (λ n → cs-bind-opt (cs-read-range hp clo (suc (suc (suc zero))) (toNat n)) (λ held → let all = cs-snoc CsVal held vx in if %weq (%wadd n #1) ar then cs-call-fn ev fns hp fn all else cs-hy-clo hp fn ar (%wadd n #1) all))
+              (λ n → cs-opt-res-mono hp (cs-read-range hp clo (suc (suc (suc zero))) (toNat n))
+                (λ held → let all = cs-snoc CsVal held vx in if %weq (%wadd n #1) ar then cs-call-fn ev fns hp fn all else cs-hy-clo hp fn ar (%wadd n #1) all)
+                (λ held → cs-ite-res-mono (%weq (%wadd n #1) ar) hp
+                  (cs-call-fn ev fns hp fn (cs-snoc CsVal held vx))
+                  (cs-hy-clo hp fn ar (%wadd n #1) (cs-snoc CsVal held vx))
+                  (cs-call-fn-mono ev hev fns hp fn (cs-snoc CsVal held vx))
+                  (cs-alloc-ext hp (lcons (csv-word fn) (lcons (csv-word ar) (lcons (csv-word (%wadd n #1)) (cs-snoc CsVal held vx))))))))))))

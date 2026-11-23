@@ -1,0 +1,175 @@
+nk-ty-s : Nat → NkTm → NkTm → Word → NkTm → NkTm → NkTm
+nk-ty-s zero ksig ctx n t ex = nk-fail
+nk-ty-s (suc k) ksig ctx n (nk-free x) ex = nk-agree-s (nk-cty ctx n x) ex
+nk-ty-s (suc k) ksig ctx n (nk-num m) ex = nk-agree-s nk-N ex
+nk-ty-s (suc k) ksig ctx n (nk-susp b) ex = nk-ty-s k ksig ctx n b ex
+nk-ty-s (suc k) ksig ctx n (nk-lam b) (nk-con c (nk-cons a (nk-cons f r))) =
+  let kdefs = nk-nth (nk-args ksig) #1
+  in if %weq c #1
+       then (let c2 = nk-ext-s kdefs ctx n a
+             in if nk-failed (nk-ty-s k ksig c2 (%wsucc n) (nk-subst b #0 (nk-free n)) (nk-norm-in-s kdefs c2 (%wsucc n) (nk-app f (nk-free n))))
+                  then nk-fail else nk-pi a f)
+       else (if %weq c #4
+               then (let c2 = nk-ext-s kdefs ctx n nk-I
+                     in if nk-failed (nk-ty-s k ksig c2 (%wsucc n) (nk-subst b #0 (nk-free n)) (nk-norm-in-s kdefs c2 (%wsucc n) (nk-app a (nk-free n))))
+                          then nk-fail
+                          else (if nk-and (nk-eq-tm (nk-norm-in-s kdefs ctx n (nk-subst b #0 nk-i0)) f)
+                                          (nk-eq-tm (nk-norm-in-s kdefs ctx n (nk-subst b #0 nk-i1)) (nk-nth r #0))
+                                  then nk-con c (nk-cons a (nk-cons f r)) else nk-fail))
+               else nk-fail)
+nk-ty-s (suc k) ksig ctx n (nk-op h f as) ex =
+  let kdefs = nk-nth (nk-args ksig) #1
+  in if %weq h #4 then nk-ty-s k ksig ctx n f ex
+     else nk-agree-s
+       (if %weq h #0
+        then (let tf = nk-ty-s k ksig ctx n f nk-nil
+              in if nk-con-is tf #4
+                   then (if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #0) nk-I) then nk-fail else nk-norm-in-s kdefs ctx n (nk-app (nk-nth (nk-args tf) #0) (nk-nth as #0)))
+                   else (if nk-con-is tf #1
+                           then (if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #0) (nk-nth (nk-args tf) #0)) then nk-fail else nk-norm-in-s kdefs ctx n (nk-app (nk-nth (nk-args tf) #1) (nk-nth as #0)))
+                           else nk-fail))
+        else (if %weq h #1 then (if nk-failed (nk-ty-s k ksig ctx n f nk-N) then nk-fail else nk-N)
+        else (if %weq h #5 then (if nk-failed (nk-ty-s k ksig ctx n f nk-I) then nk-fail else nk-I)
+        else (if (if %weq h #6 then true else %weq h #7) then (if nk-failed (nk-ty-s k ksig ctx n f nk-I) then nk-fail else (if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #0) nk-I) then nk-fail else nk-I))
+        else (if %weq h #20 then (if nk-failed (nk-is-u (nk-ty-s k ksig ctx n (nk-con #36 (nk-cons nk-I (nk-cons f nk-nil))) nk-nil)) then nk-fail else (if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #0) nk-I) then nk-fail else (if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #1) (nk-norm-in-s kdefs ctx n (nk-app f nk-i0))) then nk-fail else (if nk-const-on-s kdefs ctx n f (nk-clauses-of (nk-norm-in-s kdefs ctx n (nk-nth as #0))) then nk-norm-in-s kdefs ctx n (nk-app f nk-i1) else nk-fail))))
+        else (if %weq h #9 then (let tp = nk-ty-s k ksig ctx n f nk-nil in if nk-con-is tp #6 then nk-nth (nk-args tp) #0 else nk-fail)
+        else (if %weq h #10 then (let tp = nk-ty-s k ksig ctx n f nk-nil in if nk-con-is tp #6 then nk-norm-in-s kdefs ctx n (nk-app (nk-nth (nk-args tp) #1) (nk-op #9 f nk-nil)) else nk-fail)
+        else (if %weq h #22 then (let tp = nk-ty-s k ksig ctx n f nk-nil in if nk-con-is tp #7 then (if nk-eq-tm (nk-norm-in-s kdefs ctx n (nk-nth as #0)) (nk-nth (nk-args tp) #1) then nk-nth (nk-args tp) #0 else nk-fail) else nk-fail)
+        else (if %weq h #21 then (if nk-failed (nk-is-u (nk-ty-s k ksig ctx n f nk-nil)) then nk-fail else (if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #1) (nk-norm-in-s kdefs ctx n f)) then nk-fail else (if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #0) (nk-con #32 (nk-cons f (nk-cons (nk-nth as #1) nk-nil)))) then nk-fail else (if nk-compat-s2 kdefs ctx n (nk-args (nk-nth as #0)) then nk-norm-in-s kdefs ctx n f else nk-fail))))
+        else (if %weq h #8
+              then (let tp = nk-ty-s k ksig ctx n (nk-nth as #0) nk-nil
+                    in if nk-con-is tp #4 then (if nk-failed (nk-ty-s k ksig ctx n f nk-I) then nk-fail else nk-norm-in-s kdefs ctx n (nk-app (nk-nth (nk-args tp) #0) f)) else nk-fail)
+              else nk-fail))))))))))
+       ex
+nk-ty-s (suc k) ksig ctx n (nk-match h p cs) ex =
+  let kdatas = nk-nth (nk-args ksig) #0
+      kdefs = nk-nth (nk-args ksig) #1
+  in if %weq h #11
+       then (if nk-failed (nk-ty-s k ksig ctx n p nk-N) then nk-fail
+             else (if nk-failed (nk-ty-s k ksig ctx n (nk-branch cs #1) nk-N) then nk-fail
+             else (let op = nk-code (nk-branch cs #0)
+                   in if %wlt #12 op then nk-fail else nk-agree-s (if %wlt op #2 then nk-bool-ty else nk-N) ex)))
+       else (if %weq h #12
+               then (if nk-failed (nk-ty-s k ksig ctx n p nk-N) then nk-fail
+                     else (let op = nk-code (nk-branch cs #0)
+                           in if %wlt #12 op then nk-fail else nk-agree-s (if %wlt op #2 then nk-bool-ty else nk-N) ex))
+               else (if %weq h #13
+                       then (if nk-failed (nk-ty-s k ksig ctx n p nk-N) then nk-fail
+                             else (let mot = nk-branch cs #0
+                                       z = nk-unwrap-susp (nk-branch cs #1)
+                                       s = nk-unwrap-susp (nk-branch cs #2)
+                                   in if nk-tm-eq (nk-args mot) nk-nil
+                                        then (let R = if nk-tm-eq ex nk-nil then nk-ty-s k ksig ctx n z nk-nil else ex
+                                              in if nk-failed R then nk-fail
+                                                 else (if nk-failed (nk-ty-s k ksig ctx n z R) then nk-fail
+                                                       else (if nk-failed (nk-ty-s k ksig ctx n s (nk-pi nk-N (nk-lam (nk-pi (nk-up R) (nk-lam (nk-up2 R)))))) then nk-fail
+                                                             else nk-agree-s R ex)))
+                                        else (let P = nk-nth (nk-args mot) #0
+                                                  c2 = nk-ext-s kdefs ctx n nk-N
+                                              in if nk-failed (nk-is-u (nk-ty-s k ksig c2 (%wsucc n) (nk-app P (nk-free n)) nk-nil)) then nk-fail
+                                                 else (if nk-failed (nk-ty-s k ksig ctx n z (nk-norm-in-s kdefs ctx n (nk-app P (nk-num #0)))) then nk-fail
+                                                       else (let stTy = nk-norm-in-s kdefs ctx n (nk-pi nk-N (nk-lam (nk-pi (nk-app (nk-up P) (nk-var #0)) (nk-lam (nk-app (nk-up2 P) (nk-inc (nk-var #1)))))))
+                                                             in if nk-failed (nk-ty-s k ksig ctx n s stTy) then nk-fail
+                                                                else nk-agree-s (nk-norm-in-s kdefs ctx n (nk-app P p)) ex)))))
+                       else (if %weq h #3
+                               then (let tx = nk-ty-s k ksig ctx n p nk-nil
+                                     in if nk-con-is tx #41
+                                          then (let di = nk-code (nk-nth (nk-args tx) #0)
+                                                    ps = nk-tail (nk-args tx)
+                                                    dentry = nk-nth kdatas di
+                                                in if nk-failed dentry then nk-fail
+                                                   else (let hyps = nk-kd-hyps dentry
+                                                             ctys = nk-kd-ctors dentry
+                                                             mot = nk-branch cs #1
+                                                             brs = nk-tail (nk-tail cs)
+                                                         in if nk-tm-eq (nk-branch cs #0) hyps
+                                                              then (if nk-tm-eq (nk-args mot) nk-nil
+                                                                      then (let R = if nk-tm-eq ex nk-nil then nk-infer-brs (nk-ty-s k ksig) kdefs ctx n di ps ctys (nk-args hyps) brs else ex
+                                                                            in if nk-failed R then nk-fail
+                                                                               else (if nk-check-brs (nk-ty-s k ksig) kdefs ctx n di ps (nk-lam (nk-up R)) #0 ctys (nk-args hyps) brs
+                                                                                       then nk-agree-s R ex else nk-fail))
+                                                                      else (let P = nk-nth (nk-args mot) #0
+                                                                                c2 = nk-ext-s kdefs ctx n tx
+                                                                            in if nk-failed (nk-is-u (nk-ty-s k ksig c2 (%wsucc n) (nk-app P (nk-free n)) nk-nil)) then nk-fail
+                                                                               else (if nk-check-brs (nk-ty-s k ksig) kdefs ctx n di ps P #0 ctys (nk-args hyps) brs
+                                                                                       then nk-agree-s (nk-norm-in-s kdefs ctx n (nk-app P p)) ex else nk-fail)))
+                                                              else nk-fail))
+                                          else nk-fail)
+                               else nk-fail)))
+nk-ty-s (suc k) ksig ctx n (nk-con c as) ex =
+  let kdatas = nk-nth (nk-args ksig) #0
+      kdefs = nk-nth (nk-args ksig) #1
+  in if %weq c #51
+       then (if nk-failed (nk-is-u (nk-ty-s k ksig ctx n (nk-nth as #1) nk-nil)) then nk-fail
+             else (let Tv = nk-norm-in-s kdefs ctx n (nk-nth as #1)
+                   in if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #0) Tv) then nk-fail else nk-agree-s Tv ex))
+  else (if %weq c #52
+          then (let Tv = nk-ty-s k ksig ctx n (nk-nth as #0) nk-nil
+                in if nk-failed Tv then nk-fail
+                   else (let c2 = nk-cons (nk-ent Tv (nk-sub-forms ctx n (nk-nth as #0))) ctx
+                         in nk-ty-s k ksig c2 (%wsucc n) (nk-subst (nk-lam-body (nk-nth as #1)) #0 (nk-free n)) ex))
+  else (if %weq c #54
+          then (let gentry = nk-nth kdefs (nk-code (nk-nth as #0))
+                in if nk-failed gentry then nk-fail else nk-agree-s (nk-nth (nk-args gentry) #1) ex)
+  else (if %weq c #30 then (if nk-tm-eq as nk-nil then nk-U else (if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #0) ex) then nk-fail else nk-ty-s k ksig ctx n (nk-con #30 (nk-tail as)) ex))
+  else (if %weq c #31 then (if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #0) nk-I) then nk-fail else nk-ty-s k ksig ctx n (nk-con #33 (nk-cons (nk-clauses-of (nk-norm-in-s kdefs ctx n (nk-nth as #0))) (nk-cons (nk-nth as #1) nk-nil))) ex)
+  else (if %weq c #0 then (if nk-con-is ex #6 then (if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #0) (nk-nth (nk-args ex) #0)) then nk-fail else (if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #1) (nk-norm-in-s kdefs ctx n (nk-app (nk-nth (nk-args ex) #1) (nk-nth as #0)))) then nk-fail else ex)) else nk-fail)
+  else (if %weq c #8 then (if nk-con-is ex #7 then (if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #1) (nk-nth (nk-args ex) #0)) then nk-fail else (if nk-faces-eq-s kdefs ctx n (nk-args (nk-nth as #0)) (nk-args (nk-nth (nk-args ex) #1)) then (if nk-failed (nk-ty-s k ksig ctx n (nk-sys (nk-zip-sys (nk-args (nk-nth as #0)) (nk-args (nk-nth (nk-args ex) #1)))) (nk-con #35 (nk-cons (nk-nth as #1) nk-nil))) then nk-fail else (if nk-compat-s2 kdefs ctx n (nk-args (nk-nth as #0)) then ex else nk-fail)) else nk-fail)) else nk-fail)
+  else (if %weq c #36 then (if nk-is-lam (nk-nth as #1) then (let c2 = nk-ext-s kdefs ctx n (nk-nth as #0) in nk-ty-s k ksig c2 (%wsucc n) (nk-subst (nk-lam-body (nk-nth as #1)) #0 (nk-free n)) nk-nil) else (let tf = nk-ty-s k ksig ctx n (nk-nth as #1) nk-nil in if nk-con-is tf #1 then (if nk-eq-tm (nk-nth (nk-args tf) #0) (nk-nth as #0) then nk-norm-in-s kdefs (nk-ext-s kdefs ctx n (nk-nth as #0)) (%wsucc n) (nk-app (nk-nth (nk-args tf) #1) (nk-free n)) else nk-fail) else nk-fail))
+  else (if %weq c #33 then (if nk-tm-eq (nk-nth as #0) nk-nil then nk-U
+        else (if nk-con-is ex #34
+              then (if nk-failed (nk-ty-s k ksig (nk-sub-clause (nk-nth (nk-nth as #0) #0) ctx) n (nk-sub-clause (nk-nth (nk-nth as #0) #0) (nk-nth as #1)) (nk-norm-in-s kdefs (nk-sub-clause (nk-nth (nk-nth as #0) #0) ctx) n (nk-sig (nk-nth (nk-args ex) #1) (nk-lam (nk-equiv (nk-var #0) (nk-up (nk-sub-clause (nk-nth (nk-nth as #0) #0) (nk-nth (nk-args ex) #0)))))))) then nk-fail else nk-ty-s k ksig ctx n (nk-con #33 (nk-cons (nk-tail (nk-nth as #0)) (nk-cons (nk-nth as #1) nk-nil))) ex)
+        else (if nk-con-is ex #35
+              then (if nk-failed (nk-ty-s k ksig (nk-sub-clause (nk-nth (nk-nth as #0) #0) ctx) n (nk-bf (nk-sub-clause (nk-nth (nk-nth as #0) #0) (nk-nth as #1))) (nk-norm-in-s kdefs (nk-sub-clause (nk-nth (nk-nth as #0) #0) ctx) n (nk-p1 (nk-bv (nk-sub-clause (nk-nth (nk-nth as #0) #0) (nk-nth as #1)))))) then nk-fail else (if nk-eq-tm (nk-norm-in-s kdefs (nk-sub-clause (nk-nth (nk-nth as #0) #0) ctx) n (nk-app (nk-p1 (nk-p2 (nk-bv (nk-sub-clause (nk-nth (nk-nth as #0) #0) (nk-nth as #1))))) (nk-bf (nk-sub-clause (nk-nth (nk-nth as #0) #0) (nk-nth as #1))))) (nk-norm-in-s kdefs (nk-sub-clause (nk-nth (nk-nth as #0) #0) ctx) n (nk-sub-clause (nk-nth (nk-nth as #0) #0) (nk-nth (nk-args ex) #0))) then nk-ty-s k ksig ctx n (nk-con #33 (nk-cons (nk-tail (nk-nth as #0)) (nk-cons (nk-nth as #1) nk-nil))) ex else nk-fail))
+        else (if nk-failed (nk-ty-s k ksig (nk-sub-clause (nk-nth (nk-nth as #0) #0) ctx) n (nk-sub-clause (nk-nth (nk-nth as #0) #0) (nk-nth as #1)) (nk-pi nk-I (nk-lam (nk-norm-in-s kdefs (nk-sub-clause (nk-nth (nk-nth as #0) #0) ctx) n (nk-sub-clause (nk-nth (nk-nth as #0) #0) (nk-nth (nk-args ex) #0)))))) then nk-fail
+        else (if nk-eq-tm (nk-norm-in-s kdefs (nk-sub-clause (nk-nth (nk-nth as #0) #0) ctx) n (nk-app (nk-sub-clause (nk-nth (nk-nth as #0) #0) (nk-nth as #1)) nk-i0)) (nk-norm-in-s kdefs (nk-sub-clause (nk-nth (nk-nth as #0) #0) ctx) n (nk-sub-clause (nk-nth (nk-nth as #0) #0) (nk-nth (nk-args ex) #1))) then nk-ty-s k ksig ctx n (nk-con #33 (nk-cons (nk-tail (nk-nth as #0)) (nk-cons (nk-nth as #1) nk-nil))) ex else nk-fail)))))
+  else (if nk-is-dcon c
+          then (let di = nk-dc-d c
+                    j = nk-dc-k c
+                    dentry = nk-nth kdatas di
+                in if nk-failed dentry then nk-fail
+                   else (let cty = nk-nth (nk-kd-ctors dentry) j
+                             recs = nk-args (nk-nth (nk-args (nk-kd-hyps dentry)) j)
+                         in if nk-failed cty then nk-fail
+                            else (if %weq (nk-el-len as) (nk-el-len recs)
+                                    then (if nk-con-is ex #41
+                                            then (if %weq di (nk-code (nk-nth (nk-args ex) #0))
+                                                    then (let ps = nk-tail (nk-args ex)
+                                                          in if nk-failed (nk-ty-spine (nk-ty-s k ksig) kdefs ctx n as (nk-app-list cty ps)) then nk-fail else ex)
+                                                    else nk-fail)
+                                            else (if nk-tm-eq ex nk-nil
+                                                    then (if %weq (nk-kd-np dentry) #0
+                                                            then (if nk-failed (nk-ty-spine (nk-ty-s k ksig) kdefs ctx n as cty) then nk-fail else nk-data-ty di nk-nil)
+                                                            else nk-fail)
+                                                    else nk-fail))
+                                    else nk-fail)))
+  else
+  nk-agree-s
+    (if (if %weq c #1 then true else %weq c #6)
+     then (let la = nk-ty-s k ksig ctx n (nk-nth as #0) nk-nil
+               lb = nk-ty-s k ksig ctx n (nk-con #36 (nk-cons (nk-norm-in-s kdefs ctx n (nk-nth as #0)) (nk-cons (nk-nth as #1) nk-nil))) nk-nil
+           in if nk-con-is la #2 then (if nk-con-is lb #2 then nk-umax la lb else nk-fail) else nk-fail)
+     else (if %weq c #4
+           then (if nk-failed (nk-is-u (nk-ty-s k ksig ctx n (nk-con #36 (nk-cons nk-I (nk-cons (nk-nth as #0) nk-nil))) nk-nil)) then nk-fail
+                 else (if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #1) (nk-norm-in-s kdefs ctx n (nk-app (nk-nth as #0) nk-i0))) then nk-fail
+                 else (if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #2) (nk-norm-in-s kdefs ctx n (nk-app (nk-nth as #0) nk-i1))) then nk-fail else nk-ty-s k ksig ctx n (nk-con #36 (nk-cons nk-I (nk-cons (nk-nth as #0) nk-nil))) nk-nil)))
+     else (if %weq c #7 then (if nk-failed (nk-is-u (nk-ty-s k ksig ctx n (nk-nth as #0) nk-nil)) then nk-fail else (if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #1) (nk-con #34 (nk-cons (nk-nth as #0) (nk-cons (nk-ty-s k ksig ctx n (nk-nth as #0) nk-nil) nk-nil)))) then nk-fail else (if nk-compat-s2 kdefs ctx n (nk-args (nk-nth as #1)) then nk-ty-s k ksig ctx n (nk-nth as #0) nk-nil else nk-fail)))
+     else (if %weq c #41
+           then (let dentry = nk-nth kdatas (nk-code (nk-nth as #0))
+                     ps = nk-tail as
+                 in if nk-failed dentry then nk-fail
+                    else (if %weq (nk-el-len ps) (nk-kd-np dentry)
+                            then nk-ty-spine (nk-ty-s k ksig) kdefs ctx n ps (nk-kd-form dentry)
+                            else nk-fail))
+     else (if %weq c #44 then nk-con #2 (nk-cons (nk-con #48 nk-nil) nk-nil)
+     else (if %weq c #45 then nk-con #44 nk-nil
+     else (if %weq c #46 then (if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #0) (nk-con #44 nk-nil)) then nk-fail else nk-con #44 nk-nil)
+     else (if %weq c #47 then (if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #0) (nk-con #44 nk-nil)) then nk-fail else (if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #1) (nk-con #44 nk-nil)) then nk-fail else nk-con #44 nk-nil))
+     else (if %weq c #10 then nk-I else (if %weq c #11 then nk-I
+     else (if %weq c #2
+           then (if nk-tm-eq as nk-nil then nk-Ul #1
+                 else (if nk-is-num (nk-nth as #0) then nk-Ul (%wsucc (nk-code (nk-nth as #0)))
+                 else (if nk-failed (nk-ty-s k ksig ctx n (nk-nth as #0) (nk-con #44 nk-nil)) then nk-fail else nk-usuc (nk-con #2 as))))
+     else (if %weq c #3 then nk-U else (if %weq c #5 then nk-U else nk-fail)))))))))))))
+    ex)))))))))
+nk-ty-s (suc k) ksig ctx n t ex = nk-fail

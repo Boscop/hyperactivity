@@ -1,0 +1,42 @@
+nk-uses-var-fo-sound : (k : Nat) (t : NkTm) (e1 e2 : NkEv) →
+  (nk-fo-tm t ≡ true) →
+  ((i : Word) → (nk-uses-var #0 i t ≡ true) → nk-ev-nth e1 i ≡ nk-ev-nth e2 i) →
+  nk-ev-go k (nkevj-tm t e1) ≡ nk-ev-go k (nkevj-tm t e2)
+nk-uses-var-fo-sound zero t e1 e2 hfo eq = refl
+nk-uses-var-fo-sound (suc k) (nk-var i) e1 e2 hfo eq = eq i (nk-uses-var-self i)
+nk-uses-var-fo-sound (suc k) (nk-free x) e1 e2 hfo eq = refl
+nk-uses-var-fo-sound (suc k) (nk-num m) e1 e2 hfo eq = refl
+nk-uses-var-fo-sound (suc k) (nk-lam b) e1 e2 hfo eq = nk-no hfo
+nk-uses-var-fo-sound (suc k) (nk-susp b) e1 e2 hfo eq = nk-no hfo
+nk-uses-var-fo-sound (suc k) (nk-con c as) e1 e2 hfo eq =
+  let fcar = nk-fo-bcar as hfo
+      fcadr = nk-fo-bcadr as hfo
+      f52 = nk-and-intro (nk-fo-tm (nk-bcadr as)) (nk-and (nk-fo-tm (nk-bcar as)) true)
+              fcadr (nk-and-intro (nk-fo-tm (nk-bcar as)) true fcar refl)
+      t52 = nk-op #0 (nk-bcadr as) (nk-cons (nk-bcar as) nk-nil)
+  in nk-con-ev-eq (%weq c #51) (%weq c #52) c
+       (nk-ev-go k (nkevj-tm (nk-bcar as) e1))
+       (nk-ev-go k (nkevj-tm t52 e1))
+       (nk-ev-go k (nkevj-tm as e1))
+       (nk-ev-go k (nkevj-tm (nk-bcar as) e2))
+       (nk-ev-go k (nkevj-tm t52 e2))
+       (nk-ev-go k (nkevj-tm as e2))
+       (nk-uses-var-fo-sound k (nk-bcar as) e1 e2 fcar (λ i hu → eq i (nk-uses-bcar i as hu)))
+       (nk-uses-var-fo-sound k t52 e1 e2 f52 (λ i hu → eq i (nk-uses-con52 i as hu)))
+       (nk-uses-var-fo-sound k as e1 e2 hfo eq)
+nk-uses-var-fo-sound (suc k) (nk-op h p as) e1 e2 hfo eq =
+  let fp = nk-and-l (nk-fo-tm p) (nk-fo-tm as) hfo
+      fas = nk-and-r (nk-fo-tm p) (nk-fo-tm as) hfo
+      eq_as = nk-uses-var-fo-sound k as e1 e2 fas (λ i hu → eq i (nk-or-r (nk-uses-var #0 i p) (nk-uses-var #0 i as) hu))
+      eq_p = nk-uses-var-fo-sound k p e1 e2 fp (λ i hu → eq i (nk-or-l (nk-uses-var #0 i p) (nk-uses-var #0 i as) hu))
+  in cong (λ z → nk-ev-go k (nkevj-el h nk-nil z (nk-ev-go k (nkevj-tm p e1)))) eq_as
+     ∙ cong (λ z → nk-ev-go k (nkevj-el h nk-nil (nk-ev-go k (nkevj-tm as e2)) z)) eq_p
+nk-uses-var-fo-sound (suc k) (nk-match h p cs) e1 e2 hfo eq = nk-no hfo
+nk-uses-var-fo-sound (suc k) nk-nil e1 e2 hfo eq = refl
+nk-uses-var-fo-sound (suc k) (nk-cons a d) e1 e2 hfo eq =
+  let fa = nk-and-l (nk-fo-tm a) (nk-fo-tm d) hfo
+      fd = nk-and-r (nk-fo-tm a) (nk-fo-tm d) hfo
+      eq_a = nk-uses-var-fo-sound k a e1 e2 fa (λ i hu → eq i (nk-or-l (nk-uses-var #0 i a) (nk-uses-var #0 i d) hu))
+      eq_d = nk-uses-var-fo-sound k d e1 e2 fd (λ i hu → eq i (nk-or-r (nk-uses-var #0 i a) (nk-uses-var #0 i d) hu))
+  in cong (λ z → nkev-cons z (nk-ev-go k (nkevj-tm d e1))) eq_a
+     ∙ cong (λ z → nkev-cons (nk-ev-go k (nkevj-tm a e2)) z) eq_d

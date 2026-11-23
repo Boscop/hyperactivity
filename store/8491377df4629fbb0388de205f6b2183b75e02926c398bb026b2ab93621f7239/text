@@ -1,0 +1,10 @@
+-- Template: cwelim as C for-loop (exact Nat-indexed iteration and UB-freedom preservation)
+cs-for-template-sound : (k j : Nat) (fns : CsFns) (ars : Lst (Word × Word)) (hp hp1 hp2 : CsHeap) (env : CsEnv) (d : Word) (w z b : Code) (mo : Opt Code) (vw : Word) (vz : CsVal) →
+  (cs-eval k fns hp env (cs-compile j ars d w) ≡ cs-ok hp1 (csv-word vw)) →
+  (cs-eval k fns hp1 env (cs-compile j ars d z) ≡ cs-ok hp2 vz) →
+  cs-eval (suc k) fns hp env (cs-compile (suc j) ars d (cwelim w z (clam (clam b)) mo))
+  ≡ cs-for-loop (cs-eval k fns) (toNat vw) #0 d hp2 vz env (cs-compile j ars (%wadd d #2) b)
+cs-for-template-sound k j fns ars hp hp1 hp2 env d w z b mo vw vz hw hz =
+  let step_exp = cs-compile j ars (%wadd d #2) b
+  in cong (λ r → cs-bind-res r (λ h1 v1 → cs-bind-word v1 (λ w0 → cs-bind-res (cs-eval k fns h1 env (cs-compile j ars d z)) (λ h2 v2 → cs-for-loop (cs-eval k fns) (toNat w0) #0 d h2 v2 env step_exp)))) hw
+     ∙ cong (λ r → cs-bind-res r (λ h2 v2 → cs-for-loop (cs-eval k fns) (toNat vw) #0 d h2 v2 env step_exp)) hz

@@ -1,0 +1,14 @@
+cs-sim-switch-val : (ev_c : CsHeap → CsEnv → CsExp → CsRes) (hp1 : CsHeap) (cenv : CsEnv) (d : Word) (mc : CsMVal) (vc : CsVal) (om_t om_f : CsOptM) (bt bf : CsExp) →
+  (cs-val-rel hp1 mc vc ≡ true) →
+  (cs-sim-ok om_t (ev_c hp1 cenv bt) ≡ true) →
+  (cs-sim-ok om_f (ev_c hp1 cenv bf) ≡ true) →
+  cs-sim-ok (case mc return (λ _ → CsOptM) of cmv-word w → csom-none; cmv-pair a b → csom-none; cmv-bool bc → if bc then om_t else om_f)
+    (cs-bind-opt (cs-load hp1 vc zero)
+      (λ vtag → cs-bind-word vtag
+        (λ tag → cs-eval-switch ev_c hp1 cenv vc tag
+          (cse-br-cons #0 d #0 bt (cse-br-cons #1 d #0 bf cse-br-nil))))) ≡ true
+cs-sim-switch-val ev_c hp1 cenv d (cmv-word w) vc om_t om_f bt bf hrel ht hf = refl
+cs-sim-switch-val ev_c hp1 cenv d (cmv-pair a b) vc om_t om_f bt bf hrel ht hf = refl
+cs-sim-switch-val ev_c hp1 cenv d (cmv-bool bc) (csv-word w) om_t om_f bt bf hrel ht hf = cs-no hrel
+cs-sim-switch-val ev_c hp1 cenv d (cmv-bool bc) (csv-ptr addr) om_t om_f bt bf hrel ht hf =
+  cs-sim-switch-ov bc ev_c hp1 cenv d addr (cs-loadv hp1 (csv-ptr addr) zero) om_t om_f bt bf refl hrel ht hf

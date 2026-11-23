@@ -1,0 +1,37 @@
+cs-code10-eval : (Word → Word → Word) → (Lst CsMVal → Code → CsOptM) → Lst CsMVal → CsCode10 → CsOptM
+cs-code10-eval nf_of ev menv (cc10-var n) = cs-mget menv n
+cs-code10-eval nf_of ev menv (cc10-wlit w) =
+  if cs-w64 w then csom-some (cmv-word w) else csom-none
+cs-code10-eval nf_of ev menv (cc10-wsucc a) =
+  cs-bind-om (ev menv a) (λ ma →
+  cs-bind-mword ma (λ wa →
+    if cs-w64 (%wadd wa #1) then csom-some (cmv-word (%wadd wa #1)) else csom-none))
+cs-code10-eval nf_of ev menv (cc10-wop j a b) =
+  cs-bind-om (ev menv a) (λ ma →
+  cs-bind-mword ma (λ wa →
+  cs-bind-om (ev menv b) (λ mb →
+  cs-bind-mword mb (λ wb →
+    cs-code-wop j wa wb))))
+cs-code10-eval nf_of ev menv (cc10-let t b) =
+  cs-bind-om (ev menv t) (λ mt → ev (lcons mt menv) b)
+cs-code10-eval nf_of ev menv (cc10-pair a b) =
+  cs-bind-om (ev menv a) (λ ma →
+  cs-bind-om (ev menv b) (λ mb →
+    csom-some (cmv-pair ma mb)))
+cs-code10-eval nf_of ev menv (cc10-fst p) =
+  cs-bind-om (ev menv p) (λ mp →
+    case mp return (λ _ → CsOptM) of
+      cmv-word w → csom-none
+      cmv-bool b → csom-none
+      cmv-pair ma mb → csom-some ma)
+cs-code10-eval nf_of ev menv (cc10-snd p) =
+  cs-bind-om (ev menv p) (λ mp →
+    case mp return (λ _ → CsOptM) of
+      cmv-word w → csom-none
+      cmv-bool b → csom-none
+      cmv-pair ma mb → csom-some mb)
+cs-code10-eval nf_of ev menv (cc10-case dd B cond) =
+  if c-and (%weq (nf_of dd #0) #0) (%weq (nf_of dd #1) #0)
+    then cs-eval-bool-brs (ev menv) (cs-as-bool-brs B) (ev menv cond)
+    else csom-none
+cs-code10-eval nf_of ev menv cc10-other = csom-none

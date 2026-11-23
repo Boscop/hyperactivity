@@ -1,0 +1,20 @@
+cs-pair-rel-mono-at : (hp1 hp2 : CsHeap) (addr : Nat) (a b : CsMVal) (ov1 ov2 : CsOptV) →
+  cs-heap-ext hp1 hp2 →
+  ((v : CsVal) → (cs-val-rel hp1 a v ≡ true) → cs-val-rel hp2 a v ≡ true) →
+  ((v : CsVal) → (cs-val-rel hp1 b v ≡ true) → cs-val-rel hp2 b v ≡ true) →
+  (cs-loadv hp1 (csv-ptr addr) (suc zero) ≡ ov1) →
+  (cs-loadv hp1 (csv-ptr addr) (suc (suc zero)) ≡ ov2) →
+  (cs-pair-rel-ov (cs-val-rel hp1 a) (cs-val-rel hp1 b) ov1 ov2 ≡ true) →
+  cs-pair-rel-ov (cs-val-rel hp2 a) (cs-val-rel hp2 b)
+    (cs-loadv hp2 (csv-ptr addr) (suc zero))
+    (cs-loadv hp2 (csv-ptr addr) (suc (suc zero))) ≡ true
+cs-pair-rel-mono-at hp1 hp2 addr a b csov-none ov2 ext iha ihb ho1 ho2 hv = cs-no hv
+cs-pair-rel-mono-at hp1 hp2 addr a b (csov-some va) csov-none ext iha ihb ho1 ho2 hv = cs-no hv
+cs-pair-rel-mono-at hp1 hp2 addr a b (csov-some va) (csov-some vb) ext iha ihb ho1 ho2 hv =
+  let ha1 = csr-and-l (cs-val-rel hp1 a va) (cs-val-rel hp1 b vb) hv
+      hb1 = csr-and-r (cs-val-rel hp1 a va) (cs-val-rel hp1 b vb) hv
+      ld1 = cs-ext-loadv hp1 hp2 addr (suc zero) va ext ho1
+      ld2 = cs-ext-loadv hp1 hp2 addr (suc (suc zero)) vb ext ho2
+  in cong (λ o → cs-pair-rel-ov (cs-val-rel hp2 a) (cs-val-rel hp2 b) o (cs-loadv hp2 (csv-ptr addr) (suc (suc zero)))) ld1
+     ∙ (cong (cs-pair-rel-ov (cs-val-rel hp2 a) (cs-val-rel hp2 b) (csov-some va)) ld2
+        ∙ cs-c-and-true (cs-val-rel hp2 a va) (cs-val-rel hp2 b vb) (iha va ha1) (ihb vb hb1))

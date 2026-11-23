@@ -1,0 +1,78 @@
+nk-of-code-s : Nat → NkRawSig → Code → NkTm
+nk-of-code-s zero rsig c = nk-fail
+nk-of-code-s (suc k) rsig (cvar n) = nk-var n
+nk-of-code-s (suc k) rsig (cglob g) =
+  case nk-def-idx (snd rsig) g #0 return (λ _ → NkTm) of
+    some gi → nk-con #54 (nk-cons (nk-num gi) nk-nil)
+    none → nk-fail
+nk-of-code-s (suc k) rsig (clam b) = nk-lam (nk-of-code-s k rsig b)
+nk-of-code-s (suc k) rsig (cplam b) = nk-lam (nk-of-code-s k rsig b)
+nk-of-code-s (suc k) rsig (capp f a) = nk-app (nk-of-code-s k rsig f) (nk-of-code-s k rsig a)
+nk-of-code-s (suc k) rsig (cpapp p r) = nk-app (nk-of-code-s k rsig p) (nk-of-code-s k rsig r)
+nk-of-code-s (suc k) rsig (cpi m A B) = nk-pi (nk-of-code-s k rsig A) (nk-lam (nk-of-code-s k rsig B))
+nk-of-code-s (suc k) rsig (csigma A B) = nk-sig (nk-of-code-s k rsig A) (nk-lam (nk-of-code-s k rsig B))
+nk-of-code-s (suc k) rsig (cpair a b) = nk-mkpair (nk-of-code-s k rsig a) (nk-of-code-s k rsig b)
+nk-of-code-s (suc k) rsig (cfst p) = nk-p1 (nk-of-code-s k rsig p)
+nk-of-code-s (suc k) rsig (csnd p) = nk-p2 (nk-of-code-s k rsig p)
+nk-of-code-s (suc k) rsig (cuniv l) = nk-con #2 (nk-cons (nk-of-code-s k rsig l) nk-nil)
+nk-of-code-s (suc k) rsig clevel = nk-con #44 nk-nil
+nk-of-code-s (suc k) rsig clzero = nk-con #45 nk-nil
+nk-of-code-s (suc k) rsig (clsuc l) = nk-con #46 (nk-cons (nk-of-code-s k rsig l) nk-nil)
+nk-of-code-s (suc k) rsig (clmax a b) = nk-con #47 (nk-cons (nk-of-code-s k rsig a) (nk-cons (nk-of-code-s k rsig b) nk-nil))
+nk-of-code-s (suc k) rsig cword = nk-N
+nk-of-code-s (suc k) rsig (cwlit m) = nk-num m
+nk-of-code-s (suc k) rsig (cwsucc a) = nk-inc (nk-of-code-s k rsig a)
+nk-of-code-s (suc k) rsig (cwop op a b) = nk-match #11 (nk-of-code-s k rsig a) (nk-cons (nk-num op) (nk-cons (nk-of-code-s k rsig b) nk-nil))
+nk-of-code-s (suc k) rsig (cwelim w z s mo) =
+  let mot = case mo return (λ _ → NkTm) of
+              some P → nk-con #43 (nk-cons (nk-of-code-s k rsig P) nk-nil)
+              none → nk-con #43 nk-nil
+  in nk-match #13 (nk-of-code-s k rsig w) (nk-cons mot (nk-cons (nk-susp (nk-of-code-s k rsig z)) (nk-cons (nk-susp (nk-of-code-s k rsig s)) nk-nil)))
+nk-of-code-s (suc k) rsig (cpathp A a b) = nk-pathp (nk-of-code-s k rsig A) (nk-of-code-s k rsig a) (nk-of-code-s k rsig b)
+nk-of-code-s (suc k) rsig ci0 = nk-i0
+nk-of-code-s (suc k) rsig ci1 = nk-i1
+nk-of-code-s (suc k) rsig (cneg r) = nk-neg (nk-of-code-s k rsig r)
+nk-of-code-s (suc k) rsig (cmeet r s) = nk-imeet (nk-of-code-s k rsig r) (nk-of-code-s k rsig s)
+nk-of-code-s (suc k) rsig (cjoin r s) = nk-ijoin (nk-of-code-s k rsig r) (nk-of-code-s k rsig s)
+nk-of-code-s (suc k) rsig cftt = nk-i1
+nk-of-code-s (suc k) rsig cfff = nk-i0
+nk-of-code-s (suc k) rsig (ceq1 r) = nk-of-code-s k rsig r
+nk-of-code-s (suc k) rsig (ceq0 r) = nk-neg (nk-of-code-s k rsig r)
+nk-of-code-s (suc k) rsig (cfand a b) = nk-imeet (nk-of-code-s k rsig a) (nk-of-code-s k rsig b)
+nk-of-code-s (suc k) rsig (cfor a b) = nk-ijoin (nk-of-code-s k rsig a) (nk-of-code-s k rsig b)
+nk-of-code-s (suc k) rsig csys0 = nk-sys nk-nil
+nk-of-code-s (suc k) rsig (csysc f t r) = nk-sys (nk-oc-sys (nk-of-code-s k rsig) (csysc f t r))
+nk-of-code-s (suc k) rsig (ccomp A (cplam W) a) = nk-comp (nk-of-code-s k rsig A) (nk-oc-tube (nk-of-code-s k rsig) W) (nk-of-code-s k rsig a)
+nk-of-code-s (suc k) rsig (cgluet A S) = nk-glue-ty (nk-of-code-s k rsig A) (nk-of-code-s k rsig S)
+nk-of-code-s (suc k) rsig (cglue S a) = nk-glue (nk-of-code-s k rsig S) (nk-of-code-s k rsig a)
+nk-of-code-s (suc k) rsig (cunglue S b) = nk-unglue (nk-of-code-s k rsig S) (nk-of-code-s k rsig b)
+nk-of-code-s (suc k) rsig (clet t b) = nk-con #52 (nk-cons (nk-of-code-s k rsig t) (nk-cons (nk-lam (nk-of-code-s k rsig b)) nk-nil))
+nk-of-code-s (suc k) rsig (cann t T) = nk-con #51 (nk-cons (nk-of-code-s k rsig t) (nk-cons (nk-of-code-s k rsig T) nk-nil))
+nk-of-code-s (suc k) rsig (cforce t) = nk-force (nk-of-code-s k rsig t)
+nk-of-code-s (suc k) rsig (cthunk t) = nk-susp (nk-of-code-s k rsig t)
+nk-of-code-s (suc k) rsig (cdata d ps) =
+  case nk-data-idx (fst rsig) d #0 return (λ _ → NkTm) of
+    some e → nk-data-ty (fst e) (nk-map-tm (nk-of-code-s k rsig) ps)
+    none → nk-fail
+nk-of-code-s (suc k) rsig (ccon d j fs lnil) =
+  case nk-data-idx (fst rsig) d #0 return (λ _ → NkTm) of
+    some e → nk-mk-dcon (fst e) j (nk-map-tm (nk-of-code-s k rsig) fs)
+    none → nk-fail
+nk-of-code-s (suc k) rsig (celim d P B x) =
+  case nk-data-idx (fst rsig) d #0 return (λ _ → NkTm) of
+    some e →
+      let cf = fst (snd e)
+          cs = snd (snd e)
+          hyps = nk-data-hyps d (nk-cpi-len cf) cs
+          mot = nk-con #43 (nk-cons (nk-of-code-s k rsig P) nk-nil)
+      in nk-match #3 (nk-of-code-s k rsig x) (nk-cons hyps (nk-cons mot (nk-map-susp (nk-of-code-s k rsig) B)))
+    none → nk-fail
+nk-of-code-s (suc k) rsig (ccase d B x) =
+  case nk-data-idx (fst rsig) d #0 return (λ _ → NkTm) of
+    some e →
+      let cf = fst (snd e)
+          cs = snd (snd e)
+          hyps = nk-data-hyps d (nk-cpi-len cf) cs
+      in nk-match #3 (nk-of-code-s k rsig x) (nk-cons hyps (nk-cons (nk-con #43 nk-nil) (nk-map-susp (nk-of-code-s k rsig) B)))
+    none → nk-fail
+nk-of-code-s (suc k) rsig c = nk-fail

@@ -1,0 +1,16 @@
+cs-switch-con-head-sound : (k : Nat) (fns : CsFns) (hp hp0 : CsHeap) (env : CsEnv) (d tag nf : Word) (scrut body rest : CsExp) (fs : Lst CsVal) →
+  (cs-eval k fns hp env scrut ≡ cs-hy-con hp0 tag fs) →
+  (toNat nf ≡ cs-hlen CsVal fs) →
+  cs-eval (suc k) fns hp env (cs-switch d scrut (cs-br-cons tag d nf body rest))
+  ≡ cs-eval k fns (fst (cs-alloc hp0 (lcons (csv-word tag) fs))) (cs-bind-params d fs env) body
+cs-switch-con-head-sound k fns hp hp0 env d tag nf scrut body rest fs hscr hnf =
+  let blk = lcons (csv-word tag) fs
+      hp1 = fst (cs-alloc hp0 blk)
+      ptr = snd (cs-alloc hp0 blk)
+      brs = cs-br-cons tag d nf body rest
+      s_scr = cong (λ r → cs-bind-res r (λ h1 vp → cs-bind-opt (cs-load h1 vp zero) (λ vt → cs-bind-word vt (λ t0 → cs-eval-switch (cs-eval k fns) h1 env vp t0 brs)))) hscr
+      s_tag = cong (λ o → cs-bind-opt o (λ vt → cs-bind-word vt (λ t0 → cs-eval-switch (cs-eval k fns) hp1 env ptr t0 brs))) (cs-alloc-load-self hp0 blk zero)
+      s_eq = cong (λ z → if z then cs-bind-opt (cs-bind-fields hp1 ptr d zero (toNat nf) env) (λ env1 → cs-eval k fns hp1 env1 body) else cs-eval-switch (cs-eval k fns) hp1 env ptr tag rest) (cs-weq-self tag)
+      s_nf = cong (λ m → cs-bind-opt (cs-bind-fields hp1 ptr d zero m env) (λ env1 → cs-eval k fns hp1 env1 body)) hnf
+      s_bf = cong (λ o → cs-bind-opt o (λ env1 → cs-eval k fns hp1 env1 body)) (cs-bind-fields-con-sound hp0 tag fs d env)
+  in s_scr ∙ (s_tag ∙ (s_eq ∙ (s_nf ∙ s_bf)))

@@ -1,0 +1,39 @@
+cs-sim-wop : (j : Word) (hp : CsHeap) (a b : Word) →
+  cs-sim-ok (cs-code-wop j a b) (cs-hy-bop-w j hp a b) ≡ true
+cs-sim-wop j hp a b =
+  let m12 = if %weq j #12 then csom-some (cmv-word (if %wlt b #64 then %wshr a b else #0)) else csom-none
+      c11 = if %weq j #11 then cs-hy-shl hp a b else if %weq j #12 then cs-hy-shr hp a b else cso-abort
+      m10 = if %weq j #10 then csom-some (cmv-word (%wxor a b)) else m12
+      c10 = if %weq j #10 then cso-ok hp (csv-word (%wxor a b)) else c11
+      m9 = if %weq j #9 then csom-some (cmv-word (%wor a b)) else m10
+      c9 = if %weq j #9 then cso-ok hp (csv-word (%wor a b)) else c10
+      m8 = if %weq j #8 then csom-some (cmv-word (%wand a b)) else m9
+      c8 = if %weq j #8 then cso-ok hp (csv-word (%wand a b)) else c9
+      m7 = if %weq j #7 then csom-some (cmv-word (if %weq b #0 then a else %wmod a b)) else m8
+      c7 = if %weq j #7 then cs-hy-mod hp a b else c8
+      m6 = if %weq j #6 then csom-some (cmv-word (if %weq b #0 then #0 else %wdiv a b)) else m7
+      c6 = if %weq j #6 then cs-hy-div hp a b else c7
+      e5m = if cs-w64 (%wmul a b) then csom-some (cmv-word (%wmul a b)) else csom-none
+      m5 = if %weq j #5 then e5m else m6
+      c5 = if %weq j #5 then cs-hy-mul hp a b else c6
+      m4 = if %weq j #4 then csom-some (cmv-word (%wsub a b)) else m5
+      c4 = if %weq j #4 then cs-hy-sub hp a b else c5
+      m3 = if %weq j #3 then csom-some (cmv-word (%wmax a b)) else m4
+      c3 = if %weq j #3 then cs-hy-max hp a b else c4
+      e2m = if cs-w64 (%wadd a b) then csom-some (cmv-word (%wadd a b)) else csom-none
+      m2 = if %weq j #2 then e2m else m3
+      c2 = if %weq j #2 then cs-hy-add hp a b else c3
+      m1 = if %weq j #1 then csom-some (cmv-bool (%wlt a b)) else m2
+      c1 = if %weq j #1 then cs-hy-con hp (if %wlt a b then #0 else #1) lnil else c2
+      p11 = cs-sim-cc11 (%weq j #11) (%weq j #12) j hp a b refl refl
+      p10 = cs-sim-ite-eq (%weq j #10) (csom-some (cmv-word (%wxor a b))) m12 (cso-ok hp (csv-word (%wxor a b))) c11 (cs-weq-self (%wxor a b)) p11
+      p9 = cs-sim-ite-eq (%weq j #9) (csom-some (cmv-word (%wor a b))) m10 (cso-ok hp (csv-word (%wor a b))) c10 (cs-weq-self (%wor a b)) p10
+      p8 = cs-sim-ite-eq (%weq j #8) (csom-some (cmv-word (%wand a b))) m9 (cso-ok hp (csv-word (%wand a b))) c9 (cs-weq-self (%wand a b)) p9
+      p7 = cs-sim-ite-eq (%weq j #7) (csom-some (cmv-word (if %weq b #0 then a else %wmod a b))) m8 (cs-hy-mod hp a b) c8 (cs-sim-mod-at (%weq b #0) hp a b refl) p8
+      p6 = cs-sim-ite-eq (%weq j #6) (csom-some (cmv-word (if %weq b #0 then #0 else %wdiv a b))) m7 (cs-hy-div hp a b) c7 (cs-sim-div-at (%weq b #0) hp a b refl) p7
+      p5 = cs-sim-ite-eq (%weq j #5) e5m m6 (cs-hy-mul hp a b) c6 (cs-sim-w64-abort (cs-w64 (%wmul a b)) hp (%wmul a b)) p6
+      p4 = cs-sim-ite-eq (%weq j #4) (csom-some (cmv-word (%wsub a b))) m5 (cs-hy-sub hp a b) c5 (cong (cs-res-rel (cmv-word (%wsub a b))) (cs-hy-sub-sound hp a b) ∙ cs-weq-self (%wsub a b)) p5
+      p3 = cs-sim-ite-eq (%weq j #3) (csom-some (cmv-word (%wmax a b))) m4 (cs-hy-max hp a b) c4 (cong (cs-res-rel (cmv-word (%wmax a b))) (cs-hy-max-sound hp a b) ∙ cs-weq-self (%wmax a b)) p4
+      p2 = cs-sim-ite-eq (%weq j #2) e2m m3 (cs-hy-add hp a b) c3 (cs-sim-w64-abort (cs-w64 (%wadd a b)) hp (%wadd a b)) p3
+      p1 = cs-sim-ite-eq (%weq j #1) (csom-some (cmv-bool (%wlt a b))) m2 (cs-hy-con hp (if %wlt a b then #0 else #1) lnil) c2 (cs-sim-bool-con hp (%wlt a b)) p2
+  in cs-sim-ite-eq (%weq j #0) (csom-some (cmv-bool (%weq a b))) m1 (cs-hy-con hp (if %weq a b then #0 else #1) lnil) c1 (cs-sim-bool-con hp (%weq a b)) p1

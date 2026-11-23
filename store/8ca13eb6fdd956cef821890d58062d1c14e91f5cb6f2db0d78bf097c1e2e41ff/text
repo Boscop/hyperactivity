@@ -1,0 +1,17 @@
+cs-compile-by : (Word → Word → Word) → Nat → Lst (Word × Word) → Word → Code → CsExp
+cs-compile-by nf_of zero ars d c = cs-bad
+cs-compile-by nf_of (suc k) ars d (cvar n) = cs-var (%wsub (%wsub d #1) n)
+cs-compile-by nf_of (suc k) ars d (cwlit n) = cs-ull n
+cs-compile-by nf_of (suc k) ars d (cwsucc a) = cs-add1 (cs-compile-by nf_of k ars d a)
+cs-compile-by nf_of (suc k) ars d (cwop j a b) = cs-bop j (cs-compile-by nf_of k ars d a) (cs-compile-by nf_of k ars d b)
+cs-compile-by nf_of (suc k) ars d (clet t b) = cs-let d (cs-compile-by nf_of k ars d t) (cs-compile-by nf_of k ars (%wsucc d) b)
+cs-compile-by nf_of (suc k) ars d (capp f a) = cs-comp-apply ars (λ x → cs-compile-by nf_of k ars d x) (fst (x-spine (capp f a))) (snd (x-spine (capp f a)))
+cs-compile-by nf_of (suc k) ars d (cglob g) = cs-comp-gcall (λ x → cs-compile-by nf_of k ars d x) g (x-look ars g) #0 lnil
+cs-compile-by nf_of (suc k) ars d (cpair a b) = cs-pair (cs-compile-by nf_of k ars d a) (cs-compile-by nf_of k ars d b)
+cs-compile-by nf_of (suc k) ars d (cfst p) = cs-fst (cs-compile-by nf_of k ars d p)
+cs-compile-by nf_of (suc k) ars d (csnd p) = cs-snd (cs-compile-by nf_of k ars d p)
+cs-compile-by nf_of (suc k) ars d (ccon dd j fs lnil) = cs-con j (l-count fs) (cs-comp-args (λ x → cs-compile-by nf_of k ars d x) fs false)
+cs-compile-by nf_of (suc k) ars d (ccase dd B x) = cs-switch d (cs-compile-by nf_of k ars d x) (cs-comp-brs-by nf_of B (λ e c → cs-compile-by nf_of k ars e c) dd d #0)
+cs-compile-by nf_of (suc k) ars d (cwelim w z (clam (clam b)) mo) =
+  cs-for d (cs-compile-by nf_of k ars d w) (cs-compile-by nf_of k ars d z) (cs-compile-by nf_of k ars (%wadd d #2) b)
+cs-compile-by nf_of (suc k) ars d c = cs-bad

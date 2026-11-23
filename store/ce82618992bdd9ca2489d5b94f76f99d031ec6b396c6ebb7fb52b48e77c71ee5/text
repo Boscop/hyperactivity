@@ -1,0 +1,43 @@
+nk-rule-quote-wf : (d : Word) (out : NkW) (hd : NkHd) (parts : NkEnv) (n : NkW) →
+  nk-out-ok parts (nke-cons out nke-nil) n n (nk-rule-quote d out hd parts n) ≡ true
+nk-rule-quote-wf d out (hd-clo b) parts n =
+  let outs = nke-cons out nke-nil
+      n1 = nk-s n
+      n2 = nk-s n1
+      n3 = nk-s n2
+      nn1 = nk-wire-le-s n
+      n1n2 = nk-wire-le-s n1
+      n2n3 = nk-wire-le-s n2
+      nn2 = nk-wire-le-trans n n1 n2 nn1 n1n2
+      nn3 = nk-wire-le-trans n n2 n3 nn2 n2n3
+      rn = nk-in-range-up n n1 n3 n (nk-wire-le-trans n1 n2 n3 n1n2 n2n3) (nk-in-range-self n n (nk-wire-le-refl n))
+      rn1 = nk-in-range-up n n2 n3 n1 n2n3 (nk-in-range-self n n1 nn1)
+      rn2 = nk-in-range-self n n2 nn2
+      fx0 = nkf-val n (nkv (hd-lvl d) nke-nil) (nkf-op n1 (nko-quote (%wsucc d) n2) (nkf-op n2 (nko-gather d nkk-lam nk-nil nke-nil out) nkf-nil))
+      hfx0 = nk-and-intro (nk-in-set outs n n3 n) (nk-fx-wf parts outs n n3 (nkf-op n1 (nko-quote (%wsucc d) n2) (nkf-op n2 (nko-gather d nkk-lam nk-nil nke-nil out) nkf-nil)))
+               (nk-in-set-range outs n n3 n rn)
+               (nk-and-intro (nk-in-set parts n n3 n1) (nk-fx-wf parts outs n n3 (nkf-op n2 (nko-gather d nkk-lam nk-nil nke-nil out) nkf-nil))
+                 (nk-in-set-range parts n n3 n1 rn1)
+                 (nk-and-intro (nk-in-set parts n n3 n2) true (nk-in-set-range parts n n3 n2 rn2) refl))
+      ho0 = nk-out-ok-intro parts outs n n3 fx0 n3 nke-nil (nk-wire-le-refl n3) hfx0 refl
+      he = nk-and-intro (nk-in-set parts n n3 n) (nk-env-in-set parts n n3 parts) (nk-in-set-range parts n n3 n rn) (nk-emem-refl parts n n3)
+      hb = nk-build-wf b parts outs n (nke-cons n parts) n1 (nk-plan-of fx0 n3) nn3 he (nk-in-set-range outs n n3 n1 rn1) ho0
+  in nk-out-ok-step parts outs n n n3 (nk-build b (nke-cons n parts) n1 (nk-plan-of fx0 n3)) nn3 hb
+nk-rule-quote-wf d out (hd-susp b) parts n = nk-gather-wf d (nkk-susp b) nk-nil parts out n
+nk-rule-quote-wf d out (hd-num m) parts n =
+  nk-out-ok-intro parts (nke-cons out nke-nil) n n (nkf-val out (nkv (hd-q (nk-num m)) nke-nil) nkf-nil) n nke-nil
+    (nk-wire-le-refl n) (nk-and-intro (nk-in-set (nke-cons out nke-nil) n n out) true (nk-in-set-hd out nke-nil n n) refl) refl
+nk-rule-quote-wf d out (hd-var x) parts n =
+  nk-out-ok-intro parts (nke-cons out nke-nil) n n (nkf-val out (nkv (hd-q (nk-free x)) nke-nil) nkf-nil) n nke-nil
+    (nk-wire-le-refl n) (nk-and-intro (nk-in-set (nke-cons out nke-nil) n n out) true (nk-in-set-hd out nke-nil n n) refl) refl
+nk-rule-quote-wf d out (hd-lvl l) parts n =
+  nk-out-ok-intro parts (nke-cons out nke-nil) n n (nkf-val out (nkv (hd-q (nk-var (%wsub (%wsub d #1) l))) nke-nil) nkf-nil) n nke-nil
+    (nk-wire-le-refl n) (nk-and-intro (nk-in-set (nke-cons out nke-nil) n n out) true (nk-in-set-hd out nke-nil n n) refl) refl
+nk-rule-quote-wf d out (hd-dnf f) parts n =
+  nk-out-ok-intro parts (nke-cons out nke-nil) n n (nkf-val out (nkv (hd-q (nk-dnf-tm d f)) nke-nil) nkf-nil) n nke-nil
+    (nk-wire-le-refl n) (nk-and-intro (nk-in-set (nke-cons out nke-nil) n n out) true (nk-in-set-hd out nke-nil n n) refl) refl
+nk-rule-quote-wf d out (hd-con c) parts n = nk-gather-wf d (nkk-con c) nk-nil parts out n
+nk-rule-quote-wf d out (hd-stuck h) parts n = nk-gather-wf d (nkk-op h) nk-nil parts out n
+nk-rule-quote-wf d out (hd-stuckm h) parts n = nk-gather-wf d (nkk-match h) nk-nil parts out n
+nk-rule-quote-wf d out (hd-q t) parts n =
+  nk-out-ok-intro parts (nke-cons out nke-nil) n n nkf-nil n nke-nil (nk-wire-le-refl n) refl refl

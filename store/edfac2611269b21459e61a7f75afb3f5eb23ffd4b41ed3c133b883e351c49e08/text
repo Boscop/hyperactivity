@@ -1,0 +1,32 @@
+sg-sexp-list : Nat → NkTm → Lst (List Word) → (NkSexp → Code) → (Lst (List Word) → NkSexp → Code) → Lst NkSexp → Code
+sg-sexp-list _ _ _ _ _ lnil = cclock
+sg-sexp-list k ksig env go1 go2 (lcons h args) =
+  case h return (λ _ → Code) of
+    nks-lst _ → nk-sexp-app k go1 (nks-lst (lcons h args))
+    nks-sym tag →
+      if nk-wlist-eq tag "Pi" then nk-sexp-bind2 go2 env (cpi #2) args
+      else if nk-wlist-eq tag "Sigma" then nk-sexp-bind2 go2 env csigma args
+      else if nk-wlist-eq tag "lam" then nk-sexp-lams go2 env clam "lam" args
+      else if nk-wlist-eq tag "plam" then nk-sexp-lams go2 env cplam "plam" args
+      else if nk-wlist-eq tag "forall" then nk-sexp-lams go2 env cforall "forall" args
+      else if nk-wlist-eq tag "let" then nk-sexp-let go2 env args
+      else if nk-wlist-eq tag "elim" then sg-elim-code go2 ksig env args
+      else if nk-wlist-eq tag "rec" then sg-rec-code env args
+      else if nk-wlist-eq tag "if" then sg-if-code go1 args
+      else if nk-wlist-eq tag "%welimP" then sg-welim-code go1 args
+      else if nk-wlist-eq tag "U" then nk-sexp-u go1 args
+      else if nk-wlist-eq tag "lsuc" then nk-sexp-1 go1 clsuc args
+      else if nk-wlist-eq tag "lmax" then nk-sexp-2 go1 clmax args
+      else if nk-wlist-eq tag "PathP" then nk-sexp-3 go1 cpathp args
+      else if nk-wlist-eq tag "@" then nk-sexp-2 go1 cpapp args
+      else if nk-wlist-eq tag "~" then nk-sexp-1 go1 cneg args
+      else if nk-wlist-eq tag "/\\" then nk-sexp-2 go1 cmeet args
+      else if nk-wlist-eq tag "\\/" then nk-sexp-2 go1 cjoin args
+      else if nk-wlist-eq tag "pair" then nk-sexp-2 go1 cpair args
+      else if nk-wlist-eq tag "fst" then nk-sexp-1 go1 cfst args
+      else if nk-wlist-eq tag "snd" then nk-sexp-1 go1 csnd args
+      else if nk-wlist-eq tag "the" then nk-sexp-2 go1 (λ T t → cann t T) args
+      else if nk-wlist-eq tag "%wsucc" then nk-sexp-1 go1 cwsucc args
+      else (case sg-wop-idx tag return (λ _ → Code) of
+              some q → nk-sexp-2 go1 (cwop q) args
+              none → nk-sexp-app k go1 (nks-lst (lcons (nks-sym tag) args)))

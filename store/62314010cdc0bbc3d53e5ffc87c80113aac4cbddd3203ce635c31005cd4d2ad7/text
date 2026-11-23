@@ -1,0 +1,9 @@
+-- O(1) reusable slab arena with hy_reset() for Word-returning steps (memory-is-local):
+-- zero live pointers cross a Word return boundary, so hy_reset() frees overflow slabs and
+-- rewinds hy_at to hy_head->words in two stores without pointer/Word tagging ambiguity.
+ce-slab-alloc : List Word
+ce-slab-alloc =
+  list-append "typedef struct hy_slab { struct hy_slab *next; uint64_t words[]; } hy_slab; static uint64_t hy_bytes, hy_slabs; static hy_slab *hy_head, *hy_cur; static uint64_t *hy_at, *hy_end; "
+  (list-append "static void *hy_alloc(uint64_t n) { hy_bytes += n; uint64_t w = (n + 7) / 8; if (!hy_at || (uint64_t)(hy_end - hy_at) < w) { if (hy_cur && hy_cur->next && w <= (1ull << 21)) { hy_cur = hy_cur->next; hy_at = hy_cur->words; hy_end = hy_at + (1ull << 21); } else { uint64_t cap = w > (1ull << 21) ? w : (1ull << 21); hy_slab *s = malloc(sizeof(hy_slab) + cap * 8); if (!s) abort(); s->next = 0; hy_slabs++; if (!hy_head) hy_head = s; else hy_cur->next = s; hy_cur = s; hy_at = s->words; hy_end = hy_at + cap; } } void *p = hy_at; hy_at += w; return p; } "
+  (list-append "static void hy_reset(void) { if (!hy_head) return; hy_slab *s = hy_head->next; while (s) { hy_slab *nx = s->next; free(s); hy_slabs--; s = nx; } hy_head->next = 0; hy_cur = hy_head; hy_at = hy_head->words; hy_end = hy_at + (1ull << 21); }"
+  ce-nl))

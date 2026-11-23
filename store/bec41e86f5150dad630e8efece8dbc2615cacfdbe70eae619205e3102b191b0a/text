@@ -1,0 +1,40 @@
+-- in body (under a args, nr hyps, nf fields, then the outer ones): a hypothesis applied to a
+-- arguments is the call; applied to fewer, a λ-abstraction over the rest (lifted to a closure);
+-- a variable is moved to its new place
+x-fun-map : Nat → Word → Lst Word → Word → Word → Word → Word → Lst Bool → Code → Word → Opt Code
+x-fun-map zero g fv m a nf nr recs p d = none
+x-fun-map (suc k) g fv m a nf nr recs (cvar n) d =
+  if %wlt n d then none
+  else let rel = %wsub n d
+       in if c-and (c-not (%wlt rel a)) (%wlt rel (%wadd a nr))
+            then let d2 = %wadd d a
+                     rf = x-recfield recs (%wsub (%wsub nr #1) (%wsub rel a)) #0
+                     fvars = %welimP (λ _ → Lst Code) a lnil (λ i acc → lcons (cvar i) acc)
+                     call = x-apps (cglob g) (l-app (x-param-vars fv m nf d2 a #0) (l-app fvars (lcons (cvar (%wadd d2 (%wsub (%wsub nf #1) rf))) lnil)))
+                 in some (%welimP (λ _ → Code) a call (λ _ b → clam b))
+            else some (x-fun-var fv m a nf nr d rel)
+x-fun-map (suc k) g fv m a nf nr recs (capp f y) d =
+  (let sp = x-spine (capp f y) in
+   case fst sp return (λ _ → Opt Code) of
+     cvar n →
+       (if %wlt n d then none
+        else let rel = %wsub n d
+             in if c-and (c-not (%wlt rel a)) (%wlt rel (%wadd a nr))
+                  then let s = l-count (snd sp)
+                           ys1 = l-map (λ y2 → code-map (λ c2 d2 → x-fun-map k g fv m a nf nr recs c2 d2) d y2) (snd sp)
+                           rf = x-recfield recs (%wsub (%wsub nr #1) (%wsub rel a)) #0
+                       in if %weq s a
+                            then some (x-apps (cglob g) (l-app (x-param-vars fv m nf d a #0)
+                                         (l-app ys1 (lcons (cvar (%wadd d (%wsub (%wsub nf #1) rf))) lnil))))
+                            else (if %wlt s a
+                                    then let rem = %wsub a s
+                                             d2 = %wadd d rem
+                                             ys2 = l-map (λ u → code-map (λ p e → case p return (λ _ → Opt Code) of cvar v → if %wlt v e then none else some (cvar (%wadd v rem)); _ → none) #0 u) ys1
+                                             fvars = %welimP (λ _ → Lst Code) rem lnil (λ i acc → lcons (cvar i) acc)
+                                             call = x-apps (cglob g) (l-app (x-param-vars fv m nf d2 a #0)
+                                                      (l-app ys2 (l-app fvars (lcons (cvar (%wadd d2 (%wsub (%wsub nf #1) rf))) lnil))))
+                                         in some (%welimP (λ _ → Code) rem call (λ _ b → clam b))
+                                    else some cclock)
+                  else none)
+     _ → none)
+x-fun-map (suc k) g fv m a nf nr recs p d = none

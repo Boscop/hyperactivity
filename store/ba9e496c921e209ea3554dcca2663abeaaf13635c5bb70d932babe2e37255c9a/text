@@ -1,0 +1,277 @@
+-- First-order Code builder over Nat fuel:
+--   mode #0: single NkSexp e -> fst
+--   mode #1: Lst NkSexp xs -> snd
+--   mode #2: find branch ci of data d in xs -> fst
+--   mode #3: build branches [ci .. ci+rem-1] (rem in d2) of data d in xs -> snd
+--   mode #4: lam/plam/forall (kind in d) over binder spine xs -> fst
+sg-tc : Nat → Word → NkTm → Lst (List Word) → Word → Word → Word → NkSexp → Lst NkSexp → Code × Lst Code
+sg-tc zero _ _ _ _ _ _ _ _ = (cclock , lnil)
+sg-tc (suc k) mode ksig env d ci rem e xs =
+  if %weq mode #1 then
+    (case xs return (λ _ → Code × Lst Code) of
+       lnil → (cclock , lnil)
+       lcons x r →
+         let c1 = fst (sg-tc k #0 ksig env #0 #0 #0 x lnil)
+             cs = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) r)
+         in (cclock , lcons c1 cs))
+  else if %weq mode #2 then
+    (case xs return (λ _ → Code × Lst Code) of
+       lnil → (cclock , lnil)
+       lcons b rest →
+         case sg-br-pair b return (λ _ → Code × Lst Code) of
+           none → sg-tc k #2 ksig env d ci #0 (nks-sym nil) rest
+           some pr →
+             case sg-pat-head (fst pr) return (λ _ → Code × Lst Code) of
+               none → sg-tc k #2 ksig env d ci #0 (nks-sym nil) rest
+               some ph →
+                 if %weq (snd (fst ph)) ci
+                   then (let flds = snd ph
+                             rcs = sg-ctor-recs ksig d ci
+                             pf = sg-push-flds flds env
+                             pi = sg-push-ihs flds rcs (snd pf)
+                             bc = fst (sg-tc k #0 ksig (snd pi) #0 #0 #0 (snd pr) lnil)
+                         in (x-lams (%wadd (fst pf) (fst pi)) bc , lnil))
+                   else sg-tc k #2 ksig env d ci #0 (nks-sym nil) rest)
+  else if %weq mode #3 then
+    (if %weq rem #0 then (cclock , lnil)
+     else
+       let b1 = fst (sg-tc k #2 ksig env d ci #0 (nks-sym nil) xs)
+           bs = snd (sg-tc k #3 ksig env d (%wsucc ci) (%wsub rem #1) (nks-sym nil) xs)
+       in (cclock , lcons b1 bs))
+  else if %weq mode #4 then
+    (case xs return (λ _ → Code × Lst Code) of
+       lnil → (cclock , lnil)
+       lcons b r1 →
+         let nm = nk-bname (toNat #8) b
+         in case r1 return (λ _ → Code × Lst Code) of
+              lnil → (cclock , lnil)
+              lcons body r2 →
+                case r2 return (λ _ → Code × Lst Code) of
+                  lnil → (sg-wrap-lam d (fst (sg-tc k #0 ksig (lcons nm env) #0 #0 #0 body lnil)) , lnil)
+                  lcons _ _ → (sg-wrap-lam d (fst (sg-tc k #4 ksig (lcons nm env) d #0 #0 (nks-sym nil) r1)) , lnil))
+  else
+    (case e return (λ _ → Code × Lst Code) of
+       nks-sym s →
+         if nk-wlist-eq s "0" then (ci0 , lnil)
+         else if nk-wlist-eq s "1" then (ci1 , lnil)
+         else if nk-wlist-eq s "tt" then (cftt , lnil)
+         else if nk-wlist-eq s "ff" then (cfff , lnil)
+         else if nk-wlist-eq s "U" then (cuniv clzero , lnil)
+         else if nk-wlist-eq s "Word" then (cword , lnil)
+         else if nk-wlist-eq s "Level" then (clevel , lnil)
+         else if nk-wlist-eq s "lzero" then (clzero , lnil)
+         else
+           (case s return (λ _ → Code × Lst Code) of
+              nil → (cclock , lnil)
+              cons c r →
+                if %weq c #35 then (cwlit (nk-dec-val #0 r) , lnil)
+                else if andB (%weq c #71) (%weq (nk-wlist-len r) #64) then (cglob (nk-key60 r) , lnil)
+                else if andB (%weq c #68) (%weq (nk-wlist-len r) #64) then (cdata (nk-key60 r) lnil , lnil)
+                else if %weq c #67 then
+                  (let sp = nk-split-dot r in
+                   if %weq (nk-wlist-len (fst sp)) #64
+                     then (ccon (nk-key60 (fst sp)) (nk-dec-val #0 (snd sp)) lnil lnil , lnil)
+                     else (nk-env-var s env , lnil))
+                else (nk-env-var s env , lnil))
+       nks-lst ys →
+         (case ys return (λ _ → Code × Lst Code) of
+            lnil → (cclock , lnil)
+            lcons h args →
+              case h return (λ _ → Code × Lst Code) of
+                nks-lst _ →
+                  let sp = nk-sexp-spine k (nks-lst (lcons h args)) lnil
+                      hc = fst (sg-tc k #0 ksig env #0 #0 #0 (fst sp) lnil)
+                      ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) (snd sp))
+                  in (sg-head-app hc (fst sp) ac , lnil)
+                nks-sym tag →
+                  if nk-wlist-eq tag "Pi" then
+                    (case args return (λ _ → Code × Lst Code) of
+                       lnil → (cclock , lnil)
+                       lcons b r1 →
+                         case r1 return (λ _ → Code × Lst Code) of
+                           lnil → (cclock , lnil)
+                           lcons A r2 →
+                             case r2 return (λ _ → Code × Lst Code) of
+                               lnil → (cclock , lnil)
+                               lcons B _ →
+                                 let cA = fst (sg-tc k #0 ksig env #0 #0 #0 A lnil)
+                                     cB = fst (sg-tc k #0 ksig (lcons (nk-bname (toNat #8) b) env) #0 #0 #0 B lnil)
+                                 in (cpi #2 cA cB , lnil))
+                  else if nk-wlist-eq tag "Sigma" then
+                    (case args return (λ _ → Code × Lst Code) of
+                       lnil → (cclock , lnil)
+                       lcons b r1 →
+                         case r1 return (λ _ → Code × Lst Code) of
+                           lnil → (cclock , lnil)
+                           lcons A r2 →
+                             case r2 return (λ _ → Code × Lst Code) of
+                               lnil → (cclock , lnil)
+                               lcons B _ →
+                                 let cA = fst (sg-tc k #0 ksig env #0 #0 #0 A lnil)
+                                     cB = fst (sg-tc k #0 ksig (lcons (nk-bname (toNat #8) b) env) #0 #0 #0 B lnil)
+                                 in (csigma cA cB , lnil))
+                  else if nk-wlist-eq tag "lam" then sg-tc k #4 ksig env #0 #0 #0 (nks-sym nil) args
+                  else if nk-wlist-eq tag "plam" then sg-tc k #4 ksig env #1 #0 #0 (nks-sym nil) args
+                  else if nk-wlist-eq tag "forall" then sg-tc k #4 ksig env #2 #0 #0 (nks-sym nil) args
+                  else if nk-wlist-eq tag "let" then
+                    (case args return (λ _ → Code × Lst Code) of
+                       lnil → (cclock , lnil)
+                       lcons a1 r1 →
+                         case r1 return (λ _ → Code × Lst Code) of
+                           lnil → (cclock , lnil)
+                           lcons a2 r2 →
+                             case r2 return (λ _ → Code × Lst Code) of
+                               lnil →
+                                 let cv = fst (sg-tc k #0 ksig env #0 #0 #0 a1 lnil)
+                                     cb = fst (sg-tc k #0 ksig (lcons nil env) #0 #0 #0 a2 lnil)
+                                 in (clet cv cb , lnil)
+                               lcons a3 _ →
+                                 let cv = fst (sg-tc k #0 ksig env #0 #0 #0 a2 lnil)
+                                     cb = fst (sg-tc k #0 ksig (lcons (nk-bname (toNat #8) a1) env) #0 #0 #0 a3 lnil)
+                                 in (clet cv cb , lnil))
+                  else if nk-wlist-eq tag "elim" then
+                    (case args return (λ _ → Code × Lst Code) of
+                       lnil → (cclock , lnil)
+                       lcons mot r1 →
+                         case r1 return (λ _ → Code × Lst Code) of
+                           lnil → (cclock , lnil)
+                           lcons scrut brs →
+                             let ed = sg-elim-d brs
+                                 nc = sg-ctor-count ksig ed
+                                 cmot = fst (sg-tc k #0 ksig env #0 #0 #0 mot lnil)
+                                 cscr = fst (sg-tc k #0 ksig env #0 #0 #0 scrut lnil)
+                                 cbrs = snd (sg-tc k #3 ksig env ed #0 nc (nks-sym nil) brs)
+                             in (celim ed cmot cbrs cscr , lnil))
+                  else if nk-wlist-eq tag "rec" then
+                    (case args return (λ _ → Code × Lst Code) of
+                       lnil → (cclock , lnil)
+                       lcons x _ → (nk-env-var (cons #114 (cons #58 (sg-sym-str x))) env , lnil))
+                  else if nk-wlist-eq tag "if" then
+                    (let ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) args)
+                     in case ac return (λ _ → Code × Lst Code) of
+                          lnil → (cclock , lnil)
+                          lcons cc r1 →
+                            case r1 return (λ _ → Code × Lst Code) of
+                              lnil → (cclock , lnil)
+                              lcons ct r2 →
+                                case r2 return (λ _ → Code × Lst Code) of
+                                  lnil → (cclock , lnil)
+                                  lcons cf _ → (ccase sg-bool-d (lcons ct (lcons cf lnil)) cc , lnil))
+                  else if nk-wlist-eq tag "%welimP" then
+                    (let ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) args)
+                     in case ac return (λ _ → Code × Lst Code) of
+                          lnil → (cclock , lnil)
+                          lcons cP r1 →
+                            case r1 return (λ _ → Code × Lst Code) of
+                              lnil → (cclock , lnil)
+                              lcons cw r2 →
+                                case r2 return (λ _ → Code × Lst Code) of
+                                  lnil → (cclock , lnil)
+                                  lcons cz r3 →
+                                    case r3 return (λ _ → Code × Lst Code) of
+                                      lnil → (cclock , lnil)
+                                      lcons cs _ → (cwelim cw cz cs (some cP) , lnil))
+                  else if nk-wlist-eq tag "U" then
+                    (let ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) args)
+                     in case ac return (λ _ → Code × Lst Code) of
+                          lnil → (cuniv clzero , lnil)
+                          lcons cl _ → (cuniv cl , lnil))
+                  else if nk-wlist-eq tag "lsuc" then
+                    (let ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) args)
+                     in case ac return (λ _ → Code × Lst Code) of
+                          lnil → (cclock , lnil)
+                          lcons a _ → (clsuc a , lnil))
+                  else if nk-wlist-eq tag "lmax" then
+                    (let ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) args)
+                     in case ac return (λ _ → Code × Lst Code) of
+                          lnil → (cclock , lnil)
+                          lcons a r1 →
+                            case r1 return (λ _ → Code × Lst Code) of
+                              lnil → (cclock , lnil)
+                              lcons b _ → (clmax a b , lnil))
+                  else if nk-wlist-eq tag "PathP" then
+                    (let ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) args)
+                     in case ac return (λ _ → Code × Lst Code) of
+                          lnil → (cclock , lnil)
+                          lcons a r1 →
+                            case r1 return (λ _ → Code × Lst Code) of
+                              lnil → (cclock , lnil)
+                              lcons b r2 →
+                                case r2 return (λ _ → Code × Lst Code) of
+                                  lnil → (cclock , lnil)
+                                  lcons c _ → (cpathp a b c , lnil))
+                  else if nk-wlist-eq tag "@" then
+                    (let ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) args)
+                     in case ac return (λ _ → Code × Lst Code) of
+                          lnil → (cclock , lnil)
+                          lcons a r1 →
+                            case r1 return (λ _ → Code × Lst Code) of
+                              lnil → (cclock , lnil)
+                              lcons b _ → (cpapp a b , lnil))
+                  else if nk-wlist-eq tag "~" then
+                    (let ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) args)
+                     in case ac return (λ _ → Code × Lst Code) of
+                          lnil → (cclock , lnil)
+                          lcons a _ → (cneg a , lnil))
+                  else if nk-wlist-eq tag "/\\" then
+                    (let ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) args)
+                     in case ac return (λ _ → Code × Lst Code) of
+                          lnil → (cclock , lnil)
+                          lcons a r1 →
+                            case r1 return (λ _ → Code × Lst Code) of
+                              lnil → (cclock , lnil)
+                              lcons b _ → (cmeet a b , lnil))
+                  else if nk-wlist-eq tag "\\/" then
+                    (let ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) args)
+                     in case ac return (λ _ → Code × Lst Code) of
+                          lnil → (cclock , lnil)
+                          lcons a r1 →
+                            case r1 return (λ _ → Code × Lst Code) of
+                              lnil → (cclock , lnil)
+                              lcons b _ → (cjoin a b , lnil))
+                  else if nk-wlist-eq tag "pair" then
+                    (let ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) args)
+                     in case ac return (λ _ → Code × Lst Code) of
+                          lnil → (cclock , lnil)
+                          lcons a r1 →
+                            case r1 return (λ _ → Code × Lst Code) of
+                              lnil → (cclock , lnil)
+                              lcons b _ → (cpair a b , lnil))
+                  else if nk-wlist-eq tag "fst" then
+                    (let ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) args)
+                     in case ac return (λ _ → Code × Lst Code) of
+                          lnil → (cclock , lnil)
+                          lcons a _ → (cfst a , lnil))
+                  else if nk-wlist-eq tag "snd" then
+                    (let ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) args)
+                     in case ac return (λ _ → Code × Lst Code) of
+                          lnil → (cclock , lnil)
+                          lcons a _ → (csnd a , lnil))
+                  else if nk-wlist-eq tag "the" then
+                    (let ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) args)
+                     in case ac return (λ _ → Code × Lst Code) of
+                          lnil → (cclock , lnil)
+                          lcons T r1 →
+                            case r1 return (λ _ → Code × Lst Code) of
+                              lnil → (cclock , lnil)
+                              lcons t _ → (cann t T , lnil))
+                  else if nk-wlist-eq tag "%wsucc" then
+                    (let ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) args)
+                     in case ac return (λ _ → Code × Lst Code) of
+                          lnil → (cclock , lnil)
+                          lcons a _ → (cwsucc a , lnil))
+                  else
+                    (case sg-wop-idx tag return (λ _ → Code × Lst Code) of
+                       some q →
+                         let ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) args)
+                         in case ac return (λ _ → Code × Lst Code) of
+                              lnil → (cclock , lnil)
+                              lcons a r1 →
+                                case r1 return (λ _ → Code × Lst Code) of
+                                  lnil → (cclock , lnil)
+                                  lcons b _ → (cwop q a b , lnil)
+                       none →
+                         let sp = nk-sexp-spine k (nks-lst (lcons (nks-sym tag) args)) lnil
+                             hc = fst (sg-tc k #0 ksig env #0 #0 #0 (fst sp) lnil)
+                             ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) (snd sp))
+                         in (sg-head-app hc (fst sp) ac , lnil))))

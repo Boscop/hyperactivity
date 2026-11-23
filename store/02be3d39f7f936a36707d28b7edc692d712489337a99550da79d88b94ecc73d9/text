@@ -1,0 +1,26 @@
+sg-to-code : Nat → NkTm → Lst (List Word) → NkSexp → Code
+sg-to-code zero _ _ _ = cclock
+sg-to-code (suc _) _ env (nks-sym s) =
+  if nk-wlist-eq s "0" then ci0
+  else if nk-wlist-eq s "1" then ci1
+  else if nk-wlist-eq s "tt" then cftt
+  else if nk-wlist-eq s "ff" then cfff
+  else if nk-wlist-eq s "U" then cuniv clzero
+  else if nk-wlist-eq s "Word" then cword
+  else if nk-wlist-eq s "Level" then clevel
+  else if nk-wlist-eq s "lzero" then clzero
+  else
+    (case s return (λ _ → Code) of
+       nil → cclock
+       cons c r →
+         if %weq c #35 then cwlit (nk-dec-val #0 r)
+         else if andB (%weq c #71) (%weq (nk-wlist-len r) #64) then cglob (nk-key60 r)
+         else if andB (%weq c #68) (%weq (nk-wlist-len r) #64) then cdata (nk-key60 r) lnil
+         else if %weq c #67 then
+           (let sp = nk-split-dot r in
+            if %weq (nk-wlist-len (fst sp)) #64
+              then ccon (nk-key60 (fst sp)) (nk-dec-val #0 (snd sp)) lnil lnil
+              else nk-env-var s env)
+         else nk-env-var s env)
+sg-to-code (suc k) ksig env (nks-lst xs) =
+  sg-sexp-list k ksig env (λ x → sg-to-code k ksig env x) (λ e2 x → sg-to-code k ksig e2 x) xs

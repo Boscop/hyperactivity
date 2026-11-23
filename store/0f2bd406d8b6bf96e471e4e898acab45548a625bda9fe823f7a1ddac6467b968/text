@@ -1,0 +1,52 @@
+cs-eval : Nat → CsFns → CsHeap → CsEnv → CsExp → CsRes
+cs-eval zero fns hp env e = cs-abort
+cs-eval (suc k) fns hp env cs-bad = cs-abort
+cs-eval (suc k) fns hp env (cs-var vid) =
+  cs-bind-opt (cs-get-var env vid) (λ v → cs-ok hp v)
+cs-eval (suc k) fns hp env (cs-ull n) =
+  if cs-w64 n then cs-ok hp (csv-word n) else cs-ub
+cs-eval (suc k) fns hp env (cs-add1 a) =
+  cs-bind-res (cs-eval k fns hp env a) (λ hp1 va → cs-hy-bop #2 hp1 va (csv-word #1))
+cs-eval (suc k) fns hp env (cs-bop j a b) =
+  cs-bind-res (cs-eval k fns hp env a) (λ hp1 va →
+  cs-bind-res (cs-eval k fns hp1 env b) (λ hp2 vb →
+    cs-hy-bop j hp2 va vb))
+cs-eval (suc k) fns hp env (cs-let d t b) =
+  cs-bind-res (cs-eval k fns hp env t) (λ hp1 vt →
+    cs-eval k fns hp1 (cs-env-push d vt env) b)
+cs-eval (suc k) fns hp env (cs-call fn args) =
+  cs-bind-args (cs-eval-args (cs-eval k fns) hp env args) (λ hp1 vs →
+    cs-call-fn (cs-eval k fns) fns hp1 fn vs)
+cs-eval (suc k) fns hp env (cs-clo fn ar n args) =
+  cs-bind-args (cs-eval-args (cs-eval k fns) hp env args) (λ hp1 vs →
+    if %weq n (l-count vs) then cs-hy-clo hp1 fn ar n vs else cs-ub)
+cs-eval (suc k) fns hp env (cs-app f a) =
+  cs-bind-res (cs-eval k fns hp env f) (λ hp1 vf →
+  cs-bind-res (cs-eval k fns hp1 env a) (λ hp2 va →
+    cs-hy-app (cs-eval k fns) fns hp2 vf va))
+cs-eval (suc k) fns hp env (cs-pair a b) =
+  cs-bind-res (cs-eval k fns hp env a) (λ hp1 va →
+  cs-bind-res (cs-eval k fns hp1 env b) (λ hp2 vb →
+    cs-hy-con hp2 #0 (lcons va (lcons vb lnil))))
+cs-eval (suc k) fns hp env (cs-fst p) =
+  cs-bind-res (cs-eval k fns hp env p) (λ hp1 vp → cs-load-res hp1 vp (suc zero))
+cs-eval (suc k) fns hp env (cs-snd p) =
+  cs-bind-res (cs-eval k fns hp env p) (λ hp1 vp → cs-load-res hp1 vp (suc (suc zero)))
+cs-eval (suc k) fns hp env (cs-con tag nf args) =
+  cs-bind-args (cs-eval-args (cs-eval k fns) hp env args) (λ hp1 vs →
+    if %weq nf (l-count vs) then cs-hy-con hp1 tag vs else cs-ub)
+cs-eval (suc k) fns hp env (cs-switch d scrut brs) =
+  cs-bind-res (cs-eval k fns hp env scrut) (λ hp1 vp →
+  cs-bind-opt (cs-load hp1 vp zero) (λ vtag →
+  cs-bind-word vtag (λ tag →
+    cs-eval-switch (cs-eval k fns) hp1 env vp tag brs)))
+cs-eval (suc k) fns hp env (cs-for d bound init step) =
+  cs-bind-res (cs-eval k fns hp env bound) (λ hp1 vw →
+  cs-bind-word vw (λ w →
+  cs-bind-res (cs-eval k fns hp1 env init) (λ hp2 vz →
+    cs-for-loop (cs-eval k fns) (toNat w) #0 d hp2 vz env step)))
+cs-eval (suc k) fns hp env cs-args-nil = cs-ub
+cs-eval (suc k) fns hp env (cs-fargs hd tl) = cs-ub
+cs-eval (suc k) fns hp env (cs-cargs hd tl) = cs-ub
+cs-eval (suc k) fns hp env cs-br-nil = cs-ub
+cs-eval (suc k) fns hp env (cs-br-cons tag d nf body rest) = cs-ub

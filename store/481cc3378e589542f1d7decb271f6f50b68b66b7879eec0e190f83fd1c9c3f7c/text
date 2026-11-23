@@ -1,0 +1,22 @@
+sg-parse-sexp : Nat → Bool → List Word → Opt ((NkSexp × Lst NkSexp) × List Word)
+sg-parse-sexp zero _ _ = none
+sg-parse-sexp (suc k) want-list cs =
+  case sg-skip-ws cs #0 return (λ _ → Opt ((NkSexp × Lst NkSexp) × List Word)) of
+    nil → none
+    cons c r →
+      if want-list then
+        (if %weq c #41 then some ((nks-sym nil , lnil) , r)
+         else
+           (case sg-parse-sexp k false (cons c r) return (λ _ → Opt ((NkSexp × Lst NkSexp) × List Word)) of
+              none → none
+              some p1 →
+                (case sg-parse-sexp k true (snd p1) return (λ _ → Opt ((NkSexp × Lst NkSexp) × List Word)) of
+                   none → none
+                   some p2 → some ((nks-sym nil , lcons (fst (fst p1)) (snd (fst p2))) , snd p2))))
+      else
+        (if %weq c #41 then none
+         else if %weq c #40 then
+           (case sg-parse-sexp k true r return (λ _ → Opt ((NkSexp × Lst NkSexp) × List Word)) of
+              some p → some ((nks-lst (snd (fst p)) , lnil) , snd p)
+              none → none)
+         else (let tk = sg-take-sym (cons c r) nil in some ((nks-sym (fst tk) , lnil) , snd tk)))

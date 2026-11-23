@@ -1,0 +1,36 @@
+-- the-library-checks (2026-11-18, found while writing chem/identity.cub): `make library` refuses
+-- lib/library.cub. Every one of lib/derive.cub's 24 definitions (dfield-kind, prim-eq-op, dtel-kinds,
+-- dshape, nctors, count-rec, bool-d, c-true, c-false, c-and, clams, derive-eq, all-shapes,
+-- outer-branches, inner-branches, compare-fields, list-d, c-nil, c-cons, c-app, prim-to-word,
+-- derive-show, show-branches, show-fields) is written without a signature, in the raw style of the
+-- files the checker is built from. The checker allows that only in the two fixed lists of
+-- src/syntax.c: BOOT_RAW (prelude, code, match, nav, cost, lin, check) may hold a definition without a
+-- checked signature, BOOT_TRUSTED (prim, std) may hold primitive, foreign or postulate, and the
+-- comment above them states that neither list is extended to admit new code. lib/derive.cub is in
+-- neither, so it is refused wherever it loads, and because lib/library.cub imports it the library does
+-- not check and no file written over the library can be written at all: `hyperactive write` keeps a
+-- piece only if nothing newly fails where the change is loaded, and everything after derive.cub in the
+-- load order fails already.
+-- What the work is: give each of those definitions a signature that checks. Their vocabulary is the
+-- checker's own code representation (clam, ccase, cvar, cprim, centry, ctors-at, is-rec-ty, tval,
+-- lsnoc, %dent, %view, %gval, the telescope's tx/ty/tz and the type shapes tword/tdata/tg), all of it
+-- declared in the raw files without signatures, so the types those definitions are to be stated at
+-- have to be named first — which is the same question as what the code representation's type is, and
+-- is therefore core work, not a repair of derive.cub alone. The alternative, extending BOOT_RAW, is
+-- refused by the core's own statement of the rule.
+-- Scoped further (2026-11-18): the obstacle is one level below derive.cub. Code is fully typed — a data
+-- declaration with every constructor's fields typed — but Tel, the telescope that derive.cub walks, is
+-- declared in check.cub as `data Tel = tx A nm r | ty nm r | tz e`, with no types on any field, and the
+-- same holds of the other raw declarations derive.cub reads (ctors-at, centry, is-rec-ty, tval). A
+-- signature for dfield-kind or dtel-kinds therefore cannot be written until the telescope
+-- representation itself is stated at types: the work is to type that representation in check.cub, and
+-- derive.cub's 24 signatures follow from it. That is why this node is stated as the library checking and
+-- not as a repair of one file.
+-- Until it is done, a file written over the library cannot be written: chem/identity.cub loads after
+-- lib/core.cub alone and carries no truncation and no unchosen enumeration for that reason
+-- (chemistry-knowledge-graph).
+-- Resolved without extending BOOT_RAW (2026-11-22): every definition of lib/derive.cub stated at a
+-- signature over typed DShape/FK in lib/std.cub (derive-eq key eefbc7da614d, derive-show key
+-- 0efcfae31965) plus data-type-code (key d6c3b941ecd0); lib/library.cub passes with 0 failures.
+the-library-checks : Node
+the-library-checks = node "The library checks: every definition of lib/derive.cub stated at a signature, so that lib/library.cub is accepted and a file can be written over the library again." (cons the-product nil)

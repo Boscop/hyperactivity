@@ -1,0 +1,43 @@
+-- nk-linear-steps-commute: two active pairs in a linear net (at most one value-producer and one
+-- operation-placer per wire, with outs1 allowed to meet ins2 and ins1 allowed to meet outs2!),
+-- given non-overlapping fresh name intervals [n1, m1) and [n2, m2) with m1 <= n2, satisfy nk-safe?
+-- and commute at every wire of memory (part of machine-in-hyperactive)
+nk-linear-safe : (sl : NkSlots) (u1 n1 m1 u2 n2 m2 : NkW) (ins1 outs1 ins2 outs2 : NkEnv) →
+  (nk-weq u1 u2 ≡ false) →
+  (nk-weq (nk-rw (nk-get sl u1) u1) u2 ≡ false) →
+  (nk-weq u2 (nk-rw (nk-get sl u1) u1) ≡ false) →
+  (nk-weq u1 (nk-rw (nk-get sl u2) u2) ≡ false) →
+  (nk-weq (nk-rw (nk-get sl u2) u2) u1 ≡ false) →
+  (nk-wire-lt u1 n1 ≡ true) → (nk-wire-lt (nk-rw (nk-get sl u1) u1) n1 ≡ true) →
+  (nk-wire-lt u2 n1 ≡ true) → (nk-wire-lt (nk-rw (nk-get sl u2) u2) n1 ≡ true) →
+  (nk-emem u1 ins2 ≡ false) → (nk-emem u1 outs2 ≡ false) →
+  (nk-emem (nk-rw (nk-get sl u1) u1) ins2 ≡ false) → (nk-emem (nk-rw (nk-get sl u1) u1) outs2 ≡ false) →
+  (nk-emem u2 ins1 ≡ false) → (nk-emem u2 outs1 ≡ false) →
+  (nk-emem (nk-rw (nk-get sl u2) u2) ins1 ≡ false) → (nk-emem (nk-rw (nk-get sl u2) u2) outs1 ≡ false) →
+  (nk-ebound ins1 n1 ≡ true) → (nk-ebound outs1 n1 ≡ true) →
+  (nk-ebound ins2 n1 ≡ true) → (nk-ebound outs2 n1 ≡ true) →
+  (nk-edisj ins1 ins2 ≡ true) → (nk-edisj outs1 outs2 ≡ true) →
+  (nk-wire-le n1 m1 ≡ true) → (nk-wire-le m1 n2 ≡ true) →
+  (nk-step-fx-wf u1 ins1 outs1 n1 m1 (nk-plan-fx sl u1 n1) ≡ true) →
+  (nk-step-fx-wf u2 ins2 outs2 n2 m2 (nk-plan-fx sl u2 n2) ≡ true) →
+  nk-safe? sl u1 n1 u2 n2 ≡ true
+nk-linear-safe sl u1 n1 m1 u2 n2 m2 ins1 outs1 ins2 outs2 neq nrw1u2 nu2rw1 nu1rw2 nrw2u1 ltu1 ltrw1 ltu2 ltrw2 u1i2 u1o2 rw1i2 rw1o2 u2i1 u2o1 rw2i1 rw2o1 bi1 bo1 bi2 bo2 di do0 p12 pm h1 h2 =
+  let f1 = nk-plan-fx sl u1 n1
+      f2 = nk-plan-fx sl u2 n2
+      rw1 = nk-rw (nk-get sl u1) u1
+      rw2 = nk-rw (nk-get sl u2) u2
+      n1n2 = nk-wire-le-trans n1 m1 n2 p12 pm
+      ltu1_2 = nk-wire-lt-wle-trans u1 n1 n2 ltu1 n1n2
+      ltrw1_2 = nk-wire-lt-wle-trans rw1 n1 n2 ltrw1 n1n2
+      c_oks = nk-step-fx-oks u1 u2 n1 m1 n2 m2 ins1 outs1 ins2 outs2 f1 f2 neq ltu1 u1i2 u1o2 ltu2 u2i1 u2o1 bi1 bo1 bi2 bo2 di do0 p12 pm h1 h2
+      c_u1 = nk-step-fx-clear u1 u2 n2 m2 ins2 outs2 f2 neq ltu1_2 u1i2 u1o2 h2
+      c_rw1 = nk-step-fx-clear rw1 u2 n2 m2 ins2 outs2 f2 nrw1u2 ltrw1_2 rw1i2 rw1o2 h2
+      c_u2 = nk-step-fx-clear u2 u1 n1 m1 ins1 outs1 f1 (nk-weq-sym-f u1 u2 neq) ltu2 u2i1 u2o1 h1
+      c_rw2 = nk-step-fx-clear rw2 u1 n1 m1 ins1 outs1 f1 nrw2u1 ltrw2 rw2i1 rw2o1 h1
+  in nk-and-intro (nk-oks? f1 f2) (nk-and (nk-clear? u1 f2) (nk-and (nk-clear? rw1 f2) (nk-and (nk-clear? u2 f1) (nk-clear? rw2 f1))))
+       c_oks
+       (nk-and-intro (nk-clear? u1 f2) (nk-and (nk-clear? rw1 f2) (nk-and (nk-clear? u2 f1) (nk-clear? rw2 f1)))
+         c_u1
+         (nk-and-intro (nk-clear? rw1 f2) (nk-and (nk-clear? u2 f1) (nk-clear? rw2 f1))
+           c_rw1
+           (nk-and-intro (nk-clear? u2 f1) (nk-clear? rw2 f1) c_u2 c_rw2)))

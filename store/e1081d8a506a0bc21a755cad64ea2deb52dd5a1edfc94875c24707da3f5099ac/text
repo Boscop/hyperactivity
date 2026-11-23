@@ -1,0 +1,41 @@
+nk-sig-step : NkSigSt → NkSigSt
+nk-sig-step st =
+  let todoD = fst st
+      r1 = snd st
+      todoG = fst r1
+      r2 = snd r1
+      seenD = fst r2
+      r3 = snd r2
+      seenG = fst r3
+      rsig = snd r3
+  in case todoD return (λ _ → NkSigSt) of
+       lcons d dr →
+         if nk-has-word d seenD
+           then (dr , (todoG , (seenD , (seenG , rsig))))
+           else (case data-type-code d return (λ _ → NkSigSt) of
+                   some dc →
+                     let cf2 = nk-clean-code (fst dc)
+                         cs2 = l-map nk-clean-code (snd dc)
+                         allc = lcons cf2 cs2
+                         newD = nk-fold-codes (nk-code-datas (toNat #120)) allc dr
+                         newG = nk-fold-codes (λ c a → nk-add-words (code-globals c) a) allc todoG
+                     in (newD , (newG , (lcons d seenD , (seenG , (nk-snoc-d (d , (cf2 , cs2)) (fst rsig) , snd rsig)))))
+                   none → (dr , (todoG , (lcons d seenD , (seenG , rsig)))))
+       lnil →
+         case todoG return (λ _ → NkSigSt) of
+           lcons g gr →
+             if nk-has-word g seenG
+               then (lnil , (gr , (seenD , (seenG , rsig))))
+               else (case def-source g return (λ _ → NkSigSt) of
+                       some src0 →
+                         (case def-type-code g return (λ _ → NkSigSt) of
+                            some ty0 →
+                              let src = nk-clean-code src0
+                                  ty = nk-clean-code ty0
+                                  allc = lcons src (lcons ty lnil)
+                                  newD = nk-fold-codes (nk-code-datas (toNat #120)) allc lnil
+                                  newG = nk-fold-codes (λ c a → nk-add-words (code-globals c) a) allc gr
+                              in (newD , (newG , (seenD , (lcons g seenG , (fst rsig , nk-snoc-g (g , (src , ty)) (snd rsig))))))
+                            none → (lnil , (gr , (seenD , (lcons g seenG , rsig)))))
+                       none → (lnil , (gr , (seenD , (lcons g seenG , rsig)))))
+           lnil → st

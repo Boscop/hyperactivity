@@ -1,0 +1,115 @@
+-- hyperactive-emits-c (2026-11-21): the paper's §9.4 "Compilation through C" names C as the primary
+-- target; what the repository has is lib/x86.cub's builder, which emits x86 bytes into a Linux ELF
+-- file and so runs on no other processor. The builder already brings a definition to a first-order
+-- form before its templates (Defs: after specialization, then apps, lift, check), and its yes or no
+-- (fragment-n, x-ok-n) does not depend on the target, so the C emitter starts from that same form
+-- and is one template per construct. Known (2026-11-21): an experiment, sixteen definitions ce-* in
+-- lib/x86.cub after jit-plan, covering words, word arithmetic, let and full calls; anything else
+-- emits a call that aborts. ce-demo x y = x*7 + y came out as one C function; the system compiler
+-- built it; 6 3 gave 45; a result past 64 bits aborts. Printed by `hyperactive view in
+-- lib/library.cub ce-demo-c` (lib/x86.cub has no imports and checks only when loaded after others).
+-- Then data and case (2026-11-21): a constructor is a block of tag then fields, a case is a switch
+-- on the tag that binds the fields, word comparison gives a Bool block, successor is add one;
+-- ce-demo2 x = if x < 10 then x*2 else x+1 was emitted, built and run on both branches (9 gave 18,
+-- 10 gave 11). The first-order form lifts a case into its own definition, so the C had two
+-- functions. A construct the emitter does not cover aborts when reached; blocks are never freed.
+-- The experiment had used the command line's decimal printer, which the library does not hold, and
+-- the library's own check failed 13 definitions until the emitter got its own (ce-dec); the library
+-- now checks 2831 passed, 0 failed.
+-- Then the word eliminator (2026-11-21): a loop from 0 to w carrying the accumulator, when its step
+-- is two λs written in place; ce-demo3, the sum below n by the eliminator, emitted, built and run
+-- (100 gave 4950). toNat is built from the eliminator, so a count by Nat can now be emitted.
+-- Nothing in it is proven. To do: closures, memory, the world's commands, continuing
+-- processes; the meaning of the emitted subset of C as a definition of the language (language-support
+-- holds C's semantics as a goal), and against it the proof that each template's C means its
+-- construct and has no undefined behaviour; then the smallest machine (cells, wires, application,
+-- duplicate, erase) written in the language, emitted and run.
+-- Extended and split into clean target-independent and C-specific modules (2026-11-22):
+-- (1) Module separation: the target-independent first-order pipeline (Defs .. x-verdict) was
+-- extracted out of lib/x86.cub into lib/first-order.cub (imported by both lib/emit-c.cub and
+-- lib/x86.cub), and the C emitter was extracted into lib/emit-c.cub (emit-c-program,
+-- emit-c-definition, plus aliases ce-prog and ce-of and witnesses ce-demo-c, ce-demo2-c, ce-demo3-c,
+-- with zero x86 dependency and zero -a duplicate functions), leaving lib/x86.cub holding only x86-64
+-- machine-code encoding (Reg .. jit-plan). lib/library.cub imports first-order.cub, emit-c.cub,
+-- emit-c-proof.cub, and x86.cub in load order.
+-- (2) Closures, partial and over-saturated calls, pairs, and bump allocation (lib/emit-c.cub:
+-- ce-alloc, ce-stats, ce-prelude2, ce-wraps, ce-apps, ce-gcall, ce-apply, ce-exp, emit-c-program),
+-- plus source-level program collection without unfolding callees (program-of-at with def-source,
+-- nk-src-prog, nk-emit-src in lib/kernel.cub): each definition becomes one C function and one
+-- wrapper, keeping emitted C linear in the source rather than unfolding stuck recursions.
+-- (3) Complete Word binary operations (0..12): ce-opname and ce-prelude2 in lib/emit-c.cub cover
+-- %wmod (hy_mod), %wand (hy_and), %wor (hy_or), %wxor (hy_xor), %wshl (hy_shl, aborting on shift >=
+-- 64 or 64-bit overflow) and %wshr (hy_shr) alongside %weq, %wlt, %wadd, %wmax, %wsub, %wmul and
+-- %wdiv, so every cwop accepted by x-ok-n emits valid C without hy_bad2.
+-- (4) Partially applied recursive calls in x-fun-map (lib/first-order.cub): x-push-lams eta-reduces
+-- (λ z → ih fD fG z) to ih fD fG, which x-fun-map previously turned into cclock (hy_bad()) when
+-- l-count (snd sp) < arity. Eta-expanding a partial recursive application back into rem = a - s
+-- clam binders lets x-lift-clo lift it to a first-order C closure, reducing hy_bad() calls in the
+-- emitted 1,319-function kernel from 12 to 0 (proven by nk-emit-cases-ok : x-bad (fst nk-cases-prog)
+-- nk-cases-defs ≡ none = refl in lib/kernel.cub).
+-- (5) Single linear-time difference-list C emitter (emit-c-program in lib/emit-c.cub): stripping
+-- Code bodies from Defs via x-arities before ce-fns avoids duplicating the program AST across
+-- ref_read/lazy_copy in src/net.c, and threading a difference-list accumulator avoids quadratic
+-- list-append. Together with stubbing packed signature constants during x-forms-all and substituting
+-- their quoted constructors once via nk-fill-packs, `hyperactive view in lib/kernel.cub
+-- nk-emit-cases` emits the entire 67-case self-checking kernel (3,497,230 bytes, 4,016 lines, 0
+-- hy_bad() calls); compiled with `gcc -O1`, all 67 cases 0..66 pass natively in ~4.2s total (#66
+-- self-check of nk-ty-s and nk-has-s in ~0.05s), and `nk-conv-emit` (key fee91af3b987, emitted from
+-- def-source in 213,163 bytes / ~78s) verifies (3,0)=1, (3,1)=0, (40,0)=1.
+-- (6) Three ISO C11 undefined-behaviour / semantic defects caught during formalization and fixed in
+-- lib/emit-c.cub (ce-alloc key 3d21fcfc9a3e, ce-prelude2 key a42af36ee1b3):
+--   (a) hy_shl(a, 0) when a != 0 previously evaluated `a >> (64 - 0)` (`a >> 64`, ISO/IEC 9899:2011
+--       §6.5.7p3 "Bitwise shift operators" undefined behaviour; on x86-64 `shr r64, cl` masks
+--       `64 & 63 = 0`, making `1 >> 0 = 1 != 0` call abort() with SIGABRT, reproduced under
+--       `gcc -fsanitize=undefined`); fixed to `if (!a || !b) return a;`.
+--   (b) hy_mod(a, 0) previously returned 0, violating Hyperactive's `%wmod a #0 = a` (src/core.h,
+--       src/big.c); fixed to `return b ? a % b : a;`.
+--   (c) hy_alloc initially evaluated `hy_end - hy_at` on `NULL - NULL` before the first malloc
+--       (ISO/IEC 9899:2011 §6.5.6p9 "Additive operators"); fixed to
+--       `if (!hy_at || (uint64_t)(hy_end - hy_at) * 8 < n)`.
+-- (7) Formal C11 subset syntax, provenance-aware operational semantics, UB-freedom, template
+-- soundness, Kripke arena monotonicity, and whole-tree Code simulation (lib/emit-c-proof.cub,
+-- imported by lib/library.cub; docs/hyperactivity.cub, version 32, 15 November 2026, §9.4
+-- "Compilation through C"):
+--   (a) Structured AST CsExp (constructors cse-*), printer cs-print, compiler cs-compile-by /
+--       cs-compile, exact byte-for-byte equivalence cs-compile-by-prints-eq (key 4e3802312b86)
+--       across all 62 Code constructors, and linear difference-list fusion cs-print-dlist-sound
+--       (key 25cabe9c3a04).
+--   (b) C11 operational semantics cs-eval (key 0e64cbf531a9) over strict provenance values CsVal
+--       (csv-word vs csv-ptr), bump-arena CsHeap, and CsRes (cso-ok, cso-abort, cso-ub) with raw
+--       UB-producing C11 operators (cs-c11-div, cs-c11-mod, cs-c11-shl64, cs-c11-shr64).
+--   (c) Constructive Word shift guard cs-shl-guard (key c4cdfa76b427: `%weq b #0 ≡ false →
+--       %wlt (%wsub #64 b) #64 ≡ true`), universal UB-freedom cs-hy-bop-no-ub (key 2a876dc38ea2)
+--       across all 13 hy_* Word helpers + hy_bad2, arithmetic soundness (cs-hy-sub-sound key
+--       3053c9eb8e3b, cs-hy-max-sound key f6743995d934, cs-hy-add-sound, cs-hy-mul-sound,
+--       cs-hy-div-zero-sound, cs-hy-div-nz-sound key 5e3a1e3bfcf9, cs-hy-mod-zero-sound,
+--       cs-hy-mod-nz-sound key 60c91eb84720), and template soundness / UB-freedom for variables,
+--       literals, cwsucc, clet, pairs/projections (cs-fst-pair-sound key c8819093f584,
+--       cs-snd-pair-sound key 1c41ba87c6dc), constructors and switch (cs-switch-con-head-sound key
+--       7ac571487e5e, cs-switch-default-no-ub), bounded for loops (cs-for-template-sound key
+--       75399234a745, cs-for-loop-no-ub key 1f4a9ef54b52), closure application (cs-hy-app-clo-sound
+--       key 9116c7bb4efc, cs-hy-app-partial-no-ub), cs-bad-template-no-ub, and concrete execution /
+--       byte-equality witnesses on ce-demo, ce-demo2, and ce-demo3.
+--   (d) Whole-program bump-arena monotonicity (cs-eval-mono-res key 7e5322a2b4de, cs-eval-mono key
+--       729c43cfe60d across all 20 CsExp constructors), Kripke value monotonicity (cs-val-rel-mono
+--       key e014769f5d33), and compositional whole-tree Code -> CsExp compiler simulation &
+--       UB-freedom (cs-compile-code-sim key dbafe4889131, cs-compile-sound key fb5b0b8b4b53,
+--       cs-compile-closed-sound key cc814964e8c3, cs-compile-closed-no-ub key 73f49eec1044)
+--       covering variables, 64-bit literals, successor, Word/Bool binary operations, let-bindings,
+--       heap-allocated pairs, projections, and Bool switch dispatch. Verified at runtime under
+--       `gcc -O1 -fsanitize=undefined -fno-sanitize-recover=all`.
+-- (8) World commands and continuing processes in C (lib/emit-c.cub: ce-world-run key 852915ee3297,
+-- ce-proc-main key 98e09317c7b4, emit-c-proc-program key 58f1df13bf83, emit-c-proc key
+-- 14e55bc16e2a, ce-proc-loop key f1c7a0be46f9, ce-proc-demo key 97c17a3ed100, ce-proc-demo-c key
+-- 410a194d3ab0): emits continuing Step W Word processes over WCmd (w-now, w-sleep, w-exit, w-close,
+-- w-load, w-store, w-cas, w-fence, w-sys, w-alloc, w-load8, w-store8, w-spawn, w-fd-write,
+-- w-file-read-named, w-file-write-named, w-free) driven by hy_run_step + hy_app(k, resp).
+-- ce-proc-demo-c (67 lines of C11) compiles cleanly under `gcc -std=c11 -O1 -Wall -Wextra
+-- -fsanitize=undefined -fno-sanitize-recover=all` and runs 200 continuing load/store steps plus
+-- w-alloc, w-free, and w-fd-write (`ok` and `4950`, 0 UBSan errors).
+-- Not yet worked in this session (ours to build): automatic reclamation of bump-arena blocks (which
+-- requires pointer/word tagging or per-type field masks because cwlit and hy_con share unboxed
+-- 64-bit uint64_t), extending cs-compile-code-sim to general global calls/closures and cwelim
+-- loops, and connection to full ISO C semantics once language-support unblocks.
+hyperactive-emits-c : Node
+hyperactive-emits-c = node "Hyperactive emits C for everything the builder accepts, each construct by its template, with the proof that the C means the term and has no undefined behaviour." (cons language-implementation-remainder nil)

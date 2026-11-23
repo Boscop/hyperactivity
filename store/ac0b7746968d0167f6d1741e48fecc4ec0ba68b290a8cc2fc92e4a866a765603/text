@@ -1,0 +1,15 @@
+cs-sim-ccase-at : (g : Bool) (nf_of : Word → Word → Word) (k : Nat) (fns : CsFns) (ars : Lst (Word × Word))
+  (menv : Lst CsMVal) (hp : CsHeap) (cenv : CsEnv) (dd : Word) (B : Lst Code) (cond : Code) →
+  (c-and (%weq (nf_of dd #0) #0) (%weq (nf_of dd #1) #0) ≡ g) →
+  ((c0 : Code) (hp0 : CsHeap) (cenv0 : CsEnv) → cs-env-rel hp0 menv cenv0 →
+     cs-sim-ok (cs-code-eval-by nf_of k menv c0)
+               (cs-eval k fns hp0 cenv0 (cs-compile-by nf_of k ars (cs-wlen menv) c0)) ≡ true) →
+  cs-env-rel hp menv cenv →
+  cs-sim-ok (if g then cs-eval-bool-brs (cs-code-eval-by nf_of k menv) (cs-as-bool-brs B) (cs-code-eval-by nf_of k menv cond) else csom-none)
+            (cs-eval (suc k) fns hp cenv (cs-compile-by nf_of (suc k) ars (cs-wlen menv) (ccase dd B cond))) ≡ true
+cs-sim-ccase-at false nf_of k fns ars menv hp cenv dd B cond hg ih henv = refl
+cs-sim-ccase-at true nf_of k fns ars menv hp cenv dd B cond hg ih henv =
+  cs-sim-ccase-brs nf_of k fns ars menv hp cenv dd B cond
+    (cs-weq-sound (nf_of dd #0) #0 (csr-and-l (%weq (nf_of dd #0) #0) (%weq (nf_of dd #1) #0) hg))
+    (cs-weq-sound (nf_of dd #1) #0 (csr-and-r (%weq (nf_of dd #0) #0) (%weq (nf_of dd #1) #0) hg))
+    ih henv

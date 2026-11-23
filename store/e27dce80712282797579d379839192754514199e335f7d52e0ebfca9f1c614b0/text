@@ -1,0 +1,31 @@
+nk-step-fx-oks : (u1 u2 n1 m1 n2 m2 : NkW) (ins1 outs1 ins2 outs2 : NkEnv) (fx1 fx2 : NkFx) →
+  (nk-weq u1 u2 ≡ false) →
+  (nk-wire-lt u1 n1 ≡ true) → (nk-emem u1 ins2 ≡ false) → (nk-emem u1 outs2 ≡ false) →
+  (nk-wire-lt u2 n1 ≡ true) → (nk-emem u2 ins1 ≡ false) → (nk-emem u2 outs1 ≡ false) →
+  (nk-ebound ins1 n1 ≡ true) → (nk-ebound outs1 n1 ≡ true) →
+  (nk-ebound ins2 n1 ≡ true) → (nk-ebound outs2 n1 ≡ true) →
+  (nk-edisj ins1 ins2 ≡ true) → (nk-edisj outs1 outs2 ≡ true) →
+  (nk-wire-le n1 m1 ≡ true) → (nk-wire-le m1 n2 ≡ true) →
+  (nk-step-fx-wf u1 ins1 outs1 n1 m1 fx1 ≡ true) → (nk-step-fx-wf u2 ins2 outs2 n2 m2 fx2 ≡ true) →
+  nk-oks? fx1 fx2 ≡ true
+nk-step-fx-oks u1 u2 n1 m1 n2 m2 ins1 outs1 ins2 outs2 nkf-nil fx2 neq ltu1 hi1 ho1 ltu2 hi2 ho2 bi1 bo1 bi2 bo2 di do0 p12 pm h1 h2 = refl
+nk-step-fx-oks u1 u2 n1 m1 n2 m2 ins1 outs1 ins2 outs2 (nkf-at w1 (nkc-put s1) r1) nkf-nil neq ltu1 hi1 ho1 ltu2 hi2 ho2 bi1 bo1 bi2 bo2 di do0 p12 pm h1 h2 =
+  nk-fx-oks-nil r1
+nk-step-fx-oks u1 u2 n1 m1 n2 m2 ins1 outs1 ins2 outs2 (nkf-at w1 (nkc-put s1) r1) (nkf-at w2 (nkc-put s2) r2) neq ltu1 hi1 ho1 ltu2 hi2 ho2 bi1 bo1 bi2 bo2 di do0 p12 pm h1 h2 =
+  let ew1 = nk-weq-sound w1 u1 (nk-and-l (nk-weq w1 u1) (nk-fx-wf ins1 outs1 n1 m1 r1) h1)
+      ew2 = nk-weq-sound w2 u2 (nk-and-l (nk-weq w2 u2) (nk-fx-wf ins2 outs2 n2 m2 r2) h2)
+      hr1 = nk-and-r (nk-weq w1 u1) (nk-fx-wf ins1 outs1 n1 m1 r1) h1
+      hr2 = nk-and-r (nk-weq w2 u2) (nk-fx-wf ins2 outs2 n2 m2 r2) h2
+      lt12 = nk-wire-lt-wle-trans u1 n1 n2 ltu1 (nk-wire-le-trans n1 m1 n2 p12 pm)
+      ok_u1 = nk-and-intro (nk-ok1? u1 (nkc-put s1) u2 (nkc-put s2)) (nk-ok? u1 (nkc-put s1) r2)
+                (cong (λ z → if z then false else true) neq)
+                (nk-put-ok-fx u1 s1 n2 m2 ins2 outs2 r2 lt12 hi1 ho1 hr2)
+      oks_u = nk-and-intro (nk-ok? u1 (nkc-put s1) (nkf-at u2 (nkc-put s2) r2)) (nk-oks? r1 (nkf-at u2 (nkc-put s2) r2))
+                ok_u1
+                (nk-fx-oks-put u2 s2 n1 m1 n2 m2 ins1 outs1 ins2 outs2 r1 r2 ltu2 hi2 ho2 bi1 bo1 bi2 bo2 di do0 p12 pm hr1 hr2)
+  in cong (λ z1 → nk-oks? (nkf-at z1 (nkc-put s1) r1) (nkf-at w2 (nkc-put s2) r2)) ew1
+     ∙ (cong (λ z2 → nk-oks? (nkf-at u1 (nkc-put s1) r1) (nkf-at z2 (nkc-put s2) r2)) ew2 ∙ oks_u)
+nk-step-fx-oks u1 u2 n1 m1 n2 m2 ins1 outs1 ins2 outs2 (nkf-at w1 (nkc-put s1) r1) (nkf-at w2 (nkc-val v2) r2) neq ltu1 hi1 ho1 ltu2 hi2 ho2 bi1 bo1 bi2 bo2 di do0 p12 pm h1 h2 = nk-no h2
+nk-step-fx-oks u1 u2 n1 m1 n2 m2 ins1 outs1 ins2 outs2 (nkf-at w1 (nkc-put s1) r1) (nkf-at w2 (nkc-op o2) r2) neq ltu1 hi1 ho1 ltu2 hi2 ho2 bi1 bo1 bi2 bo2 di do0 p12 pm h1 h2 = nk-no h2
+nk-step-fx-oks u1 u2 n1 m1 n2 m2 ins1 outs1 ins2 outs2 (nkf-at w1 (nkc-val v1) r1) fx2 neq ltu1 hi1 ho1 ltu2 hi2 ho2 bi1 bo1 bi2 bo2 di do0 p12 pm h1 h2 = nk-no h1
+nk-step-fx-oks u1 u2 n1 m1 n2 m2 ins1 outs1 ins2 outs2 (nkf-at w1 (nkc-op o1) r1) fx2 neq ltu1 hi1 ho1 ltu2 hi2 ho2 bi1 bo1 bi2 bo2 di do0 p12 pm h1 h2 = nk-no h1

@@ -1,0 +1,98 @@
+cs-sim-step10 : (nf_of : Word → Word → Word) (k : Nat) (fns : CsFns) (ars : Lst (Word × Word)) →
+  ((menv0 : Lst CsMVal) (hp0 : CsHeap) (cenv0 : CsEnv) (c0 : Code) →
+     cs-env-rel hp0 menv0 cenv0 →
+     cs-sim-ok (cs-code-eval-by nf_of k menv0 c0)
+               (cs-eval k fns hp0 cenv0 (cs-compile-by nf_of k ars (cs-wlen menv0) c0)) ≡ true) →
+  (menv : Lst CsMVal) (hp : CsHeap) (cenv : CsEnv) (fm : CsCode10) →
+  cs-env-rel hp menv cenv →
+  cs-sim-ok (cs-code10-eval nf_of (cs-code-eval-by nf_of k) menv fm)
+            (cs-eval (suc k) fns hp cenv (cs-code10-comp nf_of k ars (cs-wlen menv) fm)) ≡ true
+cs-sim-step10 nf_of k fns ars ih menv hp cenv (cc10-var n) henv = henv n
+cs-sim-step10 nf_of k fns ars ih menv hp cenv (cc10-wlit w) henv = cs-sim-w64-word (cs-w64 w) hp w
+cs-sim-step10 nf_of k fns ars ih menv hp cenv (cc10-wsucc a) henv =
+  let ea = cs-compile-by nf_of k ars (cs-wlen menv) a
+  in cs-sim-bind hp (cs-code-eval-by nf_of k menv a) (cs-eval k fns hp cenv ea)
+       (λ ma → cs-bind-mword ma (λ wa → if cs-w64 (%wadd wa #1) then csom-some (cmv-word (%wadd wa #1)) else csom-none))
+       (λ hp1 va → cs-hy-bop #2 hp1 va (csv-word #1))
+       (cs-eval-mono-res k fns hp cenv ea)
+       (ih menv hp cenv a henv)
+       (λ ma hp1 va _ hrel →
+          cs-sim-word hp1 ma va
+            (λ wa → if cs-w64 (%wadd wa #1) then csom-some (cmv-word (%wadd wa #1)) else csom-none)
+            (λ x → cs-hy-bop #2 hp1 x (csv-word #1))
+            hrel
+            (λ wa → cs-sim-w64-abort (cs-w64 (%wadd wa #1)) hp1 (%wadd wa #1)))
+cs-sim-step10 nf_of k fns ars ih menv hp cenv (cc10-wop j a b) henv =
+  let d = cs-wlen menv
+      ea = cs-compile-by nf_of k ars d a
+      eb = cs-compile-by nf_of k ars d b
+  in cs-sim-bind hp (cs-code-eval-by nf_of k menv a) (cs-eval k fns hp cenv ea)
+       (λ ma → cs-bind-mword ma (λ wa → cs-bind-om (cs-code-eval-by nf_of k menv b) (λ mb → cs-bind-mword mb (λ wb → cs-code-wop j wa wb))))
+       (λ hp1 va → cs-bind-res (cs-eval k fns hp1 cenv eb) (λ hp2 vb → cs-hy-bop j hp2 va vb))
+       (cs-eval-mono-res k fns hp cenv ea)
+       (ih menv hp cenv a henv)
+       (λ ma hp1 va ext1 hrela →
+          cs-sim-word hp1 ma va
+            (λ wa → cs-bind-om (cs-code-eval-by nf_of k menv b) (λ mb → cs-bind-mword mb (λ wb → cs-code-wop j wa wb)))
+            (λ va0 → cs-bind-res (cs-eval k fns hp1 cenv eb) (λ hp2 vb → cs-hy-bop j hp2 va0 vb))
+            hrela
+            (λ wa →
+               cs-sim-bind hp1 (cs-code-eval-by nf_of k menv b) (cs-eval k fns hp1 cenv eb)
+                 (λ mb → cs-bind-mword mb (λ wb → cs-code-wop j wa wb))
+                 (λ hp2 vb → cs-hy-bop j hp2 (csv-word wa) vb)
+                 (cs-eval-mono-res k fns hp1 cenv eb)
+                 (ih menv hp1 cenv b (cs-env-rel-mono hp hp1 menv cenv ext1 henv))
+                 (λ mb hp2 vb _ hrelb →
+                    cs-sim-word hp2 mb vb (λ wb → cs-code-wop j wa wb) (λ vb0 → cs-hy-bop j hp2 (csv-word wa) vb0) hrelb
+                      (λ wb → cs-sim-wop j hp2 wa wb))))
+cs-sim-step10 nf_of k fns ars ih menv hp cenv (cc10-let t b) henv =
+  let d = cs-wlen menv
+      et = cs-compile-by nf_of k ars d t
+      eb = cs-compile-by nf_of k ars (%wsucc d) b
+  in cs-sim-bind hp (cs-code-eval-by nf_of k menv t) (cs-eval k fns hp cenv et)
+       (λ mt → cs-code-eval-by nf_of k (lcons mt menv) b)
+       (λ hp1 vt → cs-eval k fns hp1 (cs-env-push d vt cenv) eb)
+       (cs-eval-mono-res k fns hp cenv et)
+       (ih menv hp cenv t henv)
+       (λ mt hp1 vt ext1 hrelt →
+          ih (lcons mt menv) hp1 (cs-env-push d vt cenv) b
+            (cs-env-rel-push hp1 menv cenv mt vt hrelt (cs-env-rel-mono hp hp1 menv cenv ext1 henv)))
+cs-sim-step10 nf_of k fns ars ih menv hp cenv (cc10-pair a b) henv =
+  let d = cs-wlen menv
+      ea = cs-compile-by nf_of k ars d a
+      eb = cs-compile-by nf_of k ars d b
+  in cs-sim-bind hp (cs-code-eval-by nf_of k menv a) (cs-eval k fns hp cenv ea)
+       (λ ma → cs-bind-om (cs-code-eval-by nf_of k menv b) (λ mb → csom-some (cmv-pair ma mb)))
+       (λ hp1 va → cs-bind-res (cs-eval k fns hp1 cenv eb) (λ hp2 vb → cs-hy-con hp2 #0 (lcons va (lcons vb lnil))))
+       (cs-eval-mono-res k fns hp cenv ea)
+       (ih menv hp cenv a henv)
+       (λ ma hp1 va ext1 hrela →
+          cs-sim-bind hp1 (cs-code-eval-by nf_of k menv b) (cs-eval k fns hp1 cenv eb)
+            (λ mb → csom-some (cmv-pair ma mb))
+            (λ hp2 vb → cs-hy-con hp2 #0 (lcons va (lcons vb lnil)))
+            (cs-eval-mono-res k fns hp1 cenv eb)
+            (ih menv hp1 cenv b (cs-env-rel-mono hp hp1 menv cenv ext1 henv))
+            (λ mb hp2 vb ext2 hrelb →
+               cs-sim-pair-con hp2 ma mb va vb (cs-val-rel-mono hp1 hp2 ma va ext2 hrela) hrelb))
+cs-sim-step10 nf_of k fns ars ih menv hp cenv (cc10-fst p) henv =
+  let ep = cs-compile-by nf_of k ars (cs-wlen menv) p
+  in cs-sim-bind hp (cs-code-eval-by nf_of k menv p) (cs-eval k fns hp cenv ep)
+       (λ mp → case mp return (λ _ → CsOptM) of cmv-word w → csom-none; cmv-bool b → csom-none; cmv-pair ma mb → csom-some ma)
+       (λ hp1 vp → cs-load-res hp1 vp (suc zero))
+       (cs-eval-mono-res k fns hp cenv ep)
+       (ih menv hp cenv p henv)
+       (λ mp hp1 vp _ hrelp → cs-sim-fst hp1 mp vp hrelp)
+cs-sim-step10 nf_of k fns ars ih menv hp cenv (cc10-snd p) henv =
+  let ep = cs-compile-by nf_of k ars (cs-wlen menv) p
+  in cs-sim-bind hp (cs-code-eval-by nf_of k menv p) (cs-eval k fns hp cenv ep)
+       (λ mp → case mp return (λ _ → CsOptM) of cmv-word w → csom-none; cmv-bool b → csom-none; cmv-pair ma mb → csom-some mb)
+       (λ hp1 vp → cs-load-res hp1 vp (suc (suc zero)))
+       (cs-eval-mono-res k fns hp cenv ep)
+       (ih menv hp cenv p henv)
+       (λ mp hp1 vp _ hrelp → cs-sim-snd hp1 mp vp hrelp)
+cs-sim-step10 nf_of k fns ars ih menv hp cenv (cc10-case dd B cond) henv =
+  cs-sim-ccase-at (c-and (%weq (nf_of dd #0) #0) (%weq (nf_of dd #1) #0))
+    nf_of k fns ars menv hp cenv dd B cond refl
+    (λ c0 hp0 cenv0 henv0 → ih menv hp0 cenv0 c0 henv0)
+    henv
+cs-sim-step10 nf_of k fns ars ih menv hp cenv cc10-other henv = refl

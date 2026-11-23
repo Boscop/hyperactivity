@@ -1,0 +1,18 @@
+cs-exp-by : (Word → Word → Word) → Nat → Lst (Word × Word) → Word → Code → List Word → List Word
+cs-exp-by nf_of zero ars d c acc = list-append "hy_bad()" acc
+cs-exp-by nf_of (suc k) ars d (cvar n) acc = list-append "v" (list-append (ce-dec (%wsub (%wsub d #1) n)) acc)
+cs-exp-by nf_of (suc k) ars d (cwlit n) acc = list-append (ce-dec n) (list-append "ull" acc)
+cs-exp-by nf_of (suc k) ars d (cwsucc a) acc = list-append "hy_add(" (cs-exp-by nf_of k ars d a (list-append ", 1ull)" acc))
+cs-exp-by nf_of (suc k) ars d (cwop j a b) acc = list-append (ce-opname j) (list-append "(" (cs-exp-by nf_of k ars d a (list-append ", " (cs-exp-by nf_of k ars d b (list-append ")" acc)))))
+cs-exp-by nf_of (suc k) ars d (clet t b) acc = list-append "({ uint64_t v" (list-append (ce-dec d) (list-append " = " (cs-exp-by nf_of k ars d t (list-append "; " (cs-exp-by nf_of k ars (%wsucc d) b (list-append "; })" acc))))))
+cs-exp-by nf_of (suc k) ars d (capp f a) acc = ce-apply ars (λ x tl → cs-exp-by nf_of k ars d x tl) (fst (x-spine (capp f a))) (snd (x-spine (capp f a))) acc
+cs-exp-by nf_of (suc k) ars d (cglob g) acc = ce-gcall (λ x tl → cs-exp-by nf_of k ars d x tl) g (x-look ars g) #0 lnil acc
+cs-exp-by nf_of (suc k) ars d (cpair a b) acc = list-append "hy_con(0, 2, (uint64_t[]){0, " (cs-exp-by nf_of k ars d a (list-append ", " (cs-exp-by nf_of k ars d b (list-append "})" acc))))
+cs-exp-by nf_of (suc k) ars d (cfst p) acc = list-append "((uint64_t *)" (cs-exp-by nf_of k ars d p (list-append ")[1]" acc))
+cs-exp-by nf_of (suc k) ars d (csnd p) acc = list-append "((uint64_t *)" (cs-exp-by nf_of k ars d p (list-append ")[2]" acc))
+cs-exp-by nf_of (suc k) ars d (ccon dd j fs lnil) acc = list-append "hy_con(" (list-append (ce-dec j) (list-append ", " (list-append (ce-dec (l-count fs)) (list-append ", (uint64_t[]){0" (ce-args (λ x tl → cs-exp-by nf_of k ars d x tl) fs false (list-append "})" acc))))))
+cs-exp-by nf_of (suc k) ars d (ccase dd B x) acc =
+  cs-switch-pre d (cs-exp-by nf_of k ars d x (cs-switch-mid d (cs-brs-by nf_of B (λ e c tl → cs-exp-by nf_of k ars e c tl) dd d #0 (cs-switch-tail d acc))))
+cs-exp-by nf_of (suc k) ars d (cwelim w z (clam (clam b)) mo) acc =
+  cs-for-t0 d (cs-exp-by nf_of k ars d w (cs-for-t1 d (cs-exp-by nf_of k ars d z (cs-for-t2 d (cs-exp-by nf_of k ars (%wadd d #2) b (cs-for-t4 d acc))))))
+cs-exp-by nf_of (suc k) ars d c acc = list-append "hy_bad()" acc

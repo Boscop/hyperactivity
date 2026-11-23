@@ -1,0 +1,15 @@
+cs-args-step-mono : (ev : CsHeap → CsEnv → CsExp → CsRes) (hp : CsHeap) (env : CsEnv) (r1 : CsRes) (tl : CsExp) →
+  cs-res-mono hp r1 →
+  ((hp1 : CsHeap) → cs-args-mono hp1 (cs-eval-args ev hp1 env tl)) →
+  cs-args-mono hp (case r1 return (λ _ → CsArgsRes) of
+                     cso-abort → csa-abort
+                     cso-ub → csa-ub
+                     cso-ok hp1 v1 →
+                       (case cs-eval-args ev hp1 env tl return (λ _ → CsArgsRes) of
+                          csa-abort → csa-abort
+                          csa-ub → csa-ub
+                          csa-ok hp2 vs2 → csa-ok hp2 (lcons v1 vs2)))
+cs-args-step-mono ev hp env cso-abort tl m1 mtl = unit
+cs-args-step-mono ev hp env cso-ub tl m1 mtl = unit
+cs-args-step-mono ev hp env (cso-ok hp1 v1) tl m1 mtl =
+  cs-args-tail-mono hp hp1 (cs-eval-args ev hp1 env tl) v1 m1 (mtl hp1)

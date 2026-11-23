@@ -1,0 +1,20 @@
+cs-hy-app-clo-sound : (ev : CsHeap → CsEnv → CsExp → CsRes) (fns : CsFns) (hp0 : CsHeap) (fn ar n : Word) (fs : Lst CsVal) (vx : CsVal) →
+  (toNat n ≡ cs-hlen CsVal fs) →
+  let blk = lcons (csv-word fn) (lcons (csv-word ar) (lcons (csv-word n) fs))
+      hp1 = fst (cs-alloc hp0 blk)
+      clo = snd (cs-alloc hp0 blk)
+      all = cs-snoc CsVal fs vx
+  in cs-hy-app ev fns hp1 clo vx
+     ≡ (if %weq (%wadd n #1) ar
+          then cs-call-fn ev fns hp1 fn all
+          else cs-hy-clo hp1 fn ar (%wadd n #1) all)
+cs-hy-app-clo-sound ev fns hp0 fn ar n fs vx hlen =
+  let blk = lcons (csv-word fn) (lcons (csv-word ar) (lcons (csv-word n) fs))
+      hp1 = fst (cs-alloc hp0 blk)
+      clo = snd (cs-alloc hp0 blk)
+      s0 = cong (λ o → cs-bind-opt o (λ vfn → cs-bind-word vfn (λ fn0 → cs-bind-opt (cs-load hp1 clo (suc zero)) (λ var → cs-bind-word var (λ ar0 → cs-bind-opt (cs-load hp1 clo (suc (suc zero))) (λ vn → cs-bind-word vn (λ n0 → cs-bind-opt (cs-read-range hp1 clo (suc (suc (suc zero))) (toNat n0)) (cs-app-cont ev fns hp1 vx fn0 ar0 n0)))))))) (cs-alloc-load-self hp0 blk zero)
+      s1 = cong (λ o → cs-bind-opt o (λ var → cs-bind-word var (λ ar0 → cs-bind-opt (cs-load hp1 clo (suc (suc zero))) (λ vn → cs-bind-word vn (λ n0 → cs-bind-opt (cs-read-range hp1 clo (suc (suc (suc zero))) (toNat n0)) (cs-app-cont ev fns hp1 vx fn ar0 n0)))))) (cs-alloc-load-self hp0 blk (suc zero))
+      s2 = cong (λ o → cs-bind-opt o (λ vn → cs-bind-word vn (λ n0 → cs-bind-opt (cs-read-range hp1 clo (suc (suc (suc zero))) (toNat n0)) (cs-app-cont ev fns hp1 vx fn ar n0)))) (cs-alloc-load-self hp0 blk (suc (suc zero)))
+      s3 = cong (λ m → cs-bind-opt (cs-read-range hp1 clo (suc (suc (suc zero))) m) (cs-app-cont ev fns hp1 vx fn ar n)) hlen
+      s4 = cong (λ o → cs-bind-opt o (cs-app-cont ev fns hp1 vx fn ar n)) (cs-clo-read-held hp0 fn ar n fs)
+  in s0 ∙ (s1 ∙ (s2 ∙ (s3 ∙ s4)))

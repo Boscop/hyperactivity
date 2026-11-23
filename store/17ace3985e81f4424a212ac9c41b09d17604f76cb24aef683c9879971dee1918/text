@@ -1,0 +1,123 @@
+nk-build-wf : (t : NkTm) (ins outs : NkEnv) (n0 : NkW) (e : NkEnv) (out : NkW) (o : NkOut) →
+  (nk-wire-le n0 (nk-n o) ≡ true) →
+  (nk-env-in-set ins n0 (nk-n o) e ≡ true) →
+  (nk-in-set outs n0 (nk-n o) out ≡ true) →
+  (nk-out-ok ins outs n0 (nk-n o) o ≡ true) →
+  nk-out-ok ins outs n0 (nk-n o) (nk-build t e out o) ≡ true
+nk-build-wf (nk-var i) ins outs n0 e out (nk-out fx n ws) p0 he hout ho =
+  nk-out-ok-intro ins outs n0 n (nk-pick e i out fx) n ws
+    (nk-wire-le-refl n)
+    (nk-pick-wf ins outs n0 n e i out fx he (nk-out-ok-fx ins outs n0 n (nk-out fx n ws) ho))
+    (nk-out-ok-ws ins outs n0 n (nk-out fx n ws) ho)
+nk-build-wf (nk-free x) ins outs n0 e out (nk-out fx n ws) p0 he hout ho =
+  nk-out-ok-intro ins outs n0 n (nkf-val out (nkv (hd-var x) nke-nil) (nk-era-env e fx)) n ws
+    (nk-wire-le-refl n)
+    (nk-and-intro (nk-in-set outs n0 n out) (nk-fx-wf ins outs n0 n (nk-era-env e fx))
+      hout (nk-era-env-wf ins outs n0 n e fx he (nk-out-ok-fx ins outs n0 n (nk-out fx n ws) ho)))
+    (nk-out-ok-ws ins outs n0 n (nk-out fx n ws) ho)
+nk-build-wf (nk-num m) ins outs n0 e out (nk-out fx n ws) p0 he hout ho =
+  nk-out-ok-intro ins outs n0 n (nkf-val out (nkv (hd-num m) nke-nil) (nk-era-env e fx)) n ws
+    (nk-wire-le-refl n)
+    (nk-and-intro (nk-in-set outs n0 n out) (nk-fx-wf ins outs n0 n (nk-era-env e fx))
+      hout (nk-era-env-wf ins outs n0 n e fx he (nk-out-ok-fx ins outs n0 n (nk-out fx n ws) ho)))
+    (nk-out-ok-ws ins outs n0 n (nk-out fx n ws) ho)
+nk-build-wf (nk-lam b) ins outs n0 e out (nk-out fx n ws) p0 he hout ho =
+  nk-out-ok-intro ins outs n0 n (nkf-val out (nkv (hd-clo b) e) fx) n ws
+    (nk-wire-le-refl n)
+    (nk-and-intro (nk-in-set outs n0 n out) (nk-fx-wf ins outs n0 n fx) hout (nk-out-ok-fx ins outs n0 n (nk-out fx n ws) ho))
+    (nk-out-ok-ws ins outs n0 n (nk-out fx n ws) ho)
+nk-build-wf (nk-susp b) ins outs n0 e out o p0 he hout ho =
+  let o2 = nk-trim-susp b #0 e o
+      ht = nk-trim-susp-wf b #0 ins outs n0 e o p0 he ho
+      ple = nk-and-l (nk-wire-le (nk-n o) (nk-n o2)) (nk-fx-wf ins outs n0 (nk-n o2) (nk-fx o2)) ht
+      pfx = nk-and-r (nk-wire-le (nk-n o) (nk-n o2)) (nk-fx-wf ins outs n0 (nk-n o2) (nk-fx o2)) ht
+  in nk-out-ok-intro ins outs n0 (nk-n o) (nkf-val out (nkv (hd-susp b) (nk-ws o2)) (nk-fx o2)) (nk-n o2) (nk-ws o)
+       ple
+       (nk-and-intro (nk-in-set outs n0 (nk-n o2) out) (nk-fx-wf ins outs n0 (nk-n o2) (nk-fx o2))
+         (nk-in-set-up outs n0 (nk-n o) (nk-n o2) out ple hout) pfx)
+       (nk-env-in-range-up n0 (nk-n o) (nk-n o2) (nk-ws o) ple (nk-out-ok-ws ins outs n0 (nk-n o) o ho))
+nk-build-wf (nk-con c as) ins outs n0 e out o p0 he hout ho =
+  nk-build-con-wf (%weq c #54) ins outs n0 c as e out o
+    (nk-build-gref-wf ins outs n0 (nk-bnum as) e out o p0 he ho)
+    (nk-con-at-wf ins outs n0 (nk-n o) c out (nk-build as e out o) hout (nk-build-wf as ins outs n0 e out o p0 he hout ho))
+nk-build-wf (nk-op h p as) ins outs n0 e out o p0 he hout ho =
+  let s = nk-split e o
+      hs = nk-split-wf ins outs n0 e o p0 he ho
+      hso = nk-split-ok-o ins outs n0 (nk-n o) s hs
+      n = nk-n (nk-so s)
+      sn = nk-s n
+      ono = nk-out-ok-le ins outs n0 (nk-n o) (nk-so s) hso
+      onn1 = nk-wire-le-trans (nk-n o) n sn ono (nk-wire-le-s n)
+      n0n = nk-wire-le-trans n0 (nk-n o) n p0 ono
+      n0sn = nk-wire-le-trans n0 n sn n0n (nk-wire-le-s n)
+      sb_in = nk-env-range-to-set ins n0 sn (nk-sb s) (nk-env-in-range-up n0 n sn (nk-sb s) (nk-wire-le-s n) (nk-split-ok-b ins outs n0 (nk-n o) s hs))
+      out_sn = nk-in-set-up outs n0 (nk-n o) sn out onn1 hout
+      o_in1 = nk-plan-of (nk-fx (nk-so s)) sn
+      ho_in1 = nk-out-ok-intro ins outs n0 sn (nk-fx (nk-so s)) sn nke-nil (nk-wire-le-refl sn) (nk-fx-wf-up ins outs n0 n sn (nk-fx (nk-so s)) (nk-wire-le-s n) (nk-out-ok-fx ins outs n0 (nk-n o) (nk-so s) hso)) refl
+      oa = nk-build as (nk-sb s) out o_in1
+      hoa = nk-build-wf as ins outs n0 (nk-sb s) out o_in1 n0sn sb_in out_sn ho_in1
+      noa = nk-n oa
+      sn_noa = nk-out-ok-le ins outs n0 sn oa hoa
+      n_noa = nk-wire-le-trans n sn noa (nk-wire-le-s n) sn_noa
+      n0noa = nk-wire-le-trans n0 sn noa n0sn sn_noa
+      rn_noa = nk-in-range-up n0 sn noa n sn_noa (nk-in-range-self n0 n n0n)
+      sa_in = nk-env-range-to-set ins n0 noa (nk-sa s) (nk-env-in-range-up n0 n noa (nk-sa s) n_noa (nk-split-ok-a ins outs n0 (nk-n o) s hs))
+      fx_op = nkf-op n (nko-el h nk-nil (nk-ws oa) out) (nk-fx oa)
+      hfx_op = nk-and-intro (nk-in-set ins n0 noa n) (nk-fx-wf ins outs n0 noa (nk-fx oa)) (nk-in-set-range ins n0 noa n rn_noa) (nk-out-ok-fx ins outs n0 sn oa hoa)
+      o_in2 = nk-plan-of fx_op noa
+      ho_in2 = nk-out-ok-intro ins outs n0 noa fx_op noa nke-nil (nk-wire-le-refl noa) hfx_op refl
+      hp = nk-build-wf p ins outs n0 (nk-sa s) n o_in2 n0noa sa_in (nk-in-set-range outs n0 noa n rn_noa) ho_in2
+  in nk-out-ok-step ins outs n0 (nk-n o) noa (nk-build p (nk-sa s) n o_in2) (nk-wire-le-trans (nk-n o) sn noa onn1 sn_noa) hp
+nk-build-wf (nk-match h p cs) ins outs n0 e out o p0 he hout ho =
+  let s = nk-split e o
+      hs = nk-split-wf ins outs n0 e o p0 he ho
+      hso = nk-split-ok-o ins outs n0 (nk-n o) s hs
+      n = nk-n (nk-so s)
+      sn = nk-s n
+      ono = nk-out-ok-le ins outs n0 (nk-n o) (nk-so s) hso
+      onn1 = nk-wire-le-trans (nk-n o) n sn ono (nk-wire-le-s n)
+      n0n = nk-wire-le-trans n0 (nk-n o) n p0 ono
+      n0sn = nk-wire-le-trans n0 n sn n0n (nk-wire-le-s n)
+      rn = nk-in-range-self n0 n n0n
+      sa_in = nk-env-range-to-set ins n0 sn (nk-sa s) (nk-env-in-range-up n0 n sn (nk-sa s) (nk-wire-le-s n) (nk-split-ok-a ins outs n0 (nk-n o) s hs))
+      fx_op = nkf-op n (nko-el h cs (nk-sb s) out) (nk-fx (nk-so s))
+      hfx_op = nk-and-intro (nk-in-set ins n0 sn n) (nk-fx-wf ins outs n0 sn (nk-fx (nk-so s))) (nk-in-set-range ins n0 sn n rn) (nk-fx-wf-up ins outs n0 n sn (nk-fx (nk-so s)) (nk-wire-le-s n) (nk-out-ok-fx ins outs n0 (nk-n o) (nk-so s) hso))
+      o_in = nk-plan-of fx_op sn
+      ho_in = nk-out-ok-intro ins outs n0 sn fx_op sn nke-nil (nk-wire-le-refl sn) hfx_op refl
+      hp = nk-build-wf p ins outs n0 (nk-sa s) n o_in n0sn sa_in (nk-in-set-range outs n0 sn n rn) ho_in
+  in nk-out-ok-step ins outs n0 (nk-n o) sn (nk-build p (nk-sa s) n o_in) onn1 hp
+nk-build-wf nk-nil ins outs n0 e out (nk-out fx n ws) p0 he hout ho =
+  nk-out-ok-intro ins outs n0 n (nk-era-env e fx) n nke-nil
+    (nk-wire-le-refl n)
+    (nk-era-env-wf ins outs n0 n e fx he (nk-out-ok-fx ins outs n0 n (nk-out fx n ws) ho))
+    refl
+nk-build-wf (nk-cons t r) ins outs n0 e out o p0 he hout ho =
+  let s = nk-split e o
+      hs = nk-split-wf ins outs n0 e o p0 he ho
+      hso = nk-split-ok-o ins outs n0 (nk-n o) s hs
+      n = nk-n (nk-so s)
+      sn = nk-s n
+      ono = nk-out-ok-le ins outs n0 (nk-n o) (nk-so s) hso
+      onn1 = nk-wire-le-trans (nk-n o) n sn ono (nk-wire-le-s n)
+      n0n = nk-wire-le-trans n0 (nk-n o) n p0 ono
+      n0sn = nk-wire-le-trans n0 n sn n0n (nk-wire-le-s n)
+      sb_in = nk-env-range-to-set ins n0 sn (nk-sb s) (nk-env-in-range-up n0 n sn (nk-sb s) (nk-wire-le-s n) (nk-split-ok-b ins outs n0 (nk-n o) s hs))
+      out_sn = nk-in-set-up outs n0 (nk-n o) sn out onn1 hout
+      o_in1 = nk-plan-of (nk-fx (nk-so s)) sn
+      ho_in1 = nk-out-ok-intro ins outs n0 sn (nk-fx (nk-so s)) sn nke-nil (nk-wire-le-refl sn) (nk-fx-wf-up ins outs n0 n sn (nk-fx (nk-so s)) (nk-wire-le-s n) (nk-out-ok-fx ins outs n0 (nk-n o) (nk-so s) hso)) refl
+      o2 = nk-build r (nk-sb s) out o_in1
+      ho2 = nk-build-wf r ins outs n0 (nk-sb s) out o_in1 n0sn sb_in out_sn ho_in1
+      no2 = nk-n o2
+      sn_no2 = nk-out-ok-le ins outs n0 sn o2 ho2
+      n_no2 = nk-wire-le-trans n sn no2 (nk-wire-le-s n) sn_no2
+      n0no2 = nk-wire-le-trans n0 sn no2 n0sn sn_no2
+      rn_no2 = nk-in-range-up n0 sn no2 n sn_no2 (nk-in-range-self n0 n n0n)
+      sa_in = nk-env-range-to-set ins n0 no2 (nk-sa s) (nk-env-in-range-up n0 n no2 (nk-sa s) n_no2 (nk-split-ok-a ins outs n0 (nk-n o) s hs))
+      ot = nk-build t (nk-sa s) n o2
+      hot = nk-build-wf t ins outs n0 (nk-sa s) n o2 n0no2 sa_in (nk-in-set-range outs n0 no2 n rn_no2) (nk-out-ok-self ins outs n0 sn o2 ho2)
+      not0 = nk-n ot
+      no2_not = nk-out-ok-le ins outs n0 no2 ot hot
+      rn_not = nk-in-range-up n0 no2 not0 n no2_not rn_no2
+      ws_not = nk-and-intro (nk-in-range n0 not0 n) (nk-env-in-range n0 not0 (nk-ws o2)) rn_not (nk-env-in-range-up n0 no2 not0 (nk-ws o2) no2_not (nk-out-ok-ws ins outs n0 sn o2 ho2))
+      hkeep = nk-keep-wf ins outs n0 no2 (nke-cons n (nk-ws o2)) ot ws_not hot
+  in nk-out-ok-step ins outs n0 (nk-n o) no2 (nk-keep (nke-cons n (nk-ws o2)) ot) (nk-wire-le-trans (nk-n o) sn no2 onn1 sn_no2) hkeep

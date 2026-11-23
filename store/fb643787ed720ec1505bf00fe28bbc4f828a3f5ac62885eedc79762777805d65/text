@@ -1,0 +1,84 @@
+-- Zero-nested-case first-order Code builder:
+--   mode #0: single NkSexp e -> fst
+--   mode #1: Lst NkSexp xs -> snd
+--   mode #2: find branch ci of data d in xs -> fst
+--   mode #3: build branches [ci .. ci+rem-1] of data d in xs -> snd
+--   mode #4: lam/plam/forall (kind in d) over spine xs -> fst
+sg-tc : Nat → Word → NkTm → Lst (List Word) → Word → Word → Word → NkSexp → Lst NkSexp → Code × Lst Code
+sg-tc zero _ _ _ _ _ _ _ _ = (cclock , lnil)
+sg-tc (suc k) mode ksig env d ci rem e xs =
+  if %weq mode #1 then
+    (if %weq (sg-sx-len xs) #0 then (cclock , lnil)
+     else
+       let c1 = fst (sg-tc k #0 ksig env #0 #0 #0 (sg-sx0 xs) lnil)
+           cs = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) (sg-sx-tl xs))
+       in (cclock , lcons c1 cs))
+  else if %weq mode #2 then
+    (if %weq (sg-sx-len xs) #0 then (cclock , lnil)
+     else
+       let b0 = sg-sx-items (sg-sx0 xs)
+           pi = sg-pat-info (sg-sx0 b0)
+       in if andB (%wlt #1 (sg-sx-len b0)) (andB (fst (fst pi)) (%weq (snd (snd (fst pi))) ci))
+            then (let flds = snd pi
+                      rcs = sg-ctor-recs ksig d ci
+                      pf = sg-push-flds flds env
+                      pih = sg-push-ihs flds rcs (snd pf)
+                      bc = fst (sg-tc k #0 ksig (snd pih) #0 #0 #0 (sg-sx1 b0) lnil)
+                  in (sg-lams (%wadd (fst pf) (fst pih)) bc , lnil))
+            else sg-tc k #2 ksig env d ci #0 (nks-sym nil) (sg-sx-tl xs))
+  else if %weq mode #3 then
+    (if %weq rem #0 then (cclock , lnil)
+     else
+       let b1 = fst (sg-tc k #2 ksig env d ci #0 (nks-sym nil) xs)
+           bs = snd (sg-tc k #3 ksig env d (%wsucc ci) (%wsub rem #1) (nks-sym nil) xs)
+       in (cclock , lcons b1 bs))
+  else if %weq mode #4 then
+    (let n = sg-sx-len xs
+         nm = nk-bname (toNat #8) (sg-sx0 xs)
+     in if %wlt n #2 then (cclock , lnil)
+        else if %weq n #2 then
+          (sg-wrap-lam d (fst (sg-tc k #0 ksig (lcons nm env) #0 #0 #0 (sg-sx1 xs) lnil)) , lnil)
+        else
+          (sg-wrap-lam d (fst (sg-tc k #4 ksig (lcons nm env) d #0 #0 (nks-sym nil) (sg-sx-tl xs))) , lnil))
+  else
+    (case e return (λ _ → Code × Lst Code) of
+       nks-sym s → (sg-sym-code env s , lnil)
+       nks-lst ys →
+         if %weq (sg-sx-len ys) #0 then (cclock , lnil)
+         else
+           let h = sg-sx0 ys
+               args = sg-sx-tl ys
+               op = if sg-is-sym h then sg-tc-tag (sg-sym-str h) else #0
+           in if orB (%weq op #1) (%weq op #2) then
+                (let cA = fst (sg-tc k #0 ksig env #0 #0 #0 (sg-sx1 args) lnil)
+                     cB = fst (sg-tc k #0 ksig (lcons (nk-bname (toNat #8) (sg-sx0 args)) env) #0 #0 #0 (sg-sx2 args) lnil)
+                 in (if %weq op #1 then cpi #2 cA cB else csigma cA cB , lnil))
+              else if andB (%wlt #2 op) (%wlt op #6) then
+                sg-tc k #4 ksig env op #0 #0 (nks-sym nil) args
+              else if %weq op #6 then
+                (if %weq (sg-sx-len args) #2 then
+                   (let cv = fst (sg-tc k #0 ksig env #0 #0 #0 (sg-sx0 args) lnil)
+                        cb = fst (sg-tc k #0 ksig (lcons nil env) #0 #0 #0 (sg-sx1 args) lnil)
+                    in (clet cv cb , lnil))
+                 else
+                   (let cv = fst (sg-tc k #0 ksig env #0 #0 #0 (sg-sx1 args) lnil)
+                        cb = fst (sg-tc k #0 ksig (lcons (nk-bname (toNat #8) (sg-sx0 args)) env) #0 #0 #0 (sg-sx2 args) lnil)
+                    in (clet cv cb , lnil)))
+              else if %weq op #7 then
+                (let brs = sg-sx-tl (sg-sx-tl args)
+                     ed = sg-elim-d brs
+                     nc = sg-ctor-count ksig ed
+                     cmot = fst (sg-tc k #0 ksig env #0 #0 #0 (sg-sx0 args) lnil)
+                     cscr = fst (sg-tc k #0 ksig env #0 #0 #0 (sg-sx1 args) lnil)
+                     cbrs = snd (sg-tc k #3 ksig env ed #0 nc (nks-sym nil) brs)
+                 in (celim ed cmot cbrs cscr , lnil))
+              else if %weq op #8 then
+                (nk-env-var (cons #114 (cons #58 (sg-sym-str (sg-sx0 args)))) env , lnil)
+              else if %wlt #9 op then
+                (let ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) args)
+                 in (sg-tc-op op ac , lnil))
+              else
+                (let sp = nk-sexp-spine k h args
+                     hc = fst (sg-tc k #0 ksig env #0 #0 #0 (fst sp) lnil)
+                     ac = snd (sg-tc k #1 ksig env #0 #0 #0 (nks-sym nil) (snd sp))
+                 in (sg-head-app env hc (fst sp) ac , lnil)))

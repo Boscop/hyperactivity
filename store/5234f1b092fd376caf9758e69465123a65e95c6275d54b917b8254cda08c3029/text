@@ -1,0 +1,49 @@
+-- Stage 1: zero-nested-case decanon (mode #0: single NkSexp, mode #1: Lst NkSexp, mode #2: lam/plam/forall spine)
+sg-dc : Nat → Word → Word → Lst (List Word) → Word → NkSexp → Lst NkSexp → Word × (NkSexp × Lst NkSexp)
+sg-dc zero _ fr _ _ e xs = (fr , (e , xs))
+sg-dc (suc k) mode fr ds lkind e xs =
+  if %weq mode #1 then
+    (if %weq (sg-sx-len xs) #0 then (fr , (nks-sym nil , lnil))
+     else
+       let p1 = sg-dc k #0 fr ds #0 (sg-sx0 xs) lnil
+           p2 = sg-dc k #1 (fst p1) ds #0 (nks-sym nil) (sg-sx-tl xs)
+       in (fst p2 , (nks-sym nil , lcons (fst (snd p1)) (snd (snd p2)))))
+  else if %weq mode #2 then
+    (let n = sg-sx-len xs
+         nm = sg-dc-bname fr (sg-sx0 xs)
+         tg = sg-dc-tg-str lkind
+     in if %wlt n #2 then (fr , (nks-sym nil , lnil))
+        else if %weq n #2 then
+          (let p = sg-dc k #0 (%wsucc fr) (lcons nm ds) #0 (sg-sx1 xs) lnil
+           in (fst p , (nks-lst (lcons (nks-sym tg) (lcons (nks-sym nm) (lcons (fst (snd p)) lnil))) , lnil)))
+        else
+          (let p = sg-dc k #2 (%wsucc fr) (lcons nm ds) lkind (nks-sym nil) (sg-sx-tl xs)
+           in (fst p , (nks-lst (lcons (nks-sym tg) (lcons (nks-sym nm) (lcons (fst (snd p)) lnil))) , lnil))))
+  else
+    (case e return (λ _ → Word × (NkSexp × Lst NkSexp)) of
+       nks-sym s → (fr , (sg-dc-sym ds s , lnil))
+       nks-lst ys →
+         if %weq (sg-sx-len ys) #0 then (fr , (nks-lst lnil , lnil))
+         else
+           let h = sg-sx0 ys
+               rest = sg-sx-tl ys
+               q = if sg-is-sym h then sg-dc-tag (sg-sym-str h) else #0
+           in if andB (%wlt #0 q) (%wlt q #4) then sg-dc k #2 fr ds q (nks-sym nil) rest
+              else if %weq q #4 then
+                (let rn = sg-sx-len rest
+                     a1 = sg-sx0 rest
+                     s1 = sg-sym-str a1
+                 in if %weq rn #2 then
+                      (let nm = sg-fresh-nm fr
+                           pv = sg-dc k #0 (%wsucc fr) ds #0 a1 lnil
+                           pb = sg-dc k #0 (fst pv) (lcons nm ds) #0 (sg-sx1 rest) lnil
+                       in (fst pb , (nks-lst (lcons (nks-sym "let") (lcons (nks-sym nm) (lcons (fst (snd pv)) (lcons (fst (snd pb)) lnil)))) , lnil)))
+                    else if andB (%weq rn #3) (andB (sg-is-sym a1) (%weq (sg-whd s1) #61)) then
+                      (let nm = sg-wtl s1
+                           pv = sg-dc k #0 fr ds #0 (sg-sx1 rest) lnil
+                           pb = sg-dc k #0 (fst pv) (lcons nm ds) #0 (sg-sx2 rest) lnil
+                       in (fst pb , (nks-lst (lcons (nks-sym "let") (lcons (nks-sym nm) (lcons (fst (snd pv)) (lcons (fst (snd pb)) lnil)))) , lnil)))
+                    else (fr , (nks-sym nil , lnil)))
+              else
+                (let pr = sg-dc k #1 fr ds #0 (nks-sym nil) ys
+                 in (fst pr , (nks-lst (snd (snd pr)) , lnil))))

@@ -1,0 +1,31 @@
+cs-sim-call1 : (nf_of : Word → Word → Word) (k : Nat) (fns : CsFns) (ars : Lst (Word × Word))
+  (menv : Lst CsMVal) (hp : CsHeap) (cenv : CsEnv) (fn : Word) (a : Code) (gsem : CsMVal → CsOptM) →
+  (cs-sim-ok (cs-code-eval-by nf_of k menv a)
+             (cs-eval k fns hp cenv (cs-compile-by nf_of k ars (cs-wlen menv) a)) ≡ true) →
+  ((mv : CsMVal) (hp1 : CsHeap) (cv : CsVal) →
+     cs-heap-ext hp hp1 → (cs-val-rel hp1 mv cv ≡ true) →
+     cs-sim-ok (gsem mv) (cs-call-fn (cs-eval k fns) fns hp1 fn (lcons cv lnil)) ≡ true) →
+  cs-sim-ok
+    (cs-bind-om (cs-code-eval-by nf_of k menv a) gsem)
+    (cs-eval (suc k) fns hp cenv (cse-call fn (cse-fargs (cs-compile-by nf_of k ars (cs-wlen menv) a) cse-args-nil))) ≡ true
+cs-sim-call1 nf_of k fns ars menv hp cenv fn a gsem ha hfn =
+  let ea = cs-compile-by nf_of k ars (cs-wlen menv) a
+      ra = cs-eval k fns hp cenv ea
+      eq1 = (case ra return (λ r →
+               cs-bind-args
+                 (case r return (λ _ → CsArgsRes) of
+                    cso-abort → csa-abort
+                    cso-ub → csa-ub
+                    cso-ok hp1 v → csa-ok hp1 (lcons v lnil))
+                 (λ hp1 vs → cs-call-fn (cs-eval k fns) fns hp1 fn vs)
+               ≡ cs-bind-res r (λ hp1 cv → cs-call-fn (cs-eval k fns) fns hp1 fn (lcons cv lnil))) of
+               cso-abort → refl
+               cso-ub → refl
+               cso-ok hp1 v → refl)
+  in cong (cs-sim-ok (cs-bind-om (cs-code-eval-by nf_of k menv a) gsem)) eq1
+     ∙ cs-sim-bind hp (cs-code-eval-by nf_of k menv a) ra
+         gsem
+         (λ hp1 cv → cs-call-fn (cs-eval k fns) fns hp1 fn (lcons cv lnil))
+         (cs-eval-mono-res k fns hp cenv ea)
+         ha
+         hfn

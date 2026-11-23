@@ -1,0 +1,14 @@
+-- Continuing multi-step world process witness: allocates an 8-byte atomic cell (w-alloc),
+-- steps n continuing iterations reading (w-load) and updating (w-store) the cell via
+-- continuation closures, frees the OS allocation (w-free), writes "ok\n" to fd 1 (w-fd-write),
+-- and terminates with sdone of the accumulated sum 0 + 1 + ... + (n - 1).
+ce-proc-loop : Nat → Word → Word → Step W Word
+ce-proc-loop zero k box =
+  scmd (w-load box) (λ acc →
+    scmd (w-free box) (λ _ →
+      scmd (w-fd-write #1 (cons #111 (cons #107 (cons #10 nil)))) (λ _ →
+        sdone acc)))
+ce-proc-loop (suc m) k box =
+  scmd (w-load box) (λ cur →
+    scmd (w-store box (%wadd cur k)) (λ _ →
+      ce-proc-loop m (%wsucc k) box))

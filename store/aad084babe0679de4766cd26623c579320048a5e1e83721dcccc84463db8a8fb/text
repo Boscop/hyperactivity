@@ -1,0 +1,87 @@
+cs-eval-mono-res : (k : Nat) (fns : CsFns) (hp : CsHeap) (env : CsEnv) (e : CsExp) →
+  cs-res-mono hp (cs-eval k fns hp env e)
+cs-eval-mono-res zero fns hp env e = unit
+cs-eval-mono-res (suc k) fns hp env cse-bad = unit
+cs-eval-mono-res (suc k) fns hp env (cse-var vid) =
+  cs-opt-res-mono hp (cs-get-var env vid) (λ x → cso-ok hp x) (λ x → cs-heap-ext-refl hp)
+cs-eval-mono-res (suc k) fns hp env (cse-ull n) =
+  cs-ite-res-mono (cs-w64 n) hp (cso-ok hp (csv-word n)) cso-ub (cs-heap-ext-refl hp) unit
+cs-eval-mono-res (suc k) fns hp env (cse-add1 a) =
+  cs-bind-res-mono hp (cs-eval k fns hp env a) (λ hp1 va → cs-hy-bop #2 hp1 va (csv-word #1))
+    (cs-eval-mono-res k fns hp env a) (λ hp1 va → cs-hy-bop-mono #2 hp1 va (csv-word #1))
+cs-eval-mono-res (suc k) fns hp env (cse-bop j a b) =
+  cs-bind-res-mono hp (cs-eval k fns hp env a)
+    (λ hp1 va → cs-bind-res (cs-eval k fns hp1 env b) (λ hp2 vb → cs-hy-bop j hp2 va vb))
+    (cs-eval-mono-res k fns hp env a)
+    (λ hp1 va → cs-bind-res-mono hp1 (cs-eval k fns hp1 env b) (λ hp2 vb → cs-hy-bop j hp2 va vb)
+      (cs-eval-mono-res k fns hp1 env b) (λ hp2 vb → cs-hy-bop-mono j hp2 va vb))
+cs-eval-mono-res (suc k) fns hp env (cse-let d t b) =
+  cs-bind-res-mono hp (cs-eval k fns hp env t)
+    (λ hp1 vt → cs-eval k fns hp1 (cs-env-push d vt env) b)
+    (cs-eval-mono-res k fns hp env t)
+    (λ hp1 vt → cs-eval-mono-res k fns hp1 (cs-env-push d vt env) b)
+cs-eval-mono-res (suc k) fns hp env (cse-call fn args) =
+  cs-bind-args-mono hp (cs-eval-args (cs-eval k fns) hp env args)
+    (λ hp1 vs → cs-call-fn (cs-eval k fns) fns hp1 fn vs)
+    (cs-eval-args-mono (cs-eval k fns) (cs-eval-mono-res k fns) args hp env)
+    (λ hp1 vs → cs-call-fn-mono (cs-eval k fns) (cs-eval-mono-res k fns) fns hp1 fn vs)
+cs-eval-mono-res (suc k) fns hp env (cse-clo fn ar n args) =
+  cs-bind-args-mono hp (cs-eval-args (cs-eval k fns) hp env args)
+    (λ hp1 vs → if %weq n (l-count vs) then cs-hy-clo hp1 fn ar n vs else cso-ub)
+    (cs-eval-args-mono (cs-eval k fns) (cs-eval-mono-res k fns) args hp env)
+    (λ hp1 vs → cs-ite-res-mono (%weq n (l-count vs)) hp1 (cs-hy-clo hp1 fn ar n vs) cso-ub
+      (cs-alloc-ext hp1 (lcons (csv-word fn) (lcons (csv-word ar) (lcons (csv-word n) vs)))) unit)
+cs-eval-mono-res (suc k) fns hp env (cse-app f a) =
+  cs-bind-res-mono hp (cs-eval k fns hp env f)
+    (λ hp1 vf → cs-bind-res (cs-eval k fns hp1 env a) (λ hp2 va → cs-hy-app (cs-eval k fns) fns hp2 vf va))
+    (cs-eval-mono-res k fns hp env f)
+    (λ hp1 vf → cs-bind-res-mono hp1 (cs-eval k fns hp1 env a)
+      (λ hp2 va → cs-hy-app (cs-eval k fns) fns hp2 vf va)
+      (cs-eval-mono-res k fns hp1 env a)
+      (λ hp2 va → cs-hy-app-mono (cs-eval k fns) (cs-eval-mono-res k fns) fns hp2 vf va))
+cs-eval-mono-res (suc k) fns hp env (cse-pair a b) =
+  cs-bind-res-mono hp (cs-eval k fns hp env a)
+    (λ hp1 va → cs-bind-res (cs-eval k fns hp1 env b) (λ hp2 vb → cs-hy-con hp2 #0 (lcons va (lcons vb lnil))))
+    (cs-eval-mono-res k fns hp env a)
+    (λ hp1 va → cs-bind-res-mono hp1 (cs-eval k fns hp1 env b)
+      (λ hp2 vb → cs-hy-con hp2 #0 (lcons va (lcons vb lnil)))
+      (cs-eval-mono-res k fns hp1 env b)
+      (λ hp2 vb → cs-alloc-ext hp2 (lcons (csv-word #0) (lcons va (lcons vb lnil)))))
+cs-eval-mono-res (suc k) fns hp env (cse-fst p) =
+  cs-bind-res-mono hp (cs-eval k fns hp env p) (λ hp1 vp → cs-load-res hp1 vp (suc zero))
+    (cs-eval-mono-res k fns hp env p)
+    (λ hp1 vp → cs-opt-res-mono hp1 (cs-load hp1 vp (suc zero)) (λ x → cso-ok hp1 x) (λ x → cs-heap-ext-refl hp1))
+cs-eval-mono-res (suc k) fns hp env (cse-snd p) =
+  cs-bind-res-mono hp (cs-eval k fns hp env p) (λ hp1 vp → cs-load-res hp1 vp (suc (suc zero)))
+    (cs-eval-mono-res k fns hp env p)
+    (λ hp1 vp → cs-opt-res-mono hp1 (cs-load hp1 vp (suc (suc zero))) (λ x → cso-ok hp1 x) (λ x → cs-heap-ext-refl hp1))
+cs-eval-mono-res (suc k) fns hp env (cse-con tag nf args) =
+  cs-bind-args-mono hp (cs-eval-args (cs-eval k fns) hp env args)
+    (λ hp1 vs → if %weq nf (l-count vs) then cs-hy-con hp1 tag vs else cso-ub)
+    (cs-eval-args-mono (cs-eval k fns) (cs-eval-mono-res k fns) args hp env)
+    (λ hp1 vs → cs-ite-res-mono (%weq nf (l-count vs)) hp1 (cs-hy-con hp1 tag vs) cso-ub
+      (cs-alloc-ext hp1 (lcons (csv-word tag) vs)) unit)
+cs-eval-mono-res (suc k) fns hp env (cse-switch d scrut brs) =
+  cs-bind-res-mono hp (cs-eval k fns hp env scrut)
+    (λ hp1 vp → cs-bind-opt (cs-load hp1 vp zero) (λ vtag → cs-bind-word vtag (λ tag → cs-eval-switch (cs-eval k fns) hp1 env vp tag brs)))
+    (cs-eval-mono-res k fns hp env scrut)
+    (λ hp1 vp → cs-opt-res-mono hp1 (cs-load hp1 vp zero)
+      (λ vtag → cs-bind-word vtag (λ tag → cs-eval-switch (cs-eval k fns) hp1 env vp tag brs))
+      (λ vtag → cs-word-res-mono hp1 vtag
+        (λ tag → cs-eval-switch (cs-eval k fns) hp1 env vp tag brs)
+        (λ tag → cs-eval-switch-mono (cs-eval k fns) (cs-eval-mono-res k fns) brs hp1 env vp tag)))
+cs-eval-mono-res (suc k) fns hp env (cse-for d bound init step) =
+  cs-bind-res-mono hp (cs-eval k fns hp env bound)
+    (λ hp1 vw → cs-bind-word vw (λ w → cs-bind-res (cs-eval k fns hp1 env init) (λ hp2 vz → cs-for-loop (cs-eval k fns) (toNat w) #0 d hp2 vz env step)))
+    (cs-eval-mono-res k fns hp env bound)
+    (λ hp1 vw → cs-word-res-mono hp1 vw
+      (λ w → cs-bind-res (cs-eval k fns hp1 env init) (λ hp2 vz → cs-for-loop (cs-eval k fns) (toNat w) #0 d hp2 vz env step))
+      (λ w → cs-bind-res-mono hp1 (cs-eval k fns hp1 env init)
+        (λ hp2 vz → cs-for-loop (cs-eval k fns) (toNat w) #0 d hp2 vz env step)
+        (cs-eval-mono-res k fns hp1 env init)
+        (λ hp2 vz → cs-for-loop-mono (cs-eval k fns) (cs-eval-mono-res k fns) (toNat w) #0 d hp2 vz env step)))
+cs-eval-mono-res (suc k) fns hp env cse-args-nil = unit
+cs-eval-mono-res (suc k) fns hp env (cse-fargs hd tl) = unit
+cs-eval-mono-res (suc k) fns hp env (cse-cargs hd tl) = unit
+cs-eval-mono-res (suc k) fns hp env cse-br-nil = unit
+cs-eval-mono-res (suc k) fns hp env (cse-br-cons tag d nf body rest) = unit

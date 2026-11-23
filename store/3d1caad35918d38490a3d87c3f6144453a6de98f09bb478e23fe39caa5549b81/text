@@ -1,0 +1,99 @@
+-- cs-compile-by-prints-eq: for every field-count table nf_of and every Code construct (all 62
+-- constructors, including ccase, cwelim, capp, cglob, ccon, cpair, cfst, csnd, clet, cwop),
+-- cs-print of cs-compile-by produces the exact C byte sequence of cs-exp-by
+cs-compile-by-prints-eq : (nf_of : Word → Word → Word) (k : Nat) (ars : Lst (Word × Word)) (d : Word) (c : Code) (acc : List Word) →
+  cs-print (cs-compile-by nf_of k ars d c) acc ≡ cs-exp-by nf_of k ars d c acc
+cs-compile-by-prints-eq nf_of zero ars d c acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cvar n) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cwlit n) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cwsucc a) acc =
+  cong (list-append "hy_add(") (cs-compile-by-prints-eq nf_of k ars d a (list-append ", 1ull)" acc))
+cs-compile-by-prints-eq nf_of (suc k) ars d (cwop j a b) acc =
+  cong (λ z → list-append (ce-opname j) (list-append "(" z))
+    (cs-compile-by-prints-eq nf_of k ars d a (list-append ", " (cs-print (cs-compile-by nf_of k ars d b) (list-append ")" acc)))
+     ∙ cong (cs-exp-by nf_of k ars d a) (cong (list-append ", ") (cs-compile-by-prints-eq nf_of k ars d b (list-append ")" acc))))
+cs-compile-by-prints-eq nf_of (suc k) ars d (clet t b) acc =
+  cong (λ z → list-append "({ uint64_t v" (list-append (ce-dec d) (list-append " = " z)))
+    (cs-compile-by-prints-eq nf_of k ars d t (list-append "; " (cs-print (cs-compile-by nf_of k ars (%wsucc d) b) (list-append "; })" acc)))
+     ∙ cong (cs-exp-by nf_of k ars d t) (cong (list-append "; ") (cs-compile-by-prints-eq nf_of k ars (%wsucc d) b (list-append "; })" acc))))
+cs-compile-by-prints-eq nf_of (suc k) ars d (capp f a) acc =
+  cs-print-apply-eq ars (λ x → cs-compile-by nf_of k ars d x) (λ x tl → cs-exp-by nf_of k ars d x tl)
+    (λ x tl → cs-compile-by-prints-eq nf_of k ars d x tl)
+    (fst (x-spine (capp f a))) (snd (x-spine (capp f a))) acc
+cs-compile-by-prints-eq nf_of (suc k) ars d (cglob g) acc =
+  cs-print-gcall-eq (λ x → cs-compile-by nf_of k ars d x) (λ x tl → cs-exp-by nf_of k ars d x tl)
+    (λ x tl → cs-compile-by-prints-eq nf_of k ars d x tl)
+    g (x-look ars g) #0 lnil acc
+cs-compile-by-prints-eq nf_of (suc k) ars d (cpair a b) acc =
+  cong (list-append "hy_con(0, 2, (uint64_t[]){0, ")
+    (cs-compile-by-prints-eq nf_of k ars d a (list-append ", " (cs-print (cs-compile-by nf_of k ars d b) (list-append "})" acc)))
+     ∙ cong (cs-exp-by nf_of k ars d a) (cong (list-append ", ") (cs-compile-by-prints-eq nf_of k ars d b (list-append "})" acc))))
+cs-compile-by-prints-eq nf_of (suc k) ars d (cfst p) acc =
+  cong (list-append "((uint64_t *)") (cs-compile-by-prints-eq nf_of k ars d p (list-append ")[1]" acc))
+cs-compile-by-prints-eq nf_of (suc k) ars d (csnd p) acc =
+  cong (list-append "((uint64_t *)") (cs-compile-by-prints-eq nf_of k ars d p (list-append ")[2]" acc))
+cs-compile-by-prints-eq nf_of (suc k) ars d (ccon dd j fs lnil) acc =
+  cong (λ z → list-append "hy_con(" (list-append (ce-dec j) (list-append ", " (list-append (ce-dec (l-count fs)) (list-append ", (uint64_t[]){0" z)))))
+    (cs-print-args-eq (λ x → cs-compile-by nf_of k ars d x) (λ x tl → cs-exp-by nf_of k ars d x tl)
+      (λ x tl → cs-compile-by-prints-eq nf_of k ars d x tl) fs false (list-append "})" acc))
+cs-compile-by-prints-eq nf_of (suc k) ars d (ccon dd j fs (lcons d0 dr)) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (ccase dd B x) acc =
+  let tail = cs-switch-tail d acc
+      brs_c = cs-print (cs-comp-brs-by nf_of B (λ e c → cs-compile-by nf_of k ars e c) dd d #0) tail
+      eq_brs = cs-print-brs-eq nf_of B (λ e c → cs-compile-by nf_of k ars e c) (λ e c tl → cs-exp-by nf_of k ars e c tl)
+                 (λ e c tl → cs-compile-by-prints-eq nf_of k ars e c tl) dd d #0 tail
+  in cong (cs-switch-pre d)
+       (cs-compile-by-prints-eq nf_of k ars d x (cs-switch-mid d brs_c)
+        ∙ cong (cs-exp-by nf_of k ars d x) (cong (cs-switch-mid d) eq_brs))
+cs-compile-by-prints-eq nf_of (suc k) ars d (cwelim w z s mo) acc =
+  cs-prints-welim nf_of k ars d w z s mo acc (λ e c tl → cs-compile-by-prints-eq nf_of k ars e c tl)
+cs-compile-by-prints-eq nf_of (suc k) ars d (clam b) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cpi m A B) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (csigma A B) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cuniv l) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cpathp A a b) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cplam b) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cpapp p r) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d ci0 acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d ci1 acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cneg r) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cmeet r s) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cjoin r s) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (ceq0 r) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (ceq1 r) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cfand a b) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cfor a b) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d cftt acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d cfff acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cforall b) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d csys0 acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (csysc f t r) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (ccomp A u a) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cgluet A S) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cglue S a) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cunglue S b) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (chcompu A S) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cunglueu S b) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cann t T) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cdata dd ps) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (celim dd P B x) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (chcomp u a) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cdlam b) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cforce t) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cthunk t) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d clevel acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d clzero acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (clsuc l) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (clmax a b) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d cword acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cpty j n) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cplit j b) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (ctrans dd psi ls x) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cproj dd j x) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (crec dd fs) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cfree x) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d cclock acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (ctick j) acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d cclock0 acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d ctick0 acc = refl
+cs-compile-by-prints-eq nf_of (suc k) ars d (cprim j ps) acc = refl

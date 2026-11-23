@@ -1,0 +1,16 @@
+sg-find-br : (Lst (List Word) → NkSexp → Code) → NkTm → Lst (List Word) → Word → Word → Lst NkSexp → Code
+sg-find-br _ _ _ _ _ lnil = cclock
+sg-find-br go2 ksig env d ci (lcons b rest) =
+  case sg-br-pair b return (λ _ → Code) of
+    none → sg-find-br go2 ksig env d ci rest
+    some pr →
+      case sg-pat-head (fst pr) return (λ _ → Code) of
+        none → sg-find-br go2 ksig env d ci rest
+        some ph →
+          if %weq (snd (fst ph)) ci
+            then (let flds = snd ph
+                      rcs = sg-ctor-recs ksig d ci
+                      pf = sg-push-flds flds env
+                      pi = sg-push-ihs flds rcs (snd pf)
+                  in x-lams (%wadd (fst pf) (fst pi)) (go2 (snd pi) (snd pr)))
+            else sg-find-br go2 ksig env d ci rest

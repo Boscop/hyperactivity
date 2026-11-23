@@ -1,0 +1,24 @@
+nk-parse-sexp : Nat → Bool → List Word → Opt ((NkSexp × Lst NkSexp) × List Word)
+nk-parse-sexp zero want-list cs = none
+nk-parse-sexp (suc k) false cs =
+  case nk-skip-ws cs return (λ _ → Opt ((NkSexp × Lst NkSexp) × List Word)) of
+    nil → none
+    cons c r →
+      if %weq c #41 then none
+      else if %weq c #40 then
+        (case nk-parse-sexp k true r return (λ _ → Opt ((NkSexp × Lst NkSexp) × List Word)) of
+           some p → some ((nks-lst (snd (fst p)) , lnil) , snd p)
+           none → none)
+      else (let tk = nk-take-sym (cons c r) in some ((nks-sym (fst tk) , lnil) , snd tk))
+nk-parse-sexp (suc k) true cs =
+  case nk-skip-ws cs return (λ _ → Opt ((NkSexp × Lst NkSexp) × List Word)) of
+    nil → none
+    cons c r →
+      if %weq c #41 then some ((nks-sym nil , lnil) , r)
+      else
+        (case nk-parse-sexp k false (cons c r) return (λ _ → Opt ((NkSexp × Lst NkSexp) × List Word)) of
+           none → none
+           some p1 →
+             (case nk-parse-sexp k true (snd p1) return (λ _ → Opt ((NkSexp × Lst NkSexp) × List Word)) of
+                none → none
+                some p2 → some ((nks-sym nil , lcons (fst (fst p1)) (snd (fst p2))) , snd p2)))

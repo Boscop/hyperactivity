@@ -1,0 +1,40 @@
+cs-sim-cwelim : (nf_of : Word → Word → Word) (k : Nat) (fns : CsFns) (ars : Lst (Word × Word))
+  (menv : Lst CsMVal) (hp : CsHeap) (cenv : CsEnv) (w z b : Code) (mo : Opt Code) →
+  ((menv0 : Lst CsMVal) (hp0 : CsHeap) (cenv0 : CsEnv) (c0 : Code) →
+     cs-env-rel hp0 menv0 cenv0 →
+     cs-sim-ok (cs-code-eval-by nf_of k menv0 c0)
+               (cs-eval k fns hp0 cenv0 (cs-compile-by nf_of k ars (cs-wlen menv0) c0)) ≡ true) →
+  cs-env-rel hp menv cenv →
+  cs-sim-ok
+    (cs-bind-om (cs-code-eval-by nf_of k menv w) (λ mw →
+      cs-bind-mword mw (λ vw →
+        cs-bind-om (cs-code-eval-by nf_of k menv z) (λ mz →
+          cs-for-sem (λ midx macc0 → cs-code-eval-by nf_of k (lcons macc0 (lcons midx menv)) b) (toNat vw) #0 mz))))
+    (cs-eval (suc k) fns hp cenv (cs-compile-by nf_of (suc k) ars (cs-wlen menv) (cwelim w z (clam (clam b)) mo))) ≡ true
+cs-sim-cwelim nf_of k fns ars menv hp cenv w z b mo ih henv =
+  let d = cs-wlen menv
+      ew = cs-compile-by nf_of k ars d w
+      ez = cs-compile-by nf_of k ars d z
+      eb = cs-compile-by nf_of k ars (%wadd d #2) b
+  in cs-sim-bind hp (cs-code-eval-by nf_of k menv w) (cs-eval k fns hp cenv ew)
+       (λ mw → cs-bind-mword mw (λ vw → cs-bind-om (cs-code-eval-by nf_of k menv z) (λ mz → cs-for-sem (λ midx macc0 → cs-code-eval-by nf_of k (lcons macc0 (lcons midx menv)) b) (toNat vw) #0 mz)))
+       (λ hp1 vw0 → cs-bind-word vw0 (λ vw → cs-bind-res (cs-eval k fns hp1 cenv ez) (λ hp2 vz → cs-for-loop (cs-eval k fns) (toNat vw) #0 d hp2 vz cenv eb)))
+       (cs-eval-mono-res k fns hp cenv ew)
+       (ih menv hp cenv w henv)
+       (λ mw hp1 vw0 ext1 hrelw →
+          cs-sim-word hp1 mw vw0
+            (λ vw → cs-bind-om (cs-code-eval-by nf_of k menv z) (λ mz → cs-for-sem (λ midx macc0 → cs-code-eval-by nf_of k (lcons macc0 (lcons midx menv)) b) (toNat vw) #0 mz))
+            (λ vw1 → cs-bind-word vw1 (λ vw → cs-bind-res (cs-eval k fns hp1 cenv ez) (λ hp2 vz → cs-for-loop (cs-eval k fns) (toNat vw) #0 d hp2 vz cenv eb)))
+            hrelw
+            (λ vw →
+               let henv1 = cs-env-rel-mono hp hp1 menv cenv ext1 henv
+               in cs-sim-bind hp1 (cs-code-eval-by nf_of k menv z) (cs-eval k fns hp1 cenv ez)
+                    (λ mz → cs-for-sem (λ midx macc0 → cs-code-eval-by nf_of k (lcons macc0 (lcons midx menv)) b) (toNat vw) #0 mz)
+                    (λ hp2 vz → cs-for-loop (cs-eval k fns) (toNat vw) #0 d hp2 vz cenv eb)
+                    (cs-eval-mono-res k fns hp1 cenv ez)
+                    (ih menv hp1 cenv z henv1)
+                    (λ mz hp2 vz ext2 hrelz →
+                       cs-sim-for-loop nf_of k fns ars b menv
+                         (λ menv0 hp0 cenv0 henv0 → ih menv0 hp0 cenv0 b henv0)
+                         (toNat vw) #0 hp2 cenv mz vz
+                         (cs-env-rel-mono hp1 hp2 menv cenv ext2 henv1) hrelz)))

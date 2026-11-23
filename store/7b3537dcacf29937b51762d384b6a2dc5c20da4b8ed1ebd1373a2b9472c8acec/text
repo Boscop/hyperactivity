@@ -1,0 +1,18 @@
+nk-eq-step : (Word → NkTm → NkTm → Bool) → Word → NkTm → NkTm → Bool
+nk-eq-step onSusp d (nk-var i) (nk-var j) = %weq i j
+nk-eq-step onSusp d (nk-free x) (nk-free y) = %weq x y
+nk-eq-step onSusp d (nk-num m) (nk-num k) = %weq m k
+nk-eq-step onSusp d (nk-lam b) (nk-lam c) = nk-eq-step onSusp (%wsucc d) b c
+nk-eq-step onSusp d (nk-susp b) (nk-susp c) = if nk-tm-eq b c then true else onSusp d b c
+nk-eq-step onSusp d (nk-con c as) (nk-con c2 bs) =
+  if (if %weq c #2 then %weq c2 #2 else false)
+    then nk-lvl-eq (nk-lvl-of (toNat #64) (nk-u-lvl-tm (nk-con c as))) (nk-lvl-of (toNat #64) (nk-u-lvl-tm (nk-con c2 bs)))
+    else nk-and (%weq c c2) (nk-eq-step onSusp d as bs)
+nk-eq-step onSusp d (nk-op h p as) (nk-op g q bs) =
+  nk-and (%weq h g) (nk-and (nk-eq-step onSusp d p q) (nk-eq-step onSusp d as bs))
+nk-eq-step onSusp d (nk-match h p as) (nk-match g q bs) =
+  nk-and (%weq h g) (nk-and (nk-eq-step onSusp d p q) (nk-eq-step onSusp d as bs))
+nk-eq-step onSusp d nk-nil nk-nil = true
+nk-eq-step onSusp d (nk-cons t r) (nk-cons u s) =
+  nk-and (nk-eq-step onSusp d t u) (nk-eq-step onSusp d r s)
+nk-eq-step onSusp d a c = false

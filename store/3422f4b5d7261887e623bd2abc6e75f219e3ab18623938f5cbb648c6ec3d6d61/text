@@ -1,0 +1,15 @@
+-- Theorem (csr-at-sound): local O(depth) indexing on any well-formed CsRope returns the exact
+-- element of the flattened List Word specification without unpacking sibling pieces
+csr-at-sound : (t : CsRope) → (csr-wf t ≡ true) → (i : Nat) →
+  csr-at t i ≡ csr-list-nth (csr-flat t) i
+csr-at-sound (csr-leaf bs) hw i = refl
+csr-at-sound (csr-cat n l r) hw i =
+  let heq = csr-eqb-sound n (csr-len l) (csr-and-l (eqb n (csr-len l)) (c-and (csr-wf l) (csr-wf r)) hw)
+      hw2 = csr-and-r (eqb n (csr-len l)) (c-and (csr-wf l) (csr-wf r)) hw
+      hwl = csr-and-l (csr-wf l) (csr-wf r) hw2
+      hwr = csr-and-r (csr-wf l) (csr-wf r) hw2
+      n_eq = heq ∙ sym (csr-flat-len l hwl)
+  in cong (λ z → if csr-nat-lt i n then z else csr-at r (csr-nat-sub i n)) (csr-at-sound l hwl i)
+     ∙ (cong (λ z → if csr-nat-lt i n then csr-list-nth (csr-flat l) i else z) (csr-at-sound r hwr (csr-nat-sub i n))
+        ∙ (cong (λ m → if csr-nat-lt i m then csr-list-nth (csr-flat l) i else csr-list-nth (csr-flat r) (csr-nat-sub i m)) n_eq
+           ∙ csr-nth-append (csr-flat l) (csr-flat r) i))

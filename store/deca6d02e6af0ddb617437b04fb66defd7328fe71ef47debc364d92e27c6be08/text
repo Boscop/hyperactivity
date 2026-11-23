@@ -1,0 +1,70 @@
+-- Stage 1: first-order decanon (mode #0: single NkSexp, mode #1: Lst NkSexp, mode #2: lam/plam/forall spine)
+sg-dc : Nat → Word → Word → Lst (List Word) → List Word → NkSexp → Lst NkSexp → Word × (NkSexp × Lst NkSexp)
+sg-dc zero _ fr _ _ e xs = (fr , (e , xs))
+sg-dc (suc k) mode fr ds tg e xs =
+  if %weq mode #1 then
+    (case xs return (λ _ → Word × (NkSexp × Lst NkSexp)) of
+       lnil → (fr , (nks-sym nil , lnil))
+       lcons x r →
+         let p1 = sg-dc k #0 fr ds nil x lnil
+             p2 = sg-dc k #1 (fst p1) ds nil (nks-sym nil) r
+         in (fst p2 , (nks-sym nil , lcons (fst (snd p1)) (snd (snd p2)))))
+  else if %weq mode #2 then
+    (case xs return (λ _ → Word × (NkSexp × Lst NkSexp)) of
+       lnil → (fr , (nks-sym nil , lnil))
+       lcons b rest →
+         let nm = sg-dc-bname fr b
+         in case rest return (λ _ → Word × (NkSexp × Lst NkSexp)) of
+              lnil → (fr , (nks-sym nil , lnil))
+              lcons body r2 →
+                case r2 return (λ _ → Word × (NkSexp × Lst NkSexp)) of
+                  lnil →
+                    let p = sg-dc k #0 (%wsucc fr) (lcons nm ds) nil body lnil
+                    in (fst p , (nks-lst (lcons (nks-sym tg) (lcons (nks-sym nm) (lcons (fst (snd p)) lnil))) , lnil))
+                  lcons _ _ →
+                    let p = sg-dc k #2 (%wsucc fr) (lcons nm ds) tg (nks-sym nil) rest
+                    in (fst p , (nks-lst (lcons (nks-sym tg) (lcons (nks-sym nm) (lcons (fst (snd p)) lnil))) , lnil)))
+  else
+    (case e return (λ _ → Word × (NkSexp × Lst NkSexp)) of
+       nks-sym s →
+         (case s return (λ _ → Word × (NkSexp × Lst NkSexp)) of
+            nil → (fr , (nks-sym nil , lnil))
+            cons c r →
+              if andB (%weq c #64) (%wlt #0 (nk-wlist-len r))
+                then (fr , (nks-sym (sg-nth-str ds (nk-dec-val #0 r)) , lnil))
+                else (fr , (nks-sym (cons c r) , lnil)))
+       nks-lst ys →
+         (case ys return (λ _ → Word × (NkSexp × Lst NkSexp)) of
+            lnil → (fr , (nks-lst lnil , lnil))
+            lcons h rest →
+              case h return (λ _ → Word × (NkSexp × Lst NkSexp)) of
+                nks-lst _ →
+                  let pr = sg-dc k #1 fr ds nil (nks-sym nil) (lcons h rest)
+                  in (fst pr , (nks-lst (snd (snd pr)) , lnil))
+                nks-sym htg →
+                  if nk-wlist-eq htg "lam" then sg-dc k #2 fr ds "lam" (nks-sym nil) rest
+                  else if nk-wlist-eq htg "plam" then sg-dc k #2 fr ds "plam" (nks-sym nil) rest
+                  else if nk-wlist-eq htg "forall" then sg-dc k #2 fr ds "forall" (nks-sym nil) rest
+                  else if nk-wlist-eq htg "let" then
+                    (case rest return (λ _ → Word × (NkSexp × Lst NkSexp)) of
+                       lnil → (fr , (nks-sym nil , lnil))
+                       lcons a1 r1 →
+                         case r1 return (λ _ → Word × (NkSexp × Lst NkSexp)) of
+                           lnil → (fr , (nks-sym nil , lnil))
+                           lcons a2 r2 →
+                             case r2 return (λ _ → Word × (NkSexp × Lst NkSexp)) of
+                               lnil →
+                                 let nm = sg-fresh-nm fr
+                                     pv = sg-dc k #0 (%wsucc fr) ds nil a1 lnil
+                                     pb = sg-dc k #0 (fst pv) (lcons nm ds) nil a2 lnil
+                                 in (fst pb , (nks-lst (lcons (nks-sym "let") (lcons (nks-sym nm) (lcons (fst (snd pv)) (lcons (fst (snd pb)) lnil)))) , lnil))
+                               lcons a3 _ →
+                                 case sg-eq-name a1 return (λ _ → Word × (NkSexp × Lst NkSexp)) of
+                                   none → (fr , (nks-sym nil , lnil))
+                                   some nm →
+                                     let pv = sg-dc k #0 fr ds nil a2 lnil
+                                         pb = sg-dc k #0 (fst pv) (lcons nm ds) nil a3 lnil
+                                     in (fst pb , (nks-lst (lcons (nks-sym "let") (lcons (nks-sym nm) (lcons (fst (snd pv)) (lcons (fst (snd pb)) lnil)))) , lnil)))
+                  else
+                    (let pr = sg-dc k #1 fr ds nil (nks-sym nil) rest
+                     in (fst pr , (nks-lst (lcons (nks-sym htg) (snd (snd pr))) , lnil)))))

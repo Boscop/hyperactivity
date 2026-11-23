@@ -1,0 +1,33 @@
+cs-sim-for-loop : (nf_of : Word → Word → Word) (k : Nat) (fns : CsFns) (ars : Lst (Word × Word))
+  (b : Code) (menv : Lst CsMVal) →
+  ((menv0 : Lst CsMVal) (hp0 : CsHeap) (cenv0 : CsEnv) →
+     cs-env-rel hp0 menv0 cenv0 →
+     cs-sim-ok (cs-code-eval-by nf_of k menv0 b)
+               (cs-eval k fns hp0 cenv0 (cs-compile-by nf_of k ars (cs-wlen menv0) b)) ≡ true) →
+  (rem : Nat) (idx : Word) (hp : CsHeap) (cenv : CsEnv) (macc : CsMVal) (acc : CsVal) →
+  cs-env-rel hp menv cenv →
+  (cs-val-rel hp macc acc ≡ true) →
+  cs-sim-ok
+    (cs-for-sem (λ midx macc0 → cs-code-eval-by nf_of k (lcons macc0 (lcons midx menv)) b) rem idx macc)
+    (cs-for-loop (cs-eval k fns) rem idx (cs-wlen menv) hp acc cenv
+      (cs-compile-by nf_of k ars (%wadd (cs-wlen menv) #2) b)) ≡ true
+cs-sim-for-loop nf_of k fns ars b menv ihb zero idx hp cenv macc acc henv hacc = hacc
+cs-sim-for-loop nf_of k fns ars b menv ihb (suc rem) idx hp cenv macc acc henv hacc =
+  let d = cs-wlen menv
+      step_e = cs-compile-by nf_of k ars (%wadd d #2) b
+      menv1 = lcons (cmv-word idx) menv
+      cenv1 = cs-env-push d (csv-word idx) cenv
+      henv1 = cs-env-rel-push hp menv cenv (cmv-word idx) (csv-word idx) (cs-weq-self idx) henv
+      menv2 = lcons macc menv1
+      cenv2 = cs-env-push (%wsucc d) acc cenv1
+      henv2 = cs-env-rel-push hp menv1 cenv1 macc acc hacc henv1
+  in cs-sim-bind hp
+       (cs-code-eval-by nf_of k menv2 b)
+       (cs-eval k fns hp cenv2 step_e)
+       (λ macc1 → cs-for-sem (λ midx macc0 → cs-code-eval-by nf_of k (lcons macc0 (lcons midx menv)) b) rem (%wsucc idx) macc1)
+       (λ hp1 acc1 → cs-for-loop (cs-eval k fns) rem (%wsucc idx) d hp1 acc1 cenv step_e)
+       (cs-eval-mono-res k fns hp cenv2 step_e)
+       (ihb menv2 hp cenv2 henv2)
+       (λ macc1 hp1 acc1 ext1 hacc1 →
+          cs-sim-for-loop nf_of k fns ars b menv ihb rem (%wsucc idx) hp1 cenv macc1 acc1
+            (cs-env-rel-mono hp hp1 menv cenv ext1 henv) hacc1)

@@ -1,0 +1,26 @@
+cs-print : CsExp → List Word → List Word
+cs-print cs-bad acc = list-append "hy_bad()" acc
+cs-print (cs-var vid) acc = list-append "v" (list-append (ce-dec vid) acc)
+cs-print (cs-ull n) acc = list-append (ce-dec n) (list-append "ull" acc)
+cs-print (cs-add1 a) acc = list-append "hy_add(" (cs-print a (list-append ", 1ull)" acc))
+cs-print (cs-bop j a b) acc = list-append (ce-opname j) (list-append "(" (cs-print a (list-append ", " (cs-print b (list-append ")" acc)))))
+cs-print (cs-let d t b) acc = list-append "({ uint64_t v" (list-append (ce-dec d) (list-append " = " (cs-print t (list-append "; " (cs-print b (list-append "; })" acc))))))
+cs-print (cs-call g args) acc = list-append "g" (list-append (ce-dec g) (list-append "(" (cs-print args (list-append ")" acc))))
+cs-print (cs-clo g ar n args) acc = list-append "hy_clo((uint64_t)w" (list-append (ce-dec g) (list-append ", " (list-append (ce-dec ar) (list-append ", " (list-append (ce-dec n) (list-append ", (uint64_t[]){0" (cs-print args (list-append "})" acc))))))))
+cs-print (cs-app f a) acc = list-append "hy_app(" (cs-print f (list-append ", " (cs-print a (list-append ")" acc))))
+cs-print (cs-pair a b) acc = list-append "hy_con(0, 2, (uint64_t[]){0, " (cs-print a (list-append ", " (cs-print b (list-append "})" acc))))
+cs-print (cs-fst p) acc = list-append "((uint64_t *)" (cs-print p (list-append ")[1]" acc))
+cs-print (cs-snd p) acc = list-append "((uint64_t *)" (cs-print p (list-append ")[2]" acc))
+cs-print (cs-con j nf args) acc = list-append "hy_con(" (list-append (ce-dec j) (list-append ", " (list-append (ce-dec nf) (list-append ", (uint64_t[]){0" (cs-print args (list-append "})" acc))))))
+cs-print (cs-switch d scrut brs) acc =
+  cs-switch-pre d (cs-print scrut (cs-switch-mid d (cs-print brs (cs-switch-tail d acc))))
+cs-print (cs-for d cw cz cb) acc =
+  cs-for-t0 d (cs-print cw (cs-for-t1 d (cs-print cz (cs-for-t2 d (cs-print cb (cs-for-t4 d acc))))))
+cs-print cs-args-nil acc = acc
+cs-print (cs-fargs hd tl) acc = cs-print hd (cs-print tl acc)
+cs-print (cs-cargs hd tl) acc = list-append ", " (cs-print hd (cs-print tl acc))
+cs-print cs-br-nil acc = acc
+cs-print (cs-br-cons k d nf body rest) acc =
+  list-append "case " (list-append (ce-dec k) (list-append ": { " (list-append (ce-binds (toNat nf) d #0)
+    (list-append "r" (list-append (ce-dec d) (list-append " = "
+      (cs-print body (list-append "; break; } " (cs-print rest acc)))))))))

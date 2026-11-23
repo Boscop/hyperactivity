@@ -1,0 +1,71 @@
+nk-of-code-by : Nat → (Word → Opt (Word × NkTm)) → (Word → Opt Word) → Code → NkTm
+nk-of-code-by zero fD fG c = nk-fail
+nk-of-code-by (suc k) fD fG (cvar n) = nk-var n
+nk-of-code-by (suc k) fD fG (cglob g) =
+  case fG g return (λ _ → NkTm) of
+    some gi → nk-con #54 (nk-cons (nk-num gi) nk-nil)
+    none → nk-fail
+nk-of-code-by (suc k) fD fG (clam b) = nk-lam (nk-of-code-by k fD fG b)
+nk-of-code-by (suc k) fD fG (cplam b) = nk-lam (nk-of-code-by k fD fG b)
+nk-of-code-by (suc k) fD fG (capp f a) = nk-app (nk-of-code-by k fD fG f) (nk-of-code-by k fD fG a)
+nk-of-code-by (suc k) fD fG (cpapp p r) = nk-app (nk-of-code-by k fD fG p) (nk-of-code-by k fD fG r)
+nk-of-code-by (suc k) fD fG (cpi m A B) = nk-pi (nk-of-code-by k fD fG A) (nk-lam (nk-of-code-by k fD fG B))
+nk-of-code-by (suc k) fD fG (csigma A B) = nk-sig (nk-of-code-by k fD fG A) (nk-lam (nk-of-code-by k fD fG B))
+nk-of-code-by (suc k) fD fG (cpair a b) = nk-mkpair (nk-of-code-by k fD fG a) (nk-of-code-by k fD fG b)
+nk-of-code-by (suc k) fD fG (cfst p) = nk-p1 (nk-of-code-by k fD fG p)
+nk-of-code-by (suc k) fD fG (csnd p) = nk-p2 (nk-of-code-by k fD fG p)
+nk-of-code-by (suc k) fD fG (cuniv l) = nk-con #2 (nk-cons (nk-of-code-by k fD fG l) nk-nil)
+nk-of-code-by (suc k) fD fG clevel = nk-con #44 nk-nil
+nk-of-code-by (suc k) fD fG clzero = nk-con #45 nk-nil
+nk-of-code-by (suc k) fD fG (clsuc l) = nk-con #46 (nk-cons (nk-of-code-by k fD fG l) nk-nil)
+nk-of-code-by (suc k) fD fG (clmax a b) = nk-mk-lmax (nk-of-code-by k fD fG a) (nk-of-code-by k fD fG b)
+nk-of-code-by (suc k) fD fG cword = nk-N
+nk-of-code-by (suc k) fD fG (cwlit m) = nk-num m
+nk-of-code-by (suc k) fD fG (cwsucc a) = nk-inc (nk-of-code-by k fD fG a)
+nk-of-code-by (suc k) fD fG (cwop op a b) = nk-match #11 (nk-of-code-by k fD fG a) (nk-cons (nk-num op) (nk-cons (nk-of-code-by k fD fG b) nk-nil))
+nk-of-code-by (suc k) fD fG (cwelim w z s mo) =
+  let mot = case mo return (λ _ → NkTm) of
+              some P → nk-con #43 (nk-cons (nk-of-code-by k fD fG P) nk-nil)
+              none → nk-con #43 nk-nil
+  in nk-match #13 (nk-of-code-by k fD fG w) (nk-cons mot (nk-cons (nk-susp (nk-of-code-by k fD fG z)) (nk-cons (nk-susp (nk-of-code-by k fD fG s)) nk-nil)))
+nk-of-code-by (suc k) fD fG (cpathp A a b) = nk-pathp (nk-of-code-by k fD fG A) (nk-of-code-by k fD fG a) (nk-of-code-by k fD fG b)
+nk-of-code-by (suc k) fD fG ci0 = nk-i0
+nk-of-code-by (suc k) fD fG ci1 = nk-i1
+nk-of-code-by (suc k) fD fG (cneg r) = nk-neg (nk-of-code-by k fD fG r)
+nk-of-code-by (suc k) fD fG (cmeet r s) = nk-imeet (nk-of-code-by k fD fG r) (nk-of-code-by k fD fG s)
+nk-of-code-by (suc k) fD fG (cjoin r s) = nk-ijoin (nk-of-code-by k fD fG r) (nk-of-code-by k fD fG s)
+nk-of-code-by (suc k) fD fG cftt = nk-i1
+nk-of-code-by (suc k) fD fG cfff = nk-i0
+nk-of-code-by (suc k) fD fG (ceq1 r) = nk-of-code-by k fD fG r
+nk-of-code-by (suc k) fD fG (ceq0 r) = nk-neg (nk-of-code-by k fD fG r)
+nk-of-code-by (suc k) fD fG (cfand a b) = nk-imeet (nk-of-code-by k fD fG a) (nk-of-code-by k fD fG b)
+nk-of-code-by (suc k) fD fG (cfor a b) = nk-ijoin (nk-of-code-by k fD fG a) (nk-of-code-by k fD fG b)
+nk-of-code-by (suc k) fD fG csys0 = nk-sys nk-nil
+nk-of-code-by (suc k) fD fG (csysc f t r) = nk-sys (nk-oc-sys (λ z → nk-of-code-by k fD fG z) (csysc f t r))
+nk-of-code-by (suc k) fD fG (ccomp A (cplam W) a) = nk-comp (nk-of-code-by k fD fG A) (nk-oc-tube (λ z → nk-of-code-by k fD fG z) W) (nk-of-code-by k fD fG a)
+nk-of-code-by (suc k) fD fG (cgluet A S) = nk-glue-ty (nk-of-code-by k fD fG A) (nk-of-code-by k fD fG S)
+nk-of-code-by (suc k) fD fG (cglue S a) = nk-glue (nk-of-code-by k fD fG S) (nk-of-code-by k fD fG a)
+nk-of-code-by (suc k) fD fG (cunglue S b) = nk-unglue (nk-of-code-by k fD fG S) (nk-of-code-by k fD fG b)
+nk-of-code-by (suc k) fD fG (clet t b) = nk-con #52 (nk-cons (nk-of-code-by k fD fG t) (nk-cons (nk-lam (nk-of-code-by k fD fG b)) nk-nil))
+nk-of-code-by (suc k) fD fG (cann t T) = nk-con #51 (nk-cons (nk-of-code-by k fD fG t) (nk-cons (nk-of-code-by k fD fG T) nk-nil))
+nk-of-code-by (suc k) fD fG (cforce t) = nk-force (nk-of-code-by k fD fG t)
+nk-of-code-by (suc k) fD fG (cthunk t) = nk-susp (nk-of-code-by k fD fG t)
+nk-of-code-by (suc k) fD fG (cdata d ps) =
+  case fD d return (λ _ → NkTm) of
+    some e → nk-data-ty (fst e) (nk-map-tm (λ z → nk-of-code-by k fD fG z) ps)
+    none → nk-fail
+nk-of-code-by (suc k) fD fG (ccon d j fs lnil) =
+  case fD d return (λ _ → NkTm) of
+    some e → nk-mk-dcon (fst e) j (nk-map-tm (λ z → nk-of-code-by k fD fG z) fs)
+    none → nk-fail
+nk-of-code-by (suc k) fD fG (celim d P B x) =
+  case fD d return (λ _ → NkTm) of
+    some e →
+      let mot = nk-con #43 (nk-cons (nk-of-code-by k fD fG P) nk-nil)
+      in nk-match #3 (nk-of-code-by k fD fG x) (nk-cons (snd e) (nk-cons mot (nk-map-susp (λ z → nk-of-code-by k fD fG z) B)))
+    none → nk-fail
+nk-of-code-by (suc k) fD fG (ccase d B x) =
+  case fD d return (λ _ → NkTm) of
+    some e → nk-match #3 (nk-of-code-by k fD fG x) (nk-cons (snd e) (nk-cons (nk-con #43 nk-nil) (nk-map-susp (λ z → nk-of-code-by k fD fG z) B)))
+    none → nk-fail
+nk-of-code-by (suc k) fD fG c = nk-fail

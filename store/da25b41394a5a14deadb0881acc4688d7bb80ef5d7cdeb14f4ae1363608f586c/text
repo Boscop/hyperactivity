@@ -1,0 +1,13 @@
+cs-bind-fields-from-loads : (hp1 : CsHeap) (ptr : CsVal) (fs : Lst CsVal) (d : Word) (idx : Nat) (env : CsEnv) →
+  ((i : Nat) → cs-load hp1 ptr (suc (plus idx i)) ≡ cs-nth CsVal fs i) →
+  cs-bind-fields hp1 ptr d idx (cs-hlen CsVal fs) env ≡ some (cs-bind-params d fs env)
+cs-bind-fields-from-loads hp1 ptr fs d idx env =
+  (case fs return (λ fs0 → (d0 : Word) (idx0 : Nat) (env0 : CsEnv) →
+                             ((i : Nat) → cs-load hp1 ptr (suc (plus idx0 i)) ≡ cs-nth CsVal fs0 i) →
+                             cs-bind-fields hp1 ptr d0 idx0 (cs-hlen CsVal fs0) env0 ≡ some (cs-bind-params d0 fs0 env0)) of
+     lnil → λ d0 idx0 env0 hld → refl
+     lcons v r → λ d0 idx0 env0 hld →
+       let ld0 = cong (cs-load hp1 ptr) (cong suc (sym (cs-plus-zero-r idx0))) ∙ hld zero
+       in cong (λ o → case o return (λ _ → Opt CsEnv) of none → none; some x → cs-bind-fields hp1 ptr (%wsucc d0) (suc idx0) (cs-hlen CsVal r) (cs-env-push d0 x env0)) ld0
+          ∙ rec r (%wsucc d0) (suc idx0) (cs-env-push d0 v env0)
+              (λ i → cong (cs-load hp1 ptr) (cong suc (sym (cs-plus-suc-r idx0 i))) ∙ hld (suc i))) d idx env

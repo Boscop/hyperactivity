@@ -1,0 +1,35 @@
+cs-sim-ccase-brs : (nf_of : Word → Word → Word) (k : Nat) (fns : CsFns) (ars : Lst (Word × Word))
+  (menv : Lst CsMVal) (hp : CsHeap) (cenv : CsEnv) (dd : Word) (B : Lst Code) (cond : Code) →
+  (nf_of dd #0 ≡ #0) → (nf_of dd #1 ≡ #0) →
+  ((c0 : Code) (hp0 : CsHeap) (cenv0 : CsEnv) → cs-env-rel hp0 menv cenv0 →
+     cs-sim-ok (cs-code-eval-by nf_of k menv c0)
+               (cs-eval k fns hp0 cenv0 (cs-compile-by nf_of k ars (cs-wlen menv) c0)) ≡ true) →
+  cs-env-rel hp menv cenv →
+  cs-sim-ok (cs-eval-bool-brs (cs-code-eval-by nf_of k menv) (cs-as-bool-brs B) (cs-code-eval-by nf_of k menv cond))
+            (cs-eval (suc k) fns hp cenv (cs-compile-by nf_of (suc k) ars (cs-wlen menv) (ccase dd B cond))) ≡ true
+cs-sim-ccase-brs nf_of k fns ars menv hp cenv dd lnil cond hn0 hn1 ih henv = refl
+cs-sim-ccase-brs nf_of k fns ars menv hp cenv dd (lcons tbr lnil) cond hn0 hn1 ih henv = refl
+cs-sim-ccase-brs nf_of k fns ars menv hp cenv dd (lcons tbr (lcons fbr (lcons x r))) cond hn0 hn1 ih henv = refl
+cs-sim-ccase-brs nf_of k fns ars menv hp cenv dd (lcons tbr (lcons fbr lnil)) cond hn0 hn1 ih henv =
+  let d = cs-wlen menv
+      cf = cs-compile-by nf_of k ars
+      scr = cf d cond
+      om_c = cs-code-eval-by nf_of k menv cond
+      om_t = cs-code-eval-by nf_of k menv tbr
+      om_f = cs-code-eval-by nf_of k menv fbr
+      bt = cf d tbr
+      bf = cf d fbr
+      brs0 = cse-br-cons #0 d #0 bt (cse-br-cons #1 d #0 bf cse-br-nil)
+      beq = cs-mk-bool-brs-zero (nf_of dd #0) (nf_of dd #1) d cf tbr fbr hn0 hn1
+      step = cs-sim-bind hp om_c (cs-eval k fns hp cenv scr)
+               (λ mc → case mc return (λ _ → CsOptM) of cmv-word w → csom-none; cmv-pair a b → csom-none; cmv-bool bc → if bc then om_t else om_f)
+               (λ hp1 vc → cs-bind-opt (cs-load hp1 vc zero) (λ vtag → cs-bind-word vtag (λ tag → cs-eval-switch (cs-eval k fns) hp1 cenv vc tag brs0)))
+               (cs-eval-mono-res k fns hp cenv scr)
+               (ih cond hp cenv henv)
+               (λ mc hp1 vc ext1 hrel →
+                  let henv1 = cs-env-rel-mono hp hp1 menv cenv ext1 henv
+                  in cs-sim-switch-val (cs-eval k fns) hp1 cenv d mc vc om_t om_f bt bf hrel
+                       (ih tbr hp1 cenv henv1) (ih fbr hp1 cenv henv1))
+  in cong (λ brs → cs-sim-ok (cs-eval-bool-brs (cs-code-eval-by nf_of k menv) (csbb-two tbr fbr) om_c)
+                     (cs-eval (suc k) fns hp cenv (cse-switch d scr brs))) beq
+     ∙ step

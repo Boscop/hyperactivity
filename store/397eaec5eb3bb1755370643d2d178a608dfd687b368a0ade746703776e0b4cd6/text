@@ -1,0 +1,17 @@
+cs-print-gcall-at : (lt : Bool) (cf : Code → CsExp) (pr : Code → List Word → List Word) →
+  ((x : Code) (tl : List Word) → cs-print (cf x) tl ≡ pr x tl) →
+  (g ar n : Word) (as : Lst Code) (acc : List Word) →
+  cs-print (if lt then cs-clo g ar n (cs-comp-args cf as false)
+            else cs-comp-apps cf (cs-call g (cs-comp-args cf (ce-take (toNat ar) as) true)) (ce-drop (toNat ar) as)) acc
+  ≡ (if lt then list-append "hy_clo((uint64_t)w" (list-append (ce-dec g) (list-append ", " (list-append (ce-dec ar) (list-append ", " (list-append (ce-dec n) (list-append ", (uint64_t[]){0" (ce-args pr as false (list-append "})" acc))))))))
+     else ce-apps pr (λ tl → list-append "g" (list-append (ce-dec g) (list-append "(" (ce-args pr (ce-take (toNat ar) as) true (list-append ")" tl))))) (ce-drop (toNat ar) as) acc)
+cs-print-gcall-at true cf pr h g ar n as acc =
+  cong (λ z → list-append "hy_clo((uint64_t)w" (list-append (ce-dec g) (list-append ", " (list-append (ce-dec ar) (list-append ", " (list-append (ce-dec n) (list-append ", (uint64_t[]){0" z)))))))
+    (cs-print-args-eq cf pr h as false (list-append "})" acc))
+cs-print-gcall-at false cf pr h g ar n as acc =
+  cs-print-apps-eq cf pr h
+    (cs-call g (cs-comp-args cf (ce-take (toNat ar) as) true))
+    (λ tl → list-append "g" (list-append (ce-dec g) (list-append "(" (ce-args pr (ce-take (toNat ar) as) true (list-append ")" tl)))))
+    (λ tl → cong (λ z → list-append "g" (list-append (ce-dec g) (list-append "(" z)))
+              (cs-print-args-eq cf pr h (ce-take (toNat ar) as) true (list-append ")" tl)))
+    (ce-drop (toNat ar) as) acc

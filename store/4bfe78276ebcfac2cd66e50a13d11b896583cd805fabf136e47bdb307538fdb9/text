@@ -1,0 +1,14 @@
+-- Template: hy_clo + hy_app (closure layout [fn, ar, n, f_0..f_{n-1}], partial & saturated application)
+cs-read-range-from-loads : (hp1 : CsHeap) (ptr : CsVal) (fs : Lst CsVal) (base : Nat) →
+  ((i : Nat) → cs-load hp1 ptr (plus base i) ≡ cs-nth CsVal fs i) →
+  cs-read-range hp1 ptr base (cs-hlen CsVal fs) ≡ some fs
+cs-read-range-from-loads hp1 ptr fs base =
+  (case fs return (λ fs0 → (b0 : Nat) →
+                             ((i : Nat) → cs-load hp1 ptr (plus b0 i) ≡ cs-nth CsVal fs0 i) →
+                             cs-read-range hp1 ptr b0 (cs-hlen CsVal fs0) ≡ the (Opt (Lst CsVal)) (some fs0)) of
+     lnil → λ b0 hld → refl
+     lcons v r → λ b0 hld →
+       let ld0 = cong (cs-load hp1 ptr) (sym (cs-plus-zero-r b0)) ∙ hld zero
+       in cong (λ o → case o return (λ _ → Opt (Lst CsVal)) of none → none; some x → (case cs-read-range hp1 ptr (suc b0) (cs-hlen CsVal r) return (λ _ → Opt (Lst CsVal)) of none → none; some vs → some (the (Lst CsVal) (lcons x vs)))) ld0
+          ∙ cong (λ o → case o return (λ _ → Opt (Lst CsVal)) of none → none; some vs → some (the (Lst CsVal) (lcons v vs)))
+              (rec r (suc b0) (λ i → cong (cs-load hp1 ptr) (sym (cs-plus-suc-r b0 i)) ∙ hld (suc i)))) base

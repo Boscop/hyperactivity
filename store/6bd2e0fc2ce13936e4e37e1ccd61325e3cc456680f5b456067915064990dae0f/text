@@ -1,0 +1,26 @@
+-- a body built in an environment, its result to arrive on out; a list of arguments is built on
+-- new wires, which the result names
+nk-build : NkTm → NkEnv → NkW → NkOut → NkOut
+nk-build (nk-var i) e out (nk-out fx n ws) = nk-out (nk-pick e i out fx) n ws
+nk-build (nk-free x) e out (nk-out fx n ws) = nk-out (nkf-val out (nkv (hd-var x) nke-nil) (nk-era-env e fx)) n ws
+nk-build (nk-num m) e out (nk-out fx n ws) = nk-out (nkf-val out (nkv (hd-num m) nke-nil) (nk-era-env e fx)) n ws
+nk-build (nk-lam b) e out (nk-out fx n ws) = nk-out (nkf-val out (nkv (hd-clo b) e) fx) n ws
+nk-build (nk-susp b) e out (nk-out fx n ws) = nk-out (nkf-val out (nkv (hd-susp b) e) fx) n ws
+nk-build (nk-con c as) e out o =
+  if %weq c #54 then nk-build-gref (nk-bnum as) e out o
+  else nk-con-at c out (nk-build as e out o)
+nk-build (nk-op h p as) e out o =
+  let s = nk-split e o
+      n = nk-n (nk-so s)
+      oa = nk-build as (nk-sb s) out (nk-plan-of (nk-fx (nk-so s)) (nk-s n))
+  in nk-build p (nk-sa s) n (nk-plan-of (nkf-op n (nko-el h nk-nil (nk-ws oa) out) (nk-fx oa)) (nk-n oa))
+nk-build (nk-match h p cs) e out o =
+  let s = nk-split e o
+      n = nk-n (nk-so s)
+  in nk-build p (nk-sa s) n (nk-plan-of (nkf-op n (nko-el h cs (nk-sb s) out) (nk-fx (nk-so s))) (nk-s n))
+nk-build nk-nil e out (nk-out fx n ws) = nk-out (nk-era-env e fx) n nke-nil
+nk-build (nk-cons t r) e out o =
+  let s = nk-split e o
+      n = nk-n (nk-so s)
+      o2 = nk-build r (nk-sb s) out (nk-plan-of (nk-fx (nk-so s)) (nk-s n))
+  in nk-keep (nke-cons n (nk-ws o2)) (nk-build t (nk-sa s) n o2)

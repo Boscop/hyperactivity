@@ -534,6 +534,7 @@ The specializer itself never needs to be trusted or proved correct as a monolith
 
 - [`lib/x86.hypercubical`](https://hyperactivity.ai/kg?mod=lib/x86.hypercubical) emits native x86-64 machine code for `#jit` definitions (`O_NATIVE` in `src/core.h`): when all arguments cross the machine-value boundary, the interaction net jumps directly into the native bytes; when an argument is symbolic/neutral, it falls back seamlessly to the cubical term.
 - [`lib/elf.hypercubical`](https://hyperactivity.ai/kg?mod=lib/elf.hypercubical) packages native machine code into standalone Linux ELF64 executables (`#build`) with zero external assembler or linker required.
+- [`lib/first-order.hypercubical`](https://hyperactivity.ai/kg?mod=lib/first-order.hypercubical), [`lib/emit-c.hypercubical`](https://hyperactivity.ai/kg?mod=lib/emit-c.hypercubical), [`lib/emit-c-proof.hypercubical`](https://hyperactivity.ai/kg?mod=lib/emit-c-proof.hypercubical), and [`lib/singularity.hypercubical`](https://hyperactivity.ai/kg?mod=lib/singularity.hypercubical) lower higher-order definitions and all 21 `WCmd` world commands to standalone ISO C11 with operational UB-freedom and simulation proofs (`cs-compile-closed-sound`, `cs-compile-closed-no-ub`), emitting the self-hosted cubical interaction-net kernel and `store/<key>/forms` pool verifier (`sg-c`) as a zero-`src/` UBSan-clean executable that verifies `nk-ty-s` and `nk-has-s` directly from `store/` in `0.37s`.
 
 ### Lifting C++ → Hyperactivity → Compiling vs. `clang++ -O3` Directly
 

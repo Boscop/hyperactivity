@@ -1,0 +1,40 @@
+nk-fire-wf : (act : NkAct) (h : Word) (cs : NkTm) (aux : NkEnv) (out : NkW) (hd : NkHd) (parts : NkEnv) (n : NkW) →
+  nk-out-ok (nk-eapp aux parts) (nke-cons out nke-nil) n n (nk-fire act h cs aux out hd parts n) ≡ true
+nk-fire-wf (act-ap t) h cs aux out hd parts n =
+  let ins = nk-eapp aux parts
+      outs = nke-cons out nke-nil
+      ho0 = nk-out-ok-intro ins outs n n nkf-nil n nke-nil (nk-wire-le-refl n) refl refl
+  in nk-build-wf t ins outs n ins out (nk-plan-of nkf-nil n) (nk-wire-le-refl n) (nk-emem-refl ins n n) (nk-in-set-hd out nke-nil n n) ho0
+nk-fire-wf (act-rp t) h cs aux out hd parts n =
+  let ins = nk-eapp aux parts
+      outs = nke-cons out nke-nil
+      ho0 = nk-out-ok-intro ins outs n n nkf-nil n nke-nil (nk-wire-le-refl n) refl refl
+      hrp = nk-emem-sub (nk-eapp (nk-erev parts nke-nil) aux) ins n n (λ w m → nk-emem-rp w aux parts m)
+  in nk-build-wf t ins outs n (nk-eapp (nk-erev parts nke-nil) aux) out (nk-plan-of nkf-nil n) (nk-wire-le-refl n) hrp (nk-in-set-hd out nke-nil n n) ho0
+nk-fire-wf (act-self t) h cs aux out hd parts n =
+  let ins = nk-eapp aux parts
+      outs = nke-cons out nke-nil
+      sn = nk-s n
+      rn = nk-in-range-self n n (nk-wire-le-refl n)
+      fx0 = nkf-val n (nkv hd parts) nkf-nil
+      hfx0 = nk-and-intro (nk-in-set outs n sn n) true (nk-in-set-range outs n sn n rn) refl
+      ho0 = nk-out-ok-intro ins outs n sn fx0 sn nke-nil (nk-wire-le-refl sn) hfx0 refl
+      he = nk-and-intro (nk-in-set ins n sn n) (nk-env-in-set ins n sn aux)
+             (nk-in-set-range ins n sn n rn)
+             (nk-emem-sub aux ins n sn (λ w m → nk-emem-eapp-l w aux parts m))
+      hb = nk-build-wf t ins outs n (nke-cons n aux) out (nk-plan-of fx0 sn) (nk-wire-le-s n) he (nk-in-set-hd out nke-nil n sn) ho0
+  in nk-out-ok-step ins outs n n sn (nk-build t (nke-cons n aux) out (nk-plan-of fx0 sn)) (nk-wire-le-s n) hb
+nk-fire-wf (act-hd g) h cs aux out hd parts n =
+  let ins = nk-eapp aux parts
+      outs = nke-cons out nke-nil
+      haux = nk-emem-sub aux ins n n (λ w m → nk-emem-eapp-l w aux parts m)
+      hparts = nk-emem-sub parts ins n n (λ w m → nk-emem-eapp-r w aux parts m)
+      hera = nk-era-env-wf ins outs n n aux (nk-era-env parts nkf-nil) haux (nk-era-env-wf ins outs n n parts nkf-nil hparts refl)
+  in nk-out-ok-intro ins outs n n (nkf-val out (nkv g nke-nil) (nk-era-env aux (nk-era-env parts nkf-nil))) n nke-nil
+       (nk-wire-le-refl n)
+       (nk-and-intro (nk-in-set outs n n out) (nk-fx-wf ins outs n n (nk-era-env aux (nk-era-env parts nkf-nil))) (nk-in-set-hd out nke-nil n n) hera)
+       refl
+nk-fire-wf act-none h cs aux out hd parts n = nk-fire-none-wf (nk-blocked hd) h cs aux out hd parts n
+nk-fire-wf act-stuck h cs aux out hd parts n =
+  nk-stuck-el-wf (nk-eapp aux parts) h cs aux out (nkv hd parts) n
+    (nk-emem-sub aux (nk-eapp aux parts) n (nk-s n) (λ w m → nk-emem-eapp-l w aux parts m))

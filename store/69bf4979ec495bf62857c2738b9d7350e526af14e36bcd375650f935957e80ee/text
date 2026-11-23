@@ -1,0 +1,52 @@
+cs-hy-bop-w-mono : (j : Word) (hp : CsHeap) (a b : Word) → cs-res-mono hp (cs-hy-bop-w j hp a b)
+cs-hy-bop-w-mono j hp a b =
+  let e12 = cs-hy-shr hp a b
+      r12 = if %weq j #12 then e12 else cso-abort
+      e11 = cs-hy-shl hp a b
+      r11 = if %weq j #11 then e11 else r12
+      e10 = cso-ok hp (csv-word (%wxor a b))
+      r10 = if %weq j #10 then e10 else r11
+      e9 = cso-ok hp (csv-word (%wor a b))
+      r9 = if %weq j #9 then e9 else r10
+      e8 = cso-ok hp (csv-word (%wand a b))
+      r8 = if %weq j #8 then e8 else r9
+      e7 = cs-hy-mod hp a b
+      r7 = if %weq j #7 then e7 else r8
+      e6 = cs-hy-div hp a b
+      r6 = if %weq j #6 then e6 else r7
+      e5 = cs-hy-mul hp a b
+      r5 = if %weq j #5 then e5 else r6
+      e4 = cs-hy-sub hp a b
+      r4 = if %weq j #4 then e4 else r5
+      e3 = cs-hy-max hp a b
+      r3 = if %weq j #3 then e3 else r4
+      e2 = cs-hy-add hp a b
+      r2 = if %weq j #2 then e2 else r3
+      e1 = cs-hy-con hp (if %wlt a b then #0 else #1) lnil
+      r1 = if %weq j #1 then e1 else r2
+      e0 = cs-hy-con hp (if %weq a b then #0 else #1) lnil
+      m12 = cs-ite-res-mono (%weq j #12) hp e12 cso-abort
+              (cs-ite-res-mono (%wlt b #64) hp (cs-prim-res hp (cs-c11-shr64 a b)) (cso-ok hp (csv-word #0))
+                (cs-prim-res-mono hp (cs-c11-shr64 a b)) (cs-heap-ext-refl hp)) unit
+      m11 = cs-ite-res-mono (%weq j #11) hp e11 r12 (cs-hy-shl-mono hp a b) m12
+      m10 = cs-ite-res-mono (%weq j #10) hp e10 r11 (cs-heap-ext-refl hp) m11
+      m9 = cs-ite-res-mono (%weq j #9) hp e9 r10 (cs-heap-ext-refl hp) m10
+      m8 = cs-ite-res-mono (%weq j #8) hp e8 r9 (cs-heap-ext-refl hp) m9
+      m7 = cs-ite-res-mono (%weq j #7) hp e7 r8
+             (cs-ite-res-mono (%weq b #0) hp (cso-ok hp (csv-word a)) (cs-prim-res hp (cs-c11-mod a b))
+               (cs-heap-ext-refl hp) (cs-prim-res-mono hp (cs-c11-mod a b))) m8
+      m6 = cs-ite-res-mono (%weq j #6) hp e6 r7
+             (cs-ite-res-mono (%weq b #0) hp (cso-ok hp (csv-word #0)) (cs-prim-res hp (cs-c11-div a b))
+               (cs-heap-ext-refl hp) (cs-prim-res-mono hp (cs-c11-div a b))) m7
+      m5 = cs-ite-res-mono (%weq j #5) hp e5 r6
+             (cs-ite-res-mono (cs-w64 (%wmul a b)) hp (cso-ok hp (csv-word (%wmul a b))) cso-abort
+               (cs-heap-ext-refl hp) unit) m6
+      m4 = cs-ite-res-mono (%weq j #4) hp e4 r5 (cs-heap-ext-refl hp) m5
+      m3 = cs-ite-res-mono (%weq j #3) hp e3 r4 (cs-heap-ext-refl hp) m4
+      m2 = cs-ite-res-mono (%weq j #2) hp e2 r3
+             (cs-ite-res-mono (cs-w64 (%wadd a b)) hp (cso-ok hp (csv-word (%wadd a b))) cso-abort
+               (cs-heap-ext-refl hp) unit) m3
+      m1 = cs-ite-res-mono (%weq j #1) hp e1 r2
+             (cs-alloc-ext hp (lcons (csv-word (if %wlt a b then #0 else #1)) lnil)) m2
+  in cs-ite-res-mono (%weq j #0) hp e0 r1
+       (cs-alloc-ext hp (lcons (csv-word (if %weq a b then #0 else #1)) lnil)) m1

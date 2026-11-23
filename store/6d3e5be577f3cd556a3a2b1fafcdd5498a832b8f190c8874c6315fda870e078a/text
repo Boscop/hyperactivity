@@ -1,0 +1,22 @@
+nk-dup-nil-preserves : (sl : NkSlots) (u a b n : NkW) (h : NkHd) →
+  (nk-get sl u ≡ nks-pair (nko-dup a b) (nkv h nke-nil)) →
+  (nk-weq u a ≡ false) → (nk-weq u b ≡ false) → (nk-weq b a ≡ false) →
+  (nk-get sl a ≡ nks-none) → (nk-get sl b ≡ nks-none) →
+  (nk-get (nk-step-at u n sl) a ≡ nks-val (nkv h nke-nil)) × (nk-get (nk-step-at u n sl) b ≡ nks-val (nkv h nke-nil))
+nk-dup-nil-preserves sl u a b n h pu nua nub nba pa pb =
+  let v = nkv h nke-nil
+      sl1 = nk-upd sl u (nk-ch (nkc-put nks-none))
+      sl2 = nk-upd sl1 a (nk-ch (nkc-val v))
+      sl3 = nk-upd sl2 b (nk-ch (nkc-val v))
+      pfx = nk-dup-nil-plan-fx sl u a b n h pu
+      eq_a = cong (λ fx → nk-get (nk-do fx sl) a) pfx
+             ∙ (nk-get-set-other sl2 b a (nk-ch (nkc-val v) (nk-get sl2 b)) nba
+             ∙ (nk-get-set sl1 a (nk-ch (nkc-val v) (nk-get sl1 a))
+             ∙ (cong (nk-ch (nkc-val v)) (nk-get-set-other sl u a nks-none nua)
+             ∙ cong (nk-ch (nkc-val v)) pa)))
+      eq_b = cong (λ fx → nk-get (nk-do fx sl) b) pfx
+             ∙ (nk-get-set sl2 b (nk-ch (nkc-val v) (nk-get sl2 b))
+             ∙ (cong (nk-ch (nkc-val v)) (nk-get-set-other sl1 a b (nk-ch (nkc-val v) (nk-get sl1 a)) (nk-weq-sym-f b a nba))
+             ∙ (cong (nk-ch (nkc-val v)) (nk-get-set-other sl u b nks-none nub)
+             ∙ cong (nk-ch (nkc-val v)) pb)))
+  in (eq_a , eq_b)

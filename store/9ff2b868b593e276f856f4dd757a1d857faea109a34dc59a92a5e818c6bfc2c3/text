@@ -1,0 +1,61 @@
+uconv-head u wu v wv =
+  case wu of
+    wpi A B → (case wv of wpi A2 B2 → if conv-ty A A2 then conv-fam A B B2 else false; _ → false)
+    wsigma A B → 
+      case wv of wsigma A2 B2 → if conv-ty A A2 then conv-fam A B B2 else false; _ → false
+    wu l → (case wv of wu m → lvl-eq (lvl-of l) (lvl-of m); _ → false)
+    wlevel → (case wv of wlevel → true; _ → false)
+    wpath L a b → 
+      case wv of
+        wpath M c d → 
+          let i = %dim
+          in if conv-ty (L @ i) (M @ i)
+               then if conv (L @ 0) a c then conv (L @ 1) b d else false
+               else false
+        _ → false
+    wglue A S → 
+      case wv of wglue B S2 → if conv-ty A B then conv-glue-sys A S S2 else false; _ → false
+    whcompu A S → 
+      case wv of whcompu B S2 → if conv-ty A B then conv-line-sys S S2 else false; _ → false
+    wgluev S a → 
+      if (case wv of wgluev S2 b → %feq (faceof S) (faceof S2); _ → true)
+        then if uconv a (unglue S v)
+               then lall (λ d → uconv (%restrict d (glue S a)) (%restrict d v)) (%clauses (faceof S))
+               else false
+        else false
+    wdata d ps → 
+      case wv of wdata d2 ps2 → if %weq d d2 then lall2 uconv ps ps2 else false; _ → false
+    wcon d c fs ds → 
+      case wv of
+        wcon d2 c2 fs2 ds2 → 
+          if %weq d d2
+            then if %weq c c2
+                   then if lall2 (λ r s → %ieq r s) ds ds2 then lall2 uconv fs fs2 else false
+                   else false
+            else false
+        _ → false
+    whcomp w a → 
+      case wv of
+        whcomp w2 a2 → 
+          if %feq (faceof w) (faceof w2)
+            then if uconv a a2
+                   then let i = %dim
+                        in lall (λ c → uconv (%restrict c (w @ i)) (%restrict c (w2 @ i))) (%clauses (faceof w))
+                   else false
+            else false
+        _ → false
+    wiv r → (case wv of wiv s → %ieq r s; _ → false)
+    wface a → (case wv of wface b → %feq a b; _ → false)
+    wword → (case wv of wword → true; _ → false)
+    wclock → (case wv of wclock → true; _ → false)
+    wtick k → (case wv of wtick k2 → uconv k k2; _ → false)
+    wclock0 → (case wv of wclock0 → true; _ → false)
+    wtick0 → (case wv of wtick0 → true; _ → false)
+    wwlit n → (case wv of wwlit m → %weq n m; _ → false)
+    wpty k n → (case wv of wpty k2 n2 → (if %weq k k2 then (if %weq k #4 then uconv n n2 else true) else false); _ → false)
+    wplit k b → (case wv of wplit k2 b2 → andb (%weq k k2) (%weq b b2); _ → false)
+    -- byte strings: by contents (a neutral one is not known equal)
+    wbytes n → (case wv of wbytes m → (if %weq n m then %beq u v else false); _ → false)
+    wwplus k x → (case wv of wwplus j y → if %weq k j then uconv x y else false; _ → false)
+    wother → false
+    _ → (case convneu wu wv of some X → true; none → false)

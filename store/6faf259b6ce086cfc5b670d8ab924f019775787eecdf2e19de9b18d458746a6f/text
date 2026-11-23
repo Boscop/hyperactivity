@@ -1,0 +1,20 @@
+cs-sim-switch-ov : (bc : Bool) (ev_c : CsHeap → CsEnv → CsExp → CsRes) (hp1 : CsHeap) (cenv : CsEnv) (d : Word) (addr : Nat) (ov0 : CsOptV) (om_t om_f : CsOptM) (bt bf : CsExp) →
+  (cs-loadv hp1 (csv-ptr addr) zero ≡ ov0) →
+  (cs-ov-word-eq ov0 (cs-bool-tag bc) ≡ true) →
+  (cs-sim-ok om_t (ev_c hp1 cenv bt) ≡ true) →
+  (cs-sim-ok om_f (ev_c hp1 cenv bf) ≡ true) →
+  cs-sim-ok (if bc then om_t else om_f)
+    (cs-bind-opt (cs-load hp1 (csv-ptr addr) zero)
+      (λ vtag → cs-bind-word vtag
+        (λ tag → cs-eval-switch ev_c hp1 cenv (csv-ptr addr) tag
+          (cse-br-cons #0 d #0 bt (cse-br-cons #1 d #0 bf cse-br-nil))))) ≡ true
+cs-sim-switch-ov bc ev_c hp1 cenv d addr csov-none om_t om_f bt bf ho0 hrel ht hf = cs-no hrel
+cs-sim-switch-ov bc ev_c hp1 cenv d addr (csov-some (csv-ptr a2)) om_t om_f bt bf ho0 hrel ht hf = cs-no hrel
+cs-sim-switch-ov bc ev_c hp1 cenv d addr (csov-some (csv-word tag)) om_t om_f bt bf ho0 hrel ht hf =
+  let ld0 = cs-loadv-inv (cs-load hp1 (csv-ptr addr) zero) (csv-word tag) ho0
+      teq = cs-weq-sound tag (cs-bool-tag bc) hrel
+      brs = cse-br-cons #0 d #0 bt (cse-br-cons #1 d #0 bf cse-br-nil)
+  in cong (λ o → cs-sim-ok (if bc then om_t else om_f)
+                   (cs-bind-opt o (λ vtag → cs-bind-word vtag (λ t0 → cs-eval-switch ev_c hp1 cenv (csv-ptr addr) t0 brs)))) ld0
+     ∙ (cong (λ t0 → cs-sim-ok (if bc then om_t else om_f) (cs-eval-switch ev_c hp1 cenv (csv-ptr addr) t0 brs)) teq
+        ∙ cs-sim-switch-tag bc ev_c hp1 cenv d (csv-ptr addr) om_t om_f bt bf ht hf)

@@ -1,0 +1,124 @@
+convneu wu wv =
+  case wu of
+    wvar l T → (case wv of wvar m T2 → if %weq l m then some T else none; _ → none)
+    -- the stuck head of a copattern definition: the same definition
+    wcofix n T → (case wv of wcofix m T2 → if %weq n m then some T else none; _ → none)
+    wproj d k x T → 
+      case wv of
+        wproj d2 k2 y T2 → 
+          if andb (%weq d d2) (%weq k k2)
+            then case convneu (%view x) (%view y) of
+                   some X → 
+                     case %view X of wdata d3 ps → some (cofield-ty d ps x k); _ → some opq
+                   none → none
+            else none
+        _ → none
+    wapp f a T → 
+      case wv of
+        wapp g b T2 → 
+          case convneu (%view f) (%view g) of
+            some Tf → 
+              case %view Tf of
+                wpi A B → if conv A a b then some (B a) else none
+                _ → if uconv a b then some opq else none
+            none → none
+        _ → none
+    wfst p T → 
+      case wv of
+        wfst q T2 → 
+          case convneu (%view p) (%view q) of
+            some Tp → (case %view Tp of wsigma A B → some A; _ → some opq)
+            none → none
+        _ → none
+    wsnd p T → 
+      case wv of
+        wsnd q T2 → 
+          case convneu (%view p) (%view q) of
+            some Tp → (case %view Tp of wsigma A B → some (B (fst p)); _ → some opq)
+            none → none
+        _ → none
+    wpapp p r T → 
+      case wv of
+        wpapp q s T2 → 
+          if %ieq r s
+            then case convneu (%view p) (%view q) of
+                   some Tp → (case %view Tp of wpath L a b → some (L @ r); _ → some opq)
+                   none → none
+            else none
+        _ → none
+    wcomp A u a0 T → 
+      case wv of
+        wcomp B w b0 T2 → 
+          if %feq (faceof u) (faceof w)
+            then let i = %dim
+                 in if conv-ty (A @ i) (B @ i)
+                      then if conv (A @ 0) a0 b0
+                             then if lall (λ d → conv (%restrict d (A @ i)) (%restrict d (u @ i)) (%restrict d (w @ i))) (%clauses (faceof u))
+                                    then some (A @ 1)
+                                    else none
+                             else none
+                      else none
+            else none
+        _ → none
+    wunglue S b T → 
+      case wv of
+        wunglue S2 c T2 → 
+          case convneu (%view b) (%view c) of
+            some Tb → (case %view Tb of wglue A S3 → if conv-glue-sys A S S2 then some A else none; _ → some opq)
+            none → none
+        _ → none
+    wunglueu S b T → 
+      case wv of
+        wunglueu S2 c T2 → 
+          case convneu (%view b) (%view c) of
+            some Tb → (case %view Tb of whcompu A S3 → if conv-line-sys S S2 then some A else none; _ → some opq)
+            none → none
+        _ → none
+    welim d x f T → 
+      case wv of
+        welim d2 y g T2 → 
+          if %weq d d2
+            then case convneu (%view x) (%view y) of
+                   -- one table: equal when their motives and shared variables are, else by branches
+                   some X → 
+                     case %clos f g of
+                       csame ps f2 g2 → 
+                         if env-pairs ps
+                           then some T
+                           else if conv-elims d f2 g2 (ctors-of d X) #0 then some T else none
+                       cdiff f2 g2 → if conv-elims d f2 g2 (ctors-of d X) #0 then some T else none
+                   none → none
+            else none
+        _ → none
+    wwop k a b → 
+      case wv of
+        wwop j c e → 
+          if %weq k j
+            then if uconv a c then if uconv b e then some opq else none else none
+            else none
+        _ → none
+    wwelim x z s mo → 
+      case wv of
+        wwelim y z2 s2 mo2 → 
+          if uconv x y
+            then if uconv z z2 then if uconv s s2 then some opq else none else none
+            else none
+        _ → none
+    wprim k as → 
+      case wv of
+        wprim j bs → if %weq k j then (if lall2 (λ a b → uconv a b) as bs then some opq else none) else none
+        _ → none
+    wtrans d psi ls x T → 
+      case wv of
+        wtrans d2 psi2 ls2 y T2 → 
+          if %weq d d2
+            then if %feq psi psi2
+                   then if lall2 (λ l1 l2 → let i = %dim in uconv (l1 @ i) (l2 @ i)) ls ls2
+                          then case same-neu x y of
+                                 some X → some (mkdata d (lmap (λ l → l @ 1) ls))
+                                 none → none
+                          else none
+                   else none
+            else none
+        _ → none
+    _ → none

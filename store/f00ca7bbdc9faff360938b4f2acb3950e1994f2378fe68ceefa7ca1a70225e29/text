@@ -1,0 +1,26 @@
+cs-env-rel-push : (hp : CsHeap) (menv : Lst CsMVal) (cenv : CsEnv) (mvt : CsMVal) (cvt : CsVal) →
+  (cs-val-rel hp mvt cvt ≡ true) →
+  cs-env-rel hp menv cenv →
+  cs-env-rel hp (lcons mvt menv) (cs-env-push (cs-wlen menv) cvt cenv)
+cs-env-rel-push hp menv cenv mvt cvt hvt henv n =
+  let d = cs-wlen menv
+  in %welimP
+       (λ k → cs-sim-ok (cs-mget (lcons mvt menv) k)
+                (cs-bind-opt (cs-get-var (cs-env-push d cvt cenv) (%wsub d k)) (λ v → cso-ok hp v)) ≡ true)
+       n
+       (cong (λ z → cs-res-rel mvt (cs-bind-opt (if z then some cvt else cs-get-var cenv d) (λ v → cso-ok hp v)))
+             (cs-weq-self d)
+        ∙ hvt)
+       (λ n0 _ →
+          (case menv return (λ menv0 →
+             cs-env-rel hp menv0 cenv →
+             cs-sim-ok (cs-mget menv0 n0)
+               (cs-bind-opt (cs-get-var (cs-env-push (cs-wlen menv0) cvt cenv) (%wsub (cs-wlen menv0) (%wsucc n0)))
+                 (λ v → cso-ok hp v)) ≡ true) of
+             lnil → λ _ → refl
+             lcons x r → λ henv0 →
+               let d0 = cs-wlen r
+               in cong (λ z → cs-sim-ok (cs-mget (lcons x r) n0)
+                                (cs-bind-opt (if z then some cvt else cs-get-var cenv (%wsub d0 n0)) (λ v → cso-ok hp v)))
+                       (cs-weq-succ-sub-false d0 n0)
+                  ∙ henv0 n0) henv)

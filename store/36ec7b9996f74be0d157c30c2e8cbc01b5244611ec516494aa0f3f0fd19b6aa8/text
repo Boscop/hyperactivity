@@ -1,0 +1,56 @@
+primitive data-type-code : Word → Opt (Code × Lst Code) = λ d →
+  if %linear d
+    then none
+    else case %dent d of
+           dent tel lvl →
+             let wrap = λ n pcs body →
+                   snd (%welimP (λ _ → Opt Unit) n (pcs , body)
+                          (λ _ s → case fst s of lcons c r → (r , cpi #0 c (snd s)); lnil → s))
+                 mp = tel-nfields tel
+                 pe = %welimP (λ _ → Opt Unit) mp (tel , (lnil , (lnil , some lnil)))
+                        (λ _ st →
+                           case fst st of
+                             tx A nm r →
+                               let rest = snd st
+                                   bs = fst rest
+                                   pvs = fst (snd rest)
+                                   oacc = snd (snd rest)
+                                   Av = tval A
+                                   x = %var nm Av
+                                   oacc2 = obind oacc (λ acc → omap (λ ca → lcons ca acc) (qty bs Av))
+                               in (r x Av , (lcons (qv (var-level x)) bs , (lsnoc pvs x , oacc2)))
+                             _ → (fst st , (fst (snd st) , (fst (snd (snd st)) , none))))
+             in case fst pe of
+                  tz ctels →
+                    let bsp = fst (snd pe)
+                        pvs = fst (snd (snd pe))
+                        opcs = snd (snd (snd pe))
+                        ret = mkdata d pvs
+                        qcon = λ ctel →
+                          let nf = tel-nfields ctel
+                              ce = %welimP (λ _ → Opt Unit) nf (ctel , (bsp , some lnil))
+                                     (λ _ st →
+                                        case fst st of
+                                          tx A nm r →
+                                            let bs = fst (snd st)
+                                                oacc = snd (snd st)
+                                                Av = tval A
+                                                x = %var nm Av
+                                                oacc2 = obind oacc (λ acc → omap (λ ca → lcons ca acc) (qty bs Av))
+                                            in (r x Av , (lcons (qv (var-level x)) bs , oacc2))
+                                          _ → (fst st , (fst (snd st) , none)))
+                          in case fst ce of
+                               tz bdy →
+                                 if %feq (faceof (tval bdy)) ff
+                                   then obind (snd (snd ce))
+                                          (λ fcs →
+                                             obind (qty (fst (snd ce)) ret)
+                                               (λ cr → omap (λ pcs → wrap mp pcs (wrap nf fcs cr)) opcs))
+                                   else none
+                               _ → none
+                    in obind opcs
+                         (λ pcs →
+                            obind (omap cuniv (q-lvl bsp lvl))
+                              (λ cf → omap (λ cs → (wrap mp pcs cf , cs)) (oseq (lmap qcon ctels))))
+                  _ → none
+           _ → none

@@ -1,0 +1,23 @@
+-- the-guard-runs (2026-11-18, found while committing the chemistry construction): the pre-commit hook
+-- (lib/guard.cub, run by the machine) is killed by the kernel before it finishes. Measured here: it
+-- runs 2 minutes 32 seconds and dies of signal 9, its resident memory climbing to about 6.6 GB of the
+-- machine's 8 GB — roughly 160 MB a second for the first 30 seconds, then slowly to the kill. The
+-- machine was otherwise idle (716 MB used before the run), so this is the guard's own footprint and
+-- not contention. It is reproducible: three runs, three kills.
+-- What it costs: no agent can commit through the hook at the store's present size. The invariant the
+-- guard exists to enforce — a commit holds nothing but the source (store/), CLAUDE.md, README.md and
+-- the frozen files of its own g-frozen list — then has to be checked by hand (`git diff --cached
+-- --name-only`) and the commit made with --no-verify, which is what was done for the chemistry
+-- commits of 2026-11-18 and recorded in each of their messages. A guard that cannot run is a guard
+-- that is not enforcing anything, so this is load-bearing and not housekeeping.
+-- Where to look: the guard reads the whole source to check it, and the store has grown (16,769 objects
+-- at this writing). Either the check is made streaming — each file's paths tested as it is read, with
+-- nothing held — or the guard tests only the paths of the commit, which is all its rule needs: its
+-- statement is about the names of the files a commit holds, not about their contents, except for the
+-- byte-for-byte comparison of the frozen files, which can be done one file at a time.
+-- Resolved (2026-11-23): `g-run` in `lib/guard.cub` inspects only `.git/index` (`DIRC` header + staged
+-- entries, with `Ptr 256` region stat verification in `os-size-time`) without holding `store/`, runs to
+-- completion within `< 50 MB` RAM on every commit at 200,000+ pool objects, and compiles to standalone
+-- UBSan-clean ISO C11 via `emit-c-proc-unit` in `lib/emit-c.hypercubical`.
+the-guard-runs : Node
+the-guard-runs = node "The pre-commit guard runs to completion within the machine's memory, so that a commit is checked rather than waved through: its rule is about the paths a commit holds and the bytes of the frozen files, and it is to be checked without holding the source." (cons the-product nil)

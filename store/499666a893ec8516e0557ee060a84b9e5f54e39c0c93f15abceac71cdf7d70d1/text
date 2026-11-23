@@ -1,0 +1,12 @@
+-- Theorem (cs-compile-code-sim): whole-tree inductive simulation of cs-compile-by over Code
+-- covering variables, 64-bit literals, successor, all Word/Bool binary operations, let-bindings,
+-- heap-allocated pairs, projections, and Bool switch dispatch under Kripke arena monotonicity
+cs-compile-code-sim : (nf_of : Word → Word → Word) (k : Nat) (fns : CsFns) (ars : Lst (Word × Word))
+  (menv : Lst CsMVal) (hp : CsHeap) (cenv : CsEnv) (c : Code) →
+  cs-env-rel hp menv cenv →
+  cs-sim-ok (cs-code-eval-by nf_of k menv c)
+            (cs-eval k fns hp cenv (cs-compile-by nf_of k ars (cs-wlen menv) c)) ≡ true
+cs-compile-code-sim nf_of zero fns ars menv hp cenv c henv = refl
+cs-compile-code-sim nf_of (suc k) fns ars menv hp cenv c henv =
+  cs-code10-sim-eq nf_of k ars menv (cs-eval (suc k) fns hp cenv) c
+  ∙ cs-sim-step10 nf_of k fns ars (cs-compile-code-sim nf_of k fns ars) menv hp cenv (cs-code10 c) henv

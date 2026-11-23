@@ -1,0 +1,143 @@
+-- Theorem (cs-print-dlist-sound): the difference-list emitter cs-print e acc computes the exact
+-- concatenation list-append (cs-print e nil) acc in a single pass without inspecting or copying acc
+cs-print-dlist-sound : (e : CsExp) (acc : List Word) →
+  cs-print e acc ≡ list-append (cs-print e nil) acc
+cs-print-dlist-sound cs-bad acc = cs-dl-lit "hy_bad()" acc
+cs-print-dlist-sound (cs-var vid) acc =
+  cs-dl-comp (list-append "v") (list-append (ce-dec vid)) (cs-dl-lit "v") (cs-dl-lit (ce-dec vid)) acc
+cs-print-dlist-sound (cs-ull n) acc =
+  cs-dl-comp (list-append (ce-dec n)) (list-append "ull") (cs-dl-lit (ce-dec n)) (cs-dl-lit "ull") acc
+cs-print-dlist-sound (cs-add1 a) acc =
+  cs-dl-comp (list-append "hy_add(") (λ x → cs-print a (list-append ", 1ull)" x))
+    (cs-dl-lit "hy_add(")
+    (cs-dl-comp (cs-print a) (list-append ", 1ull)") (cs-print-dlist-sound a) (cs-dl-lit ", 1ull)")) acc
+cs-print-dlist-sound (cs-bop j a b) acc =
+  cs-dl-comp (list-append (ce-opname j)) (λ x → list-append "(" (cs-print a (list-append ", " (cs-print b (list-append ")" x)))))
+    (cs-dl-lit (ce-opname j))
+    (cs-dl-comp (list-append "(") (λ x → cs-print a (list-append ", " (cs-print b (list-append ")" x))))
+      (cs-dl-lit "(")
+      (cs-dl-comp (cs-print a) (λ x → list-append ", " (cs-print b (list-append ")" x)))
+        (cs-print-dlist-sound a)
+        (cs-dl-comp (list-append ", ") (λ x → cs-print b (list-append ")" x))
+          (cs-dl-lit ", ")
+          (cs-dl-comp (cs-print b) (list-append ")") (cs-print-dlist-sound b) (cs-dl-lit ")"))))) acc
+cs-print-dlist-sound (cs-let d t b) acc =
+  cs-dl-comp (list-append "({ uint64_t v") (λ x → list-append (ce-dec d) (list-append " = " (cs-print t (list-append "; " (cs-print b (list-append "; })" x))))))
+    (cs-dl-lit "({ uint64_t v")
+    (cs-dl-comp (list-append (ce-dec d)) (λ x → list-append " = " (cs-print t (list-append "; " (cs-print b (list-append "; })" x)))))
+      (cs-dl-lit (ce-dec d))
+      (cs-dl-comp (list-append " = ") (λ x → cs-print t (list-append "; " (cs-print b (list-append "; })" x))))
+        (cs-dl-lit " = ")
+        (cs-dl-comp (cs-print t) (λ x → list-append "; " (cs-print b (list-append "; })" x)))
+          (cs-print-dlist-sound t)
+          (cs-dl-comp (list-append "; ") (λ x → cs-print b (list-append "; })" x))
+            (cs-dl-lit "; ")
+            (cs-dl-comp (cs-print b) (list-append "; })") (cs-print-dlist-sound b) (cs-dl-lit "; })")))))) acc
+cs-print-dlist-sound (cs-call g args) acc =
+  cs-dl-comp (list-append "g") (λ x → list-append (ce-dec g) (list-append "(" (cs-print args (list-append ")" x))))
+    (cs-dl-lit "g")
+    (cs-dl-comp (list-append (ce-dec g)) (λ x → list-append "(" (cs-print args (list-append ")" x)))
+      (cs-dl-lit (ce-dec g))
+      (cs-dl-comp (list-append "(") (λ x → cs-print args (list-append ")" x))
+        (cs-dl-lit "(")
+        (cs-dl-comp (cs-print args) (list-append ")") (cs-print-dlist-sound args) (cs-dl-lit ")")))) acc
+cs-print-dlist-sound (cs-clo g ar n args) acc =
+  cs-dl-comp (list-append "hy_clo((uint64_t)w") (λ x → list-append (ce-dec g) (list-append ", " (list-append (ce-dec ar) (list-append ", " (list-append (ce-dec n) (list-append ", (uint64_t[]){0" (cs-print args (list-append "})" x))))))))
+    (cs-dl-lit "hy_clo((uint64_t)w")
+    (cs-dl-comp (list-append (ce-dec g)) (λ x → list-append ", " (list-append (ce-dec ar) (list-append ", " (list-append (ce-dec n) (list-append ", (uint64_t[]){0" (cs-print args (list-append "})" x)))))))
+      (cs-dl-lit (ce-dec g))
+      (cs-dl-comp (list-append ", ") (λ x → list-append (ce-dec ar) (list-append ", " (list-append (ce-dec n) (list-append ", (uint64_t[]){0" (cs-print args (list-append "})" x))))))
+        (cs-dl-lit ", ")
+        (cs-dl-comp (list-append (ce-dec ar)) (λ x → list-append ", " (list-append (ce-dec n) (list-append ", (uint64_t[]){0" (cs-print args (list-append "})" x)))))
+          (cs-dl-lit (ce-dec ar))
+          (cs-dl-comp (list-append ", ") (λ x → list-append (ce-dec n) (list-append ", (uint64_t[]){0" (cs-print args (list-append "})" x))))
+            (cs-dl-lit ", ")
+            (cs-dl-comp (list-append (ce-dec n)) (λ x → list-append ", (uint64_t[]){0" (cs-print args (list-append "})" x)))
+              (cs-dl-lit (ce-dec n))
+              (cs-dl-comp (list-append ", (uint64_t[]){0") (λ x → cs-print args (list-append "})" x))
+                (cs-dl-lit ", (uint64_t[]){0")
+                (cs-dl-comp (cs-print args) (list-append "})") (cs-print-dlist-sound args) (cs-dl-lit "})")))))))) acc
+cs-print-dlist-sound (cs-app f a) acc =
+  cs-dl-comp (list-append "hy_app(") (λ x → cs-print f (list-append ", " (cs-print a (list-append ")" x))))
+    (cs-dl-lit "hy_app(")
+    (cs-dl-comp (cs-print f) (λ x → list-append ", " (cs-print a (list-append ")" x)))
+      (cs-print-dlist-sound f)
+      (cs-dl-comp (list-append ", ") (λ x → cs-print a (list-append ")" x))
+        (cs-dl-lit ", ")
+        (cs-dl-comp (cs-print a) (list-append ")") (cs-print-dlist-sound a) (cs-dl-lit ")")))) acc
+cs-print-dlist-sound (cs-pair a b) acc =
+  cs-dl-comp (list-append "hy_con(0, 2, (uint64_t[]){0, ") (λ x → cs-print a (list-append ", " (cs-print b (list-append "})" x))))
+    (cs-dl-lit "hy_con(0, 2, (uint64_t[]){0, ")
+    (cs-dl-comp (cs-print a) (λ x → list-append ", " (cs-print b (list-append "})" x)))
+      (cs-print-dlist-sound a)
+      (cs-dl-comp (list-append ", ") (λ x → cs-print b (list-append "})" x))
+        (cs-dl-lit ", ")
+        (cs-dl-comp (cs-print b) (list-append "})") (cs-print-dlist-sound b) (cs-dl-lit "})")))) acc
+cs-print-dlist-sound (cs-fst p) acc =
+  cs-dl-comp (list-append "((uint64_t *)") (λ x → cs-print p (list-append ")[1]" x))
+    (cs-dl-lit "((uint64_t *)")
+    (cs-dl-comp (cs-print p) (list-append ")[1]") (cs-print-dlist-sound p) (cs-dl-lit ")[1]")) acc
+cs-print-dlist-sound (cs-snd p) acc =
+  cs-dl-comp (list-append "((uint64_t *)") (λ x → cs-print p (list-append ")[2]" x))
+    (cs-dl-lit "((uint64_t *)")
+    (cs-dl-comp (cs-print p) (list-append ")[2]") (cs-print-dlist-sound p) (cs-dl-lit ")[2]")) acc
+cs-print-dlist-sound (cs-con j nf args) acc =
+  cs-dl-comp (list-append "hy_con(") (λ x → list-append (ce-dec j) (list-append ", " (list-append (ce-dec nf) (list-append ", (uint64_t[]){0" (cs-print args (list-append "})" x))))))
+    (cs-dl-lit "hy_con(")
+    (cs-dl-comp (list-append (ce-dec j)) (λ x → list-append ", " (list-append (ce-dec nf) (list-append ", (uint64_t[]){0" (cs-print args (list-append "})" x)))))
+      (cs-dl-lit (ce-dec j))
+      (cs-dl-comp (list-append ", ") (λ x → list-append (ce-dec nf) (list-append ", (uint64_t[]){0" (cs-print args (list-append "})" x))))
+        (cs-dl-lit ", ")
+        (cs-dl-comp (list-append (ce-dec nf)) (λ x → list-append ", (uint64_t[]){0" (cs-print args (list-append "})" x)))
+          (cs-dl-lit (ce-dec nf))
+          (cs-dl-comp (list-append ", (uint64_t[]){0") (λ x → cs-print args (list-append "})" x))
+            (cs-dl-lit ", (uint64_t[]){0")
+            (cs-dl-comp (cs-print args) (list-append "})") (cs-print-dlist-sound args) (cs-dl-lit "})")))))
+  ) acc
+cs-print-dlist-sound (cs-switch d scrut brs) acc =
+  cs-dl-comp (cs-switch-pre d) (λ x → cs-print scrut (cs-switch-mid d (cs-print brs (cs-switch-tail d x))))
+    (cs-switch-pre-dl d)
+    (cs-dl-comp (cs-print scrut) (λ x → cs-switch-mid d (cs-print brs (cs-switch-tail d x)))
+      (cs-print-dlist-sound scrut)
+      (cs-dl-comp (cs-switch-mid d) (λ x → cs-print brs (cs-switch-tail d x))
+        (cs-switch-mid-dl d)
+        (cs-dl-comp (cs-print brs) (cs-switch-tail d) (cs-print-dlist-sound brs) (cs-switch-tail-dl d)))) acc
+cs-print-dlist-sound (cs-for d cw cz cb) acc =
+  cs-dl-comp (cs-for-t0 d) (λ x → cs-print cw (cs-for-t1 d (cs-print cz (cs-for-t2 d (cs-print cb (cs-for-t4 d x))))))
+    (cs-for-t0-dl d)
+    (cs-dl-comp (cs-print cw) (λ x → cs-for-t1 d (cs-print cz (cs-for-t2 d (cs-print cb (cs-for-t4 d x)))))
+      (cs-print-dlist-sound cw)
+      (cs-dl-comp (cs-for-t1 d) (λ x → cs-print cz (cs-for-t2 d (cs-print cb (cs-for-t4 d x))))
+        (cs-for-t1-dl d)
+        (cs-dl-comp (cs-print cz) (λ x → cs-for-t2 d (cs-print cb (cs-for-t4 d x)))
+          (cs-print-dlist-sound cz)
+          (cs-dl-comp (cs-for-t2 d) (λ x → cs-print cb (cs-for-t4 d x))
+            (cs-for-t2-dl d)
+            (cs-dl-comp (cs-print cb) (cs-for-t4 d) (cs-print-dlist-sound cb) (cs-for-t4-dl d)))))) acc
+cs-print-dlist-sound cs-args-nil acc = refl
+cs-print-dlist-sound (cs-fargs hd tl) acc =
+  cs-dl-comp (cs-print hd) (cs-print tl) (cs-print-dlist-sound hd) (cs-print-dlist-sound tl) acc
+cs-print-dlist-sound (cs-cargs hd tl) acc =
+  cs-dl-comp (list-append ", ") (λ x → cs-print hd (cs-print tl x))
+    (cs-dl-lit ", ")
+    (cs-dl-comp (cs-print hd) (cs-print tl) (cs-print-dlist-sound hd) (cs-print-dlist-sound tl)) acc
+cs-print-dlist-sound cs-br-nil acc = refl
+cs-print-dlist-sound (cs-br-cons k d nf body rest) acc =
+  cs-dl-comp (list-append "case ") (λ x → list-append (ce-dec k) (list-append ": { " (list-append (ce-binds (toNat nf) d #0) (list-append "r" (list-append (ce-dec d) (list-append " = " (cs-print body (list-append "; break; } " (cs-print rest x)))))))))
+    (cs-dl-lit "case ")
+    (cs-dl-comp (list-append (ce-dec k)) (λ x → list-append ": { " (list-append (ce-binds (toNat nf) d #0) (list-append "r" (list-append (ce-dec d) (list-append " = " (cs-print body (list-append "; break; } " (cs-print rest x))))))))
+      (cs-dl-lit (ce-dec k))
+      (cs-dl-comp (list-append ": { ") (λ x → list-append (ce-binds (toNat nf) d #0) (list-append "r" (list-append (ce-dec d) (list-append " = " (cs-print body (list-append "; break; } " (cs-print rest x)))))))
+        (cs-dl-lit ": { ")
+        (cs-dl-comp (list-append (ce-binds (toNat nf) d #0)) (λ x → list-append "r" (list-append (ce-dec d) (list-append " = " (cs-print body (list-append "; break; } " (cs-print rest x))))))
+          (cs-dl-lit (ce-binds (toNat nf) d #0))
+          (cs-dl-comp (list-append "r") (λ x → list-append (ce-dec d) (list-append " = " (cs-print body (list-append "; break; } " (cs-print rest x)))))
+            (cs-dl-lit "r")
+            (cs-dl-comp (list-append (ce-dec d)) (λ x → list-append " = " (cs-print body (list-append "; break; } " (cs-print rest x))))
+              (cs-dl-lit (ce-dec d))
+              (cs-dl-comp (list-append " = ") (λ x → cs-print body (list-append "; break; } " (cs-print rest x)))
+                (cs-dl-lit " = ")
+                (cs-dl-comp (cs-print body) (λ x → list-append "; break; } " (cs-print rest x))
+                  (cs-print-dlist-sound body)
+                  (cs-dl-comp (list-append "; break; } ") (cs-print rest)
+                    (cs-dl-lit "; break; } ") (cs-print-dlist-sound rest))))))))) acc

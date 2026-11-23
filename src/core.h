@@ -238,9 +238,6 @@ enum {
     O_TEXTB,    /* (%textbytes t): 0=t 1=out, the bytes a List Word of byte words spells (a text, V_TEXT, its bytes
                  * shared; a list read whole first, O_DEEP, x=1 once it has been) */
     O_BEQ, O_BEQB,   /* (%beq a b): 0=a 1=b 2=out, true when both are byte strings of equal contents (the checker's conversion); O_BEQB: p=a's bytes, 0=b 1=out */
-    O_PTROF,    /* (%ptr-of b): 0=b 1=out, the address of its bytes, a word (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.10 “C20–C22 — Memory and state”, its part C20; trusted) */
-    O_REGAT,    /* (%region-at n a): 0=n 1=a 2=out, the n bytes at address a, copied (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.10 “C20–C22 — Memory and state”, its part C20; trusted) */
-    O_REGATA,   /* its second step: 0=a 1=out, a = n */
     O_FFI,      /* (%ffi k a1 .. an): x=the foreign table entry, 0..n-1=arguments, n=out; a=the arguments read so far, p=them (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.11 “D24–D27 — The world”, its part D27; trusted) */
     O_NATIVE,   /* (%native k g a1 .. an): x=the foreign table entry of a #jit definition, a=the definition g itself; 0..n-1=arguments, n=out;
                    p=the argument values read so far. Every argument crossing (by the entry's JT): the bytes are called; otherwise g is applied (PLAN.md revision 8, 9 Nov 2026, git 91167ad638c0:PLAN.md, §5.5 “Bytes, the boundary, and what is trusted”) */
