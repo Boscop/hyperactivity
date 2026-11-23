@@ -1,0 +1,35 @@
+-- Exact orthogonal branching in T_{at} H² using ONLY ±i rotation (-bIm, bx) & (bIm, -bx) + isqrt!
+-- Returns list of SVG path elements (deepest branches first so core H renders crisp on top).
+htree-branch : Nat → Bool → Cx → Cx → Word → Word → Word → List Word
+htree-branch zero isFav from at len sw op = nil
+htree-branch (suc rem) isFav from at len sw op =
+  let back = mob-inv at from
+      bx = fst back
+      bIm = snd back
+      r2 = wadd (wmul (si-abs bx) (si-abs bx)) (wmul (si-abs bIm) (si-abs bIm))
+      r = isqrt r2
+  in if weq r #0 then nil
+     else let -- Two exact ±90° orthogonal local targets of Euclidean length `len`:
+              -- t1 = (-bIm * len / r, bx * len / r), t2 = (bIm * len / r, -bx * len / r)
+              ux = si-div-w (si-mul (si-neg bIm) (sp len)) r
+              uy = si-div-w (si-mul bx (sp len)) r
+              n1 = mob at (ux , uy)
+              n2 = mob at (si-neg ux , si-neg uy)
+              -- Decay length by 70/100 (zero branch collision), stroke width by 68/100, opacity by 86/100
+              lenNext = wquot (wmul len #70) #100
+              swNext = let v = wquot (wmul sw #68) #100
+                       in if isFav then (if wlt v #54 then #54 else v)
+                          else (if wlt v #16 then #16 else v)
+              opNext = let v = wquot (wmul op #86) #100
+                       in if isFav then #94 else (if wlt v #52 then #52 else v)
+              samp = if isFav then #8 else #10
+              -- Emit children first (back), then current edges (front)
+              c1 = if wlt (cx-abs2 n1) #9700 then
+                     list-append (htree-branch rem isFav at n1 lenNext swNext opNext)
+                                 (geo-path-svg at n1 samp sw op)
+                   else nil
+              c2 = if wlt (cx-abs2 n2) #9700 then
+                     list-append (htree-branch rem isFav at n2 lenNext swNext opNext)
+                                 (geo-path-svg at n2 samp sw op)
+                   else nil
+          in list-append c1 c2
