@@ -1,0 +1,13 @@
+-- /api/kg/module?path=<mod.hypercubical|mod.cub> : live source directly from content-addressed store (bidirectional .hypercubical <-> .cub)
+s-kg-module : List Word → Proc W (List Word)
+s-kg-module q =
+  if s-kg-public-path (s-unescape (s-param "path" q)) then
+    bind (h-source-text (s-unescape (s-param "path" q))) (λ t →
+      if h-null (s-or nil t) then
+        bind (h-source-text (if h-ends ".hypercubical" (s-unescape (s-param "path" q))
+          then list-append (h-before ".hypercubical" (s-unescape (s-param "path" q))) ".cub"
+          else list-append (h-before ".cub" (s-unescape (s-param "path" q))) ".hypercubical"))
+          (λ t2 → ret {lzero} {W} (s-response "text/plain; charset=utf-8" (s-or nil t2)))
+      else ret {lzero} {W} (s-response "text/plain; charset=utf-8" (s-or nil t)))
+  else
+    ret {lzero} {W} (s-respond "403 Forbidden" "text/plain" "not in public knowledge graph")
