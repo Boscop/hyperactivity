@@ -1,0 +1,46 @@
+-- Horn's 4×4 symmetric quadratic form qᵀ K(p, v) q vs. direct rotated inner product p · (M(q) v).
+-- Variables (0..9): q0, q1, q2, q3, px, py, pz, vx, vy, vz.
+fold-horn-kabsch-poly : (A : Type) → (A → A → A) → (A → A → A) → (BQ → A) → List A → A × A
+fold-horn-kabsch-poly A ad mu q vs =
+  (λ g sub sq →
+    let q0 = g 0; q1 = g 1; q2 = g 2; q3 = g 3
+        px = g 4; py = g 5; pz = g 6
+        vx = g 7; vy = g 8; vz = g 9
+        c2 = q (fn-q 2 1)
+        s0 = sq q0; s1 = sq q1; s2 = sq q2; s3 = sq q3
+        -- Direct rotated inner product p · (M(q) v):
+        r11 = sub (sub (ad s0 s1) s2) s3
+        r12 = mu c2 (sub (mu q1 q2) (mu q0 q3))
+        r13 = mu c2 (ad (mu q1 q3) (mu q0 q2))
+        r21 = mu c2 (ad (mu q1 q2) (mu q0 q3))
+        r22 = sub (ad (sub s0 s1) s2) s3
+        r23 = mu c2 (sub (mu q2 q3) (mu q0 q1))
+        r31 = mu c2 (sub (mu q1 q3) (mu q0 q2))
+        r32 = mu c2 (ad (mu q2 q3) (mu q0 q1))
+        r33 = ad (sub (sub s0 s1) s2) s3
+        mvx = ad (ad (mu r11 vx) (mu r12 vy)) (mu r13 vz)
+        mvy = ad (ad (mu r21 vx) (mu r22 vy)) (mu r23 vz)
+        mvz = ad (ad (mu r31 vx) (mu r32 vy)) (mu r33 vz)
+        lhs = ad (ad (mu px mvx) (mu py mvy)) (mu pz mvz)
+        -- Horn 4×4 symmetric matrix entries S_ab = p_a v_b (note p·(M v) = Σ S_ab M_ab):
+        sxx = mu px vx; sxy = mu px vy; sxz = mu px vz
+        syx = mu py vx; syy = mu py vy; syz = mu py vz
+        szx = mu pz vx; szy = mu pz vy; szz = mu pz vz
+        k00 = ad (ad sxx syy) szz
+        k11 = sub (sub sxx syy) szz
+        k22 = sub (ad (sub (q (fn-q 0 1)) sxx) syy) szz
+        k33 = ad (sub (sub (q (fn-q 0 1)) sxx) syy) szz
+        k01 = sub szy syz
+        k02 = sub sxz szx
+        k03 = sub syx sxy
+        k12 = ad sxy syx
+        k13 = ad sxz szx
+        k23 = ad syz szy
+        -- qᵀ K q = Σ_i k_ii q_i² + 2 Σ_{i<j} k_ij q_i q_j:
+        diag = ad (ad (mu k00 s0) (mu k11 s1)) (ad (mu k22 s2) (mu k33 s3))
+        off  = ad (ad (ad (mu k01 (mu q0 q1)) (mu k02 (mu q0 q2)))
+                      (ad (mu k03 (mu q0 q3)) (mu k12 (mu q1 q2))))
+                  (ad (mu k13 (mu q1 q3)) (mu k23 (mu q2 q3)))
+        rhs  = ad diag (mu c2 off)
+    in (lhs , rhs))
+  (λ n → al-nth A (q (fn-q 0 1)) n vs) (al-gsub A ad mu q) (al-gsq A mu)
