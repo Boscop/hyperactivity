@@ -1,0 +1,24 @@
+-- optional HYPERACTIVE_DATA persistent directory (e.g. /var/data on Render Persistent Disk): union-merges boot store/ + .cubical-store/ and chdirs into it
+s-sync-deploy-root : List Word → List Word → Proc W Unit
+s-sync-deploy-root m boot-r =
+  if h-not (s-hex64 boot-r) then ret {lzero} {W} unit
+  else bind (h-read ".cubical-store/boot-root") (λ prev →
+    if h-eq boot-r (h-trim (h-before (cons #10 nil) (s-or nil prev)))
+    then ret {lzero} {W} unit
+    else bind (h-mkdir "packs") (λ u0 →
+      bind (h-mkdir "roots") (λ u1 →
+      bind (h-run (cons m (cons "--take" (cons boot-r nil)))) (λ tk →
+      let tmp = the (List Word) "packs/.deploy.tgz" in
+      bind (h-run (cons "/bin/sh" (cons "-c" (cons "if [ -e ./.cubical-store/sent-marker ]; then find store -newer ./.cubical-store/sent-marker -type f > .cubical-store/deploy.files && if [ -s .cubical-store/deploy.files ]; then COPYFILE_DISABLE=1 tar -czf packs/.deploy.tgz -T .cubical-store/deploy.files; else COPYFILE_DISABLE=1 tar -czf packs/.deploy.tgz store/ROOT/root; fi; else COPYFILE_DISABLE=1 tar -czf packs/.deploy.tgz store; fi" nil)))) (λ tc →
+      if h-not (weq tc #0) then bind (h-unlink tmp) (λ u2 → ret {lzero} {W} unit)
+      else bind (s-sha256 tmp) (λ sh →
+        let ph = s-head nil (h-split #32 (snd sh)) in
+        bind (s-rename tmp (list-append "packs/" ph)) (λ rn →
+        bind (s-record-pack ph) (λ rp →
+        bind (h-read ".cubical-store/packs") (λ allp →
+        bind (h-write ".cubical-store/sent-marker" nil) (λ wm →
+        bind (h-write (list-append "roots/" boot-r) (s-or (h-line ph) allp)) (λ wr1 →
+        bind (h-write "roots/latest" (s-or (h-line ph) allp)) (λ wr2 →
+        bind (h-write "root" (h-line boot-r)) (λ wr3 →
+        bind (h-write ".cubical-store/boot-root" (h-line boot-r)) (λ wb →
+        ret {lzero} {W} unit))))))))))))))

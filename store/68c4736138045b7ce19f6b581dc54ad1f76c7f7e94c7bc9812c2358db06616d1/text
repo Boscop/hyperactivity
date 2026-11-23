@@ -1,0 +1,31 @@
+-- stream PUT /packs/<SHA256> directly to disk in a 64 KiB buffer, verify SHA-256 == <SHA256> (ca-check), then atomic rename
+s-put-pack : Bool → Sum Unit (List Word) → Word → List Word → List Word → Proc W Unit
+s-put-pack pub tok c h hdr =
+  if h-not (s-allowed pub tok hdr)
+  then bind (fd-write c (s-respond "403 Forbidden" "text/plain" "this server is read-only")) (λ w → ret {lzero} {W} unit)
+  else if h-not (s-hex64 h)
+  then bind (fd-write c (s-respond "400 Bad Request" "text/plain" "invalid pack sha256")) (λ w → ret {lzero} {W} unit)
+  else bind (h-mkdir "packs") (λ md →
+    bind (if h-infix "100-continue" (sx-lower (um-header "expect" hdr))
+          then fd-write c (list-append "HTTP/1.1 100 Continue" (list-append h-crlf h-crlf))
+          else ret {lzero} {W} #0) (λ cont →
+    bind (sys-call #39 #0 #0 #0 #0 #0 #0) (λ pid →
+    let tmp = list-append "packs/.tmp-" (list-append (h-decimal pid) (cons #45 h)) in
+    let dst = list-append "packs/" h in
+    let clen = h-number (um-header "content-length" hdr) in
+    if wlt #536870912 clen
+    then bind (fd-write c (s-respond "413 Payload Too Large" "text/plain" "pack exceeds 512 MiB limit")) (λ w → ret {lzero} {W} unit)
+    else bind (s-open-wr tmp) (λ ffd →
+    if wlt #9223372036854775807 ffd
+    then bind (fd-write c (s-respond "500 Internal Server Error" "text/plain" "cannot write pack")) (λ w → ret {lzero} {W} unit)
+    else bind (with-bytes {Bool} #65536 (λ buf → s-pump-exact (toNat #1048576) c ffd buf clen)) (λ pumped →
+      bind (sys-call #3 ffd #0 #0 #0 #0 #0) (λ cl →
+      if h-not pumped
+      then bind (h-unlink tmp) (λ u → bind (fd-write c (s-respond "400 Bad Request" "text/plain" "incomplete pack body")) (λ w → ret {lzero} {W} unit))
+      else bind (s-sha256 tmp) (λ sh →
+        let got = s-head nil (h-split #32 (snd sh)) in
+        if andB (weq (fst sh) #0) (h-eq got h)
+        then bind (s-rename tmp dst) (λ rn →
+          bind (fd-write c (if rn then s-response "text/plain" (h-line h) else s-respond "500 Internal Server Error" "text/plain" "rename failed")) (λ w → ret {lzero} {W} unit))
+        else bind (h-unlink tmp) (λ u →
+          bind (fd-write c (s-respond "400 Bad Request" "text/plain" "pack sha256 mismatch")) (λ w → ret {lzero} {W} unit)))))))))

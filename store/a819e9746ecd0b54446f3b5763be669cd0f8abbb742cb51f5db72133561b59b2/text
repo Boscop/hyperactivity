@@ -1,0 +1,11 @@
+s-dht-announce : Bool → List Word → List Word → Proc W (List Word)
+s-dht-announce pub st body =
+  let incoming = s-dht-pub-rows pub (s-dht-clean-rows (s-dht-cap 16 (h-lines body))) in
+  if andB (h-not (h-null (s-dht-trim body))) (s-dht-empty-rows incoming)
+  then ret {lzero} {W} (s-respond "400 Bad Request" "text/plain" "invalid dht announce (expected: <sha256-id> <http-url>)")
+  else bind (s-dht-node-id st) (λ nid →
+    bind (h-mkdir (list-append st "/dht")) (λ md →
+    bind (h-read (list-append st "/dht/peers")) (λ prs →
+    let merged = s-dht-cap 64 (s-dht-without nid (s-dht-clean-rows (list-append incoming (h-lines (s-or nil prs))))) in
+    bind (h-write (list-append st "/dht/peers") (h-concat (list-map h-line merged))) (λ wr →
+    s-dht-peers st))))
