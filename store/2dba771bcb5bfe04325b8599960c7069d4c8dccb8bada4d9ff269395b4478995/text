@@ -1,0 +1,32 @@
+-- 2. Full externally driven FitzHugh–Nagumo excitable-membrane trapping-region SOS certificate:
+--    dv/dt = v - (1/3) v³ - w + I,   dw/dt = ε (v + a - b w),   V = (1/2) v² + (1/(2ε)) w².
+--    -dV/dt = (1/3) v⁴ - v² - I v + b w² - a w.
+--    Identity (multiplying by 48 b):
+--      48 b · (-dV/dt) + 81 b + 24 b I² + 12 a²
+--      = 16 b (v² - 9/4)² + 24 b (v - I)² + 12 (2 b w - a)²   (≥ 0 for all v, w, I, a whenever b ≥ 0).
+--    Variables (0..4): v, w, I, a, b.
+fhn-driven-trapping-sos : (A : Type) → (A → A → A) → (A → A → A) → (BQ → A) → List A → A × A
+fhn-driven-trapping-sos A ad mu q vs =
+  (λ g sub sq →
+    let v  = g 0
+        w  = g 1
+        I  = g 2
+        a  = g 3
+        b  = g 4
+        v2 = sq v
+        v4 = sq v2
+        -- 48 b (-dV/dt) = 16 b v⁴ - 48 b v² - 48 b I v + 48 b² w² - 48 a b w
+        d48 = ad (sub (sub (mu (q (fn-q 16 1)) (mu b v4))
+                           (mu (q (fn-q 48 1)) (mu b v2)))
+                      (mu (q (fn-q 48 1)) (mu b (mu I v))))
+                 (sub (mu (q (fn-q 48 1)) (mu (sq b) (sq w)))
+                      (mu (q (fn-q 48 1)) (mu a (mu b w))))
+        c0  = ad (mu (q (fn-q 81 1)) b)
+                 (ad (mu (q (fn-q 24 1)) (mu b (sq I)))
+                     (mu (q (fn-q 12 1)) (sq a)))
+        lhs = ad d48 c0
+        rhs = ad (mu (q (fn-q 16 1)) (mu b (sq (sub v2 (q (fn-q 9 4))))))
+                 (ad (mu (q (fn-q 24 1)) (mu b (sq (sub v I))))
+                     (mu (q (fn-q 12 1)) (sq (sub (mu (q (fn-q 2 1)) (mu b w)) a))))
+    in (lhs , rhs))
+  (λ i → al-nth A (q (fn-q 0 1)) i vs) (al-gsub A ad mu q) (al-gsq A mu)

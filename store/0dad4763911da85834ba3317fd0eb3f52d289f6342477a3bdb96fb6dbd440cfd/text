@@ -1,0 +1,26 @@
+-- 2. General asymmetric 2-learner neural co-processor (Madduri–Burden–Orsborn 2023):
+--    de_B/dt = -η_B e_B + γ₁ e_C,   de_C/dt = γ₂ e_B - η_C e_C,   V = p₁ e_B² + p₂ e_C².
+--    -(1/2) dV/dt = p₁ η_B e_B² - (p₁ γ₁ + p₂ γ₂) e_B e_C + p₂ η_C e_C².
+--    Variables (0..7): η_B, η_C, γ₁, γ₂, p₁, p₂, e_B, e_C.
+--    Identity: 4 p₁ η_B · (-(1/2) dV/dt)
+--            = (2 p₁ η_B e_B - (p₁ γ₁ + p₂ γ₂) e_C)² + (4 p₁ p₂ η_B η_C - (p₁ γ₁ + p₂ γ₂)²) e_C².
+two-learner-asym-sos : (A : Type) → (A → A → A) → (A → A → A) → (BQ → A) → List A → A × A
+two-learner-asym-sos A ad mu q vs =
+  (λ g sub sq →
+    let eb = g 0
+        ec = g 1
+        g1 = g 2
+        g2 = g 3
+        p1 = g 4
+        p2 = g 5
+        x  = g 6
+        y  = g 7
+        a1 = mu p1 eb
+        a2 = mu p2 ec
+        b  = ad (mu p1 g1) (mu p2 g2)
+        q4 = q (fn-q 4 1)
+        q2 = q (fn-q 2 1)
+        lhs = mu (mu q4 a1) (ad (sub (mu a1 (sq x)) (mu b (mu x y))) (mu a2 (sq y)))
+        rhs = ad (sq (sub (mu (mu q2 a1) x) (mu b y))) (mu (sub (mu q4 (mu a1 a2)) (sq b)) (sq y))
+    in (lhs , rhs))
+  (λ i → al-nth A (q (fn-q 0 1)) i vs) (al-gsub A ad mu q) (al-gsq A mu)

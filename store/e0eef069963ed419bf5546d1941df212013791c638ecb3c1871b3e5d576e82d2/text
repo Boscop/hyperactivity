@@ -1,0 +1,28 @@
+-- 1. Control Barrier Function (CBF) forward-invariance for 2-learner neural co-processor:
+--    de_B/dt = -η_B e_B + γ e_C,   de_C/dt = γ e_B - η_C e_C
+--    Safe set: h(e_B, e_C) = R² - e_B² - e_C² ≥ 0.
+--    CBF condition: dh/dt + α h = α R² + (2 η_B - α) e_B² - 4 γ e_B e_C + (2 η_C - α) e_C².
+--    Let d1 = 2 η_B - α, d2 = 2 η_C - α.
+--    Identity: d1 · (dh/dt + α h) = d1 α R² + (d1 e_B - 2 γ e_C)² + (d1 d2 - 4 γ²) e_C².
+--    Variables (0..6): η_B, η_C, γ, α, R, e_B, e_C.
+cbf-2learner-safe-sos : (A : Type) → (A → A → A) → (A → A → A) → (BQ → A) → List A → A × A
+cbf-2learner-safe-sos A ad mu q vs =
+  (λ g sub sq →
+    let eb = g 0
+        ec = g 1
+        gm = g 2
+        al = g 3
+        R  = g 4
+        x  = g 5
+        y  = g 6
+        q2 = q (fn-q 2 1)
+        q4 = q (fn-q 4 1)
+        d1 = sub (mu q2 eb) al
+        d2 = sub (mu q2 ec) al
+        cbf = ad (mu al (sq R)) (ad (sub (mu d1 (sq x)) (mu q4 (mu gm (mu x y)))) (mu d2 (sq y)))
+        lhs = mu d1 cbf
+        rhs = ad (mu d1 (mu al (sq R)))
+                 (ad (sq (sub (mu d1 x) (mu q2 (mu gm y))))
+                     (mu (sub (mu d1 d2) (mu q4 (sq gm))) (sq y)))
+    in (lhs , rhs))
+  (λ i → al-nth A (q (fn-q 0 1)) i vs) (al-gsub A ad mu q) (al-gsq A mu)
