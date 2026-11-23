@@ -1,0 +1,50 @@
+hyperinet-sv-rewire : List Word
+hyperinet-sv-rewire =
+  sv-concat
+    (cons "  // Remote port rewire helper: redirect endpoint `dst` to point to `new_ref`" (cons sv-nl
+    (cons "  task automatic rewire(input [4:0] dst, input [4:0] new_ref);" (cons sv-nl
+    (cons "    begin" (cons sv-nl
+    (cons "      if (dst[1:0] == 2'd0)      p0[dst[4:2]] <= new_ref;" (cons sv-nl
+    (cons "      else if (dst[1:0] == 2'd1) p1[dst[4:2]] <= new_ref;" (cons sv-nl
+    (cons "      else if (dst[1:0] == 2'd2) p2[dst[4:2]] <= new_ref;" (cons sv-nl
+    (cons "    end" (cons sv-nl
+    (cons "  endtask" (cons sv-nl
+    (cons "  reg [2:0] c_n, d_n;" (cons sv-nl
+    (cons "  always @(posedge clk or negedge rst_n) begin" (cons sv-nl
+    (cons "    if (!rst_n) begin" (cons sv-nl
+    (cons "      rcnt <= 3'd0;" (cons sv-nl
+    (cons "      for (i = 0; i < 8; i = i + 1) begin" (cons sv-nl
+    (cons "        kind[i] <= K_FREE; p0[i] <= 5'd3; p1[i] <= 5'd3; p2[i] <= 5'd3;" (cons sv-nl
+    (cons "      end" (cons sv-nl
+    (cons "      // Built-in canonical multi-redex net: (CON ⋈ DUP) with ERA on CON aux ports" (cons sv-nl
+    (cons "      kind[0] <= K_CON; p0[0] <= {3'd1, 2'd0}; p1[0] <= {3'd2, 2'd0}; p2[0] <= {3'd3, 2'd0};" (cons sv-nl
+    (cons "      kind[1] <= K_DUP; p0[1] <= {3'd0, 2'd0}; p1[1] <= {3'd0, 2'd3}; p2[1] <= {3'd1, 2'd3};" (cons sv-nl
+    (cons "      kind[2] <= K_ERA; p0[2] <= {3'd0, 2'd1};" (cons sv-nl
+    (cons "      kind[3] <= K_ERA; p0[3] <= {3'd0, 2'd2};" (cons sv-nl
+    (cons "    end else if (ena && found_pair) begin" (cons sv-nl
+    (cons "      rcnt <= rcnt + 3'd1;" (cons sv-nl
+    (cons "      if (kind[u_idx] == kind[v_idx]) begin" (cons sv-nl
+    (cons "        // 1. Annihilation (CON⋈CON, DUP⋈DUP, ERA⋈ERA)" (cons sv-nl
+    (cons "        if (kind[u_idx] != K_ERA) begin" (cons sv-nl
+    (cons "          rewire(p1[u_idx], p1[v_idx]); rewire(p1[v_idx], p1[u_idx]);" (cons sv-nl
+    (cons "          rewire(p2[u_idx], p2[v_idx]); rewire(p2[v_idx], p2[u_idx]);" (cons sv-nl
+    (cons "        end" (cons sv-nl
+    (cons "        kind[u_idx] <= K_FREE; kind[v_idx] <= K_FREE;" (cons sv-nl
+    (cons "      end else if (kind[u_idx] == K_ERA || kind[v_idx] == K_ERA) begin" (cons sv-nl
+    (cons "        // 2. In-place Erasure (ERA⋈CON / ERA⋈DUP): reuses both slots, 0 net allocation" (cons sv-nl
+    (cons "        c_n = (kind[u_idx] == K_ERA) ? v_idx : u_idx;" (cons sv-nl
+    (cons "        d_n = (kind[u_idx] == K_ERA) ? u_idx : v_idx;" (cons sv-nl
+    (cons "        kind[c_n] <= K_ERA; p0[c_n] <= p1[c_n]; rewire(p1[c_n], {c_n, 2'd0});" (cons sv-nl
+    (cons "        kind[d_n] <= K_ERA; p0[d_n] <= p2[c_n]; rewire(p2[c_n], {d_n, 2'd0});" (cons sv-nl
+    (cons "      end else if (free_cnt == 2'd2) begin" (cons sv-nl
+    (cons "        // 3. Commutation Diamond (CON⋈DUP): 4-way crossbar in 1 clock cycle" (cons sv-nl
+    (cons "        c_n = (kind[u_idx] == K_CON) ? u_idx : v_idx;" (cons sv-nl
+    (cons "        d_n = (kind[u_idx] == K_CON) ? v_idx : u_idx;" (cons sv-nl
+    (cons "        kind[c_n]    <= K_DUP; p0[c_n]    <= p1[c_n]; p1[c_n]    <= {d_n, 2'd1}; p2[c_n]    <= {f1_idx, 2'd1}; rewire(p1[c_n], {c_n, 2'd0});" (cons sv-nl
+    (cons "        kind[f0_idx] <= K_DUP; p0[f0_idx] <= p2[c_n]; p1[f0_idx] <= {d_n, 2'd2}; p2[f0_idx] <= {f1_idx, 2'd2}; rewire(p2[c_n], {f0_idx, 2'd0});" (cons sv-nl
+    (cons "        kind[d_n]    <= K_CON; p0[d_n]    <= p1[d_n]; p1[d_n]    <= {c_n, 2'd1}; p2[d_n]    <= {f0_idx, 2'd1}; rewire(p1[d_n], {d_n, 2'd0});" (cons sv-nl
+    (cons "        kind[f1_idx] <= K_CON; p0[f1_idx] <= p2[d_n]; p1[f1_idx] <= {c_n, 2'd2}; p2[f1_idx] <= {f0_idx, 2'd2}; rewire(p2[d_n], {f1_idx, 2'd0});" (cons sv-nl
+    (cons "      end" (cons sv-nl
+    (cons "    end" (cons sv-nl
+    (cons "  end" (cons sv-nl
+    (cons "endmodule" (cons sv-nl nil))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
