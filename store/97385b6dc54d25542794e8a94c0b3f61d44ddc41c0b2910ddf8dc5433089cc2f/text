@@ -1,0 +1,224 @@
+# Hyperactivity: A Complete First-Principles Exposition
+
+This guide walks from zero to the live research frontier of **Hyperactivity** without hand-waving, hidden steps, or toy simplifications. Every construction presented here is a real, machine-checked object in the repository (`store/`), verifiable locally with `./hyperactive`.
+
+Hyperactivity is not a conventional programming language, not a proof assistant bolted onto a 1970s file system, and not a statistical AI wrapper. It is a **cubical univalent interaction-net computing substrate** — a single mathematical architecture in which observation, identity, proof, parallel execution, native compilation, lossless compression, scientific modeling, and decentralized coordination are instances of the same few primitives.
+
+---
+
+## Orientation: Why Computing Broke in 1970
+
+Almost every recurring failure in modern computing — broken syncing, API glue, platform lock-in, AI hallucination, irreproducible science, financial intermediation, and trillions of dollars spent recomputing the same work — traces back to three architectural choices made around 1970:
+
+1. **Untyped byte files.** Storage was defined as raw bytes whose meaning belongs solely to the program that parses them. Data cannot cross program boundaries with its meaning intact.
+2. **Location-addressed networks.** Because storage and compute were scarce in 1969, networks were built around *where* a resource lives (a server, URL, or account) rather than *what* it is. Whoever controls the location controls access, identity, and rent.
+3. **No primitive notion of equality.** Computing never gave a mathematical account of when two objects are the same. Deduplication, caching, merging, versioning, schema migration, and chemical/scientific entity resolution all reinvent incompatible, lossy approximations of equality.
+
+Hyperactivity starts over from the primitives that were skipped: **observation fibers**, **univalent equality**, **local interaction**, and **content-addressed exchange**.
+
+---
+
+## Part I — Observation, Fibers, and Warrant
+
+### 1.1 Partial Observation and Compatible Histories
+
+No physical or computational participant ever observes the complete state of the universe. Let $H$ be the type of possible histories (or underlying states), $Y$ the type of observations (readings), and
+
+$$o : H \to Y$$
+
+the observation map sending each history $h : H$ to the reading $o(h)$ it produces.
+
+When a participant receives a concrete reading $y : Y$, that reading does **not** select a single history $h$. It selects the **observation fiber** — the type of all histories compatible with $y$, paired with the witness that they produce $y$:
+
+$$\mathrm{Fib}_o(y) \;=\; \sum_{h : H} \mathrm{Path}_Y(o(h),\, y)$$
+
+In `lib/fiber.cub` and `lib/observation.cub`, this construction is proved equivalent to the whole space via the **fiber decomposition equivalence** (`fiberEquiv`):
+
+$$H \;\simeq\; \sum_{y : Y} \mathrm{Fib}_o(y)$$
+
+Every world state is canonically factored into *(what is observed, the compatible history inside its fiber)*.
+
+### 1.2 Warrant: Why Rational Agents Cannot Hallucinate
+
+Suppose a participant observes $y : Y$ and wants to act on a proposition $P : H \to \mathrm{Type}$ about the true underlying history. What does the reading $y$ actually **warrant**?
+
+Not a guess at one plausible $h \in \mathrm{Fib}_o(y)$ — and not a statistical mode over $H$. A reading $y$ warrants $P$ if and only if the participant holds a **dependent construction over the entire fiber**:
+
+$$\mathrm{Warrants}(o, y, P) \;=\; \prod_{w : \mathrm{Fib}_o(y)} P(\mathrm{fst}\, w)$$
+
+Read this type carefully:
+- If $P$ holds for **every** history compatible with what you observed, then acting on $P$ is provably safe — no unobserved detail can invalidate it.
+- If there exist two histories $h_1, h_2 \in \mathrm{Fib}_o(y)$ such that $P(h_1)$ holds and $\neg P(h_2)$ holds, then no element of $\mathrm{Warrants}(o, y, P)$ can exist. In `chem/basin-compose.cub`, such a pair is formalized as a **`Disagreement` split witness**, and `disagreement-refutes-warrant` proves constructively that any split witness refutes warrant:
+
+$$\mathrm{Disagreement}(o, y, P) \;\to\; \neg\,\mathrm{Warrants}(o, y, P)$$
+
+This single type turns Karl Popper and David Deutsch's epistemology (*"a good explanation is hard to vary"*) into a machine-checked boundary condition: a conclusion is admissible if and only if **no history left open by the evidence can vary it**. Hallucination — asserting $P$ when the fiber still contains $\neg P$ — is structurally ill-typed.
+
+### 1.3 Monotonicity of Refinement
+
+Suppose a participant gains an additional observation, refining $o : H \to Y$ to $o' : H \to Y'$ with a projection $p : Y' \to Y$ satisfying $p(o'(h)) \equiv o(h)$. Every history compatible with the sharper reading $y'$ is automatically compatible with the coarser reading $p(y')$, giving a canonical fiber inclusion $\mathrm{Fib}_{o'}(y') \to \mathrm{Fib}_o(p(y'))$.
+
+By precomposition (`warrants-refine` in `lib/observation.cub`), **every conclusion warranted by a coarser observation remains warranted under any refinement**, while strictly more conclusions become warranted as incompatible histories are ruled out. Conversely, if an action is currently unwarranted at $y$, active sensing means choosing a probe whose response splits $\mathrm{Fib}_o(y)$ until the resulting sub-fiber warrants a safe action.
+
+---
+
+## Part II — Identity as a Path: Cubical Type Theory and Univalence
+
+### 2.1 Paths as Functions from the Interval
+
+In conventional languages, equality is either bit-level memory comparison (too fine: two equivalent representations compare unequal) or an ad-hoc `equals()` method (unverified: nothing guarantees it respects downstream invariants).
+
+In cubical type theory, equality is a **path**. There is a primitive interval `I` with endpoints `i0` and `i1`, meet `∧`, join `∨`, and De Morgan involution `~`. A path between $x, y : A$ is a function from the interval into $A$ whose endpoints are definitionally $x$ and $y$:
+
+$$\mathrm{Path}_A(x, y) \;=\; \{ p : I \to A \mid p(i_0) \equiv x,\; p(i_1) \equiv y \}$$
+
+From this single primitive:
+- **Reflexivity** is the constant function `refl = λ i → x`.
+- **Symmetry** is interval reversal `sym p = λ i → p (~ i)`.
+- **Congruence** (every function preserves equality) is function composition `cong f p = λ i → f (p i)`.
+- **Function extensionality** (two functions equal pointwise are equal) is immediate: `funExt h = λ i x → h x i` — no axiom required.
+- **Transitivity and higher coherences** compute via **Kan composition (`comp`)**, which takes three sides of an open box (a base and a partial tube over a face formula $\varphi$) and fills the missing lid.
+
+### 2.2 Computational Univalence (`ua`)
+
+Two types $A$ and $B$ are **equivalent** ($A \simeq B$) when there is a map $f : A \to B$ whose fibers $\mathrm{Fib}_f(b)$ are all contractible (each $b$ has a unique preimage up to path).
+
+Voevodsky's **Univalence Axiom** states that equivalence of types is equivalent to identity of types:
+
+$$(A \simeq B) \;\simeq\; \mathrm{Path}_{\mathrm{Type}}(A, B)$$
+
+In older homotopy type theories, univalence was a postulated axiom: if you transported a value $a : A$ across `ua e`, computation got stuck. In **cubical type theory**, `ua e` is constructed from **`Glue` types** — a primitive type former with explicit reduction rules. Transporting $a : A$ along `ua e` computes directly:
+
+$$\mathrm{transport}\;(\mathrm{ua}\;e)\;a \;\longrightarrow\; e.\mathrm{to}\;a$$
+
+### 2.3 Why Univalence Is an Economic Engine ("Derive Once")
+
+Univalence is not abstract philosophy; it is the **fundamental theorem of lossless reuse**:
+
+> If structure $A$ and structure $B$ are equivalent ($e : A \simeq B$), then **every theorem, invariant, algorithm, and proof established for $A$ transports automatically along `ua e` to $B$**.
+
+In conventional software and science, the same mathematical structure is re-implemented, re-verified, and re-debugged dozens of times across incompatible representations (lists vs. arrays, JSON vs. Protobuf, SMILES vs. InChI, C++ structs vs. FPGA wire formats). Under univalence, proving $A \simeq B$ once unlocks every result ever proved on $A$ for $B$ at zero marginal cost. Combined with content-addressed storage, **no mathematical effort is ever expended twice**.
+
+---
+
+## Part III — Execution Without a Global Clock: Cubical Interaction Nets
+
+### 3.1 The Primitive Law of Interaction
+
+Traditional proof assistants (Coq, Agda, Lean) evaluate terms on sequential, pointer-chasing runtimes with global heaps and stop-the-world garbage collectors. Hyperactivity's runtime (`src/net.c`) executes cubical terms directly as **Lafont interaction nets** (1990).
+
+There is no global clock, no call stack, and no global mutable memory. A term is a graph of **cells** connected by **wires**:
+- Every cell has one **principal port** and zero or more **auxiliary ports**.
+- Cells have two polarities: **Values** ($\lambda$, pair, constructor, type, interval point, system, Glue) and **Operations** (apply, fst, snd, path-apply, compose, case, subst, duplicate, erase).
+- An **active pair** occurs whenever an Operation's principal port meets a Value's principal port head-to-head.
+
+A **step** removes those two cells and replaces them with a small local net wired to their open ports. Nothing else in the graph is inspected or locked:
+
+- `apply(arg) ⋈ λ(x. body)` $\longrightarrow$ wire `arg` directly to `x`, wire `body` to output.
+- `path-apply(r) ⋈ path-λ(i. t)` $\longrightarrow$ spawn a local dimension-substitution cell `subst[i := r]` facing `t`.
+- `duplicate ⋈ value(parts)` $\longrightarrow$ hold the value once and give both consumers a reference (lazy sharing — subexpressions are never recomputed).
+- `erase ⋈ value(parts)` $\longrightarrow$ delete the cell and send `erase` to each part (local reclamation with zero garbage-collector pauses).
+
+### 3.2 Confluence and Heterogeneous GPU Parallelism
+
+Because active pairs only touch their own two cells, **disjoint active pairs anywhere in the graph can fire simultaneously with zero locks**, and by strong confluence, the final normal form is guaranteed identical regardless of execution order.
+
+This is the exact same computational primitive behind massively parallel GPU interaction-net runtimes (such as HVM/Bend). Unlike sequential proof checkers, Hyperactivity's execution model maps natively onto heterogeneous multi-core CPUs and GPUs: formal mathematical identity search, proof checking, and data transformation all share one lock-free parallel reduction engine.
+
+### 3.3 Content-Addressed Exchange and No Canonical State
+
+Every definition, proof, and document in Hyperactivity lives in an immutable content-addressed pool (`store/<sha256>/`), never mutated in place. There is **no global namespace and no canonical state**:
+- A participant's local workspace is simply a root hash mapping human labels to immutable object hashes.
+- Exchanging work with a peer means sending an object together with its cryptographic dependency closure and machine-checked proofs. The recipient verifies it locally and merges pools by **set union**.
+- Because set union is **commutative, associative, and idempotent**, every pair of peers converges to the exact same verified pool regardless of message order — eliminating merge conflicts, package-registry gatekeepers, and platform lock-in at the root.
+
+---
+
+## Part IV — Real Systems: Lifting, Specialization, and Post-Financial Credit
+
+### 4.1 Every Existing Language Inside One Host (Zero Rewrite)
+
+A foundational system cannot demand that the world rewrite billions of lines of existing C++, Rust, OCaml, or x86 assembly. In Hyperactivity, **a programming language is a value of the host**:
+- `lib/cxx/` models C++ syntax and machine semantics.
+- `lib/lang/rust/` models Rust places, rvalues, and ownership semantics.
+- `lib/isa/x86/` formalizes x86-64 instructions, registers, flags, addressing, paging, and segmentation.
+- `lib/isa/tso.cub` and `lib/mem/rc11.cub` formalize x86 Total Store Order and C/C++11 relaxed/acquire-release weak memory models as relations on memory events.
+
+Existing production code is **lifted** into Hyperactivity with its exact semantics (including undefined behavior and concurrency) intact. Specifications and invariants attach directly to the lifted source object, and proofs erase cleanly back to native code. Enterprises and trading firms adopt verified execution **without rewriting a single legacy service**.
+
+### 4.2 Verified Specialization and C-First Lowering
+
+In `lib/specialize.cub` and Part I §6.2 & §9.4, **partial evaluation (specialization)** takes a general program and known static context (a protocol schema, hardware topology, or market-data format) and returns a **dependent pair**:
+
+$$\big(\;\text{residual program } p',\; \text{proof path } p' \equiv p(\text{ctx})\;\big)$$
+
+Optimization is admitted **only with its machine-checked equivalence proof**. For native execution, Hyperactivity uses **C-first lowering** (§9.4): verified residual programs lower to clean C whose source-to-C correctness relation composes with the downstream C compiler's relation to target machine code. Proof overhead vanishes on the hot path while the end-to-end refinement theorem remains intact.
+
+### 4.3 Post-Financial Technology: Conserved Credit Without a Blockchain
+
+In 1945, Friedrich Hayek argued that economies require scalar prices because dispersed human knowledge cannot be directly communicated or composed; a 1-dimensional price acts as a lossy summary signal. **Bitcoin (2009)** decentralized *who maintains the ledger*, but **kept the 1-dimensional scalar** — still erasing provenance, dependency structure, and evidence while paying global-consensus overhead to maintain one canonical state.
+
+Hyperactivity's `lib/credit.cub` (Part I §10.3) replaces the scalar bottleneck with **conserved credit over local transitions**:
+- Credit is held by peers and carried by messages in flight; local **allocation** and **delivery** transitions cancel identically so total credit is proved conserved across **every finite sequence of transitions**, with **no global scheduler and no global blockchain**.
+- Each participant's compatible global states form an **observation fiber**, telling that peer exactly what its local receipts warrant.
+- Combined with receipt-bearing idempotent delivery and full credit flowing along content-addressed dependency graphs without decay, dispersed knowledge and provenance compose directly — freeing information flows for optimal human coordination.
+
+---
+
+## Part V — The Live Frontier: Four Domains Solved by the Same Construction
+
+The power of a foundational architecture is proved by what falls out of it without inventing new machinery. Below are four frontier domains already checked inside `avikj/hyperactivity`, all powered by the exact primitives of Parts I–IV.
+
+### 5.1 Zero-Search Causal Context-Fiber Compression (`lib/compress.cub`, `/compression`)
+
+Conventional compressors (`gzip`, `bzip2`, `lzma`) rely on ad-hoc greedy search heuristics, hardcoded modality pipelines, and serialized vocabularies or frequency tables prepended to every payload. Neural compressors (LLMs) spend trillions of dollars of compute capex learning a lossy, unproven statistical approximation of context recall.
+
+Hyperactivity derives an **exact, zero-search lossless compressor** directly from observation fibers and earliest-content ordering (`docs/causal-context-fiber-compression.md`):
+
+1. **Causal record & context fibers:** At position $t$, past occurrences of the context window $c_t = (x_{t-k}, \dots, x_{t-1})$ form the exact preimage fiber $\mathrm{Fib}_c(c_t)$. When every prior occurrence of $c_t$ was followed by the same symbol, the continuation fiber is contractible and coding cost approaches $0$ bits.
+2. **Fiber relaxation & exact exclusion:** If the next symbol $x_t$ is unseen at depth $k$, the coder emits a single escape, **excludes** every symbol already accounted for in that fiber, and projects to depth $k-1$ down through $4 \to 3 \to 2 \to 1 \to 0$ to ground coding over unseen bytes.
+3. **Equivalence quotienting:** Passing context keys through any quotient $q : \mathrm{Word} \to \mathrm{Word}$ (such as digit classes) collapses structurally equivalent contexts onto the same fiber while keeping continuation symbols bit-exact.
+4. **Zero probability axioms & zero floats:** Discrete rANS coding and byte packing are proved bijective purely from integer multiplicity and Euclidean division (`wdiv-mod`, `wdiv-unique`, `wmod-unique`).
+
+**Verified results:** Universal lossless invertibility (`decompress-record (compress-record bs) ≡ bs`) is kernel-proved with zero postulates. On real-data `refl`-checked byte streams (32–863 B), it beats `deflate -9`, `gzip -9`, `bzip2 -9`, and `lzma` (e.g., 863→239 B Unicode `.cub` code, 846→455 B prose, 144→32 B 2D grid, 64→10 B stream, and 134→46 B via equivalence quotienting). See the full technical report — including explicit current scaling boundaries — at [`/compression`](/compression).
+
+### 5.2 Chemical Identity and Ab Initio Quantum Chemistry (`chem/`)
+
+The central unsolved problem of cheminformatics is **entity resolution**: deciding when two database records describe the same molecule. Standard InChI collapses three distinct relations — **digest equality** (same serialization), **definitional equality** (same graph isomorphism), and **semantic equality** (same chemical substance across proton transfers / tautomers) — into string comparison of a single canonical identifier. Over the tautomeric portion of the Cambridge Structural Database, Standard InChI succeeds on only **26.25%** of cases (13.46% strict).
+
+In `chem/`, Hyperactivity resolves this structurally and extends into exact algebraic quantum chemistry:
+- **Exact molecular symmetry:** Molecules are represented as structured graphs preserving their **automorphism groups** (computing exact symmetry numbers and NMR orbit counts directly from group actions).
+- **Tautomers as Higher Inductive Type paths:** Proton transfers are explicit paths between molecular graphs, keeping digest, definitional, and semantic equality cleanly separated.
+- **Exact algebraic quantum-chemistry certificates:** Formal Dirac/Pauli/Fock/Hubbard algebra, exact $\mathrm{H}_2$ and $\mathrm{He}$ ground-state certificates (`chem/h2cert.cub`, `chem/hecert.cub`), holonomy and $U(1)$ magnetic-loop flux sectors (`chem/bholonomy.cub`, `chem/magloop.cub`), and **compositional attractor basins** (`chem/basin-compose.cub`, proving flow-homomorphism functoriality, coupled-subsystem basin merging, and metamorphic folds).
+
+### 5.3 Theoretical Neuroscience, Morphogenesis, and Provably Safe BCIs (`neuro/`, `lib/polyproc.cub`)
+
+Biological nervous systems and brain-computer interfaces (BCIs) are physical instances of **partially observed, mutually adapting, boundary-reshaping processes** — the exact domain of Parts I–III:
+
+1. **Dynamical descent & output-null fibers (`neuro/descent.cub`):** Formalizes why identical neural readout vectors admit distinct hidden conductance/manifold states, proving non-ergodic population-averaging obstructions directly from `lib/observation.cub`.
+2. **Symbolic Sum-of-Squares (SOS) Stability & Safety Certificates (`neuro/lyapunov.cub`, `neuro/barrier.cub`):** Every polynomial identity is decided in normal form over the universal polynomial ring over $\mathbb{Q}$, holding for **all** real parameter values:
+   - Exact Hurwitz co-adaptation stability threshold $\eta_B \eta_C > \gamma_1 \gamma_2$ for coupled 2-learner brain–decoder co-adaptation.
+   - Nagumo / Control Barrier Function (CBF) forward-invariance of the safe ball $h(e_B, e_C) = R^2 - e_B^2 - e_C^2 \ge 0$.
+   - Global trapping-region SOS certificate for the full externally driven **FitzHugh–Nagumo** excitable neuron.
+3. **Proof-Gated Neural Interfaces & Reshaping Boundaries (`lib/polyproc.cub`, `neuro/coproc.cub`, `neuro/reshaping-coproc.cub`):**
+   - `lib/polyproc.cub` generalizes static guarded processes to **indexed interface-reshaping processes (`RProc`)** where interactions dynamically open or close interface boundaries (modeling both ion-channel gating and Michael Levin's movable biological self-boundaries, with an exact cubical round-trip embedding path `gproc-rproc-id`).
+   - `neuro/reshaping-coproc.cub` builds a **proof-gated interface (`SafeGateDS`)**: transitioning a neural co-processor from passive probing mode to active coupled mode requires a `SafeAt` witness over the entire compatible observation fiber. Unverified activation is literally **ill-typed**, and any `Disagreement` split witness (`disagreement-blocks-gate`) blocks activation automatically.
+   - `neuro/coproc.cub` also proves **lexical-gate impossibility** (why a mental password cannot constitute genuine consent when covert stimulus objectives leave the objective fiber unconstrained), while `neuro/inhibition.cub` and `neuro/synesthesia.cub` formalize REBUS prior relaxation, framing-effect invariance, and synthetic synesthesia.
+
+### 5.4 Verify Everything Yourself
+
+Nothing in this exposition asks for trust. Clone the repository, build the C runtime, and check every theorem directly from the content-addressed store:
+
+```bash
+git clone https://github.com/avikj/hyperactivity.git
+cd hyperactivity
+make
+./hyperactive check lib/compress.cub
+./build/cubical --read chem/basin-compose.cub
+./build/cubical --read lib/polyproc.cub
+./build/cubical --read neuro/reshaping-coproc.cub
+```
+
+- **Full Technical Paper:** [Read online (`/paper`)](/paper) or [Download / View PDF (`/pdf`)](/pdf)
+- **Causal Context-Fiber Compression Report:** [`/compression`](/compression)
+- **Live Store & Walk:** Run `./hyperactive` locally to walk the graph in dependency order.
