@@ -1,0 +1,31 @@
+-- ============================================================================
+-- 3. Bidirectional Coupled Co-Processor Stability Boundary (Universal SOS)
+-- ============================================================================
+-- Two mutually coupled nervous systems (xA, xB) with intrinsic relaxation rates ηA, ηB > 0
+-- and bidirectional optical coupling gains γAB, γBA:
+--   dxA/dt = -ηA xA + γAB xB,    dxB/dt = γBA xA - ηB xB.
+-- Weighted Lyapunov energy V(xA, xB) = pA xA² + pB xB² has dissipation:
+--   -(1/2) dV/dt = pA ηA xA² - (pA γAB + pB γBA) xA xB + pB ηB xB².
+-- Universal SOS identity over chem/algebra.cub (`al-id`):
+--   4 pA ηA · (-(1/2) dV/dt)
+--     = (2 pA ηA xA - (pA γAB + pB γBA) xB)² + (4 pA pB ηA ηB - (pA γAB + pB γBA)²) xB².
+-- Thus mutual gaze stabilizes into co-regulated equilibrium whenever
+--   4 pA pB ηA ηB > (pA γAB + pB γBA)²,
+-- and crosses into runaway positive feedback (arousal escalation / gaze break) when violated.
+-- Variables (0..7): pA, pB, ηA, ηB, γAB, γBA, xA, xB.
+ec-bidirectional-lyap-poly : (A : Type) → (A → A → A) → (A → A → A) → (BQ → A) → List A → A × A
+ec-bidirectional-lyap-poly A ad mu q vs =
+  (λ g sub sq →
+    let pA = g 0; pB = g 1; eA = g 2; eB = g 3
+        gAB = g 4; gBA = g 5; xA = g 6; xB = g 7
+        q2 = q (fn-q 2 1)
+        q4 = q (fn-q 4 1)
+        a  = mu pA eA
+        b  = ad (mu pA gAB) (mu pB gBA)
+        c  = mu pB eB
+        diss = ad (sub (mu a (sq xA)) (mu b (mu xA xB))) (mu c (sq xB))
+        lhs = mu q4 (mu a diss)
+        rhs = ad (sq (sub (mu q2 (mu a xA)) (mu b xB)))
+                 (mu (sub (mu q4 (mu a c)) (sq b)) (sq xB))
+    in (lhs , rhs))
+  (λ n → al-nth A (q (fn-q 0 1)) n vs) (al-gsub A ad mu q) (al-gsq A mu)
