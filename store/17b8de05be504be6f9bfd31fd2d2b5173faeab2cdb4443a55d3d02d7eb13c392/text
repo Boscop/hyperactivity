@@ -1,0 +1,23 @@
+-- Concrete Streaming rANS roundtrip benchmark compiled directly from `.hypercubical` to C!
+-- Runs `n` iterations of base-256 streaming rANS encode + decode step (L=4096, M=16, f=5, C=4),
+-- returning the count of verified exact roundtrips (must equal `n`).
+rans-step-rt-ok : Word → Word
+rans-step-rt-ok s0 =
+  let L  = #4096
+      M  = #16
+      f  = #5
+      C  = #4
+      hi = %wmul (%wdiv (%wmul #256 L) M) f
+      -- flush if s0 >= hi
+      flushed = if %wlt s0 hi then #0 else #1
+      b  = if %wlt s0 hi then #0 else %wmod s0 #256
+      sf = if %wlt s0 hi then s0 else %wdiv s0 #256
+      -- exact rANS encode step: s1 = (sf / f) * M + C + (sf % f)
+      s1 = %wadd (%wadd (%wmul (%wdiv sf f) M) C) (%wmod sf f)
+      -- exact rANS decode step: r = s1 % M, q = s1 / M, sf' = q * f + (r - C)
+      r  = %wmod s1 M
+      q  = %wdiv s1 M
+      sf2 = %wadd (%wmul q f) (%wsub r C)
+      -- refill if sf2 < L
+      s2 = if %wlt sf2 L then %wadd (%wmul sf2 #256) b else sf2
+  in if %weq s2 s0 then #1 else #0

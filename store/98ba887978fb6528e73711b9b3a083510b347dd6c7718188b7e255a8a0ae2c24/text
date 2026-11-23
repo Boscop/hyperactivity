@@ -1,0 +1,16 @@
+ce2-exp : Nat → Defs → Word → Code → List Word
+ce2-exp zero ds d c = "hy_bad()"
+ce2-exp (suc k) ds d (cvar n) = list-append "v" (ce-dec (%wsub (%wsub d #1) n))
+ce2-exp (suc k) ds d (cwlit n) = list-append (ce-dec n) "ull"
+ce2-exp (suc k) ds d (cwsucc a) = list-append "hy_add(" (list-append (ce2-exp k ds d a) ", 1ull)")
+ce2-exp (suc k) ds d (cwop j a b) = list-append (ce2-opname j) (list-append "(" (list-append (ce2-exp k ds d a) (list-append ", " (list-append (ce2-exp k ds d b) ")"))))
+ce2-exp (suc k) ds d (clet t b) = list-append "({ uint64_t v" (list-append (ce-dec d) (list-append " = " (list-append (ce2-exp k ds d t) (list-append "; " (list-append (ce2-exp k ds (%wsucc d) b) "; })")))))
+ce2-exp (suc k) ds d (capp f a) = ce-apply ds (λ x → ce2-exp k ds d x) (fst (x-spine (capp f a))) (snd (x-spine (capp f a)))
+ce2-exp (suc k) ds d (cglob g) = ce-gcall (λ x → ce2-exp k ds d x) g (opt-or (x-arity ds g) #0) #0 lnil
+ce2-exp (suc k) ds d (cpair a b) = list-append "hy_con(0, 2, (uint64_t[]){0, " (list-append (ce2-exp k ds d a) (list-append ", " (list-append (ce2-exp k ds d b) "})")))
+ce2-exp (suc k) ds d (cfst p) = list-append "((uint64_t *)" (list-append (ce2-exp k ds d p) ")[1]")
+ce2-exp (suc k) ds d (csnd p) = list-append "((uint64_t *)" (list-append (ce2-exp k ds d p) ")[2]")
+ce2-exp (suc k) ds d (ccon dd j fs lnil) = list-append "hy_con(" (list-append (ce-dec j) (list-append ", " (list-append (ce-dec (l-count fs)) (list-append ", (uint64_t[]){0" (list-append (ce-args-n (λ x → ce2-exp k ds d x) fs false) "})")))))
+ce2-exp (suc k) ds d (ccase dd B x) = list-append "({ uint64_t *p" (list-append (ce-dec d) (list-append " = (uint64_t *)" (list-append (ce2-exp k ds d x) (list-append "; uint64_t r" (list-append (ce-dec d) (list-append "; switch (p" (list-append (ce-dec d) (list-append "[0]) { " (list-append (ce-brs B (λ e c → ce2-exp k ds e c) dd d #0) (list-append "default: abort(); } r" (list-append (ce-dec d) "; })")))))))))))
+ce2-exp (suc k) ds d (cwelim w z (clam (clam b)) mo) = list-append "({ uint64_t w" (list-append (ce-dec d) (list-append " = " (list-append (ce2-exp k ds d w) (list-append "; uint64_t v" (list-append (ce-dec (%wsucc d)) (list-append " = " (list-append (ce2-exp k ds d z) (list-append "; for (uint64_t v" (list-append (ce-dec d) (list-append " = 0; v" (list-append (ce-dec d) (list-append " < w" (list-append (ce-dec d) (list-append "; v" (list-append (ce-dec d) (list-append "++) { v" (list-append (ce-dec (%wsucc d)) (list-append " = " (list-append (ce2-exp k ds (%wadd d #2) b) (list-append "; } v" (list-append (ce-dec (%wsucc d)) "; })")))))))))))))))))))))
+ce2-exp (suc k) ds d c = "hy_bad()"
