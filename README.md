@@ -28,8 +28,7 @@
   <a href="https://hyperactivity.ai/compression"><code>/compression</code></a> ·
   <a href="https://hyperactivity.ai/chip-design"><code>/chip-design</code></a> ·
   <a href="https://hyperactivity.ai/music"><code>/music</code></a> ·
-  <a href="https://hyperactivity.ai/paper">Paper</a> ·
-  <a href="https://hyperactivity.ai/pdf">PDF</a> ·
+  <a href="https://hyperactivity.ai/pdf">Monograph (PDF)</a> ·
   <a href="LICENSE">License</a>
 </p>
 
