@@ -1,0 +1,18 @@
+no-inj-succ-fin : (n : Nat) → (f : SumFin (suc n) → SumFin n) →
+                  ((x y : SumFin (suc n)) → f x ≡ f y → x ≡ y) → Empty
+no-inj-succ-fin n =
+  case n return (λ k → (f : SumFin (suc k) → SumFin k) →
+                       ((x y : SumFin (suc k)) → f x ≡ f y → x ≡ y) → Empty) of
+    zero → λ f _ → f (inl unit)
+    suc m → λ f hinj →
+      let g : SumFin (suc m) → SumFin m
+          g x = sfin-punch m (f (inl unit)) (f (inr x))
+                  (λ eq → sfin-inl-neq-inr (suc m) unit x (sym (hinj (inr x) (inl unit) eq)))
+          ginj : (x y : SumFin (suc m)) → g x ≡ g y → x ≡ y
+          ginj x y pg =
+            let e1 : f (inr x) ≡ f (inr y)
+                e1 = sfin-punch-inj m (f (inl unit)) (f (inr x)) (f (inr y)) _ _ pg
+                e2 : Path (SumFin (suc (suc m))) (inr x) (inr y)
+                e2 = hinj (inr x) (inr y) e1
+            in sfin-inr-inj (suc m) x y e2
+      in rec m g ginj

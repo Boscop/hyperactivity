@@ -1,0 +1,47 @@
+sfin-punch-inj :
+  (n : Nat) → (y z1 z2 : SumFin (suc n)) →
+  (h1 : z1 ≡ y → Empty) → (h2 : z2 ≡ y → Empty) →
+  sfin-punch n y z1 h1 ≡ sfin-punch n y z2 h2 → z1 ≡ z2
+sfin-punch-inj n =
+  case n return (λ k → (y z1 z2 : SumFin (suc k)) →
+                       (h1 : z1 ≡ y → Empty) → (h2 : z2 ≡ y → Empty) →
+                       sfin-punch k y z1 h1 ≡ sfin-punch k y z2 h2 → z1 ≡ z2) of
+    zero → λ y z1 z2 h1 _ _ → Empty-rec {lzero} {Path (SumFin (suc zero)) z1 z2} (sfin-punch zero y z1 h1)
+    suc m → λ y →
+      case y return (λ a → (b1 b2 : SumFin (suc (suc m))) →
+                           (h1 : b1 ≡ a → Empty) → (h2 : b2 ≡ a → Empty) →
+                           sfin-punch (suc m) a b1 h1 ≡ sfin-punch (suc m) a b2 h2 → b1 ≡ b2) of
+        inl u1 → λ b1 b2 →
+          case b1 return (λ c1 → (h1 : c1 ≡ inl u1 → Empty) → (h2 : b2 ≡ inl u1 → Empty) →
+                                 sfin-punch (suc m) (inl u1) c1 h1 ≡ sfin-punch (suc m) (inl u1) b2 h2 → c1 ≡ b2) of
+            inl u2 → λ h1 _ _ →
+              Empty-rec {lzero} {Path (SumFin (suc (suc m))) (inl u2) b2} (h1 (cong inl (opt-unit-eq u2 u1)))
+            inr z1' → λ h1 →
+              case b2 return (λ c2 → (h2 : c2 ≡ inl u1 → Empty) →
+                                     sfin-punch (suc m) (inl u1) (inr z1') h1 ≡ sfin-punch (suc m) (inl u1) c2 h2 →
+                                     Path (SumFin (suc (suc m))) (inr z1') c2) of
+                inl u2 → λ h2 _ →
+                  Empty-rec {lzero} {Path (SumFin (suc (suc m))) (inr z1') (inl u2)} (h2 (cong inl (opt-unit-eq u2 u1)))
+                inr z2' → λ _ p → cong inr p
+        inr y' → λ b1 b2 →
+          case b1 return (λ c1 → (h1 : c1 ≡ inr y' → Empty) → (h2 : b2 ≡ inr y' → Empty) →
+                                 sfin-punch (suc m) (inr y') c1 h1 ≡ sfin-punch (suc m) (inr y') b2 h2 → c1 ≡ b2) of
+            inl u1 → λ h1 →
+              case b2 return (λ c2 → (h2 : c2 ≡ inr y' → Empty) →
+                                     sfin-punch (suc m) (inr y') (inl u1) h1 ≡ sfin-punch (suc m) (inr y') c2 h2 →
+                                     Path (SumFin (suc (suc m))) (inl u1) c2) of
+                inl u2 → λ _ _ → cong inl (opt-unit-eq u1 u2)
+                inr z2' → λ _ p →
+                  Empty-rec {lzero} {Path (SumFin (suc (suc m))) (inl u1) (inr z2')} (sfin-inl-neq-inr m u1 _ p)
+            inr z1' → λ h1 →
+              case b2 return (λ c2 → (h2 : c2 ≡ inr y' → Empty) →
+                                     sfin-punch (suc m) (inr y') (inr z1') h1 ≡ sfin-punch (suc m) (inr y') c2 h2 →
+                                     Path (SumFin (suc (suc m))) (inr z1') c2) of
+                inl u2 → λ _ p →
+                  Empty-rec {lzero} {Path (SumFin (suc (suc m))) (inr z1') (inl u2)} (sfin-inl-neq-inr m u2 _ (sym p))
+                inr z2' → λ h2 p →
+                  cong inr
+                    (rec m y' z1' z2'
+                      (λ eq → h1 (cong inr eq))
+                      (λ eq → h2 (cong inr eq))
+                      (sfin-inr-inj m _ _ p))

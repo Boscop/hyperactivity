@@ -1,0 +1,31 @@
+-- Universal 1D DRC Packing Lower Bound: any (suc k) cells of width >= w and gap >= s
+-- span at least (k+1)*w + k*s.
+drc-span-lb : (w s k x0 xend : Nat) → DrcRow w s k x0 xend →
+              leB (plus x0 (min-span (suc k) w s)) xend ≡ true
+drc-span-lb w s k =
+  case k return (λ m → (x0 xend : Nat) → DrcRow w s m x0 xend →
+                       leB (plus x0 (min-span (suc m) w s)) xend ≡ true) of
+    zero → λ x0 xend dr →
+      let cw  = fst dr
+          hcw = fst (snd dr)
+          heq = snd (snd dr)
+          ew : min-span (suc zero) w s ≡ w
+          ew = transN (plus-zero (plus w zero)) (plus-zero w)
+          h1 : leB (plus x0 w) (plus x0 cw) ≡ true
+          h1 = opt-le-plus x0 x0 w cw (opt-le-refl x0) hcw
+          h2 : leB (plus x0 (min-span (suc zero) w s)) (plus x0 cw) ≡ true
+          h2 = opt-le-subst-l (plus x0 w) (plus x0 (min-span (suc zero) w s)) (plus x0 cw)
+                 (congN (plus x0) (symN ew)) h1
+      in opt-le-subst-r (plus x0 (min-span (suc zero) w s)) (plus x0 cw) xend (symN heq) h2
+    suc j → λ x0 xend dr →
+      let cw   = fst dr
+          gap  = fst (snd dr)
+          hcw  = fst (snd (snd dr))
+          hgap = fst (snd (snd (snd dr)))
+          rest = snd (snd (snd (snd dr)))
+          ih : leB (plus (plus (plus x0 cw) gap) (min-span (suc j) w s)) xend ≡ true
+          ih = rec j (plus (plus x0 cw) gap) xend rest
+          h3 : leB (plus x0 (plus (plus w s) (min-span (suc j) w s))) xend ≡ true
+          h3 = drc-span-step-aux x0 w s cw gap (min-span (suc j) w s) xend hcw hgap ih
+      in opt-le-subst-l (plus x0 (plus (plus w s) (min-span (suc j) w s)))
+           (plus x0 (min-span (suc (suc j)) w s)) xend (congN (plus x0) (symN (min-span-step j w s))) h3

@@ -1,0 +1,37 @@
+rans-rate-id-gen :
+  (q r f C d M : Nat) → M ≡ plus f d →
+  let s  = plus (times q f) r
+      s' = plus (plus (times q M) C) r
+  in plus (times f s') (times r d) ≡ plus (times M s) (times f C)
+rans-rate-id-gen q r f C d M hM =
+  let s  = plus (times q f) r
+      s' = plus (plus (times q M) C) r
+      l1 : times f s' ≡ plus (plus (times f (times q M)) (times f C)) (times f r)
+      l1 = transN (opt-times-distr-r f (plus (times q M) C) r)
+                  (λ i → plus (opt-times-distr-r f (times q M) C i) (times f r))
+      l2 : plus (times f s') (times r d) ≡
+           plus (plus (times f (times q M)) (times f C)) (plus (times f r) (times r d))
+      l2 = transN (λ i → plus (l1 i) (times r d))
+                  (plus-assoc (plus (times f (times q M)) (times f C)) (times f r) (times r d))
+      l3 : plus (times f r) (times r d) ≡ times M r
+      l3 = transN (λ i → plus (times-comm f r i) (times r d))
+             (transN (symN (opt-times-distr-r r f d))
+               (transN (λ i → times r (symN hM i)) (times-comm r M)))
+      l4 : times f (times q M) ≡ times M (times q f)
+      l4 = transN (symN (times-assoc f q M))
+             (transN (times-comm (times f q) M)
+                     (λ i → times M (times-comm f q i)))
+      l5 : plus (plus (times M (times q f)) (times f C)) (times M r) ≡
+           plus (plus (times M (times q f)) (times M r)) (times f C)
+      l5 = transN (plus-assoc (times M (times q f)) (times f C) (times M r))
+             (transN (congN (plus (times M (times q f))) (plus-comm (times f C) (times M r)))
+                     (symN (plus-assoc (times M (times q f)) (times M r) (times f C))))
+      l6 : plus (times M (times q f)) (times M r) ≡ times M s
+      l6 = symN (opt-times-distr-r M (times q f) r)
+      l43 : plus (plus (times f (times q M)) (times f C)) (plus (times f r) (times r d)) ≡
+            plus (plus (times M (times q f)) (times f C)) (times M r)
+      l43 = λ i → plus (plus (l4 i) (times f C)) (l3 i)
+      l6f : plus (plus (times M (times q f)) (times M r)) (times f C) ≡
+            plus (times M s) (times f C)
+      l6f = λ i → plus (l6 i) (times f C)
+  in transN l2 (transN l43 (transN l5 l6f))
