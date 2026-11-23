@@ -1,0 +1,23 @@
+q-opt-pass : List QGate → List QGate
+q-opt-pass nil = nil
+q-opt-pass (cons g gs) =
+  let rest = q-opt-pass gs
+  in case g of
+       qg-rz q k → q-push-rz q k rest
+       qg-h q →
+         (case rest of
+            nil → cons (qg-h q) nil
+            cons g2 gs2 →
+              case g2 of
+                qg-h q2 → if %weq q q2 then gs2 else cons (qg-h q) rest
+                qg-rz _ _ → cons (qg-h q) rest
+                qg-cnot _ _ → cons (qg-h q) rest)
+       qg-cnot c t →
+         (case rest of
+            nil → cons (qg-cnot c t) nil
+            cons g2 gs2 →
+              case g2 of
+                qg-cnot c2 t2 →
+                  if andB (%weq c c2) (%weq t t2) then gs2 else cons (qg-cnot c t) rest
+                qg-rz _ _ → cons (qg-cnot c t) rest
+                qg-h _ → cons (qg-cnot c t) rest)

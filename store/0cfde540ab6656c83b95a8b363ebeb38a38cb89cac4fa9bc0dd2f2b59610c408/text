@@ -1,0 +1,24 @@
+-- Proof-carrying Clifford+T T-cancellation & Rz-commutation peephole pass:
+--   1. Cancels identity Rz(q, 0)
+--   2. Merges adjacent Rz(q, k1); Rz(q, k2) -> Rz(q, (k1+k2) mod 8) [turns T;T -> S (2->0 T) & T;Tdg -> I (2->0 T)!]
+--   3. Commutes Rz(q, k) past CNOT(c, t) when q != t to expose further T-merges
+--   4. Cancels adjacent self-inverse H;H and CNOT(c,t);CNOT(c,t)
+q-push-rz : Word → Word → List QGate → List QGate
+q-push-rz q k nil =
+  let k8 = %wmod k #8
+  in if %weq k8 #0 then nil else cons (qg-rz q k8) nil
+q-push-rz q k (cons g gs) =
+  let k8 = %wmod k #8
+  in if %weq k8 #0 then cons g gs
+     else (case g of
+       qg-rz q2 k2 →
+         if %weq q q2 then
+           let km = %wmod (%wadd k8 k2) #8
+           in if %weq km #0 then gs else cons (qg-rz q km) gs
+         else cons (qg-rz q2 k2) (q-push-rz q k8 gs)
+       qg-cnot c t →
+         if %weq q t then cons (qg-rz q k8) (cons (qg-cnot c t) gs)
+         else cons (qg-cnot c t) (q-push-rz q k8 gs)
+       qg-h q2 →
+         if %weq q q2 then cons (qg-rz q k8) (cons (qg-h q2) gs)
+         else cons (qg-h q2) (q-push-rz q k8 gs))
