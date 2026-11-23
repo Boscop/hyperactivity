@@ -1,0 +1,20 @@
+cfs-ground-ok :
+  (L : Word) → (fuel : Nat) → (excl : List Word) → (x : Word) → (st : SRState) →
+  SRBoundInv L → SRInRange L st →
+  cfs-ground-dec L fuel excl (cfs-ground-enc L fuel excl x st) ≡ (x , st)
+cfs-ground-ok L fuel excl x st inv hrng =
+  let rem  = unseen-bytes excl
+      base = %wsucc (fromNat (list-length rem))
+      hi   = wquot (wmul sr-base L) base
+      fl   = sr-flush-loop fuel hi (fst st) (snd st)
+      hg : ground-dec-rem rem (ground-enc-rem rem x fl) ≡ (x , fl)
+      hg = ground-rem-ok rem x fl
+      hr : sr-refill-loop (suc fuel) L (fst fl) (snd fl) ≡ st
+      hr = sr-renorm-ok fuel L hi (fst st) (snd st) inv (fst hrng) (snd hrng)
+  in concat {lzero} {Word × SRState}
+       {let d = ground-dec-rem rem (ground-enc-rem rem x fl)
+        in (fst d , sr-refill-loop (suc fuel) L (fst (snd d)) (snd (snd d)))}
+       {(x , sr-refill-loop (suc fuel) L (fst fl) (snd fl))}
+       {(x , st)}
+       (λ i → let d = hg i in (fst d , sr-refill-loop (suc fuel) L (fst (snd d)) (snd (snd d))))
+       (λ i → (x , hr i))

@@ -1,0 +1,23 @@
+-- Universal streaming causal context-fiber single-symbol bijection theorem
+cfs-sym-ok :
+  (L : Word) → (fuel d : Nat) → (excl : List Word) → (st : CtxState) → (x : Word) → (st0 : SRState) →
+  SRBoundInv L → CFSRangePres L fuel → SRInRange L st0 →
+  cfs-dec-sym L fuel d excl st (cfs-enc-sym L fuel d excl st x st0) ≡ (x , st0)
+cfs-sym-ok L fuel d =
+  case d return (λ n → (excl : List Word) → (st : CtxState) → (x : Word) → (st0 : SRState) →
+                       SRBoundInv L → CFSRangePres L fuel → SRInRange L st0 →
+                       cfs-dec-sym L fuel n excl st (cfs-enc-sym L fuel n excl st x st0) ≡ (x , st0)) of
+    zero → λ excl st x st0 inv _ hrng → cfs-ground-ok L fuel excl x st0 inv hrng
+    suc k → λ excl st x st0 inv hpres hrng →
+      (case ftbl-exclude excl (cstate-fiber-at k st) return
+         (λ fib → Path (Word × SRState)
+                    (let enc = case fib of
+                                 nil → cfs-enc-sym L fuel k excl st x st0
+                                 cons e r → cfs-enc-cons L fuel k excl st e r x st0
+                     in case fib of
+                          nil → cfs-dec-sym L fuel k excl st enc
+                          cons e r → cfs-dec-cons L fuel k excl st e r enc)
+                    (x , st0)) of
+         nil → rec k excl st x st0 inv hpres hrng
+         cons e r → cfs-sym-ok-cons L fuel k excl st e r x st0 inv hpres hrng
+                      (λ excl' st' x' st0' hrng' → rec k excl' st' x' st0' inv hpres hrng'))

@@ -1,0 +1,63 @@
+cfs-sym-ok-cons :
+  (L : Word) → (fuel k : Nat) → (excl : List Word) → (st : CtxState) →
+  (e : Word × Word) → (r : FTbl) → (x : Word) → (st0 : SRState) →
+  SRBoundInv L → CFSRangePres L fuel → SRInRange L st0 →
+  ((excl' : List Word) → (st' : CtxState) → (x' : Word) → (st0' : SRState) →
+   SRInRange L st0' → cfs-dec-sym L fuel k excl' st' (cfs-enc-sym L fuel k excl' st' x' st0') ≡ (x' , st0')) →
+  cfs-dec-cons L fuel k excl st e r (cfs-enc-cons L fuel k excl st e r x st0) ≡ (x , st0)
+cfs-sym-ok-cons L fuel k excl st e r x st0 inv hpres hrng ih =
+  let ft = fiber-with-esc e r
+  in (case ftbl-find #0 (wadd #1 x) ft return
+        (λ fo → ftbl-find #0 (wadd #1 x) ft ≡ fo →
+                Path (Word × SRState)
+                  (cfs-dec-cons L fuel k excl st e r
+                     (case fo of
+                        some _ → sr-enc-step ft L fuel st0 (wadd #1 x)
+                        none → let st1 = cfs-enc-sym L fuel k (ftbl-add-syms (cons e r) excl) st x st0
+                               in sr-enc-step ft L fuel st1 #0))
+                  (x , st0)) of
+        some cf → λ hfind →
+          let hpos : wlt #0 (snd cf) ≡ true
+              hpos = fiber-with-esc-pos e r (wadd #1 x) (fst cf) (snd cf) hfind
+              hr : sr-dec-step ft L fuel (sr-enc-step ft L fuel st0 (wadd #1 x)) ≡ (wadd #1 x , st0)
+              hr = sr-step-ok ft L fuel st0 (wadd #1 x) (fst cf) (snd cf) inv hfind hpos (fst hrng) (snd hrng)
+              eneq : weq (wadd #1 x) #0 ≡ false
+              eneq = cm-eq-add1-zero x
+          in concat {lzero} {Word × SRState}
+               {let p = sr-dec-step ft L fuel (sr-enc-step ft L fuel st0 (wadd #1 x))
+                in if weq (fst p) #0 then cfs-dec-sym L fuel k (ftbl-add-syms (cons e r) excl) st (snd p)
+                   else (wsub (fst p) #1 , snd p)}
+               {if weq (wadd #1 x) #0 then cfs-dec-sym L fuel k (ftbl-add-syms (cons e r) excl) st st0
+                else (wsub (wadd #1 x) #1 , st0)}
+               {(x , st0)}
+               (λ i → let p = hr i
+                      in if weq (fst p) #0 then cfs-dec-sym L fuel k (ftbl-add-syms (cons e r) excl) st (snd p)
+                         else (wsub (fst p) #1 , snd p))
+               (concat {lzero} {Word × SRState}
+                  {if weq (wadd #1 x) #0 then cfs-dec-sym L fuel k (ftbl-add-syms (cons e r) excl) st st0
+                   else (wsub (wadd #1 x) #1 , st0)}
+                  {(wsub (wadd #1 x) #1 , st0)} {(x , st0)}
+                  (λ i → if eneq i then cfs-dec-sym L fuel k (ftbl-add-syms (cons e r) excl) st st0
+                         else (wsub (wadd #1 x) #1 , st0))
+                  (λ i → (cm-wsub-add #1 x i , st0)))
+        none → λ _ →
+          let excl1 = ftbl-add-syms (cons e r) excl
+              st1   = cfs-enc-sym L fuel k excl1 st x st0
+              hrng1 : SRInRange L st1
+              hrng1 = hpres k excl1 st x st0 hrng
+              hesc : ftbl-find #0 #0 ft ≡ some (#0 , fromNat (suc (list-length r)))
+              hesc = refl
+              hr : sr-dec-step ft L fuel (sr-enc-step ft L fuel st1 #0) ≡ (#0 , st1)
+              hr = sr-step-ok ft L fuel st1 #0 #0 (fromNat (suc (list-length r))) inv hesc
+                     (cm-lt-zero-suc (list-length r)) (fst hrng1) (snd hrng1)
+          in concat {lzero} {Word × SRState}
+               {let p = sr-dec-step ft L fuel (sr-enc-step ft L fuel st1 #0)
+                in if weq (fst p) #0 then cfs-dec-sym L fuel k excl1 st (snd p)
+                   else (wsub (fst p) #1 , snd p)}
+               {cfs-dec-sym L fuel k excl1 st st1}
+               {(x , st0)}
+               (λ i → let p = hr i
+                      in if weq (fst p) #0 then cfs-dec-sym L fuel k excl1 st (snd p)
+                         else (wsub (fst p) #1 , snd p))
+               (ih excl1 st x st0 hrng))
+     (λ i → ftbl-find #0 (wadd #1 x) ft)

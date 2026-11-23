@@ -1,0 +1,13 @@
+-- Streaming causal context-fiber single-symbol cascade (depth 5 → 4,3,2,1,0 → ground)
+cfs-enc-sym : Word → Nat → Nat → List Word → CtxState → Word → SRState → SRState
+cfs-enc-sym L fuel zero excl st x st0 = cfs-ground-enc L fuel excl x st0
+cfs-enc-sym L fuel (suc k) excl st x st0 =
+  case ftbl-exclude excl (cstate-fiber-at k st) of
+    nil → cfs-enc-sym L fuel k excl st x st0
+    cons e r →
+      let ft = fiber-with-esc e r
+      in case ftbl-find #0 (wadd #1 x) ft of
+           some _ → sr-enc-step ft L fuel st0 (wadd #1 x)
+           none →
+             let st1 = cfs-enc-sym L fuel k (ftbl-add-syms (cons e r) excl) st x st0
+             in sr-enc-step ft L fuel st1 #0

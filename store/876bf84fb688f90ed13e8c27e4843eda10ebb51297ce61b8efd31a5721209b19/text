@@ -1,0 +1,21 @@
+-- Universal streaming causal context-fiber record roundtrip theorem
+cfs-list-ok :
+  (L : Word) → (fuel : Nat) → (init : SRState) → (xs : List Word) → (st : CtxState) →
+  SRBoundInv L → CFSRangePres L fuel → SRInRange L init →
+  cfs-dec-list L fuel (list-length xs) st (cfs-enc-list L fuel init st xs) ≡ xs
+cfs-list-ok L fuel init xs =
+  case xs return (λ u → (st : CtxState) → SRBoundInv L → CFSRangePres L fuel → SRInRange L init →
+                        cfs-dec-list L fuel (list-length u) st (cfs-enc-list L fuel init st u) ≡ u) of
+    nil → λ _ _ _ _ i → nil
+    cons x r → λ st inv hpres hrng →
+      let st-tail = cfs-enc-list L fuel init (cstate-advance st x) r
+          hrng-tail = cfs-list-range L fuel init r (cstate-advance st x) hpres hrng
+          p0 : cfs-dec-sym L fuel 5 nil st (cfs-enc-sym L fuel 5 nil st x st-tail) ≡ (x , st-tail)
+          p0 = cfs-sym-ok L fuel 5 nil st x st-tail inv hpres hrng-tail
+      in concat {lzero} {List Word}
+           {let p = cfs-dec-sym L fuel 5 nil st (cfs-enc-list L fuel init st (cons x r))
+            in cons (fst p) (cfs-dec-list L fuel (list-length r) (cstate-advance st (fst p)) (snd p))}
+           {cons x (cfs-dec-list L fuel (list-length r) (cstate-advance st x) st-tail)}
+           {cons x r}
+           (λ i → let p = p0 i in cons (fst p) (cfs-dec-list L fuel (list-length r) (cstate-advance st (fst p)) (snd p)))
+           (λ i → cons x (rec r (cstate-advance st x) inv hpres hrng i))
