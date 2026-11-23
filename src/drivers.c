@@ -15,12 +15,127 @@
 #include <time.h>
 #include <errno.h>
 #include <spawn.h>
+#ifdef __APPLE__
+#include <sys/socket.h>
+#include <netinet/in.h>
+#define link hy_posix_link
+#include <unistd.h>
+#undef link
+extern char **environ;
+static int hy_apple_oflags(uint64_t f) {
+    int r = (int)(f & 3u);
+    if (f & 64u) r |= O_CREAT;
+    if (f & 128u) r |= O_EXCL;
+    if (f & 512u) r |= O_TRUNC;
+    if (f & 1024u) r |= O_APPEND;
+    if (f & 2048u) r |= O_NONBLOCK;
+    if (f & 65536u) r |= O_DIRECTORY;
+    if (f & 524288u) r |= O_CLOEXEC;
+    return r;
+}
+static struct { int fd; DIR *d; } hy_dirs[256];
+static void hy_dir_close(int fd) {
+    for (int i = 0; i < 256; i++) if (hy_dirs[i].d && hy_dirs[i].fd == fd) { closedir(hy_dirs[i].d); hy_dirs[i].d = NULL; hy_dirs[i].fd = -1; }
+}
+static void hy_apple_stat_fill(uint8_t *out, const struct stat *sb) {
+    memset(out, 0, 144);
+    uint32_t md = (uint32_t)sb->st_mode; memcpy(out + 24, &md, 4);
+    int64_t sz = (int64_t)sb->st_size; memcpy(out + 48, &sz, 8);
+    int64_t sec = (int64_t)sb->st_mtimespec.tv_sec; memcpy(out + 88, &sec, 8);
+    int64_t ns = (int64_t)sb->st_mtimespec.tv_nsec; memcpy(out + 96, &ns, 8);
+}
+static void hy_apple_sockaddr(const void *in, socklen_t len, uint8_t out[128], socklen_t *olen) {
+    socklen_t n = len > 128 ? 128 : len;
+    memset(out, 0, 128); if (in && n) memcpy(out, in, n);
+    if (n >= 16 && out[0] == 2 && out[1] == 0) { out[0] = 16; out[1] = AF_INET; }
+    *olen = n;
+}
+static long hy_apple_sys(const uint64_t a[7]) {
+    switch (a[0]) {
+    case 0: return (long)read((int)a[1], (void *)(uintptr_t)a[2], (size_t)a[3]);
+    case 1: return (long)write((int)a[1], (const void *)(uintptr_t)a[2], (size_t)a[3]);
+    case 2: return (long)open((const char *)(uintptr_t)a[1], hy_apple_oflags(a[2]), (mode_t)a[3]);
+    case 3: hy_dir_close((int)a[1]); return (long)close((int)a[1]);
+    case 5: { struct stat sb; if (fstat((int)a[1], &sb) != 0) return -1; hy_apple_stat_fill((uint8_t *)(uintptr_t)a[2], &sb); return 0; }
+    case 9: {
+        int fl = ((a[4] & 1u) ? MAP_SHARED : 0) | ((a[4] & 2u) ? MAP_PRIVATE : 0) | ((a[4] & 16u) ? MAP_FIXED : 0) | ((a[4] & 32u) ? MAP_ANON : 0);
+        void *m = mmap((void *)(uintptr_t)a[1], (size_t)a[2], (int)a[3], fl, (int)(int64_t)a[5], (off_t)a[6]);
+        return m == MAP_FAILED ? -1 : (long)(uintptr_t)m;
+    }
+    case 10: return (long)mprotect((void *)(uintptr_t)a[1], (size_t)a[2], (int)a[3]);
+    case 11: return (long)munmap((void *)(uintptr_t)a[1], (size_t)a[2]);
+    case 35: return (long)nanosleep((const struct timespec *)(uintptr_t)a[1], (struct timespec *)(uintptr_t)a[2]);
+    case 39: return (long)getpid();
+    case 41: {
+        int s = socket(a[1] == 2 ? AF_INET : a[1] == 10 ? AF_INET6 : (int)a[1], (int)(a[2] & 0xffu), (int)a[3]);
+        if (s >= 0 && (a[2] & 524288u)) fcntl(s, F_SETFD, FD_CLOEXEC);
+        if (s >= 0 && (a[2] & 2048u)) fcntl(s, F_SETFL, O_NONBLOCK);
+        return (long)s;
+    }
+    case 42: { uint8_t sa[128]; socklen_t sl = 0; hy_apple_sockaddr((const void *)(uintptr_t)a[2], (socklen_t)a[3], sa, &sl); return (long)connect((int)a[1], (const struct sockaddr *)sa, sl); }
+    case 43: case 288: {
+        int c = accept((int)a[1], (struct sockaddr *)(uintptr_t)a[2], (socklen_t *)(uintptr_t)a[3]);
+        if (c >= 0 && a[0] == 288 && (a[4] & 524288u)) fcntl(c, F_SETFD, FD_CLOEXEC);
+        if (c >= 0 && a[0] == 288 && (a[4] & 2048u)) fcntl(c, F_SETFL, O_NONBLOCK);
+        return (long)c;
+    }
+    case 44: {
+        uint8_t sa[128]; socklen_t sl = 0; const struct sockaddr *dst = NULL;
+        if (a[5]) { hy_apple_sockaddr((const void *)(uintptr_t)a[5], (socklen_t)a[6], sa, &sl); dst = (const struct sockaddr *)sa; }
+        return (long)sendto((int)a[1], (const void *)(uintptr_t)a[2], (size_t)a[3], (int)a[4], dst, sl);
+    }
+    case 45: return (long)recvfrom((int)a[1], (void *)(uintptr_t)a[2], (size_t)a[3], (a[4] & 2u) ? MSG_PEEK : 0, (struct sockaddr *)(uintptr_t)a[5], (socklen_t *)(uintptr_t)a[6]);
+    case 49: { uint8_t sa[128]; socklen_t sl = 0; hy_apple_sockaddr((const void *)(uintptr_t)a[2], (socklen_t)a[3], sa, &sl); return (long)bind((int)a[1], (const struct sockaddr *)sa, sl); }
+    case 50: return (long)listen((int)a[1], (int)a[2]);
+    case 54: return (long)setsockopt((int)a[1], a[2] == 1 ? SOL_SOCKET : (int)a[2], (a[2] == 1 && a[3] == 2) ? SO_REUSEADDR : (int)a[3], (const void *)(uintptr_t)a[4], (socklen_t)a[5]);
+    case 57: return (long)fork();
+    case 59: return (long)execve((const char *)(uintptr_t)a[1], (char *const *)(uintptr_t)a[2], (char *const *)(uintptr_t)a[3]);
+    case 61: { int st = 0; pid_t r = waitpid((pid_t)(int64_t)a[1], a[2] ? &st : NULL, (a[3] & 1u) ? WNOHANG : 0); if (r >= 0 && a[2]) *(uint64_t *)(uintptr_t)a[2] = (uint64_t)(uint32_t)st; return (long)r; }
+    case 79: return getcwd((char *)(uintptr_t)a[1], (size_t)a[2]) ? (long)strlen((char *)(uintptr_t)a[1]) + 1 : -1;
+    case 80: return (long)chdir((const char *)(uintptr_t)a[1]);
+    case 82: return (long)rename((const char *)(uintptr_t)a[1], (const char *)(uintptr_t)a[2]);
+    case 83: return (long)mkdir((const char *)(uintptr_t)a[1], (mode_t)a[2]);
+    case 87: return (long)unlink((const char *)(uintptr_t)a[1]);
+    case 201: return (long)time((time_t *)(uintptr_t)a[1]);
+    case 217: {
+        int fd = (int)a[1]; DIR *d = NULL;
+        for (int i = 0; i < 256; i++) if (hy_dirs[i].d && hy_dirs[i].fd == fd) { d = hy_dirs[i].d; break; }
+        if (!d) {
+            int dfd = dup(fd); if (dfd < 0) return -1;
+            lseek(dfd, 0, SEEK_SET); d = fdopendir(dfd);
+            if (!d) { close(dfd); return -1; }
+            for (int i = 0; i < 256; i++) if (!hy_dirs[i].d) { hy_dirs[i].fd = fd; hy_dirs[i].d = d; break; }
+        }
+        uint8_t *out = (uint8_t *)(uintptr_t)a[2]; size_t count = (size_t)a[3], off = 0;
+        for (;;) {
+            long pos = telldir(d); errno = 0; struct dirent *de = readdir(d);
+            if (!de) { if (errno && off == 0) return -1; break; }
+            size_t nlen = strlen(de->d_name), reclen = (19 + nlen + 1 + 7) & ~(size_t)7;
+            if (off + reclen > count) { if (off == 0) { errno = EINVAL; return -1; } seekdir(d, pos); break; }
+            memset(out + off, 0, reclen);
+            out[off + 16] = (uint8_t)(reclen & 0xffu); out[off + 17] = (uint8_t)((reclen >> 8) & 0xffu);
+            uint8_t dt = de->d_type;
+            if (dt == DT_UNKNOWN) { struct stat sb; if (fstatat(fd, de->d_name, &sb, AT_SYMLINK_NOFOLLOW) == 0) dt = S_ISDIR(sb.st_mode) ? 4 : S_ISREG(sb.st_mode) ? 8 : 0; }
+            out[off + 18] = dt; memcpy(out + off + 19, de->d_name, nlen + 1); off += reclen;
+        }
+        return (long)off;
+    }
+    case 228: return (long)clock_gettime(a[1] == 1 ? CLOCK_MONOTONIC : CLOCK_REALTIME, (struct timespec *)(uintptr_t)a[2]);
+    case 231: _exit((int)a[1]); return 0;
+    case 257: return (long)openat((int64_t)a[1] == -100 ? AT_FDCWD : (int)a[1], (const char *)(uintptr_t)a[2], hy_apple_oflags(a[3]), (mode_t)a[4]);
+    case 262: { struct stat sb; if (fstatat((int64_t)a[1] == -100 ? AT_FDCWD : (int)a[1], (const char *)(uintptr_t)a[2], &sb, (a[4] & 0x100u) ? AT_SYMLINK_NOFOLLOW : 0) != 0) return -1; hy_apple_stat_fill((uint8_t *)(uintptr_t)a[3], &sb); return 0; }
+    case 293: { int pfd[2]; if (pipe(pfd) != 0) return -1; if (a[2] & 524288u) { fcntl(pfd[0], F_SETFD, FD_CLOEXEC); fcntl(pfd[1], F_SETFD, FD_CLOEXEC); } *(uint64_t *)(uintptr_t)a[1] = (uint64_t)(uint32_t)pfd[0] | ((uint64_t)(uint32_t)pfd[1] << 32); return 0; }
+    default: errno = ENOSYS; return -1;
+    }
+}
+#else
 /* unistd.h's link(2) clashes with the net's link(): the two system calls are declared here */
 extern long read(int, void *, unsigned long);
 extern long write(int, const void *, unsigned long);
 extern int open(const char *, int, ...);
 extern int close(int);
 extern long syscall(long, ...);
+#endif
 /* a value the driver cannot read, with the condition said as it is rather than as a shape
  * complaint. Three conditions, and they are different statements: a port with no value at all is a
  * term the net did not reduce; a global whose copy is 0 is an input this run was not given
@@ -163,11 +278,18 @@ static void drivers_run(Node *t) {
             uint64_t fl = drv_word(cm->port[3], "w-open's flags"), md = drv_word(cm->port[4], "w-open's mode");
             size_t len = b ? b->n : 0; if (n < len) len = (size_t)n;
             char *path = malloc(len + 1); memcpy(path, b ? (const char *)b->b : "", len); path[len] = 0;
+            #ifdef __APPLE__
+            int fd = open(path, hy_apple_oflags(fl), (mode_t)md);
+#else
             int fd = open(path, (int)fl, (int)md);
+#endif
             free(path);
             resp = drv_word_of((uint64_t)(int64_t)fd);
         } else if (c == c_close) {
             uint64_t fd = drv_word(cm->port[1], "w-close's descriptor");
+            #ifdef __APPLE__
+            hy_dir_close((int)fd);
+#endif
             resp = drv_word_of((uint64_t)(int64_t)close((int)fd));
         } else if (c == c_load) {
             uint64_t a = drv_word(cm->port[1], "w-load's address");
@@ -189,7 +311,11 @@ static void drivers_run(Node *t) {
             for (int i = 0; i < 7; i++) a[i] = drv_word(cm->port[1 + i], "w-sys's number and arguments");
             fflush(stdout);
             errno = 0;
+            #ifdef __APPLE__
+            long r = hy_apple_sys(a);
+#else
             long r = syscall((long)a[0], a[1], a[2], a[3], a[4], a[5], a[6]);
+#endif
             resp = drv_word_of(r == -1 && errno ? (uint64_t)-(int64_t)errno : (uint64_t)r);
         } else if (c == c_alloc) {
             uint64_t n = drv_word(cm->port[1], "w-alloc's size");
@@ -222,7 +348,22 @@ static void drivers_run(Node *t) {
             if ((int64_t)out >= 0) { posix_spawn_file_actions_adddup2(&fa, (int)out, 1); posix_spawn_file_actions_adddup2(&fa, (int)out, 2); }
             char **argv = (char **)(uintptr_t)av; pid_t pid = 0;
             fflush(stdout);
+            #ifdef __APPLE__
+            char **mac_av = NULL;
+            if (argv && argv[0] && !strcmp(argv[0], "/usr/bin/env") && argv[1]) {
+                if (!strcmp(argv[1], "sha256sum") && argv[2] && !argv[3]) {
+                    mac_av = calloc(5, sizeof(char *)); mac_av[0] = "/usr/bin/shasum"; mac_av[1] = "-a"; mac_av[2] = "256"; mac_av[3] = argv[2]; argv = mac_av;
+                } else if (!strcmp(argv[1], "tar")) {
+                    size_t ac = 0; while (argv[ac]) ac++; mac_av = calloc(ac + 1, sizeof(char *));
+                    for (size_t i = 0; i < ac; i++) mac_av[i] = !strcmp(argv[i], "--skip-old-files") ? "-k" : argv[i];
+                    argv = mac_av;
+                }
+            }
             int e = posix_spawn(&pid, argv[0], &fa, NULL, argv, (char **)(uintptr_t)ev);
+            free(mac_av);
+#else
+            int e = posix_spawn(&pid, argv[0], &fa, NULL, argv, (char **)(uintptr_t)ev);
+#endif
             posix_spawn_file_actions_destroy(&fa);
             resp = drv_word_of(e ? (uint64_t)-(int64_t)e : (uint64_t)pid);
         } else if (c == c_fdwrite) {
@@ -243,11 +384,17 @@ static void drivers_run(Node *t) {
             free(b); resp = drv_word_of((uint64_t)w);
         } else if (c == c_freadn) {
             char *path = drv_path_of(cm->port[1], "w-file-read-named's name");
-            FILE *f = fopen(path, "rb");
-            free(path);
             uint64_t st = 0; unsigned char *b = NULL; size_t n = 0, cap = 0;
-            if (!f) st = (uint64_t)-(int64_t)errno;
-            else { size_t k; do { if (n + 65536 > cap) { cap = (n + 65536) * 2; b = realloc(b, cap); } k = fread(b + n, 1, 65536, f); n += k; } while (k > 0); fclose(f); }
+#ifdef __APPLE__
+            if (!strcmp(path, "/proc/self/cmdline")) {
+                for (int i = 0; i < hy_main_argc; i++) { size_t l = strlen(hy_main_argv[i]) + 1; if (n + l > cap) { cap = (n + l) * 2 + 4096; b = realloc(b, cap); } memcpy(b + n, hy_main_argv[i], l); n += l; }
+                free(path);
+            } else if (!strcmp(path, "/proc/self/environ")) {
+                for (char **ep = environ; ep && *ep; ep++) { size_t l = strlen(*ep) + 1; if (n + l > cap) { cap = (n + l) * 2 + 4096; b = realloc(b, cap); } memcpy(b + n, *ep, l); n += l; }
+                free(path);
+            } else
+#endif
+            { FILE *f = fopen(path, "rb"); free(path); if (!f) st = (uint64_t)-(int64_t)errno; else { size_t k; do { if (n + 65536 > cap) { cap = (n + 65536) * 2; b = realloc(b, cap); } k = fread(b + n, 1, 65536, f); n += k; } while (k > 0); fclose(f); } }
             Bytes *tb = malloc(sizeof(Bytes) + n); tb->rc = 1; tb->n = n; if (n) memcpy(tb->b, b, n);
             free(b);
             Cell *tc = cell(V_TEXT, 1); tc->p = tb; tc->a = 0;

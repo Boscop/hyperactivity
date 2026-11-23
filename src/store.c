@@ -352,7 +352,7 @@ static Sha256 lib_hash; static bool lib_hash_on;
 static void lib_mix(const char *text) { if (!lib_hash_on) { sha256_init(&lib_hash); lib_hash_on = true; } sha256_update(&lib_hash, text, strlen(text)); }
 static void chk_salt_set(void) {
     Sha256 h = lib_hash; unsigned char d[32]; if (!lib_hash_on) sha256_init(&h);
-    FILE *f = fopen("/proc/self/exe", "rb"); bool mixed = false;
+    FILE *f = fopen(self_exe(), "rb"); bool mixed = false;
     if (f) { char buf[65536]; size_t n; while ((n = fread(buf, 1, sizeof buf, f)) > 0) { sha256_update(&h, buf, n); mixed = true; } fclose(f); }
     if (!mixed) { const char *bt = __DATE__ " " __TIME__; sha256_update(&h, bt, strlen(bt)); }
     sha256_final(&h, d); sha256_hex(d, chk_salt);
