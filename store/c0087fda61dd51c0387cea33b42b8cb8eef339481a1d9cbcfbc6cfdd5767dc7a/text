@@ -1,0 +1,29 @@
+-- ============================================================================
+-- 1. Pauli–Dirac Clifford Algebra: (p · σ)² = (p_x² + p_y² + p_z²) I₂
+-- ============================================================================
+-- Representing complex 2×2 matrix entries (a + i b) over a commutative ring:
+--   p · σ = [[pz, px - i py], [px + i py, -pz]].
+-- Computing all 4 entries of (p · σ)²:
+--   (1,1) = pz² + (px - i py)(px + i py) = px² + py² + pz²  (real), imag = 0
+--   (1,2) = pz(px - i py) + (px - i py)(-pz) = 0
+--   (2,1) = (px + i py)pz + (-pz)(px + i py) = 0
+--   (2,2) = (px + i py)(px - i py) + (-pz)² = px² + py² + pz².
+-- Variables (0..2): px, py, pz.
+phys-pauli-sq-poly : (A : Type) → (A → A → A) → (A → A → A) → (BQ → A) → List A → A × A
+phys-pauli-sq-poly A ad mu q vs =
+  (λ g sub sq →
+    let z = q (fn-q 0 1)
+        px = g 0; py = g 1; pz = g 2
+        -- Real part of (px - i py)(px + i py) = px·px - (-py)·py = px² + py²
+        c11-re = ad (sq pz) (sub (mu px px) (mu (sub z py) py))
+        -- Imag part of (px - i py)(px + i py) = px·py + (-py)·px = 0
+        c11-im = ad (mu px py) (mu (sub z py) px)
+        -- Off-diagonal (1,2) real & imag: pz·px + px·(-pz), pz·(-py) + (-py)·(-pz)
+        c12-re = ad (mu pz px) (mu px (sub z pz))
+        c12-im = ad (mu pz (sub z py)) (mu (sub z py) (sub z pz))
+        p2 = ad (ad (sq px) (sq py)) (sq pz)
+        -- Pack into a single polynomial test via independent check:
+        -- c11-re = p2, and c11-im = c12-re = c12-im = 0.
+        lhs = ad (sub c11-re p2) (ad (sq c11-im) (ad (sq c12-re) (sq c12-im)))
+    in (lhs , z))
+  (λ n → al-nth A (q (fn-q 0 1)) n vs) (al-gsub A ad mu q) (al-gsq A mu)

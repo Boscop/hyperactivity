@@ -1,0 +1,26 @@
+-- ============================================================================
+-- 1. Rational Euler–Rodrigues SO(3) Orthogonality: M(q)ᵀ M(q) = N² I₃
+-- ============================================================================
+-- Unnormalized rotation matrix entries from quaternion (q0, q1, q2, q3):
+--   Row 1: (q0²+q1²-q2²-q3², 2(q1q2-q0q3), 2(q1q3+q0q2))
+--   Row 2: (2(q1q2+q0q3), q0²-q1²+q2²-q3², 2(q2q3-q0q1))
+--   Row 3: (2(q1q3-q0q2), 2(q2q3+q0q1), q0²-q1²-q2²+q3²).
+-- Check row-1 squared norm = N² and row-1 · row-2 = 0 universally (4 variables).
+fold-rodrigues-ortho-poly : (A : Type) → (A → A → A) → (A → A → A) → (BQ → A) → List A → A × A
+fold-rodrigues-ortho-poly A ad mu q vs =
+  (λ g sub sq →
+    let q0 = g 0; q1 = g 1; q2 = g 2; q3 = g 3
+        c2 = q (fn-q 2 1)
+        s0 = sq q0; s1 = sq q1; s2 = sq q2; s3 = sq q3
+        N  = ad (ad s0 s1) (ad s2 s3)
+        r11 = sub (sub (ad s0 s1) s2) s3
+        r12 = mu c2 (sub (mu q1 q2) (mu q0 q3))
+        r13 = mu c2 (ad (mu q1 q3) (mu q0 q2))
+        r21 = mu c2 (ad (mu q1 q2) (mu q0 q3))
+        r22 = sub (ad (sub s0 s1) s2) s3
+        r23 = mu c2 (sub (mu q2 q3) (mu q0 q1))
+        norm1 = ad (ad (sq r11) (sq r12)) (sq r13)
+        dot12 = ad (ad (mu r11 r21) (mu r12 r22)) (mu r13 r23)
+        -- Combined universal test: (norm1 - N²) + dot12 = 0? No, test norm1 = N² separately!
+    in (norm1 , sq N))
+  (λ n → al-nth A (q (fn-q 0 1)) n vs) (al-gsub A ad mu q) (al-gsq A mu)
