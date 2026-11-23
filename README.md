@@ -27,6 +27,7 @@
   <a href="https://hyperactivity.ai/physics"><code>/physics</code></a> ·
   <a href="https://hyperactivity.ai/compression"><code>/compression</code></a> ·
   <a href="https://hyperactivity.ai/silicon"><code>/silicon</code></a> ·
+  <a href="https://hyperactivity.ai/hyperfactor"><code>/hyperfactor</code></a> ·
   <a href="https://hyperactivity.ai/chip-design"><code>/chip-design</code></a> ·
   <a href="https://hyperactivity.ai/pdf">Monograph (PDF)</a> ·
   <a href="LICENSE">License</a>
@@ -49,6 +50,7 @@ Everything in this document is live, self-hosted, and executable. You can enter 
   - [**`hyperactivity.ai/physics`**](https://hyperactivity.ai/physics) — Relational Quantum Mechanics, $SU(2)$ spin networks, Loop Quantum Cosmology Big Bounce, relativistic Dirac atoms ($Z \le 137$), superconductivity, zero-float quantum chemistry, peptide kinematics, and bioelectric morphogenesis.
   - [**`hyperactivity.ai/compression`**](https://hyperactivity.ai/compression) — Zero-search causal context-fiber rANS compression with exact `refl` benchmarks vs `deflate -9`, `gzip -9`, `bzip2 -9`, and `lzma`.
   - [**`hyperactivity.ai/silicon`**](https://hyperactivity.ai/silicon) ([paper: `/chip-design`](https://hyperactivity.ai/chip-design)) — Cycle-accurate 16-tile `HyperNet-16` (`4×4`) vs. pipelined RISC-V simulator (`69.0×` fewer cycles / `43.0×` faster 7nm latency on `5-Queens`), official 128-bit EPFL SkyWater 130nm synthesis (`-50.1%` cells on `bar`, `13.0×` faster `adder`), Tiny Tapeout Sky130 `tt_um_hyperinet`, and `18,664,712`-polygon Calma GDSII v6.0 die inspector.
+  - [**`hyperactivity.ai/hyperfactor`**](https://hyperactivity.ai/hyperfactor) — Unified four-law contraction across 1-pass `FlashAttention` (`119,837×` less workspace), zero-tape reversible AD (`64×` less memory), `6,342`-gate 7nm CMOS `.hypercubical` boot, `93.75%`-pruned de novo receptor binder synthesis, and a `15 KB` bare-metal x86-64 Ring-0 unikernel (`HyperOS`, `551×` lower call overhead vs. Linux syscalls).
   - [**`hyperactivity.ai/learn`**](https://hyperactivity.ai/learn) — Ground-up interactive textbook on interaction nets with live inline programs.
 
 ### On Your Machine (Requires `gcc` or `clang` and `make`)
@@ -331,7 +333,7 @@ This enforces the exact three-way distinction that 1970s computing collapses:
 
 Computing **Brunerie's number** $\beta$ — the generator of the fourth homotopy group of the 3-sphere $\pi_4(S^3) \cong \mathbb{Z}/\beta\mathbb{Z}$, whose value is $\pm 2$ (Brunerie, 2016) — is the canonical stress test of cubical evaluators because it exercises nested higher inductive types ($S^1, S^2, S^3$, join, smash product, James construction), deep multi-dimensional Kan compositions, and Glue/univalence transport simultaneously.
 
-Hyperactivity computes Ljungström's typed port (`experiments/brunerie/typed.cub`) directly to normal form `negsuc (suc zero)` ($-2$) in both single-worker and 4-worker parallel runs:
+Hyperactivity computes Ljungström's typed port (`experiments/brunerie/typed.hypercubical`) directly to normal form `negsuc (suc zero)` ($-2$) in both single-worker and 4-worker parallel runs:
 
 ```sh
 make brunerie
@@ -825,7 +827,7 @@ phys-bdg-dispersion-id = λ i → true
 
 ### Build, Inspect & Run Locally
 
-Both `.hypercubical` and `.cub` extensions resolve bidirectionally across `src/syntax.c`, `src/lang.c`, `lib/guard.hypercubical`, and `/api/kg/module`:
+Every module in the content-addressed store resolves canonically under `.hypercubical` across `src/syntax.c`, `src/lang.c`, `lib/guard.hypercubical`, and `/api/kg/module`:
 
 ```sh
 # Build the C11 kernel (requires gcc or clang and make)
@@ -863,7 +865,7 @@ make brunerie
 | --- | ---: | --- |
 | [`src/core.h`](src/core.h) | 473 | Cell/port/wire enums (`V_*`, `O_*`), `Dnf`/`Clause`/`Subst`, `WN` bignum, lock-free/solo refcount primitives |
 | [`src/net.c`](src/net.c) | 3,802 | Lock-free interaction-net evaluator, active-pair rewrite rules, `V_REF`/`V_THUNK`/`V_DEFER` optimal sharing, worker pool |
-| [`src/lang.c`](src/lang.c) | 5,459 | Cubical elaborator, `CaseTab` compiler, `#jit`/`#build` native bridge, module loader (`.hypercubical` $\leftrightarrow$ `.cub`) |
+| [`src/lang.c`](src/lang.c) | 5,459 | Cubical elaborator, `CaseTab` compiler, `#jit`/`#build` native bridge, module loader (`.hypercubical`) |
 | [`src/syntax.c`](src/syntax.c) | 6,928 | Parser, pretty-printer, bidirectional store source reader, interactive loop |
 | [`src/store.c`](src/store.c) | 750 | Immutable SHA-256 content-addressed store, 256-way sharded `names` tree, pool sync |
 | [`src/dnf.c`](src/dnf.c) | 378 | Canonical De Morgan interval & face-lattice DNF normalization and substitution |

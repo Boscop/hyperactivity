@@ -5128,15 +5128,15 @@ static void session_client(int argc, char **argv) {
         posix_spawn_file_actions_addopen(&fa, 0, "/dev/null", 0, 0);
         posix_spawn_file_actions_addopen(&fa, 1, "/dev/null", 1, 0);
         posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", 1, 0);
-        char *sv[] = { "build/cubical", "lib/hyperactive.cub", "--session", NULL };
+        char *sv[] = { "build/cubical", "lib/hyperactive.hypercubical", "--session", NULL };
         posix_spawn(&pid, self_exe(), &fa, NULL, sv, environ);
         posix_spawn_file_actions_destroy(&fa);
         return;
     }
-    size_t n = strlen("build/cubical") + 1 + strlen("lib/hyperactive.cub") + 1;
+    size_t n = strlen("build/cubical") + 1 + strlen("lib/hyperactive.hypercubical") + 1;
     for (int i = 1; i < argc; i++) n += strlen(argv[i]) + 1;
     char *b = malloc(n), *p = b;
-    p = stpcpy(p, "build/cubical") + 1; p = stpcpy(p, "lib/hyperactive.cub") + 1;
+    p = stpcpy(p, "build/cubical") + 1; p = stpcpy(p, "lib/hyperactive.hypercubical") + 1;
     for (int i = 1; i < argc; i++) p = stpcpy(p, argv[i]) + 1;
     uint64_t len = n; int fds[3] = { 0, 1, 2 };
     char cb[CMSG_SPACE(3 * sizeof(int))]; memset(cb, 0, sizeof cb);
@@ -5218,7 +5218,7 @@ int main(int argc, char **argv)
     hy_main_argc = argc; hy_main_argv = argv;
     {
         const char *b = strrchr(argv[0], '/'); b = b ? b + 1 : argv[0];
-        const char *prog = !strcmp(b, "hyperactive") ? "lib/hyperactive.cub" : !strcmp(b, "pre-commit") ? "lib/guard.cub" : NULL;
+        const char *prog = !strcmp(b, "hyperactive") ? "lib/hyperactive.hypercubical" : !strcmp(b, "pre-commit") ? "lib/guard.hypercubical" : NULL;
         if (prog) {
             if (!strcmp(b, "hyperactive") && argc >= 3 && !strcmp(argv[1], "take") && getenv("HYPERACTIVE_PLACE")) { struct stat ps; struct stat ps2; if (stat("store/ROOT/root", &ps) != 0 && stat(".cubical-store/index/meta/root", &ps2) != 0) place_first(getenv("HYPERACTIVE_PLACE"), argv[2]); }
             if (!strcmp(b, "hyperactive")) session_client(argc, argv);   /* returns when it ran nothing */
@@ -5281,12 +5281,13 @@ int main(int argc, char **argv)
                 while ((k = fread(b + n, 1, cap - n - 1, f)) > 0) { n += k; if (cap - n < 2) { cap *= 2; b = realloc(b, cap); } }
                 fclose(f); b[n] = 0;
             } else { char *r0 = w_rel(from); b = src_text(r0, &n); free(r0); if (!b) die("cannot open", from); }
-            if (strlen(b) != n) { fprintf(stderr, "not recorded (it holds a zero byte): %s\n", from); free(b); if (rec) break; continue; }
+            if (rec && j + 1 >= argc) break;
+            if (strlen(b) != n) { fprintf(stderr, "not recorded (it holds a zero byte): %s\n", from); free(b); continue; }
             char *rel = w_rel(argv[j]); char *ab = abs_of(rel);
             record_source(b, ab);
             free(ab); free(rel); free(b);
-            if (rec) break;
         }
+        if (rec) idx_unlock();
         fflush(stdout); _Exit(0);
     }
     /* this machine's labels and the pool (src/syntax.c): `--head PATH` gives the module the path holds
@@ -5305,9 +5306,13 @@ int main(int argc, char **argv)
             idx_unlock(); fflush(stdout); _Exit(0);
         }
         if (!strcmp(argv[i], "--unrecord") && i + 1 < argc) {
-            char *rel = w_rel(argv[i + 1]); idx_lock(); index_sync(); w_forget(rel, "", "");
-            SBuf hx = {0}; w_hex(&hx, rel); if (hx.b && hx.n <= 250) { idx_remove("modules", hx.b); idx_remove("names-of", hx.b); }
-            idx_unlock(); free(hx.b); free(rel); fflush(stdout); _Exit(0);
+            idx_lock(); index_sync();
+            for (int j = i + 1; j < argc; j++) {
+                char *rel = w_rel(argv[j]); w_forget(rel, "", "");
+                SBuf hx = {0}; w_hex(&hx, rel); if (hx.b && hx.n <= 250) { idx_remove("modules", hx.b); idx_remove("names-of", hx.b); }
+                free(hx.b); free(rel);
+            }
+            idx_unlock(); fflush(stdout); _Exit(0);
         }
         if (!strcmp(argv[i], "--drop-view")) {
             /* what the removed layer left in the pool and in the labels: the entries, the versions
