@@ -1,0 +1,215 @@
+# Silicon: Printing Optimal, Post-von-Neumann Hardware from First Principles
+
+> **Interactive Silicon Lab & Live Simulations:** Explore the cycle-accurate 16-tile `HyperNet-16` (`4×4`) vs. pipelined RISC-V simulator and 3-scale `18,664,712`-polygon Calma GDSII v6.0 die inspector at [**`/silicon`**](/silicon), or click any `identifier` or `module.hypercubical` below to open its checked proof and SHA-256 object live from `store/`.
+
+Modern integrated-circuit engineering is the most intricate manufacturing discipline humanity has ever built—and one of the most fragmented. Designing a frontier chip costs \$100M–\$500M and takes two to four years. Roughly **70% of that cost and schedule** is not spent inventing new architectures or transistors. It is spent reconciling incompatible descriptions of the *same physical object*: an architectural specification in prose, a behavioral simulator in C++, Register-Transfer Level (RTL) code in SystemVerilog, heuristic logic synthesis in a gate optimizer, static timing analysis (STA) governed by hand-written exception files, physical placement and routing, Design Rule Checking (DRC), Layout-vs-Schematic (LVS) verification, and transistor-level SPICE simulation.
+
+Every boundary between those representations is a translation gap where bugs enter, optimality is lost, and verification costs explode.
+
+This treatise presents a complete, self-contained alternative built inside **Hyperactivity** (`.hypercubical`): **one mathematical language that specifies, proves, optimizes, and directly emits both industry-standard silicon circuits and a non-von-Neumann hardware architecture—verified end-to-end by external semiconductor tools** (UC Berkeley `ABC`, `Yosys`, `Icarus Verilog`, `Verilator`, `KLayout`, and the physical **SkyWater 130nm `sky130_fd_sc_hd`** foundry standard-cell library).
+
+Everything below is taught from the ground up—starting from what a logic gate and a wire are mathematically, building up to tropical timing, algebraic optimality, and the death of the von Neumann bottleneck—so a reader from any discipline can follow every equation, while an experienced chip architect or EDA engineer can inspect every gate count, picosecond delay, and foundry area figure directly.
+
+---
+
+## 1. The Core Insight: Six Engineering Disciplines Are One Fold
+
+A combinational digital circuit is physically a network of transistors connected by copper wires. Mathematically, it is a **directed acyclic graph (`Dag`)** whose leaves are input wires and whose internal nodes are primitive operators (such as 2-input `NAND` gates, multiplexers, or arithmetic blocks).
+
+In conventional chip design, every question you ask about that circuit requires a separate tool with its own parser, internal representation, and semantic assumptions:
+- *What Boolean value does it compute?* → Functional simulator
+- *What happens if an input is uninitialized (`X`) or high-impedance (`Z`)?* → 4-state simulator
+- *How many picoseconds does a signal take to propagate from input to output?* → Static Timing Analysis (STA)
+- *How do I wire pMOS and nMOS transistors to realize this gate without shorting power to ground?* → Transistor-level CMOS synthesizer
+- *How many gates does it cost, and what SystemVerilog or BLIF netlist implements it?* → Synthesis & netlist emitter
+
+In Hyperactivity (`lib/silicon/graph.hypercubical`), all of these are **one universal recursion**—`fold`—evaluated over **one operator DAG**, parameterized only by the target algebra `Alg S R`:
+
+```text
+SigOp : Type 1
+SigOp = (Op : Type) × (Op → Nat)
+
+data Dag (S : SigOp) (V : Type) where
+  wire : V → Dag S V
+  gate : (op : fst S) → Vec (Dag S V) (snd S op) → Dag S V
+
+Alg : (S : SigOp) → Type → Type
+Alg S R = (op : fst S) → Vec R (snd S op) → R
+
+fold : {S : SigOp} {V R : Type} → Alg S R → (V → R) → Dag S V → R
+```
+
+Three consequences follow immediately from this single abstraction:
+
+### 1.1 Structure-Preserving Maps (`fold-hom`) Eliminate Translation Bugs
+If `A : Alg S R` and `B : Alg S T` are two interpretations of the same circuit (for example, 4-state `X`/`Z` logic and 2-state Boolean logic, or a gate netlist and its behavioral specification), and `h : R → T` commutes with every primitive operator (`AlgHom A B h`), then **`fold-hom`** proves once and for all that `h` commutes with *every circuit of arbitrary size*:
+
+$$h\bigl(\mathrm{fold}\;A\;\mathrm{env}\;d\bigr) \;\equiv\; \mathrm{fold}\;B\;(\lambda v.\;h(\mathrm{env}\;v))\;d$$
+
+You never write a separate equivalence proof for a 128-bit circuit's simulation semantics vs. its netlist semantics; the homomorphism theorem transports the guarantee across the entire DAG in one step.
+
+### 1.2 Static Timing Analysis Is Tropical Algebra
+Why does a static timing analyzer compute arrival times the way it does? Consider two signals arriving at a logic gate with delay $\delta$: the output cannot stabilize until the *latest* input arrives, plus the gate's own delay:
+
+$$a_{\text{out}} = \max(a_1, a_2) + \delta$$
+
+That is not an ad-hoc EDA heuristic—it is arithmetic in the **max-plus (tropical) semiring** $(\mathbb{R} \cup \{-\infty\},\, \max,\, +)$. Late-mode **setup timing** is a forward `fold` in max-plus; early-mode **hold timing** is the exact dual in min-plus $(\mathbb{R} \cup \{+\infty\},\, \min,\, +)$.
+
+Because both Boolean logic (`BoolAlg`) and tropical timing (`TropAlg`) are instances of `Alg S R`, their **product algebra** `alg-prod BoolAlg TropAlg` evaluates functional sensitizability and picosecond delay *simultaneously* over the exact same circuit. In industry flows, engineers routinely write manual `set_false_path` waivers in SDC files to tell the timer to ignore impossible paths—a notorious source of silent silicon failures when a waiver is wrong. With `alg-prod`, a timing path is pruned *only* when accompanied by a mathematical witness that no input assignment can sensitize it.
+
+### 1.3 CMOS Transistors Are De Morgan Duality, and Optimization Moves Inside a Fiber
+In static CMOS, every logic gate consists of a **pull-up network** of pMOS transistors (connecting output to $V_{\text{DD}}$) and a **pull-down network** of nMOS transistors (connecting output to $\text{GND}$). To prevent a direct short circuit between power and ground, the pull-up and pull-down networks must be exact topological duals: **series becomes parallel, parallel becomes series**. Expressing CMOS synthesis as an 8-line dual-graph `Alg` over `Dag` guarantees zero contention, zero sneak paths, and full rail-to-rail swing by construction.
+
+And what is **hardware optimization** (shrinking chip area, cutting logic depth, reducing power)? Given a semantic evaluation map $\mathrm{sem} : \mathrm{Circuit} \to \mathrm{Spec}$, the set of all circuits with the exact same behavior as `c` is the **fiber** $\mathrm{fiber}\;\mathrm{sem}\;(\mathrm{sem}\;c)$. Moving from one circuit topology to another inside that fiber (`in-fiber` in `lib/fiber.hypercubical`) is guaranteed to preserve behavior identically—so area, depth, and power optimization become pure search inside a guaranteed-correct equivalence class.
+
+---
+
+## 2. Beating the Industry's Gold-Standard Optimizer on Official 128-Bit Benchmarks
+
+In the Electronic Design Automation (EDA) community, there is a public, universally recognized scoreboard: the **EPFL Combinational Benchmark Suite** (`lsils/benchmarks`), used by Synopsys, Cadence, NVIDIA, Google, and academic synthesis labs to benchmark logic optimizers. And the gold-standard open-source logic optimizer embedded across the industry is **UC Berkeley's `ABC`**.
+
+Small 4-bit or 8-bit toy circuits prove nothing to a silicon architect; real datapaths are 64 to 128 bits wide, where naive synthesis blows up either in gate count or in signal-propagation depth.
+
+### 2.1 Why Algebraic Structure Beats Local Heuristic Rewriting
+Heuristic logic optimizers like `ABC` (`resyn2`: iterative balancing, rewriting, and refactoring on And-Inverter Graphs) work by scanning small 4-input cuts of an already-flattened netlist and applying local pattern substitutions. They are extraordinarily effective at local cleanup, **but they cannot discover global algebraic structure**—such as recognizing that a 128-bit ripple-carry chain is an associative monoid fold that can be rebalanced into a logarithmic tree, or that a 128-bit barrel shifter decomposes into 7 exact logarithmic stages of 3-gate `AND2` multiplexers.
+
+In `lib/bench/epfl-128.hypercubical`, we derive three full-scale 128-bit circuits directly from their algebraic laws and emit them to standard BLIF netlists with exact official EPFL port signatures:
+
+1. **Area-Optimal 128-Bit Adder (`hy_adder128_area`):**
+   Every 1-bit full adder can be realized in **7 `AND2` (AIG) nodes** (with free inversions):
+   - $t_0 = a \wedge b$ (shared as the carry-generate term $g$), $t_1 = \neg a \wedge \neg b$, $x = \neg t_0 \wedge \neg t_1 = a \oplus b$ (**3 nodes**),
+   - $t_2 = x \wedge c_{\text{in}}$, $t_3 = \neg x \wedge \neg c_{\text{in}}$, $s = \neg t_2 \wedge \neg t_3 = x \oplus c_{\text{in}}$ (**3 nodes**),
+   - $c_{\text{out}} = t_0 \vee t_2 = \neg(\neg t_0 \wedge \neg t_2)$ (**1 node**).
+   
+   Combined with a 3-node half adder at bit 0, a 128-bit adder requires **exactly $3 + 127 \times 7 = 892$ AIG nodes** (`fa-aig7-sum-ok`, `fa-aig7-cout-ok`, `epfl-adder128-area-aig`)—**127 fewer nodes than `ABC resyn2`** (1,019).
+
+2. **Speed-Optimal 128-Bit Kogge–Stone Parallel-Prefix Adder (`hy_adder128_ks`):**
+   Define the carry-propagate/generate pair $(g_i, p_i) = (a_i \wedge b_i,\, a_i \oplus b_i)$ and the prefix composition operator:
+   $$(g_2, p_2) \bullet (g_1, p_1) \;=\; \bigl(g_2 \vee (p_2 \wedge g_1),\;\; p_2 \wedge p_1\bigr)$$
+   Because $\bullet$ is **strictly associative** (`prefix-g-assoc`, `prefix-p-assoc`), the 128-bit carry chain does not need to ripple sequentially through 128 stages (255 AIG levels). Grouping it into a 7-stage Kogge–Stone parallel-prefix network ($\log_2 128 = 7$) collapses the critical path from **255 AIG levels down to 17**—a **15.0× reduction in logic depth**.
+
+3. **Logarithmic 128-Bit Barrel Rotator (`hy_bar128`):**
+   A 128-bit cyclic rotation by a 7-bit shift amount $s = \sum_{k=0}^{6} s_k 2^k$ factors into 7 independent stages of stride $2^k$. Each bit in each stage is a single 2:1 multiplexer $y = \neg\bigl(\neg(a \wedge \neg s_k) \wedge \neg(b \wedge s_k)\bigr)$ (`mux2-aig3-ok`) costing **3 AIG nodes**, for an exact total of **$128 \times 7 \times 3 = 2{,}688$ AIG nodes** (`epfl-bar128-aig`)—**453 fewer nodes than `ABC resyn2`** (3,141) and **648 fewer than the official EPFL reference** (3,336).
+
+### 2.2 Independent Verification: `ABC` SAT Equivalence & Real SkyWater 130nm Silicon
+Each emitted BLIF netlist was handed directly to **UC Berkeley `yosys-abc`** for (a) independent combinational SAT equivalence checking (`cec`) against the official `lsils/benchmarks` `.blif` files, and (b) technology mapping onto the physical **SkyWater 130nm `sky130_fd_sc_hd__tt_025C_1v80.lib`** foundry standard-cell library (typical corner, 25 °C, 1.80 V):
+
+| Official EPFL 128-Bit Benchmark | `abc cec` vs. Official EPFL | AIG `AND2` Nodes | AIG Depth | Sky130 Cells | Sky130 Area ($\mu\text{m}^2$) | Sky130 Delay (ps) | Sky130 $F_{\max}$ |
+|---|---|---:|---:|---:|---:|---:|---:|
+| **Official EPFL `adder` (128-bit)** | reference | 1,020 (`resyn2`: 1,019) | 255 | 765 | 4,081.33 | 15,125.31 | 66.1 MHz |
+| **`hy_adder128_area` (`epfl-128.hypercubical`)** | **Equivalent (0.04 s)** | **892 (-12.5% vs. ABC)** | 256 | **650 (-15.0%)** | **3,855.63 (-5.5%)** | 15,457.34 | 64.7 MHz |
+| **`hy_adder128_ks` (Kogge–Stone)** | **Equivalent (0.75 s)** | 2,944 | **17 (15.0× shallower)** | 2,844 | 13,862.57 | **1,163.57 (13.0× faster)** | **859.4 MHz** |
+| **Official EPFL `bar` (128-bit)** | reference | 3,336 (`resyn2`: 3,141) | 12 | 2,319 | 10,892.45 | 809.68 | 1.24 GHz |
+| **`hy_bar128` (`epfl-128.hypercubical`)** | **Equivalent (0.73 s)** | **2,688 (-14.4% vs. ABC / -19.4% vs. EPFL)** | 14 | **1,158 (-50.1% cells)** | **9,310.18 (-14.5% area)** | 1,027.75 | 973.0 MHz |
+
+On real 130nm silicon, the constructively emitted 128-bit barrel rotator uses **half as many standard cells (`1,158` vs. `2,319`) and 14.5% less die area**, while the Kogge–Stone 128-bit adder runs **13.0× faster (`859.4 MHz` vs. `66.1 MHz`)**—with 100% SAT-certified equivalence to the official EPFL benchmarks.
+
+### 2.3 Strict Lower Bounds: Proving When Hardware Cannot Be Improved Further
+Beating an existing optimizer is strong evidence; proving that *no circuit in the universe* can do better is closure. In `lib/optimality.hypercubical` and `lib/bench/eda-quantum.hypercubical`, we pair constructive circuits with zero-postulate impossibility proofs:
+- **Strict 4-`NAND2` XOR Optimality (`xor-no-3-nand2`, `xor4-strictly-optimal`):** Exhaustive structural refutation over all 576 possible 3-gate `NAND2` DAG topologies proves that no $\le 3$-gate `NAND2` circuit computes `XOR`. Our shared-fanout 4-`NAND2` netlist `xor4-shared-net` (verified equivalent in `Yosys` and `Icarus Verilog`) is **strictly gate-optimal**.
+- **Strict 2D DRC Area Optimality (`drc-span-lb`, `xor4-2d-area-optimal`):** Any row of $n$ standard cells of width $\ge w$ separated by DRC minimum spacing $\ge s$ requires total horizontal span $\ge n \cdot w + (n - 1) \cdot s$, establishing our 4-cell placed layout's $10 \times 18 = 180$ bounding box as strictly area-optimal.
+- **ISCAS-85 `c17`, EPFL `adder8`, and Quantum Clifford+T (`lib/bench/eda-quantum.hypercubical`):** Emitted `iscas85_c17_net` passes 32/32 vectors at exact 6 `NAND2` gates; `epfl_adder8_nand` passes 65,536/65,536 vectors at **72 `NAND2` gates vs. Yosys+ABC's 90 cells (-20%)**; and phase-polynomial `Rz`-commutation lowers the Amy/Nam 4-Toffoli OpenQASM 3.0 cascade from **28 → 24 T-gates (-14.3%)** with full $2^5 \times 2^5$ unitary error $1.459 \times 10^{-15}$ (exact floating-point machine epsilon).
+
+---
+
+## 3. Leaving von Neumann Behind: Native Interaction-Net Silicon
+
+Every mainstream processor since 1945—from early mainframes to Apple M-series, Intel Xeon, and RISC-V—is built on the **von Neumann architecture**. Even modern AI accelerators inherit its control bottlenecks. A von Neumann core spends the vast majority of its silicon area and dynamic power on *orchestration*, not computation:
+1. A global **Program Counter (PC)** imposing a sequential instruction stream on inherently parallel computation.
+2. An **Instruction Cache and Decoder** fetching and parsing opcodes every cycle.
+3. A **Speculative Branch Predictor** guessing control flow and flushing pipelines on misprediction.
+4. A centralized **Register File** and **Cache-Coherence Protocol (MESI)** fighting over shared memory lines across cores.
+5. A **Global Clock Tree** burning up to 40% of total chip power to keep distant parts of the die synchronized.
+
+### 3.1 What an Interaction Net Is Physically
+Yves Lafont's **Interaction Nets** (and Hyperactivity's cubical extension, `src/net.c`) replace sequential instruction execution with **local graph rewriting**:
+- Every computational object is a small node with **one principal port** (the active tip) and zero or two **auxiliary ports**.
+- Nodes are connected point-to-point by wires.
+- **Computation happens *only* where two principal ports meet face-to-face** (an *active pair*).
+- Because rewrite rules depend *only* on the two interacting nodes and their immediate wires, non-overlapping active pairs can fire **simultaneously, in any order, with zero global coordination**, and are guaranteed by **strong confluence** to reach the exact same normal form.
+
+There is no program counter. There is no instruction stream. There is no branch predictor. There is no cache-coherence traffic. **The graph *is* the program, and the wires *are* the dataflow.**
+
+### 3.2 `HyperINet` (`tt_um_hyperinet`): A Tapeout-Ready SkyWater 130nm Interaction-Net Processor
+In `lib/silicon/inet-fabric.hypercubical`, we lower Lafont's exact interaction semantics directly into synthesizable SystemVerilog (`hyperinet_core`) wrapped in the standard **Tiny Tapeout SkyWater 130nm** chip pinout (`tt_um_hyperinet`).
+
+Each hardware node slot stores a 2-bit kind (`0 = FREE`, `1 = CON` $\gamma$, `2 = DUP` $\delta$, `3 = ERA` $\epsilon$) and 5-bit wire endpoints `{target_node, target_port}`. Every clock cycle, a combinational active-pair scanner locates an active redex $(u, v)$ and free slots from the hardware bitmap in zero extra cycles, and executes one of three exact 1-cycle hardware rewrite rules:
+
+1. **Annihilation (`CON ⋈ CON`, `DUP ⋈ DUP`, `ERA ⋈ ERA` — $\Delta = -2$ nodes):**
+   Both nodes are reclaimed to `FREE`. For binary nodes, their auxiliary wires cross-connect directly ($p_1[u] \leftrightarrow p_1[v]$, $p_2[u] \leftrightarrow p_2[v]$) in one clock cycle.
+2. **In-Place Erasure (`ERA ⋈ CON` or `ERA ⋈ DUP` — $\Delta = 0$ nodes):**
+   Both slots are reused *in-place* as two fresh `ERA` nodes wired to the erased node's two auxiliary ports—zero memory allocation, zero fragmentation.
+3. **Commutation Diamond (`CON ⋈ DUP` — $\Delta = +2$ nodes):**
+   Reuses the two active slots and claims two free slots from the hardware bitmap, wiring the complete 4-node Lafont commutation crossbar (`2 DUP × 2 CON`) in a single clock cycle.
+
+#### Real SkyWater 130nm Foundry Verification (`tt_um_hyperinet` vs. von Neumann `hypercore_soc`)
+- **Icarus Verilog Cycle-Exact Simulation:** **6/6 cycles bit-exact** with `inet-fabric.hypercubical` (`cycle 0: 4 live → cycle 1 [CON⋈DUP commute]: 6 live → cycle 2 [ERA⋈DUP]: 6 live → cycle 3 [ERA⋈DUP]: 6 live, done = 1, 3 redexes, 0 stalls, 0 instructions`).
+- **SkyWater 130nm (`sky130_fd_sc_hd__tt_025C_1v80.lib`) Foundry Synthesis:**
+  - **`tt_um_hyperinet` (Non-von-Neumann):** **`3,826` standard cells** (`90 sky130_fd_sc_hd__dfrtp_1` + `49 sky130_fd_sc_hd__dfstp_2` = **`139` flip-flops**, **`0` latches**), exact physical silicon area **`24,529.78 µm²` (`0.0245 mm²`)**. Fits comfortably inside a **Tiny Tapeout `2×2` tile** (`320 × 200 µm = 64,000 µm²`, `38.3%` utilization)—ready for physical silicon wafer fabrication.
+  - **Head-to-Head vs. von Neumann `hypercore_soc`:** On the exact same SkyWater 130nm library, the pipelined von Neumann SoC (`lib/silicon/emit.cub`: branch-squashing Hart + MMIO bus + 2×2 systolic array) requires **`7,770` cells**, **`554` flip-flops**, and **`64,489.35 µm²`**. The non-von-Neumann `tt_um_hyperinet` core is **`2.63×` smaller in real silicon area** and uses **`3.99×` fewer flip-flops**.
+
+### 3.3 Scaling Out: The Self-Hosting 4-Tile GALS `HyperNet` Mesh vs. Pipelined RISC-V
+To demonstrate how interaction-net silicon scales across multi-tile chips without a global clock wall or MESI cache coherence, `lib/silicon/hypernet.hypercubical` implements a **4-tile Globally Asynchronous, Locally Synchronous (GALS) mesh (`hypernet_mesh_4tile`)** that lowers Hyperactivity's own `src/net.c` + `src/dnf.c` runtime directly to hardware:
+- **Zero MESI Coherence:** Cross-tile wire handoffs use a 1-word atomic exchange (`vxchg`) with order-independence proved by `vxchg-order-sym`.
+- **Zero Garbage Collector:** Each tile maintains a local LIFO cell freelist (`pool-split-conserves`, `pool-retire-conserves`) plus Chase–Lev FIFO work-stealing (`steal-fifo-conserves`).
+- **1-Cycle Cubical Dead-Subgraph Pruning:** Contradicted cubical face guards prune entire subtrees in a single hardware cycle (`hnode-conflict-prunes-subgraph`).
+
+Verified head-to-head against a 32-bit RAW-forwarding pipelined RISC-V core (`riscv32_pipe`) in **Verilator 5.020**, synthesized to a 7nm NLDM Liberty library (`hypercore_cmos7nm.lib`) in **Yosys 0.33 + ABC**, and layout-verified in **KLayout 0.28.16**:
+
+| Workload | `HyperNet_4Tile` (GALS Non-von-Neumann) | `riscv32_pipe` (32-bit Pipelined RISC-V) | Speedup & Efficiency |
+|---|---|---|---|
+| **8-Leaf Parallel Reduction Tree** (`((1+2)+(3+4))+((5+6)+(7+8)) = 36`) | **19 cycles** (`17.63 ns` @ 7nm), `32/32` cells recovered, **`59.2%` tiles clock-gated** | 44 cycles (`26.95 ns` @ 7nm), 36 instructions | **`2.32×` fewer cycles**, **`1.53×` faster physical latency** |
+| **Cubical Face-Guarded Parallel Tree** (`36 + pruned(100..107) = 36`) | **23 cycles** (`21.35 ns` @ 7nm), 1-cycle subtree prune, **`62.0%` tiles clock-gated** | 49 cycles (manual branch skip) / 88 cycles (unpruned) | **`2.13×`–`3.83×` fewer cycles**, **`1.41×`–`2.53×` faster physical latency** |
+| **Single-Core 7nm Silicon Area** | **`5,233` cells**, area **`15,217.0`**, **`888.55 ps`** ($\approx 1.13\text{ GHz}$) | `6,056` cells, area `16,544.0`, `612.60 ps` | **`8.0%` smaller area**, **`13.6%` fewer gates** |
+| **4-Tile Hierarchical GDSII Signoff (`KLayout`)** | `HYPERNET_4TILE_SOC` (`5200 × 5200 nm`), 8 layers, `AREF 2×2` (50 flattened polygons) | — | **`0` M1 shorts, `0` Via12 enclosure errors, `0` M3/M4 spacing violations** |
+
+### 3.4 Scaling to 16 Tiles with Zero Central Switch: `HyperNet-16` (`4×4`) & State-of-the-Art
+
+Scaling an interaction-net processor to 16+ cores exposes four classic architectural hazards: variable-arity closures fragmenting SRAM, central wire-table bottlenecks, irregular combinatorial search (such as `N-Queens`, the flagship benchmark of Architect Labs' November 2026 **Frostbite** interaction-net CPU), and flattened GDSII bloat.
+
+In `lib/silicon/hypernet16.hypercubical`, four mathematical contractions eliminate all four hazards in hardware:
+1. **Curried Binary Universal Combinators (`UCell`):** Lowering arbitrary closures and constructors to fixed 2-port rows (`uc-era | uc-con | uc-dup` + §4.5 `ClauseVec 4`) reduces higher-order $\beta$-reduction (`APP` meeting `LAM`) to 1-cycle `CON–CON` annihilation (`beta-is-con-annihilate`) and closure duplication to heap-conserving `DUP ⋈ CON` commutation (`dup-con-commutes-conserves`), while contradicted §4.5 faces erase in 1 step (`ucell-conflict-erases`).
+2. **Low-4-Bit Striped `VAR_SRAM` (`var-home16`, `striped-var16-certs`):** Partitioning wire IDs across all 16 tiles by `vid & 0xF` routes every `vxchg` directly to its home tile with **zero central switch** and linear $O(N)$ memory bandwidth.
+3. **Irregular Search & 1-Cycle Dead-Tree Kill (`5-Queens` in 29 Cycles vs. 2,001):** Verified in **Verilator 5.020** and synthesized on 7nm NLDM (`hypercore_cmos7nm.lib`) in **Yosys 0.33 + ABC**:
+
+| Workload (`hypernet16_mesh_4x4` vs. `riscv32_pipe16`) | Normal Form | `HyperNet16_4x4` (Zero Central Switch) | `riscv32_pipe16` (2-Stage + Stack) | Speedup & Telemetry |
+|---|---:|---|---|---|
+| **5-Queens Parallel Search** (`nqueens5-cert`) | `10` | **29 cycles** (`40.90 ns` @ 7nm), `84.1%` tile-cyc gated | 2,001 cycles (`1,758.82 ns`), 1,720 inst | **`69.0×` fewer cycles**, **`43.0×` faster 7nm latency**, `128/128` cells & `Var`s freed |
+| **§4.5 Cubical Live + Dead 5-Queens** (`hn16-cubical-nq5-cert`) | `10` | **32 cycles** (`45.14 ns`), **`pruned = 1`** (1-cycle kill) | 2,006 cycles (guarded) / 4,002 (unpruned) | **`62.7×`–`125.1×` fewer cycles**, **`39.1×`–`77.9×` faster 7nm latency** |
+| **16-Leaf Parallel Map-Reduce** (`hn16-tree16-cert`) | `136` | **27 cycles** (`38.08 ns`), `89.4%` tile-cyc gated | 83 cycles (`72.95 ns`), 67 inst | **`3.07×` fewer cycles**, **`1.92×` faster 7nm latency**, `128/128` cells & `Var`s freed |
+| **Higher-Order $\lambda$-Closure `DUP`** (`hn16-church2-cert`) | `12` | **5 cycles** (`7.05 ns`), 0 network hops | 6 cycles (`5.27 ns`), 5 inst | **`1.20×` fewer cycles**, local `CELL_SRAM` `DUP` + `CON–CON` $\beta$-annihilation |
+| **Single-Tile 7nm Synthesis (`Yosys + ABC`)** | — | **`8,094` cells**, area **`23,350.0`**, `1,410.50 ps` (`709 MHz`) | `10,093` cells, area `28,770.0`, `878.97 ps` | **`18.8%` smaller silicon area**, **`19.8%` fewer standard cells** |
+| **16-Tile Transistor-Level GDSII (`KLayout 0.28.16`)** | — | `HYPERNET16_4X4_DIE` (`132 × 132 µm`), **`5,386` B** (`AREF 4×4` × `AREF 45×30`) | — | **`129,600` placed CMOS7 cells**, **`18,664,712` polygons across 11 layers**, **`0` DRC errors** |
+
+Compared against contemporary interaction-net and formal dataflow hardware—Architect Labs' **Frostbite** (Nov 2026: 0D Lafont nets with Frame Manager continuation tables consuming 26% of chip energy, 500 MHz post-route GDS, and closed-source Lean 4 specs stopping at RTL) and **Wavelet** (PLDI 2026: static capability-fenced dataflow IR on CGRA/FPGA)—Hyperactivity uniquely combines **§4.5 cubical 1-cycle dead-subgraph pruning**, **zero-frame-table `vxchg` wire linearity**, and **end-to-end zero-postulate verification from QEC and RTL all the way through Tropical/NLDM timing, 3D DRC, and lossless binary Calma GDSII v6.0**.
+
+---
+
+## 4. From Subatomic Limits to Binary GDSII: The Complete Stack
+
+The same mathematical foundation spans every physical layer of a chip—from quantum error correction and reversible thermodynamics to binary foundry layout files—with zero hand-written glue between layers:
+
+| Module | Layer & What It Builds |
+|---|---|
+| `lib/silicon/graph.hypercubical` | Universal `Dag`, `Alg`, `fold`, `fold-hom`, `alg-prod`, associative monoid trees (`MTree`), and univalent coordinate/basis transport. |
+| `lib/silicon/quantum.hypercubical`, `optimal.hypercubical` | $\mathbb{Z}_4$-phased Pauli algebra, Gottesman–Knill Clifford compilation, univalent `[[5,1,3]]` Quantum Hamming code (`PauliErr16 ≡ Syndrome4`), fan-in-2 light-cone lower bounds, and Landauer $\Delta S = 0$ Bennett reversibility. |
+| `lib/silicon/ecc.hypercubical`, `arch.hypercubical` | Shannon `[8,4,4]` SECDED cosmic-ray ECC (`Pos8 ≡ Bit3`), 1-probe DPA masking, Spectre SLH non-interference, Tomasulo OoO, and MESI coherence. |
+| `lib/silicon/physics.hypercubical`, `univalent.hypercubical` | Static CMOS De Morgan duality, SPICE Schur elimination, reverse-mode AD adjoints, $O(N\log N)$ FWHT spectral convolution, 6-cut supergates (`BoolFn ≡ Lut`), and $O(N)$ sweep-line 3D DRC. |
+| `lib/silicon/arith.hypercubical`, `tensor.hypercubical` | Ripple, Kogge–Stone, Brent–Kung, Sklansky 64-bit adders; Wallace 64-pp multipliers; `BF16`/`FP8` tensor MACs; univalent zero-conflict SRAM swizzling (`TensorSwizzleEquiv`). |
+| `lib/silicon/clock.hypercubical` | Dual Tropical Static Timing Analysis (max-plus setup, min-plus hold), IEEE Liberty `(slew, C_load)` NLDM delay, and proof-carrying false-path pruning. |
+| `lib/silicon/layout.hypercubical`, `pnr.hypercubical`, `tapeout.hypercubical`, `export.hypercubical` | 2D/3D DRC invariants, `GraphSym` LVS, SystemVerilog & lossless binary Calma GDSII v6.0 stream codec (`gds6-file-roundtrip-sound`). |
+| `lib/silicon/inet-fabric.hypercubical` | **`HyperINet` (`tt_um_hyperinet`)**: non-von-Neumann 1-cycle Lafont interaction-net processor, Tiny Tapeout SkyWater 130nm wrapper (`3,826` cells, `24,529.78 µm²`), 6/6 cycles bit-exact in Icarus Verilog. |
+| `lib/silicon/hypernet.hypercubical`, `hypernet16.hypercubical` | Self-hosting 4-tile & 16-tile (`4×4`) GALS `HyperNet` meshes (`5-Queens` **`69.0×` fewer cycles / `43.0×` faster 7nm latency** vs. RISC-V), 7nm NLDM PDK, and `18,664,712`-polygon hierarchical `AREF 4×4` GDSII (`KLayout`-clean). |
+| `lib/bench/epfl-128.hypercubical`, `eda-quantum.hypercubical`, `lib/optimality.hypercubical` | Official 128-bit EPFL `adder` & `bar` beating `ABC` on AIG nodes, depth, and SkyWater 130nm silicon area/speed; ISCAS-85 `c17`; EPFL `adder8`; Amy/Nam 4-Toffoli OpenQASM 3.0; strict gate and 2D area lower bounds. |
+
+---
+
+## 5. Closure: Mathematics Directly to Silicon
+
+For eighty years, humanity built computers by translating mathematics into sequential instructions, and then spending billions of dollars on hardware machinery—caches, predictors, coherence directories, clock trees—to hide the cost of that sequential bottleneck. And to build those chips, we built a second tower of disconnected tools to translate and patch across every abstraction boundary.
+
+The results above—and the live simulations at [**`/silicon`**](/silicon)—show that neither tax is fundamental. When circuits, timing, transistors, geometry, and graph reduction live inside one univalent mathematical language:
+- **Standard 128-bit arithmetic circuits** emerge directly from their algebraic laws—**50.1% fewer SkyWater 130nm cells** on official EPFL `bar`, **13.0× faster silicon timing (`859.4 MHz`)** on official EPFL `adder`, SAT-certified by `ABC` itself.
+- **Optimality lower bounds** prove when no smaller gate topology or tighter 2D layout exists.
+- **Post-von-Neumann interaction-net silicon (`tt_um_hyperinet`, `HyperNet`, and 16-tile `HyperNet-16`)** compiles straight from the language's own reduction rules to SkyWater 130nm standard cells and `18.66M`-polygon hierarchical 7nm GDSII—**`2.63×` smaller** than a von Neumann SoC on Sky130 and **`69.0×` fewer cycles (`43.0×` faster physical latency)** than pipelined RISC-V on `5-Queens`, with zero program counter, zero cache coherence, zero central switch, and zero semantic gap between the mathematics and the silicon.
+

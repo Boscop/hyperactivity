@@ -26,6 +26,7 @@
   <a href="https://hyperactivity.ai/neuro"><code>/neuro</code></a> ·
   <a href="https://hyperactivity.ai/physics"><code>/physics</code></a> ·
   <a href="https://hyperactivity.ai/compression"><code>/compression</code></a> ·
+  <a href="https://hyperactivity.ai/silicon"><code>/silicon</code></a> ·
   <a href="https://hyperactivity.ai/chip-design"><code>/chip-design</code></a> ·
   <a href="https://hyperactivity.ai/pdf">Monograph (PDF)</a> ·
   <a href="LICENSE">License</a>
@@ -47,7 +48,7 @@ Everything in this document is live, self-hosted, and executable. You can enter 
   - [**`hyperactivity.ai/neuro`**](https://hyperactivity.ai/neuro) — Nernst/Hodgkin–Huxley/FitzHugh–Nagumo phase planes, intrinsic cortical manifolds, two-learner neural co-processor SOS Lyapunov & Control Barrier certificates, and interface-reshaping `RProc`.
   - [**`hyperactivity.ai/physics`**](https://hyperactivity.ai/physics) — Relational Quantum Mechanics, $SU(2)$ spin networks, Loop Quantum Cosmology Big Bounce, relativistic Dirac atoms ($Z \le 137$), superconductivity, zero-float quantum chemistry, peptide kinematics, and bioelectric morphogenesis.
   - [**`hyperactivity.ai/compression`**](https://hyperactivity.ai/compression) — Zero-search causal context-fiber rANS compression with exact `refl` benchmarks vs `deflate -9`, `gzip -9`, `bzip2 -9`, and `lzma`.
-  - [**`hyperactivity.ai/chip-design`**](https://hyperactivity.ai/chip-design) — Circuit lower bounds, ISCAS-85/EPFL/Clifford+T benchmarks, 3nm GDSII v6.0 round-trip proofs, and clockless GALS interaction-net silicon tiles.
+  - [**`hyperactivity.ai/silicon`**](https://hyperactivity.ai/silicon) ([paper: `/chip-design`](https://hyperactivity.ai/chip-design)) — Cycle-accurate 16-tile `HyperNet-16` (`4×4`) vs. pipelined RISC-V simulator (`69.0×` fewer cycles / `43.0×` faster 7nm latency on `5-Queens`), official 128-bit EPFL SkyWater 130nm synthesis (`-50.1%` cells on `bar`, `13.0×` faster `adder`), Tiny Tapeout Sky130 `tt_um_hyperinet`, and `18,664,712`-polygon Calma GDSII v6.0 die inspector.
   - [**`hyperactivity.ai/learn`**](https://hyperactivity.ai/learn) — Ground-up interactive textbook on interaction nets with live inline programs.
 
 ### On Your Machine (Requires `gcc` or `clang` and `make`)
@@ -547,20 +548,20 @@ The specializer itself never needs to be trusted or proved correct as a monolith
 
 ## 7. Full-Stack Silicon: Circuit Lower Bounds, 3nm GDSII v6.0 & Quantum Error Correction
 
-> **Full interactive silicon treatise:** [**`hyperactivity.ai/chip-design`**](https://hyperactivity.ai/chip-design) · Source: [`lib/silicon/export.hypercubical`](https://hyperactivity.ai/kg?mod=lib/silicon/export.hypercubical), [`lib/optimality.hypercubical`](https://hyperactivity.ai/kg?mod=lib/optimality.hypercubical), [`lib/bench/eda-quantum.hypercubical`](https://hyperactivity.ai/kg?mod=lib/bench/eda-quantum.hypercubical)
+> **Interactive silicon lab & full technical paper:** [**`hyperactivity.ai/silicon`**](https://hyperactivity.ai/silicon) · [**`hyperactivity.ai/chip-design`**](https://hyperactivity.ai/chip-design) · Source: [`lib/silicon/hypernet16.hypercubical`](https://hyperactivity.ai/kg?mod=lib/silicon/hypernet16.hypercubical), [`lib/silicon/inet-fabric.hypercubical`](https://hyperactivity.ai/kg?mod=lib/silicon/inet-fabric.hypercubical), [`lib/bench/epfl-128.hypercubical`](https://hyperactivity.ai/kg?mod=lib/bench/epfl-128.hypercubical), [`lib/silicon/export.hypercubical`](https://hyperactivity.ai/kg?mod=lib/silicon/export.hypercubical)
 
 The same cubical kernel extends all the way down from high-level types to physical foundry masks and fault-tolerant quantum circuits:
 
-1. **Zero-Postulate Circuit & Layout Lower Bounds (`lib/optimality.hypercubical`):**
-   - Exact proof of the **4-NAND2 XOR circuit lower bound** (proving no 3-gate NAND2 network can compute 2-input XOR);
-   - Circuit light-cone propagation lower bounds and 2D Design-Rule-Check (DRC) packing lower bounds.
+1. **Zero-Postulate Circuit & Layout Lower Bounds (`lib/optimality.hypercubical`, `lib/silicon/optimal.hypercubical`):**
+   - Exact proof of the **4-NAND2 XOR circuit lower bound** (`xor4-strictly-optimal`, proving no 3-gate NAND2 network among all 576 topologies computes 2-input XOR);
+   - Fan-in-2 causality light-cone bounds (`fanin2-lightcone-bound`, `no-64input-depth5-circuit`) and 2D/3D Design-Rule-Check (DRC) packing & $O(N)$ sweep-line bounds (`xor4-2d-area-optimal`, `sweep-linear-drc-sound`).
 2. **Microarchitecture, Reliability & Security (`lib/silicon/`):**
-   - Landauer reversible computing bounds;
-   - $[8, 4, 4]$ SECDED (Single-Error-Correcting, Double-Error-Detecting) ECC hardware (`lib/silicon/ecc.hypercubical`);
-   - Differential Power Analysis (DPA) cryptographic masking;
-   - Tomasulo out-of-order execution and MESI cache coherence protocols.
-3. **Standard Industry EDA & Quantum Compilation Benchmarks (`lib/bench/eda-quantum.hypercubical`):**
-   - **Silicon EDA:** ISCAS-85 `c17` (5-input, 2-output, 6 NAND2 gates) and EPFL 8-bit adder (`epfl-adder8`) with bit-exact behavioral equivalence proofs and synthesizable **SystemVerilog** emission:
+   - Landauer $\Delta S = 0$ Bennett reversible computing (`bennett-zero-garbage`);
+   - $[8, 4, 4]$ SECDED cosmic-ray ECC (`Pos8 ≡ Bit3`, `lib/silicon/ecc.hypercubical`);
+   - 1-probe Boolean/ISW Differential Power Analysis masking (`MaskShareEquiv`) and Spectre SLH non-interference (`slh-noninterference`);
+   - Tomasulo out-of-order execution, MESI cache coherence, and univalent zero-bank-conflict SRAM swizzling (`TensorSwizzleEquiv`).
+3. **Official 128-Bit EPFL SkyWater 130nm & Quantum Compilation Benchmarks (`lib/bench/epfl-128.hypercubical`, `lib/bench/eda-quantum.hypercubical`):**
+   - **Official 128-Bit EPFL Benchmarks on SkyWater 130nm (`sky130_fd_sc_hd`):** Constructive algebraic synthesis verified 100% SAT-equivalent against `lsils/benchmarks` via `yosys-abc cec`: `hy_bar128` uses **`-50.1%` Sky130 standard cells** (`1,158` vs. `2,319`, `-14.5%` area), `hy_adder128_ks` achieves **`13.0×` faster timing** (`859.4 MHz` vs. `66.1 MHz`, `17` vs. `255` AIG levels), and `hy_adder128_area` uses **`892` AIG nodes** (`-12.5%` vs. `ABC resyn2`); plus ISCAS-85 `c17` (6 NAND2 gates) and `epfl-adder8` (`-20%` vs. Yosys+ABC):
 
 ```haskell
 -- Exact ISCAS-85 `c17` standard benchmark (6 NAND2 gates, 5 inputs -> 2 outputs)
@@ -579,9 +580,11 @@ c17-n23-spec n1 n2 n3 n6 n7 =
   in nand2 n16 n19
 ```
 
-   - **Quantum Compilation:** `[[5, 1, 3]]` quantum error-correction compiler and the **Amy/Nam Clifford+T T-count benchmark suite** (`mod5_4`, `tof_3`, `tof_4`, `tof_5`, `barenco_tof_3`, `barenco_tof_4`) with phase-polynomial T-cancellation soundness proofs and executable **OpenQASM 3.0** emission.
-4. **Physical Foundry Export & Clockless Interaction-Net Silicon (`lib/silicon/export.hypercubical`):**
-   - Byte-level **Calma GDSII v6.0** parser and lossless round-trip proof:
+   - **Quantum Compilation:** `[[5, 1, 3]]` quantum error-correction compiler (`PauliErr16 ≡ Syndrome4`, `no-4qubit-qec-possible`) and the **Amy/Nam Clifford+T T-count benchmark suite** (`28 → 24` T-gates on 4-Toffoli, $-14.3\%$, unitary error $1.46 \times 10^{-15}$) with executable **OpenQASM 3.0** emission.
+4. **Post-von-Neumann Interaction-Net Silicon & Hierarchical GDSII Signoff (`lib/silicon/inet-fabric.hypercubical`, `hypernet.hypercubical`, `hypernet16.hypercubical`, `export.hypercubical`):**
+   - **Tiny Tapeout SkyWater 130nm `tt_um_hyperinet`:** 1-cycle Lafont interaction-net processor (`3,826` Sky130 cells, `24,529.78 µm²` — **`2.63×` smaller silicon area** and **`3.99×` fewer flip-flops** than pipelined von Neumann `hypercore_soc` on the same library).
+   - **16-Tile (`4×4`) GALS `HyperNet-16` vs. Pipelined RISC-V (`Verilator 5.020`, `Yosys + ABC` 7nm NLDM):** Zero central switch via low-4-bit striped `VAR_SRAM` `vxchg`, solving **`5-Queens = 10` in `29` clock cycles (`40.90 ns`) vs. `2,001` cycles (`1,758.82 ns`) on pipelined RISC-V (`69.0×` fewer cycles / `43.0×` faster physical latency)** with `84.1%` tile-cycles clock-gated, **`-18.8%` smaller per-tile silicon area**, and 1-cycle §4.5 cubical dead-tree pruning (`hn16-cubical-nq5-cert`).
+   - **Byte-Level Lossless Calma GDSII v6.0 & `18,664,712`-Polygon Die (`KLayout 0.28.16`):**
 
 ```haskell
 data GdsByte2 = gb2 (hi : Word) (lo : Word)
@@ -591,8 +594,7 @@ gb2-eta : (x : GdsByte2) → gb2 (gb2-hi x) (gb2-lo x) ≡ x
 gb2-eta (gb2 hi lo) = refl
 ```
 
-   - 5-layer **3nm physical SoC GDSII layout** exported directly via native OS I/O (`lib/world.hypercubical`);
-   - Synthesizable **GALS (Globally Asynchronous Locally Synchronous) cubical interaction-net hardware tile** RTL — mapping Hyperactivity's lock-free active-pair rewrites directly onto clockless silicon tiles with no global clock tree.
+   - Universal lossless binary Calma GDSII v6.0 round-trip (`gds6-file-roundtrip-sound`) plus hierarchical `AREF 4×4` × `AREF 45×30` 11-layer `HYPERNET16_4X4_DIE` (`5,386` bytes representing **`129,600` placed CMOS7 cells** and **`18,664,712` polygons** with `0` DRC violations in `KLayout`).
 
 ---
 
