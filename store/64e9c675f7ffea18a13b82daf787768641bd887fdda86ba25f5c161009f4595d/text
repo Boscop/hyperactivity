@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hyperactivity.pdf · Avik Jain</title>
+<script>
+(function(){
+  var t=localStorage.getItem('hxTheme');
+  if(t==='dark'||(!t&&matchMedia('(prefers-color-scheme:dark)').matches))document.documentElement.classList.add('dark');
+})();
+</script>
+<style>
+:root{--bg:#fff;--nav:#fff;--ink:#000;--border:#000;--pink:#ff0a94;--shadow:0 6px 24px rgba(0,0,0,.10)}
+html.dark{--bg:#000;--nav:#000;--ink:#fff;--border:#fff;--shadow:0 8px 32px rgba(0,0,0,.65)}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font:600 13px/1.2 ui-monospace,'SF Mono',Menlo,monospace}
+nav{position:sticky;top:0;z-index:10;height:48px;display:flex;justify-content:space-between;align-items:center;gap:14px;padding:0 26px;background:var(--nav);border-bottom:2px solid var(--border);letter-spacing:.04em}
+nav a{color:var(--ink);text-decoration:none}
+nav a:hover,nav a.active{color:var(--pink)}
+nav .mark{font-weight:700;white-space:nowrap}
+nav .bar{display:flex;align-items:center;gap:16px}
+.btn{font:700 11.5px/1 ui-monospace,'SF Mono',Menlo,monospace;text-transform:uppercase;letter-spacing:.05em;background:var(--nav);color:var(--ink);border:1px solid var(--border);padding:6px 10px;cursor:pointer;text-decoration:none;white-space:nowrap}
+.btn:hover{background:var(--pink);border-color:var(--pink);color:#fff}
+.btn.primary{background:var(--pink);border-color:var(--pink);color:#fff}
+.btn.primary:hover{background:var(--ink);color:var(--nav);border-color:var(--ink)}
+.nav-theme{font:inherit;background:none;border:2px solid currentColor;color:inherit;padding:2px 8px;cursor:pointer;line-height:1.2}
+.nav-theme:hover{background:var(--pink);border-color:var(--pink);color:#fff}
+#status{color:var(--pink);font-size:11.5px;white-space:nowrap}
+.pdf-bar{position:sticky;top:48px;z-index:10;height:36px;display:flex;justify-content:space-between;align-items:center;padding:0 26px;background:var(--nav);border-bottom:1px solid var(--border);font:600 12px/1 ui-monospace,'SF Mono',Menlo,monospace}
+.pdf-title{letter-spacing:.04em;opacity:.75}
+.pdf-actions{display:flex;align-items:center;gap:14px}
+#pages{display:flex;flex-direction:column;align-items:center;gap:24px;padding:28px 16px 80px}
+canvas.pdf-page{background:#fff;border:1px solid var(--border);max-width:100%;height:auto !important}
+@media (max-width:960px){nav{padding:0 14px} nav .mark span,#status{display:none} nav .bar{gap:10px}}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+</head>
+<body>
+<!--HX:NAV-->
+<div class="pdf-bar"><span class="pdf-title">hyperactivity.pdf · Monograph</span><div class="pdf-actions"><span id="status">Loading…</span><a class="btn primary" href="/paper.pdf" download="hyperactivity.pdf">Download PDF</a></div></div>
+<div id="pages"></div>
+<script>
+window.addEventListener('storage', function(e) {
+  if (e.key === 'hxTheme') document.documentElement.classList.toggle('dark', e.newValue === 'dark');
+});
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+const pagesEl = document.getElementById('pages');
+const statusEl = document.getElementById('status');
+let pdfDoc = null;
+const rendered = new Set();
+
+async function renderPage(num) {
+  if (rendered.has(num) || !pdfDoc) return;
+  rendered.add(num);
+  const page = await pdfDoc.getPage(num);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const scale = 1.45 * dpr;
+  const vp = page.getViewport({ scale });
+  const canvas = document.getElementById('p-' + num);
+  canvas.width = vp.width;
+  canvas.height = vp.height;
+  canvas.style.width = (vp.width / dpr) + 'px';
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+}
+
+pdfjsLib.getDocument('/paper.pdf').promise.then(async doc => {
+  pdfDoc = doc;
+  statusEl.textContent = doc.numPages + ' pages · hyperactivity.pdf';
+  const first = await doc.getPage(1);
+  const vp0 = first.getViewport({ scale: 1.45 });
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) renderPage(parseInt(e.target.dataset.page, 10));
+    });
+  }, { rootMargin: '600px' });
+
+  for (let i = 1; i <= doc.numPages; i++) {
+    const c = document.createElement('canvas');
+    c.id = 'p-' + i;
+    c.className = 'pdf-page';
+    c.dataset.page = i;
+    c.width = vp0.width;
+    c.height = vp0.height;
+    c.style.width = vp0.width + 'px';
+    pagesEl.appendChild(c);
+    obs.observe(c);
+  }
+  renderPage(1);
+  if (doc.numPages >= 2) renderPage(2);
+}).catch(err => {
+  statusEl.textContent = 'Viewer error: ' + err.message;
+});
+</script>
+</body>
+</html>
