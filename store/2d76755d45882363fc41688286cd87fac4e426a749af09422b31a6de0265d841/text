@@ -1,0 +1,26 @@
+compress-grid-ok : (g : List (List Word)) → compress-grid-dec (compress-grid-enc g) ≡ g
+compress-grid-ok g =
+  let z = grid-zz-enc g
+      flat = grid-flatten z
+      d1 = pf-ok (pf-list pf-nat) (fst flat) (compress-record (snd flat))
+      d2 = compress-record-ok (snd flat)
+      s1 : (fst (pf-dec (pf-list pf-nat) (list-append (pf-enc (pf-list pf-nat) (fst flat)) (compress-record (snd flat)))) ,
+            decompress-record (snd (pf-dec (pf-list pf-nat) (list-append (pf-enc (pf-list pf-nat) (fst flat)) (compress-record (snd flat))))))
+           ≡ flat
+      s1 = concat {lzero} {List Nat × List Word}
+             {(fst (pf-dec (pf-list pf-nat) (list-append (pf-enc (pf-list pf-nat) (fst flat)) (compress-record (snd flat)))) ,
+               decompress-record (snd (pf-dec (pf-list pf-nat) (list-append (pf-enc (pf-list pf-nat) (fst flat)) (compress-record (snd flat))))))}
+             {(fst flat , decompress-record (compress-record (snd flat)))} {flat}
+             (λ i → (fst (d1 i) , decompress-record (snd (d1 i))))
+             (λ i → (fst flat , d2 i))
+      s2 : grid-unflatten (fst (pf-dec (pf-list pf-nat) (compress-grid-enc g)) , decompress-record (snd (pf-dec (pf-list pf-nat) (compress-grid-enc g)))) ≡ z
+      s2 = concat {lzero} {List (List Word)}
+             {grid-unflatten (fst (pf-dec (pf-list pf-nat) (compress-grid-enc g)) , decompress-record (snd (pf-dec (pf-list pf-nat) (compress-grid-enc g))))}
+             {grid-unflatten flat} {z}
+             (cong {lzero} {lzero} {List Nat × List Word} {List (List Word)} grid-unflatten s1)
+             (grid-flatten-ok z)
+  in concat {lzero} {List (List Word)}
+       {grid-zz-dec (grid-unflatten (fst (pf-dec (pf-list pf-nat) (compress-grid-enc g)) , decompress-record (snd (pf-dec (pf-list pf-nat) (compress-grid-enc g)))))}
+       {grid-zz-dec z} {g}
+       (cong {lzero} {lzero} {List (List Word)} {List (List Word)} grid-zz-dec s2)
+       (codec-ok grid-delta-codec g)

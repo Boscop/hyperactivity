@@ -1,0 +1,17 @@
+-- Universal record round-trip theorem (8 lines!)
+cf-list-ok : (xs : List Word) → (st : CtxState) →
+             cf-dec-list (list-length xs) st (cf-enc-list st xs) ≡ xs
+cf-list-ok xs =
+  case xs return (λ u → (st : CtxState) → cf-dec-list (list-length u) st (cf-enc-list st u) ≡ u) of
+    nil → λ st i → nil
+    cons x r → λ st →
+      let p0 : cf-dec-sym 5 nil st (cf-enc-sym 5 nil st x (cf-enc-list (cstate-advance st x) r)) ≡
+               (x , cf-enc-list (cstate-advance st x) r)
+          p0 = cf-sym-ok 5 nil st x (cf-enc-list (cstate-advance st x) r)
+      in concat {lzero} {List Word}
+           {let p = cf-dec-sym 5 nil st (cf-enc-list st (cons x r))
+            in cons (fst p) (cf-dec-list (list-length r) (cstate-advance st (fst p)) (snd p))}
+           {cons x (cf-dec-list (list-length r) (cstate-advance st x) (cf-enc-list (cstate-advance st x) r))}
+           {cons x r}
+           (λ i → let p = p0 i in cons (fst p) (cf-dec-list (list-length r) (cstate-advance st (fst p)) (snd p)))
+           (λ i → cons x (rec r (cstate-advance st x) i))

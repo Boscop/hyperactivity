@@ -1,0 +1,13 @@
+-- Single-symbol context-fiber cascade (depth 5 -> 4,3,2,1,0 -> earliest-content ground)
+cf-enc-sym : Nat → List Word → CtxState → Word → (Word × List Word) → Word × List Word
+cf-enc-sym zero excl st x st0 = ground-enc excl x st0
+cf-enc-sym (suc k) excl st x st0 =
+  case ftbl-exclude excl (cstate-fiber-at k st) of
+    nil → cf-enc-sym k excl st x st0
+    cons e r →
+      let ft = fiber-with-esc e r
+      in case ftbl-find #0 (wadd #1 x) ft of
+           some _ → (rans-enc-step ft (fst st0) (wadd #1 x) , snd st0)
+           none →
+             let st1 = cf-enc-sym k (ftbl-add-syms (cons e r) excl) st x st0
+             in (rans-enc-step ft (fst st1) #0 , snd st1)

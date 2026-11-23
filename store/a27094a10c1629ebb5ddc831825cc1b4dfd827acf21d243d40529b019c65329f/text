@@ -1,0 +1,18 @@
+find-nat-ok : (x : Word) → (xs : List Word) → (k : Nat) →
+              find-nat-idx x xs ≡ some k →
+              (wlt (fromNat k) (fromNat (list-length xs)) ≡ true) × (wnth-nat xs k ≡ x)
+find-nat-ok x xs =
+  case xs return (λ u → (k : Nat) → find-nat-idx x u ≡ some k → (wlt (fromNat k) (fromNat (list-length u)) ≡ true) × (wnth-nat u k ≡ x)) of
+    nil → λ k h → cm-none-some-absurd {Nat} {(wlt (fromNat k) #0 ≡ true) × (#0 ≡ x)} h
+    cons y r → λ k →
+      ifP {λ b → Path (Opt Nat) (if b then opt-nat-zero else opt-nat-suc (find-nat-idx x r)) (some k) →
+                 (wlt (fromNat k) (fromNat (suc (list-length r))) ≡ true) × (wnth-nat (cons y r) k ≡ x)} {weq x y}
+        (λ eq h → find-nat-ok-zero x y r k eq h)
+        (λ neq →
+           (case find-nat-idx x r return
+              (λ o → find-nat-idx x r ≡ o →
+                     Path (Opt Nat) (opt-nat-suc o) (some k) →
+                     (wlt (fromNat k) (fromNat (suc (list-length r))) ≡ true) × (wnth-nat (cons y r) k ≡ x)) of
+              none → λ _ h → cm-none-some-absurd {Nat} {(wlt (fromNat k) (fromNat (suc (list-length r))) ≡ true) × (wnth-nat (cons y r) k ≡ x)} h
+              some j → λ ho h → find-nat-ok-suc x y r j k (rec r j ho) h)
+             (λ i → find-nat-idx x r))

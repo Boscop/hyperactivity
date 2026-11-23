@@ -1,0 +1,63 @@
+cf-frame-ok : (n : Nat) → (st0 : Word × List Word) → cf-frame-dec (cf-frame-enc n st0) ≡ (n , st0)
+cf-frame-ok n st0 =
+  let fuel = cf-fuel n
+      wb = word-to-bytes-go fuel (fst st0)
+      bs = fst wb
+      rem = snd wb
+      ov = snd st0
+  in ifP {λ b → cf-frame-dec (if b then cons #0 (list-append (pf-enc pf-nat n) bs)
+                              else cons #1 (list-append (pf-enc pf-nat n)
+                                             (list-append (pf-enc pf-word rem)
+                                               (list-append (pf-enc (pf-list pf-word) ov) bs)))) ≡ (n , st0)}
+         {andB (weq rem #0) (cm-list-is-nil ov)}
+       (λ e →
+          let erem : rem ≡ #0
+              erem = cm-weq-sound rem #0 (isTrue→eq (and-fst {weq rem #0} {cm-list-is-nil ov} (eq→isTrue e)))
+              eov : ov ≡ nil
+              eov = cm-nil-of-true ov (isTrue→eq (and-snd {weq rem #0} {cm-list-is-nil ov} (eq→isTrue e)))
+              d1 = pf-ok pf-nat n bs
+              ews : bytes-to-word-with (bs , #0) ≡ fst st0
+              ews = catw (cong {lzero} {lzero} {List Word × Word} {Word} bytes-to-word-with (λ i → (bs , symw erem i))) (word-bytes-ok fuel (fst st0))
+          in concat {lzero} {Nat × (Word × List Word)}
+               {let r1 = pf-dec pf-nat (list-append (pf-enc pf-nat n) bs)
+                in (fst r1 , (bytes-to-word-with (snd r1 , #0) , nil))}
+               {(n , (bytes-to-word-with (bs , #0) , nil))} {(n , st0)}
+               (λ i → let r1 = d1 i in (fst r1 , (bytes-to-word-with (snd r1 , #0) , nil)))
+               (λ i → (n , (ews i , sym eov i))))
+       (λ _ →
+          let e3 = list-append (pf-enc (pf-list pf-word) ov) bs
+              e2 = list-append (pf-enc pf-word rem) e3
+              d1 = pf-ok pf-nat n e2
+              d2 = pf-ok pf-word rem e3
+              d3 = pf-ok (pf-list pf-word) ov bs
+              ews : bytes-to-word-with (bs , rem) ≡ fst st0
+              ews = word-bytes-ok fuel (fst st0)
+          in concat {lzero} {Nat × (Word × List Word)}
+               {let r1 = pf-dec pf-nat (list-append (pf-enc pf-nat n) e2)
+                in let r2 = pf-dec pf-word (snd r1)
+                in let r3 = pf-dec (pf-list pf-word) (snd r2)
+                in (fst r1 , (bytes-to-word-with (snd r3 , fst r2) , fst r3))}
+               {let r2 = pf-dec pf-word e2
+                in let r3 = pf-dec (pf-list pf-word) (snd r2)
+                in (n , (bytes-to-word-with (snd r3 , fst r2) , fst r3))}
+               {(n , st0)}
+               (λ i → let r1 = d1 i
+                      in let r2 = pf-dec pf-word (snd r1)
+                      in let r3 = pf-dec (pf-list pf-word) (snd r2)
+                      in (fst r1 , (bytes-to-word-with (snd r3 , fst r2) , fst r3)))
+               (concat {lzero} {Nat × (Word × List Word)}
+                  {let r2 = pf-dec pf-word (list-append (pf-enc pf-word rem) e3)
+                   in let r3 = pf-dec (pf-list pf-word) (snd r2)
+                   in (n , (bytes-to-word-with (snd r3 , fst r2) , fst r3))}
+                  {let r3 = pf-dec (pf-list pf-word) e3
+                   in (n , (bytes-to-word-with (snd r3 , rem) , fst r3))}
+                  {(n , st0)}
+                  (λ i → let r2 = d2 i
+                         in let r3 = pf-dec (pf-list pf-word) (snd r2)
+                         in (n , (bytes-to-word-with (snd r3 , fst r2) , fst r3)))
+                  (concat {lzero} {Nat × (Word × List Word)}
+                     {let r3 = pf-dec (pf-list pf-word) (list-append (pf-enc (pf-list pf-word) ov) bs)
+                      in (n , (bytes-to-word-with (snd r3 , rem) , fst r3))}
+                     {(n , (bytes-to-word-with (bs , rem) , ov))} {(n , st0)}
+                     (λ i → let r3 = d3 i in (n , (bytes-to-word-with (snd r3 , rem) , fst r3)))
+                     (λ i → (n , (ews i , ov))))))

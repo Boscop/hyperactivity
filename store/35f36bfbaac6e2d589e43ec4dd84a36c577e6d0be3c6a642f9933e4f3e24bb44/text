@@ -1,0 +1,53 @@
+-- Universal earliest-content ground bijection (holds for EVERY rem, x : Word, st : Word × List Word!)
+ground-rem-ok : (rem : List Word) → (x : Word) → (st : Word × List Word) →
+                ground-dec-rem rem (ground-enc-rem rem x st) ≡ (x , st)
+ground-rem-ok rem x st =
+  let len = fromNat (list-length rem)
+      base = %wsucc len
+      s = fst st
+      ov = snd st
+  in (case find-nat-idx x rem return
+        (λ o → find-nat-idx x rem ≡ o →
+               ground-dec-rem rem (case o of some k → (wadd (wmul s base) (fromNat k) , ov); none → (wadd (wmul s base) len , cons x ov)) ≡ (x , st)) of
+        some k → λ hk →
+          let okk = find-nat-ok x rem k hk
+              hkb : wlt (fromNat k) base ≡ true
+              hkb = cm-lt-suc (fromNat k) len (fst okk)
+              s' = wadd (wmul s base) (fromNat k)
+              eq : wquot s' base ≡ s
+              eq = wdiv-unique s (fromNat k) base hkb
+              er : wrem s' base ≡ fromNat k
+              er = wmod-unique s (fromNat k) base hkb
+              elt : wlt (wrem s' base) len ≡ true
+              elt = cm-catb (cm-congb (λ z → wlt z len) er) (fst okk)
+              ex : wnth-nat rem (toNat (wrem s' base)) ≡ x
+              ex = catw (cong {lzero} {lzero} {Nat} {Word} (wnth-nat rem)
+                          (concat {lzero} {Nat} {toNat (wrem s' base)} {toNat (fromNat k)} {k}
+                            (cong {lzero} {lzero} {Word} {Nat} toNat er) (toNat-fromNat k)))
+                        (snd okk)
+          in concat {lzero} {Word × (Word × List Word)}
+               {if wlt (wrem s' base) len then (wnth-nat rem (toNat (wrem s' base)) , (wquot s' base , ov))
+                else (cm-head-or #0 ov , (wquot s' base , cm-tail ov))}
+               {(wnth-nat rem (toNat (wrem s' base)) , (wquot s' base , ov))}
+               {(x , st)}
+               (λ i → if elt i then (wnth-nat rem (toNat (wrem s' base)) , (wquot s' base , ov))
+                      else (cm-head-or #0 ov , (wquot s' base , cm-tail ov)))
+               (λ i → (ex i , (eq i , ov)))
+        none → λ _ →
+          let hlb : wlt len base ≡ true
+              hlb = cm-lt-self-suc len
+              s' = wadd (wmul s base) len
+              eq : wquot s' base ≡ s
+              eq = wdiv-unique s len base hlb
+              er : wrem s' base ≡ len
+              er = wmod-unique s len base hlb
+              elt : wlt (wrem s' base) len ≡ false
+              elt = cm-catb (cm-congb (λ z → wlt z len) er) (cm-lt-self-false len)
+          in concat {lzero} {Word × (Word × List Word)}
+               {if wlt (wrem s' base) len then (wnth-nat rem (toNat (wrem s' base)) , (wquot s' base , cons x ov))
+                else (x , (wquot s' base , ov))}
+               {(x , (wquot s' base , ov))} {(x , st)}
+               (λ i → if elt i then (wnth-nat rem (toNat (wrem s' base)) , (wquot s' base , cons x ov))
+                      else (x , (wquot s' base , ov)))
+               (λ i → (x , (eq i , ov))))
+     (λ i → find-nat-idx x rem)

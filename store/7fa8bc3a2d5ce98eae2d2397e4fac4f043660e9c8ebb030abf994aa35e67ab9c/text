@@ -1,0 +1,18 @@
+cf-sym-ok : (d : Nat) → (excl : List Word) → (st : CtxState) → (x : Word) → (st0 : Word × List Word) →
+            cf-dec-sym d excl st (cf-enc-sym d excl st x st0) ≡ (x , st0)
+cf-sym-ok d =
+  case d return (λ n → (excl : List Word) → (st : CtxState) → (x : Word) → (st0 : Word × List Word) →
+                       cf-dec-sym n excl st (cf-enc-sym n excl st x st0) ≡ (x , st0)) of
+    zero → λ excl st x st0 → ground-ok excl x st0
+    suc k → λ excl st x st0 →
+      (case ftbl-exclude excl (cstate-fiber-at k st) return
+         (λ fib → Path (Word × (Word × List Word))
+                    (let enc = case fib of
+                                 nil → cf-enc-sym k excl st x st0
+                                 cons e r → cf-enc-cons k excl st e r x st0
+                     in case fib of
+                          nil → cf-dec-sym k excl st enc
+                          cons e r → cf-dec-cons k excl st e r enc)
+                    (x , st0)) of
+         nil → rec k excl st x st0
+         cons e r → cf-sym-ok-cons k excl st e r x st0 (rec k))
