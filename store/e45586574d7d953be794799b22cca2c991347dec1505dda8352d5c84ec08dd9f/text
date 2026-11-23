@@ -1,0 +1,20 @@
+drc2d-append : (minX minY yTop : Nat) → (xs ys : List Rect) →
+  PairwiseDrc2D minX minY xs →
+  PairwiseDrc2D minX minY ys →
+  AllTopLe yTop xs →
+  AllAboveY (plus minY yTop) ys →
+  PairwiseDrc2D minX minY (list-append xs ys)
+drc2d-append minX minY yTop nil ys dx dy htop habove = dy
+drc2d-append minX minY yTop (cons x xs) ys dx dy htop habove =
+  let monoAbove : (zs : List Rect) → AllAboveY (plus minY yTop) zs → AllAboveY (plus minY (ry1 x)) zs
+      monoAbove =
+        λ zs hz →
+          (case zs return (λ l → AllAboveY (plus minY yTop) l → AllAboveY (plus minY (ry1 x)) l) of
+             nil → λ _ → unit
+             cons z zr → λ hzz →
+               ( leB-trans (plus minY (ry1 x)) (plus minY yTop) (ry0 z)
+                   (leB-plus minY minY (ry1 x) yTop (leB-refl minY) (fst htop))
+                   (fst hzz)
+               , rec zr (snd hzz) )) hz
+  in ( sep2d-append minX minY x xs ys (fst dx) (above-to-sep2d minX minY x ys (monoAbove ys habove))
+     , drc2d-append minX minY yTop xs ys (snd dx) dy (snd htop) habove )

@@ -1,0 +1,25 @@
+-- Master Proof-Carrying Silicon Compiler Theorem: EVERY behavioral circuit `rtl` whose synthesized
+-- netlist meets setup/hold timing under a DRC-compliant PDK automatically receives a complete
+-- 6-pillar foundry TapeoutSignoff certificate!
+prove-tapeout-signoff : {V : Type} → (tech : PdkSpec) → (vNames : V → List Word) →
+  (rtl : Circ B0 B1 B2 V) → (tClk tHold : Nat) →
+  leB (pdk-minS tech) (pdk-gap tech) ≡ true →
+  leB (nand-sta-late {V} (pdk-dMax tech) (λ _ → zero) (synth-nand2 {V} rtl)) tClk ≡ true →
+  leB tHold (nand-sta-early {V} (pdk-dMin tech) (λ _ → zero) (synth-nand2 {V} rtl)) ≡ true →
+  TapeoutSignoff {V} tech rtl (compile-silicon {V} tech vNames rtl) tClk tHold
+prove-tapeout-signoff {V} tech vNames rtl tClk tHold hPdk hSetup hHold =
+  let gates  = synth-nand2 {V} rtl
+      widths = nand-cell-widths {V} (pdk-cellW tech) gates
+      cells  = place-row zero zero (pdk-cellH tech) (pdk-gap tech) widths
+      cEq    : list-length cells ≡ circ-gates {B0} {Empty} {Unit} {V} gates
+      cEq    = transN
+                 (place-row-len zero (pdk-cellH tech) (pdk-gap tech) widths zero)
+                 (nand-cell-count-eq {V} (pdk-cellW tech) gates)
+      gEq    : list-length (gds-emit-rects (pdk-layer tech) cells) ≡ circ-gates {B0} {Empty} {Unit} {V} gates
+      gEq    = transN (gds-emit-len (pdk-layer tech) cells) cEq
+  in ( (λ env → synth-nand2-sound {V} env rtl)
+     , (λ env → fold-hom {B0} {B1} {B2} {V} {Bool} {Val4} bool-alg val4-alg lift4 val4-alg-hom env rtl)
+     , ((hSetup , hHold)
+     , (place-row-drc-sound (pdk-minS tech) zero (pdk-cellH tech) (pdk-gap tech) hPdk widths zero
+     , ((cEq , gEq)
+     , all-gds-closed cells))) )

@@ -1,0 +1,12 @@
+-- Single-cycle pipelined hardware transition (retires WB while simultaneously executing next EX!)
+pipe-step-raw : RegFile → Bool → Word → Nat → IsaInst → PipeState
+pipe-step-raw rf wbV wbRd wbVal i-nop =
+  pstate (pipe-flush-raw rf wbV wbRd wbVal) false #0 zero
+pipe-step-raw rf wbV wbRd wbVal (i-imm rd imm) =
+  pstate (pipe-flush-raw rf wbV wbRd wbVal) true rd imm
+pipe-step-raw rf wbV wbRd wbVal (i-addi rd rs1 imm) =
+  pstate (pipe-flush-raw rf wbV wbRd wbVal) true rd
+    (plus (bypass-read rf wbV wbRd wbVal rs1) imm)
+pipe-step-raw rf wbV wbRd wbVal (i-alu op rd rs1 rs2) =
+  pstate (pipe-flush-raw rf wbV wbRd wbVal) true rd
+    (alu-eval op (bypass-read rf wbV wbRd wbVal rs1) (bypass-read rf wbV wbRd wbVal rs2))

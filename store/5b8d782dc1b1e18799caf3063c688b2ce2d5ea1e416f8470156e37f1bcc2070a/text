@@ -1,0 +1,29 @@
+-- Logic Synthesis Optimization Soundness Theorem: preserves exact Boolean semantics for ALL inputs!
+circ-opt-sound : {V : Type} → (env : V → Bool) → (c : Circ B0 B1 B2 V) →
+  fold {B0} {B1} {B2} {V} {Bool} bool-alg env (circ-opt c) ≡
+  fold {B0} {B1} {B2} {V} {Bool} bool-alg env c
+circ-opt-sound {V} env c =
+  case c return (λ w →
+    Path Bool
+      (fold {B0} {B1} {B2} {V} {Bool} bool-alg env (circ-opt {V} w))
+      (fold {B0} {B1} {B2} {V} {Bool} bool-alg env w)) of
+    cwire v → refl
+    cop0 k → refl
+    cop1 u a →
+      catB
+        (fold {B0} {B1} {B2} {V} {Bool} bool-alg env (opt-1 u (circ-opt {V} a)))
+        (fst (snd bool-alg) u (fold {B0} {B1} {B2} {V} {Bool} bool-alg env (circ-opt {V} a)))
+        (fst (snd bool-alg) u (fold {B0} {B1} {B2} {V} {Bool} bool-alg env a))
+        (opt-1-sound env u (circ-opt {V} a))
+        (λ i → fst (snd bool-alg) u (rec a i))
+    cop2 b x y →
+      catB
+        (fold {B0} {B1} {B2} {V} {Bool} bool-alg env (opt-2 b (circ-opt {V} x) (circ-opt {V} y)))
+        (snd (snd bool-alg) b
+          (fold {B0} {B1} {B2} {V} {Bool} bool-alg env (circ-opt {V} x))
+          (fold {B0} {B1} {B2} {V} {Bool} bool-alg env (circ-opt {V} y)))
+        (snd (snd bool-alg) b
+          (fold {B0} {B1} {B2} {V} {Bool} bool-alg env x)
+          (fold {B0} {B1} {B2} {V} {Bool} bool-alg env y))
+        (opt-2-sound env b (circ-opt {V} x) (circ-opt {V} y))
+        (λ i → snd (snd bool-alg) b (rec x i) (rec y i))

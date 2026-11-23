@@ -1,0 +1,14 @@
+net-hom : {O0 O1 O2 Out R T : Type} → (k n : Nat) → (A : Alg O0 O1 O2 R) → (B : Alg O0 O1 O2 T) →
+  (h : R → T) → AlgHom A B h → (env : SumFin n → R) → (net : Net O0 O1 O2 Out n k) → (o : Out) →
+  h (net-eval k n A env net o) ≡ net-eval k n B (λ v → h (env v)) net o
+net-hom {O0} {O1} {O2} {Out} {R} {T} k =
+  case k return (λ m → (n : Nat) → (A : Alg O0 O1 O2 R) → (B : Alg O0 O1 O2 T) →
+    (h : R → T) → AlgHom A B h → (env : SumFin n → R) → (net : Net O0 O1 O2 Out n m) → (o : Out) →
+    h (net-eval m n A env net o) ≡ net-eval m n B (λ v → h (env v)) net o) of
+    zero → λ n A B h hh env f o → fold-hom A B h hh env (f o)
+    suc j → λ n A B h hh env lk o →
+      let w = fold A env (fst lk)
+          p1 = rec j (suc n) A B h hh (ext-env w env) (snd lk) o
+          p2 : (u : SumFin (suc n)) → h (ext-env w env u) ≡ ext-env (fold B (λ v → h (env v)) (fst lk)) (λ v → h (env v)) u
+          p2 u = concat (ext-hom h w env u) (λ i → ext-env (fold-hom A B h hh env (fst lk) i) (λ v → h (env v)) u)
+      in concat p1 (λ i → net-eval j (suc n) B (λ u → p2 u i) (snd lk) o)

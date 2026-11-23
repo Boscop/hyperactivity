@@ -1,0 +1,20 @@
+-- Master 2D Multi-Row Floorplan All-Pairs DRC Theorem:
+-- Whenever horizontal cell gap ≥ minX and vertical row gap ≥ minY, EVERY pair among ALL placed
+-- cells across ALL rows of the 2D silicon block passes foundry 2D DRC!
+place-2d-drc-sound : (minX minY x0 cellH xGap yGap : Nat) →
+  leB minX xGap ≡ true → leB minY yGap ≡ true →
+  (rows : List (List Nat)) → (yCur : Nat) →
+  PairwiseDrc2D minX minY (place-grid-2d x0 yCur cellH xGap yGap rows)
+place-2d-drc-sound minX minY x0 cellH xGap yGap hx hy nil = λ yCur → unit
+place-2d-drc-sound minX minY x0 cellH xGap yGap hx hy (cons row rows) = λ yCur →
+  drc2d-append minX minY (plus cellH yCur)
+    (place-row x0 yCur cellH xGap row)
+    (place-grid-2d x0 (plus yGap (plus cellH yCur)) cellH xGap yGap rows)
+    (row-to-2d minX minY (place-row x0 yCur cellH xGap row)
+      (place-row-drc-sound minX yCur cellH xGap hx row x0))
+    (place-2d-drc-sound minX minY x0 cellH xGap yGap hx hy rows (plus yGap (plus cellH yCur)))
+    (place-row-top-le yCur cellH xGap row x0)
+    (place-grid-above-y x0 cellH xGap yGap rows
+      (plus minY (plus cellH yCur))
+      (plus yGap (plus cellH yCur))
+      (leB-plus minY yGap (plus cellH yCur) (plus cellH yCur) hy (leB-refl (plus cellH yCur))))

@@ -1,0 +1,24 @@
+-- Exact GALS Clock-Gating Energy Theorem: saves EXACTLY (idle-count ticks × eClk) dynamic energy!
+gals-energy-saved : {Ev : Type} → (eClk eAct : Nat) → (ticks : List (Sum Ev Unit)) →
+  Path Nat
+    (plus (times (idle-count {Ev} ticks) eClk) (gals-energy {Ev} eClk eAct ticks))
+    (sync-energy {Ev} eClk eAct ticks)
+gals-energy-saved {Ev} eClk eAct ticks =
+  case ticks return (λ ts →
+    Path Nat
+      (plus (times (idle-count {Ev} ts) eClk) (gals-energy {Ev} eClk eAct ts))
+      (sync-energy {Ev} eClk eAct ts)) of
+    nil → refl {lzero} {Nat} {zero}
+    cons tk rest →
+      (case tk return (λ x →
+         Path Nat
+           (plus (times (idle-count {Ev} (cons x rest)) eClk) (gals-energy {Ev} eClk eAct (cons x rest)))
+           (sync-energy {Ev} eClk eAct (cons x rest))) of
+         inl ev →
+           transN
+             (plus-mid-n (times (idle-count {Ev} rest) eClk) (plus eClk eAct) (gals-energy {Ev} eClk eAct rest))
+             (congN (plus (plus eClk eAct)) (rec rest))
+         inr u →
+           transN
+             (plus-assoc eClk (times (idle-count {Ev} rest) eClk) (gals-energy {Ev} eClk eAct rest))
+             (congN (plus eClk) (rec rest)))

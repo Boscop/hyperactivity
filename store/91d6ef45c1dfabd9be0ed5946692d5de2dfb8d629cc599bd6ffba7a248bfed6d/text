@@ -1,0 +1,17 @@
+-- 1. Speculative Hit Theorem (IPC = 1): when next-PC prediction hits, one pipeline step retires `ifInst`
+--    AND prefetches the exact architectural next instruction `imem (h-pc hs1)` with zero stall cycles!
+spec-pipe-hit-sound : (imem : Word → HartInst) → (hs : HartState) → (ifPc : Word) → (ifInst : HartInst) →
+  weq (h-pc (hart-isa-step hs ifInst)) (%wsucc ifPc) ≡ true →
+  spipe-flush (spipe-step imem (spipe hs true ifPc ifInst)) ≡
+  hart-isa-step (hart-isa-step hs ifInst) (imem (h-pc (hart-isa-step hs ifInst)))
+spec-pipe-hit-sound imem hs ifPc ifInst hHit =
+  let hs1    = hart-isa-step hs ifInst
+      nextPc = %wsucc ifPc
+      pEq    : nextPc ≡ h-pc hs1
+      pEq    = symw (weq-sound (h-pc hs1) nextPc hHit)
+  in concat {lzero} {HartState}
+       {spipe-flush (spipe-resolve imem hs1 nextPc (weq (h-pc hs1) nextPc))}
+       {hart-isa-step hs1 (imem nextPc)}
+       {hart-isa-step hs1 (imem (h-pc hs1))}
+       (λ i → spipe-flush (spipe-resolve imem hs1 nextPc (hHit i)))
+       (λ i → hart-isa-step hs1 (imem (pEq i)))

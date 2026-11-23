@@ -1,0 +1,12 @@
+-- Full-Program Pipelined CPU Equivalence Theorem: executing ANY instruction sequence `prog` at
+-- IPC=1 on the pipelined hazard-forwarding core and draining WB matches single-cycle ISA `isa-run`!
+pipe-run-sound : (prog : List IsaInst) → (ps : PipeState) →
+  pipe-flush (pipe-run ps prog) ≡ isa-run (pipe-flush ps) prog
+pipe-run-sound nil = λ ps → refl
+pipe-run-sound (cons inst rest) = λ ps →
+  concat {lzero} {RegFile}
+    {pipe-flush (pipe-run (pipe-step ps inst) rest)}
+    {isa-run (pipe-flush (pipe-step ps inst)) rest}
+    {isa-run (isa-step (pipe-flush ps) inst) rest}
+    (pipe-run-sound rest (pipe-step ps inst))
+    (λ i → isa-run (burch-dill-commute ps inst i) rest)

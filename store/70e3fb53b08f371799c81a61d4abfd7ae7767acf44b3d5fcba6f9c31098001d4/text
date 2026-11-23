@@ -1,0 +1,19 @@
+-- PPA Optimality Theorem: best-in-fiber beats or ties BOTH c0 AND every candidate in `cs`!
+best-in-fiber-opt : {C S : Type} → (sem : C → S) → (spec : S) → (cost : C → Nat) →
+  (c0 : fiber sem spec) → (cs : List (fiber sem spec)) →
+  le (cost (fst (best-in-fiber sem spec cost c0 cs))) (cost (fst c0)) ×
+  AllFiberLe sem spec cost (cost (fst (best-in-fiber sem spec cost c0 cs))) cs
+best-in-fiber-opt sem spec cost c0 nil =
+  (leB-sound (cost (fst c0)) (cost (fst c0)) (leB-refl (cost (fst c0))) , unit)
+best-in-fiber-opt sem spec cost c0 (cons c cs) =
+  let sub  = best-in-fiber sem spec cost c cs
+      best = pick-min sem spec cost c0 sub
+      ih   = best-in-fiber-opt sem spec cost c cs
+      hL   = pick-min-l sem spec cost c0 sub
+      hR   = pick-min-r sem spec cost c0 sub
+      leC0 = leB-sound (cost (fst best)) (cost (fst c0)) hL
+      leC  = leB-sound (cost (fst best)) (cost (fst c))
+               (leB-trans (cost (fst best)) (cost (fst sub)) (cost (fst c))
+                 hR (best-in-fiber-le-init-b sem spec cost c cs))
+      leCs = all-fiber-mono sem spec cost (cost (fst best)) (cost (fst sub)) hR cs (λ _ → unit) (snd ih)
+  in (leC0 , (leC , leCs))

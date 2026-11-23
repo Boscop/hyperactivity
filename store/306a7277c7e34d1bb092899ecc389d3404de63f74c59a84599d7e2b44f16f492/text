@@ -1,0 +1,24 @@
+-- Unified 6-Pillar Foundry Tapeout Signoff Certificate:
+-- 1. Behavioral RTL ↔ Foundry NAND2 Netlist Equivalence (LEC across all 2^|V| inputs)
+-- 2. 2-State Bool ↔ 4-State Verilog X-Propagation Safety
+-- 3. Dual Tropical Setup (tLate ≤ tClk) & Hold (tHold ≤ tEarly) Timing Closure
+-- 4. All-Pairs O(N²) Foundry Horizontal DRC Spacing Cleanliness
+-- 5. Exact 1-to-1 Gate Count = Placed Cell Count = Emitted GDSII Polygon Count Conservation
+-- 6. Closed 5-Vertex GDSII BOUNDARY Stream Integrity on Every Cell
+TapeoutSignoff : {V : Type} → PdkSpec → Circ B0 B1 B2 V → SiliconBuild V → Nat → Nat → Type
+TapeoutSignoff {V} tech rtl build tClk tHold =
+  let gates = fst (snd (snd build))
+      cells = fst (snd (snd (snd build)))
+      gds   = snd (snd (snd (snd build)))
+  in ((env : V → Bool) →
+        fold {B0} {Empty} {Unit} {V} {Bool} nand-alg env gates ≡
+        fold {B0} {B1} {B2} {V} {Bool} bool-alg env rtl) ×
+     ((env : V → Bool) →
+        lift4 (fold {B0} {B1} {B2} {V} {Bool} bool-alg env rtl) ≡
+        fold {B0} {B1} {B2} {V} {Val4} val4-alg (λ v → lift4 (env v)) rtl) ×
+     ((leB (nand-sta-late {V} (pdk-dMax tech) (λ _ → zero) gates) tClk ≡ true) ×
+      (leB tHold (nand-sta-early {V} (pdk-dMin tech) (λ _ → zero) gates) ≡ true)) ×
+     PairwiseDrc (pdk-minS tech) cells ×
+     ((list-length cells ≡ circ-gates {B0} {Empty} {Unit} {V} gates) ×
+      (list-length gds ≡ circ-gates {B0} {Empty} {Unit} {V} gates)) ×
+     AllGdsClosed cells

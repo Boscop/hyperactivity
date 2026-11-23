@@ -1,0 +1,18 @@
+-- Wire-RC Dominance Theorem: gate-only STA optimistically under-approximates placed Manhattan wire-RC STA
+-- (explaining Frostbite's 1250ps [800 MHz] pre-layout → 2000ps [500 MHz] GDS wire-delay gap)!
+wire-rc-sta-dominates : {O0 O1 O2 V : Type} →
+  (d1 rc1 : O1 → Nat) → (d2 rc2 : O2 → Nat) → (env rc0 : V → Nat) →
+  (c : Circ O0 O1 O2 V) →
+  le (fold {O0} {O1} {O2} {V} {Nat} (sta-late-alg {O0} {O1} {O2} d1 d2) env c)
+     (fold {O0} {O1} {O2} {V} {Nat}
+       (sta-late-alg {O0} {O1} {O2} (λ u → plus (rc1 u) (d1 u)) (λ b → plus (rc2 b) (d2 b)))
+       (λ v → plus (rc0 v) (env v)) c)
+wire-rc-sta-dominates {O0} {O1} {O2} {V} d1 rc1 d2 rc2 env rc0 c =
+  sta-late-mono {O0} {O1} {O2} {V}
+    d1 (λ u → plus (rc1 u) (d1 u))
+    d2 (λ b → plus (rc2 b) (d2 b))
+    env (λ v → plus (rc0 v) (env v))
+    (λ u → leB-add-rc (d1 u) (rc1 u))
+    (λ b → leB-add-rc (d2 b) (rc2 b))
+    (λ v → leB-add-rc (env v) (rc0 v))
+    c

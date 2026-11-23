@@ -1,0 +1,29 @@
+-- ---------------------------------------------------------------- 3. Exact Fraction-Free Schur-Complement Nodal Elimination
+-- Eliminates internal SPICE / PDN IR-drop / 3D-thermal node vint without rational division:
+-- From g11·vext + g12·vint = iext and g21·vext + g22·vint = iint,
+-- proves (g22·g11)·vext + g12·iint ≡ g22·iext + (g12·g21)·vext!
+schur-elim-sound : (g11 g12 g21 g22 vext vint iext iint : Nat) →
+  plus (times g11 vext) (times g12 vint) ≡ iext →
+  plus (times g21 vext) (times g22 vint) ≡ iint →
+  plus (times (times g22 g11) vext) (times g12 iint) ≡
+  plus (times g22 iext) (times (times g12 g21) vext)
+schur-elim-sound g11 g12 g21 g22 vext vint iext iint kcl1 kcl2 =
+  let A = times (times g22 g11) vext
+      B = times (times g12 g21) vext
+      C = times g12 (times g22 vint)
+      e1 : times g22 iext ≡ plus A C
+      e1 = transN (congN (times g22) (sym kcl1))
+             (transN (times-distr-r g22 (times g11 vext) (times g12 vint))
+               (cong2N plus
+                 (sym (times-assoc-n g22 g11 vext))
+                 (transN (sym (times-assoc-n g22 g12 vint))
+                   (transN (congN (λ u → times u vint) (times-comm-n g22 g12))
+                     (times-assoc-n g12 g22 vint)))))
+      e2 : times g12 iint ≡ plus B C
+      e2 = transN (congN (times g12) (sym kcl2))
+             (transN (times-distr-r g12 (times g21 vext) (times g22 vint))
+               (congN (λ u → plus u C) (sym (times-assoc-n g12 g21 vext))))
+  in transN (congN (plus A) e2)
+       (transN (congN (plus A) (plus-comm B C))
+         (transN (sym (plus-assoc A C B))
+           (congN (λ u → plus u B) (sym e1))))

@@ -1,0 +1,30 @@
+-- Arbitrary-width w-bit 3:2 Carry-Save Theorem (gate depth = 2 for ALL widths w!):
+-- Denotation of (csa-sum w x y z) + (csa-carry w x y z) equals x + y + z for EVERY width w!
+csa-sound : (w : Nat) → (x y z : Vec Bool w) →
+  plus (bv-val w (csa-sum w x y z)) (bv-val (suc w) (csa-carry w x y z)) ≡
+  plus (plus (bv-val w x) (bv-val w y)) (bv-val w z)
+csa-sound zero x y z = refl
+csa-sound (suc w) x y z =
+  let s0 = bitNat (fa-sum (fst x) (fst y) (fst z))
+      c0 = bitNat (fa-cout (fst x) (fst y) (fst z))
+      S  = bv-val w (csa-sum w (snd x) (snd y) (snd z))
+      C  = bv-val w (csa-carry-raw w (snd x) (snd y) (snd z))
+      X  = bv-val w (snd x)
+      Y  = bv-val w (snd y)
+      Z  = bv-val w (snd z)
+      x0 = bitNat (fst x)
+      y0 = bitNat (fst y)
+      z0 = bitNat (fst z)
+      p1 : plus (plus s0 (doubleN S)) (doubleN (plus c0 (doubleN C))) ≡ plus (plus s0 (doubleN c0)) (plus (doubleN S) (doubleN (doubleN C)))
+      p1 = transN (congN (plus (plus s0 (doubleN S))) (doubleN-plus c0 (doubleN C)))
+             (swap4 s0 (doubleN S) (doubleN c0) (doubleN (doubleN C)))
+      p2 : plus (plus s0 (doubleN c0)) (plus (doubleN S) (doubleN (doubleN C))) ≡
+           plus (plus (plus x0 y0) z0) (doubleN (plus (plus X Y) Z))
+      p2 = cong2N plus (fa-law (fst x) (fst y) (fst z))
+             (transN (sym (doubleN-plus S (doubleN C))) (congN doubleN (csa-sound w (snd x) (snd y) (snd z))))
+      p3 : plus (plus (plus x0 y0) z0) (doubleN (plus (plus X Y) Z)) ≡
+           plus (plus (plus x0 (doubleN X)) (plus y0 (doubleN Y))) (plus z0 (doubleN Z))
+      p3 = transN (congN (plus (plus (plus x0 y0) z0))
+             (transN (doubleN-plus (plus X Y) Z) (congN (λ u → plus u (doubleN Z)) (doubleN-plus X Y))))
+             (sum3-split x0 (doubleN X) y0 (doubleN Y) z0 (doubleN Z))
+  in transN p1 (transN p2 p3)

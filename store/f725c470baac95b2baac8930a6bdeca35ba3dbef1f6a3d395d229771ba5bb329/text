@@ -1,0 +1,16 @@
+-- Dual-Target Equivalence Theorem: streaming AXI-Stream RTL and C/C++ fd-decode agree bit-for-bit
+-- on EVERY packet stream (short, truncated/malformed, and valid)!
+fd-dual-sound : (pkt : List Nat) → (out : FdFrame) →
+  fd-rtl pkt out ≡ fd-decode (pkt-byte pkt) (list-length pkt) zero out
+fd-dual-sound nil out = refl
+fd-dual-sound (cons b0 nil) out = refl
+fd-dual-sound (cons b0 (cons b1 nil)) out = refl
+fd-dual-sound (cons b0 (cons b1 (cons b2 nil))) out = refl
+fd-dual-sound (cons b0 (cons b1 (cons b2 (cons b3 payload)))) out =
+  let len = plus b2 (times fd-256 b3)
+      tag = plus b0 (times fd-256 b1)
+      lz  = sym (fd-ltb-zero (list-length payload))
+      mz  = sym (fd-monus-zero (list-length payload))
+  in λ i →
+    if lz i then (false , out)
+    else (if fd-ltb (mz i) len then (false , out) else (true , (tag , len , fd-four)))

@@ -1,0 +1,12 @@
+-- Streaming AXI-Stream hardware beat receiver: captures 4 header registers + payload byte counter
+-- in one pass with O(1) register state (zero packet-buffer SRAM needed for header/length check!)
+fd-rtl : List Nat → FdFrame → Bool × FdFrame
+fd-rtl nil out = (false , out)
+fd-rtl (cons b0 nil) out = (false , out)
+fd-rtl (cons b0 (cons b1 nil)) out = (false , out)
+fd-rtl (cons b0 (cons b1 (cons b2 nil))) out = (false , out)
+fd-rtl (cons b0 (cons b1 (cons b2 (cons b3 payload)))) out =
+  let len = plus b2 (times fd-256 b3)
+      tag = plus b0 (times fd-256 b1)
+  in if fd-ltb (list-length payload) len then (false , out)
+     else (true , (tag , len , fd-four))
