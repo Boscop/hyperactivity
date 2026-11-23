@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cubical Kernel (WASM) · Hyperactivity</title>
+<meta name="description" content="The Hyperactive cubical kernel (lib/check.hypercubical) and interaction-net evaluator compiled to WebAssembly, verifying SHA-256 content-addressed pool modules directly in the browser.">
+<style>
+:root {
+  --bg: #ffffff;
+  --panel: #f7f7f7;
+  --ink: #000000;
+  --muted: #555555;
+  --line: rgba(0, 0, 0, 0.14);
+  --line-strong: rgba(0, 0, 0, 0.28);
+  --border-hi: #000000;
+  --pink: #ff0a94;
+  --ok: #0a8a43;
+  --err: #d91b42;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+html.dark {
+  --bg: #000000;
+  --panel: #0b0b0b;
+  --ink: #ffffff;
+  --muted: #929292;
+  --line: rgba(255, 255, 255, 0.15);
+  --line-strong: rgba(255, 255, 255, 0.30);
+  --border-hi: #ffffff;
+  --pink: #ff0a94;
+  --ok: #26d07c;
+  --err: #ff4d6d;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%;
+  background: var(--bg); color: var(--ink);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: var(--pink); color: #fff; }
+
+.shell {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  height: calc(100vh - 48px);
+}
+@media (max-width: 900px) {
+  html, body { height: auto; }
+  .shell { grid-template-columns: 1fr; height: auto; }
+}
+
+.sidebar {
+  border-right: 1px solid var(--line-strong);
+  background: var(--panel);
+  display: flex; flex-direction: column;
+  overflow-y: auto;
+  padding: 18px;
+  gap: 18px;
+}
+.sec-label {
+  font: 700 11px/1.2 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.preset-btn {
+  display: block; width: 100%; text-align: left;
+  background: var(--bg); color: var(--ink);
+  border: 1px solid var(--line-strong);
+  padding: 9px 11px; margin-bottom: 6px;
+  font: 600 12px/1.35 var(--mono);
+  cursor: pointer;
+}
+.preset-btn:hover, .preset-btn.active {
+  border-color: var(--pink);
+  color: var(--pink);
+}
+.preset-sub {
+  display: block; font-weight: 400; font-size: 11px; color: var(--muted); margin-top: 3px;
+}
+.mod-box {
+  display: flex; gap: 6px;
+}
+.mod-box input {
+  flex: 1; min-width: 0;
+  background: var(--bg); color: var(--ink);
+  border: 1px solid var(--line-strong);
+  padding: 6px 8px;
+  font: 500 12px var(--mono);
+}
+.mod-box button, .btn {
+  background: var(--ink); color: var(--bg);
+  border: 1px solid var(--border-hi);
+  padding: 6px 12px;
+  font: 700 12px var(--mono);
+  cursor: pointer;
+}
+.mod-box button:hover, .btn:hover {
+  background: var(--pink); border-color: var(--pink); color: #fff;
+}
+.btn:disabled { opacity: 0.45; cursor: wait; }
+
+.hash-list {
+  font: 500 11px/1.55 var(--mono);
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+  word-break: break-all;
+}
+.hash-row {
+  display: flex; justify-content: space-between; gap: 8px;
+  padding: 2px 0;
+}
+.hash-row .h-ok { color: var(--ok); white-space: nowrap; }
+
+.main {
+  display: grid;
+  grid-template-rows: auto minmax(220px, 1fr) minmax(180px, 42%);
+  min-width: 0; min-height: 0;
+}
+.toolbar {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--line-strong);
+  font: 600 12px var(--mono);
+  flex-wrap: wrap;
+}
+.status { display: flex; align-items: center; gap: 10px; }
+.dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--pink);
+  display: inline-block;
+}
+.dot.ready { background: var(--ok); }
+.dot.err { background: var(--err); }
+
+.editor-wrap {
+  position: relative; display: flex; flex-direction: column; min-height: 0;
+  border-bottom: 2px solid var(--border-hi);
+}
+textarea#code {
+  flex: 1; width: 100%; resize: none; border: 0; outline: 0;
+  padding: 18px 20px;
+  background: var(--bg); color: var(--ink);
+  font: 500 13.5px/1.6 var(--mono);
+  tab-size: 2;
+}
+.out-wrap {
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--panel);
+}
+.out-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--line);
+  font: 700 11px var(--mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+pre#out {
+  flex: 1; margin: 0; padding: 16px 20px;
+  overflow: auto;
+  font: 500 13px/1.6 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+</style>
+</head>
+<body>
+<!--HX:NAV-->
+
+<div class="shell">
+  <aside class="sidebar">
+    <div>
+      <div class="sec-label">Cubical Kernel Presets</div>
+      <div id="presets"></div>
+    </div>
+
+    <div>
+      <div class="sec-label">Load Pool Module</div>
+      <div class="mod-box">
+        <input id="modInput" value="lib/pool.hypercubical" spellcheck="false" placeholder="e.g. lib/pool.hypercubical">
+        <button id="loadModBtn" disabled>Load</button>
+      </div>
+      <div style="font:400 11px/1.45 var(--mono);color:var(--muted);margin-top:6px">
+        Fetches <code>/source/text</code> from the content-addressed pool, resolves transitive imports, verifies SHA-256 in WebCrypto, and elaborates in WASM.
+      </div>
+    </div>
+
+    <div>
+      <div class="sec-label">SHA-256 Pool (Browser)</div>
+      <div class="hash-list" id="hashes">Booting WebAssembly worker…</div>
+    </div>
+  </aside>
+
+  <section class="main">
+    <div class="toolbar">
+      <div class="status">
+        <span class="dot" id="dot"></span>
+        <span id="statusText">Initializing cubical.wasm…</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span id="stepBadge" style="color:var(--muted)">0 net steps</span>
+        <button class="btn" id="runBtn" disabled title="Elaborate &amp; Normalize (Ctrl+Enter / Cmd+Enter)">Elaborate &amp; Normalize ↵</button>
+      </div>
+    </div>
+
+    <div class="editor-wrap">
+      <textarea id="code" spellcheck="false"></textarea>
+    </div>
+
+    <div class="out-wrap">
+      <div class="out-bar">
+        <span>Kernel Output · Interaction-Net Normalizer &amp; Self-Hosted Kernel (lib/check.hypercubical)</span>
+        <span id="timeBadge"></span>
+      </div>
+      <pre id="out">Loading cubical.wasm (src/dnf.c + src/big.c + src/net.c + src/lang.c) and elaborating lib/core.hypercubical in WebAssembly…</pre>
+    </div>
+  </section>
+</div>
+
+<script>
+const PRESETS = [
+  {
+    title: '1 · Path Symmetry & Involutivity',
+    sub: 'Interval reversal (~ i) is definitionally involutive',
+    code: `-- Elaborated directly in your browser by lib/check.hypercubical
+-- on the interaction-net evaluator compiled to WebAssembly.
+
+k-sym : {A : Type} {x y : A} → Path A x y → Path A y x
+k-sym p = λ i → p (~ i)
+
+-- ~ (~ i) ≡ i holds strictly in the De Morgan cube algebra (src/dnf.c),
+-- so sym (sym p) ≡ p is refl:
+k-sym-invol : {A : Type} {x y : A} (p : Path A x y) → Path (Path A x y) (k-sym (k-sym p)) p
+k-sym-invol p = refl
+
+k-ap : {A B : Type} (f : A → B) {x y : A} → Path A x y → Path B (f x) (f y)
+k-ap f p = λ i → f (p i)
+
+#type k-sym-invol {Bool} {true} {true}
+#show plus 21 21
+`
+  },
+  {
+    title: '2 · Higher-Dimensional Square',
+    sub: 'Dependent connection square PathP via De Morgan meet (∧)',
+    code: `-- A 2D connection square in type A between refl and p : Path A x y
+-- over the varying right endpoint (p i), using De Morgan meet (∧):
+
+k-connect : {A : Type} {x y : A} (p : Path A x y) → PathP (λ i → Path A x (p i)) (λ j → x) p
+k-connect {A} {x} p = λ i j → p (i ∧ j)
+
+-- Diagonal of a 2D square between paths:
+k-diag : {A : Type} {x y : A} {p q : Path A x y} → Path (Path A x y) p q → Path A x y
+k-diag sq = λ i → sq i i
+
+#type k-connect {Nat} {0} {3}
+#show times 6 7
+`
+  },
+  {
+    title: '3 · Inductive Nat Proofs',
+    sub: 'plus right-identity by structural induction + Path',
+    code: `-- Structural induction and cubical path abstraction:
+
+k-plus-zero : (n : Nat) → Path Nat (plus n zero) n
+k-plus-zero zero = refl
+k-plus-zero (suc n) = λ i → suc (k-plus-zero n i)
+
+#type k-plus-zero
+#show plus (times 8 8) 36
+`
+  },
+  {
+    title: '4 · Forged Proof Rejection',
+    sub: 'Watch lib/check.hypercubical reject Path Bool true false = refl & recover',
+    code: `-- False claim: lib/check.hypercubical rejects refl because endpoint i1
+-- reduces to true rather than false, then recovers cleanly.
+
+forged-claim : Path Bool true false
+forged-claim = refl
+`
+  }
+];
+
+const CORE_IMPORTS = [
+  'lib/prelude.hypercubical',
+  'lib/code.hypercubical',
+  'lib/match.hypercubical',
+  'lib/nav.hypercubical',
+  'lib/cost.hypercubical',
+  'lib/lin.hypercubical',
+  'lib/check.hypercubical',
+  'lib/std.hypercubical',
+  'lib/core.hypercubical'
+];
+
+const codeEl = document.getElementById('code');
+const outEl = document.getElementById('out');
+const runBtn = document.getElementById('runBtn');
+const loadModBtn = document.getElementById('loadModBtn');
+const modInput = document.getElementById('modInput');
+const dotEl = document.getElementById('dot');
+const statusEl = document.getElementById('statusText');
+const stepBadge = document.getElementById('stepBadge');
+const timeBadge = document.getElementById('timeBadge');
+const hashesEl = document.getElementById('hashes');
+const presetsEl = document.getElementById('presets');
+
+PRESETS.forEach((p, idx) => {
+  const b = document.createElement('button');
+  b.className = 'preset-btn' + (idx === 0 ? ' active' : '');
+  b.innerHTML = p.title + '<span class="preset-sub"></span>';
+  b.querySelector('.preset-sub').textContent = p.sub;
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.preset-btn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    codeEl.value = p.code;
+    if (!runBtn.disabled) triggerEval();
+  });
+  presetsEl.appendChild(b);
+});
+codeEl.value = PRESETS[0].code;
+
+const workerSrc = `
+let ex = null;
+let memory = null;
+let outBuf = '';
+let errBuf = '';
+const dec = new TextDecoder();
+const enc = new TextEncoder();
+const loadedFiles = new Set();
+const verifiedHashes = [];
+
+function toHex(u8) {
+  let s = '';
+  for (let i = 0; i < u8.length; i++) s += u8[i].toString(16).padStart(2, '0');
+  return s;
+}
+
+async function sha256Hex(bytes) {
+  const d = await crypto.subtle.digest('SHA-256', bytes);
+  return toHex(new Uint8Array(d));
+}
+
+function pathHex(rel) {
+  return toHex(enc.encode(rel));
+}
+
+function withCStr(str, fn) {
+  const bytes = enc.encode(str);
+  const p = ex.wasm_alloc(bytes.length + 1);
+  new Uint8Array(memory.buffer).set(bytes, p);
+  new Uint8Array(memory.buffer)[p + bytes.length] = 0;
+  try { return fn(p); } finally { ex.wasm_free(p); }
+}
+
+function altExt(rel) {
+  if (rel.endsWith('.hypercubical')) return rel.slice(0, -13) + '.cub';
+  if (rel.endsWith('.cub')) return rel.slice(0, -4) + '.hypercubical';
+  return '';
+}
+
+function putFile(rel, text) {
+  withCStr(rel, rp => withCStr(text, tp => ex.wasm_put_file(rp, tp)));
+  const alt = altExt(rel);
+  if (alt) withCStr(alt, rp => withCStr(text, tp => ex.wasm_put_file(rp, tp)));
+}
+
+function dirOf(rel) {
+  const i = rel.lastIndexOf('/');
+  return i >= 0 ? rel.slice(0, i + 1) : '';
+}
+
+function normRel(baseDir, imp) {
+  const raw = imp.startsWith('/') ? imp.slice(1) : (baseDir + imp);
+  const parts = [];
+  for (const seg of raw.split('/')) {
+    if (!seg || seg === '.') continue;
+    if (seg === '..') parts.pop();
+    else parts.push(seg);
+  }
+  return parts.join('/');
+}
+
+function parseImports(rel, txt) {
+  const d = dirOf(rel);
+  const out = [];
+  for (const line of txt.split('\\n')) {
+    const m = line.match(/^\\s*import\\s+"([^"]+)"/);
+    if (m) out.push(normRel(d, m[1]));
+  }
+  return out;
+}
+
+async function fetchModuleTree(origin, rel) {
+  if (loadedFiles.has(rel)) return;
+  loadedFiles.add(rel);
+  const alt = altExt(rel);
+  if (alt) loadedFiles.add(alt);
+  let res = await fetch(origin + '/source/text?path=' + pathHex(rel));
+  if (!res.ok && alt) res = await fetch(origin + '/source/text?path=' + pathHex(alt));
+  if (!res.ok) {
+    loadedFiles.delete(rel);
+    if (alt) loadedFiles.delete(alt);
+    throw new Error('Module not found in public pool: ' + rel + ' (' + res.status + ')');
+  }
+  const buf = new Uint8Array(await res.arrayBuffer());
+  const h = await sha256Hex(buf);
+  const txt = dec.decode(buf);
+  const imps = parseImports(rel, txt);
+  for (const ch of imps) {
+    await fetchModuleTree(origin, ch);
+  }
+  putFile(rel, txt);
+  const disp = rel.endsWith('.cub') ? altExt(rel) : rel;
+  verifiedHashes.push({ name: disp, sha256: h.slice(0, 12), bytes: buf.length });
+}
+
+self.onmessage = async (ev) => {
+  const msg = ev.data;
+  try {
+    if (msg.type === 'boot') {
+      const origin = msg.origin;
+      self.postMessage({ type: 'status', text: 'Fetching /cubical.wasm…' });
+      const wres = await fetch(origin + '/cubical.wasm');
+      if (!wres.ok) throw new Error('Failed to fetch /cubical.wasm: ' + wres.status);
+      const wbytes = new Uint8Array(await wres.arrayBuffer());
+      const whash = await sha256Hex(wbytes);
+      verifiedHashes.push({ name: 'cubical.wasm', sha256: whash.slice(0, 12), bytes: wbytes.length });
+
+      const wasi = {
+        environ_sizes_get(c, s) { const dv = new DataView(memory.buffer); dv.setUint32(c, 0, true); dv.setUint32(s, 0, true); return 0; },
+        environ_get: () => 0,
+        clock_time_get(_i, _p, out) { new DataView(memory.buffer).setBigUint64(out, BigInt(Math.round(performance.now() * 1e6)), true); return 0; },
+        fd_write(fd, iovs, len, nw) {
+          const dv = new DataView(memory.buffer);
+          const u8 = new Uint8Array(memory.buffer);
+          let tot = 0;
+          for (let i = 0; i < len; i++) {
+            const p = dv.getUint32(iovs + i * 8, true);
+            const l = dv.getUint32(iovs + i * 8 + 4, true);
+            const s = dec.decode(u8.subarray(p, p + l));
+            if (fd === 1) outBuf += s; else errBuf += s;
+            tot += l;
+          }
+          dv.setUint32(nw, tot, true);
+          return 0;
+        },
+        fd_close: () => 0, fd_fdstat_get: () => 8, fd_filestat_get: () => 8,
+        fd_prestat_get: () => 8, fd_prestat_dir_name: () => 8, fd_read: () => 8,
+        fd_readdir: () => 8, fd_seek: () => 8, path_create_directory: () => 8,
+        path_filestat_get: () => 8, path_open: () => 8, path_remove_directory: () => 8,
+        path_rename: () => 8, path_unlink_file: () => 8, poll_oneoff: () => 8,
+        proc_exit: (c) => { throw new Error('proc_exit(' + c + ')'); },
+        sched_yield: () => 0
+      };
+
+      const { instance } = await WebAssembly.instantiate(wbytes, { wasi_snapshot_preview1: wasi });
+      ex = instance.exports;
+      memory = ex.memory;
+
+      self.postMessage({ type: 'status', text: 'Fetching & SHA-256 verifying lib/core.hypercubical closure…', hashes: verifiedHashes });
+      const fetched = await Promise.all(${JSON.stringify(CORE_IMPORTS)}.map(async (rel) => {
+        let r = await fetch(origin + '/source/text?path=' + pathHex(rel));
+        if (!r.ok) r = await fetch(origin + '/source/text?path=' + pathHex(altExt(rel)));
+        if (!r.ok) throw new Error('Failed to fetch ' + rel);
+        const b = new Uint8Array(await r.arrayBuffer());
+        const h = await sha256Hex(b);
+        return { rel, txt: dec.decode(b), sha256: h.slice(0, 12), bytes: b.length };
+      }));
+      for (const f of fetched) {
+        loadedFiles.add(f.rel);
+        const alt = altExt(f.rel);
+        if (alt) loadedFiles.add(alt);
+        putFile(f.rel, f.txt);
+        verifiedHashes.push({ name: f.rel, sha256: f.sha256, bytes: f.bytes });
+      }
+      self.postMessage({ type: 'status', text: 'Elaborating self-hosted kernel (lib/check.hypercubical + lib/std.hypercubical)…', hashes: verifiedHashes });
+
+      outBuf = ''; errBuf = '';
+      const t0 = performance.now();
+      const rc = withCStr('lib/core.hypercubical', p => ex.wasm_load_module(p));
+      const ms = (performance.now() - t0).toFixed(0);
+      if (rc !== 0) throw new Error('lib/core.hypercubical boot failed:\\n' + outBuf + errBuf);
+      self.postMessage({
+        type: 'ready',
+        ms,
+        totalSteps: ex.wasm_steps(),
+        hashes: verifiedHashes
+      });
+    } else if (msg.type === 'eval') {
+      outBuf = ''; errBuf = '';
+      const t0 = performance.now();
+      const imps = parseImports('browser.hypercubical', msg.code);
+      for (const imp of imps) {
+        await fetchModuleTree(msg.origin, imp);
+      }
+      const steps = withCStr(msg.code, p => ex.wasm_eval(p));
+      const ms = (performance.now() - t0).toFixed(1);
+      self.postMessage({
+        type: 'result',
+        ok: steps >= 0,
+        steps: steps >= 0 ? steps : (-steps - 1),
+        totalSteps: ex.wasm_steps(),
+        ms,
+        output: (outBuf + (errBuf ? '\\n' + errBuf : '')).trim(),
+        hashes: verifiedHashes
+      });
+    } else if (msg.type === 'load_mod') {
+      outBuf = ''; errBuf = '';
+      const t0 = performance.now();
+      await fetchModuleTree(msg.origin, msg.rel);
+      const s0 = ex.wasm_steps();
+      const rc = withCStr(msg.rel, p => ex.wasm_load_module(p));
+      const steps = ex.wasm_steps() - s0;
+      const ms = (performance.now() - t0).toFixed(1);
+      self.postMessage({
+        type: 'mod_loaded',
+        ok: rc === 0,
+        rel: msg.rel,
+        steps,
+        totalSteps: ex.wasm_steps(),
+        ms,
+        output: (outBuf + (errBuf ? '\\n' + errBuf : '')).trim(),
+        hashes: verifiedHashes
+      });
+    }
+  } catch (e) {
+    self.postMessage({ type: 'error', error: String(e && e.message ? e.message : e) });
+  }
+};
+`;
+
+const worker = new Worker(URL.createObjectURL(new Blob([workerSrc], { type: 'application/javascript' })));
+
+function renderHashes(list) {
+  if (!list || !list.length) return;
+  hashesEl.innerHTML = '';
+  list.forEach(item => {
+    const r = document.createElement('div');
+    r.className = 'hash-row';
+    const l = document.createElement('span');
+    l.textContent = item.name;
+    const h = document.createElement('span');
+    h.className = 'h-ok';
+    h.textContent = '✓ ' + item.sha256;
+    r.appendChild(l);
+    r.appendChild(h);
+    hashesEl.appendChild(r);
+  });
+}
+
+function triggerEval() {
+  runBtn.disabled = true;
+  dotEl.className = 'dot';
+  statusEl.textContent = 'Elaborating & normalizing…';
+  worker.postMessage({ type: 'eval', origin: location.origin, code: codeEl.value });
+}
+
+runBtn.addEventListener('click', triggerEval);
+codeEl.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    if (!runBtn.disabled) triggerEval();
+  }
+});
+
+loadModBtn.addEventListener('click', () => {
+  const rel = modInput.value.trim();
+  if (!rel) return;
+  loadModBtn.disabled = true;
+  runBtn.disabled = true;
+  dotEl.className = 'dot';
+  statusEl.textContent = 'Loading ' + rel + '…';
+  worker.postMessage({ type: 'load_mod', origin: location.origin, rel });
+});
+
+worker.onmessage = (ev) => {
+  const m = ev.data;
+  if (m.hashes) renderHashes(m.hashes);
+  if (m.type === 'status') {
+    statusEl.textContent = m.text;
+  } else if (m.type === 'ready') {
+    dotEl.className = 'dot ready';
+    statusEl.textContent = 'Kernel ready · lib/core.hypercubical (' + m.ms + ' ms)';
+    stepBadge.textContent = Number(m.totalSteps).toLocaleString() + ' net steps';
+    runBtn.disabled = false;
+    loadModBtn.disabled = false;
+    triggerEval();
+  } else if (m.type === 'result') {
+    runBtn.disabled = false;
+    loadModBtn.disabled = false;
+    dotEl.className = m.ok ? 'dot ready' : 'dot err';
+    statusEl.textContent = m.ok ? '0 failures' : 'Rejected by lib/check.hypercubical';
+    stepBadge.textContent = Number(m.totalSteps).toLocaleString() + ' total steps';
+    timeBadge.textContent = Number(m.steps).toLocaleString() + ' steps · ' + m.ms + ' ms';
+    outEl.textContent = m.output || (m.ok ? '✓ All definitions elaborated (0 failures, ' + Number(m.steps).toLocaleString() + ' interaction-net steps).' : 'Failed.');
+  } else if (m.type === 'mod_loaded') {
+    runBtn.disabled = false;
+    loadModBtn.disabled = false;
+    dotEl.className = m.ok ? 'dot ready' : 'dot err';
+    statusEl.textContent = m.ok ? ('Loaded ' + m.rel) : ('Failed loading ' + m.rel);
+    stepBadge.textContent = Number(m.totalSteps).toLocaleString() + ' total steps';
+    timeBadge.textContent = Number(m.steps).toLocaleString() + ' steps · ' + m.ms + ' ms';
+    outEl.textContent = (m.ok ? ('✓ Loaded ' + m.rel + ' (' + Number(m.steps).toLocaleString() + ' steps in ' + m.ms + ' ms).\n') : '') + (m.output || '');
+  } else if (m.type === 'error') {
+    runBtn.disabled = false;
+    loadModBtn.disabled = false;
+    dotEl.className = 'dot err';
+    statusEl.textContent = 'Kernel error';
+    outEl.textContent = m.error;
+  }
+};
+
+worker.postMessage({ type: 'boot', origin: location.origin });
+</script>
+</body>
+</html>

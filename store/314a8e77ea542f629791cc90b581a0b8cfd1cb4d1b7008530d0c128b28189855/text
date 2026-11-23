@@ -1,0 +1,16 @@
+s-read-head : Nat → Word → List Word → Proc W (List Word)
+s-read-head zero c acc = ret acc
+s-read-head (suc k) c acc =
+  if wlt #16384 (fromNat (list-length acc)) then ret {lzero} {W} acc
+  else bind (with-bytes {Sum Unit (Word × List Word)} #8192 (λ buf →
+    bind (sys-call #45 c buf #8192 #2 #0 #0) (λ n →
+    if orB (weq n #0) (wlt #9223372036854775807 n) then ret {lzero} {W} (inl unit)
+    else bind (h-peek buf (toNat n)) (λ pk →
+      let comb = list-append acc pk in
+      let he = s-hdr-end #0 comb in
+      let eat = if weq he #0 then n else wsub he (fromNat (list-length acc)) in
+      bind (sys-call #0 c buf eat #0 #0 #0) (λ r →
+      ret {lzero} {W} (inr (he , (if weq he #0 then comb else h-take (toNat he) comb)))))))) (λ res →
+    case res of
+      inl u → ret {lzero} {W} acc
+      inr hw → if weq (fst hw) #0 then s-read-head k c (snd hw) else ret {lzero} {W} (snd hw))

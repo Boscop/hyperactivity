@@ -1,0 +1,13 @@
+s-read-body : Nat → Word → Word → List Word → Proc W (List Word)
+s-read-body zero c want acc = ret acc
+s-read-body (suc k) c want acc =
+  if h-not (wlt (fromNat (list-length acc)) want) then ret {lzero} {W} acc
+  else let rem = wsub want (fromNat (list-length acc)) in
+  let ask = if wlt rem #65536 then rem else #65536 in
+  bind (with-bytes {Sum Unit (List Word)} #65536 (λ buf →
+    bind (sys-call #0 c buf ask #0 #0 #0) (λ n →
+    if orB (weq n #0) (wlt #9223372036854775807 n) then ret {lzero} {W} (inl unit)
+    else bind (h-peek buf (toNat n)) (λ b → ret {lzero} {W} (inr b))))) (λ r →
+    case r of
+      inl u → ret {lzero} {W} acc
+      inr b → s-read-body k c want (list-append acc b))

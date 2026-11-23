@@ -1,0 +1,22 @@
+s-put-root : List Word → List Word → List Word → List Word → Proc W (List Word)
+s-put-root st m root body =
+  if h-not (s-hex64 root)
+  then ret {lzero} {W} (s-respond "400 Bad Request" "text/plain" "invalid root sha256")
+  else let ps = h-nonempty (h-lines body) in
+  bind (s-packs-valid ps) (λ pok →
+  if h-not pok
+  then ret {lzero} {W} (s-respond "400 Bad Request" "text/plain" "unknown or missing pack in root list")
+  else bind (h-mkdir "roots") (λ mr →
+    bind (h-mkdir ".cubical-store") (λ mc →
+    bind (h-read ".cubical-store/packs") (λ have →
+    bind (s-unpack-missing (h-lines (s-or nil have)) ps) (λ uok →
+    if h-not uok
+    then ret {lzero} {W} (s-respond "500 Internal Server Error" "text/plain" "failed unpacking pack")
+    else bind (h-capture (cons m (cons "--take" (cons root nil)))) (λ tk →
+      if h-not (weq (fst tk) #0)
+      then ret {lzero} {W} (s-respond "400 Bad Request" "text/plain" (snd tk))
+      else bind (h-write (list-append "roots/" root) body) (λ w1 →
+        bind (h-write "roots/latest" body) (λ w2 →
+        bind (h-write "root" (h-line root)) (λ w3 →
+        bind (s-spawn-refresh st m) (λ sr →
+        ret {lzero} {W} (s-response "text/plain" (h-line root))))))))))))

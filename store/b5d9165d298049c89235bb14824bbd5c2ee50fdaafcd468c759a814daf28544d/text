@@ -1,0 +1,12 @@
+-- stream a binary file on disk to socket c using one 64 KiB buffer (zero cons cells)
+s-stream-file : Word → List Word → List Word → List Word → Proc W Unit
+s-stream-file c path ctype disp =
+  bind (s-open-ro path) (λ ffd →
+  if wlt #9223372036854775807 ffd
+  then bind (fd-write c (s-respond "404 Not Found" "text/plain" "not found")) (λ w → ret {lzero} {W} unit)
+  else bind (s-fd-size ffd) (λ sz →
+    let dhdr = s-disp-hdr disp in
+    let hdr = h-concat (cons "HTTP/1.1 200 OK" (cons h-crlf (cons "Content-Type: " (cons ctype (cons h-crlf (cons dhdr (cons "Content-Length: " (cons (h-decimal sz) (cons h-crlf (cons "Cache-Control: public, max-age=3600" (cons h-crlf (cons "Connection: close" (cons h-crlf (cons h-crlf nil)))))))))))))) in
+    bind (fd-write c hdr) (λ w0 →
+    bind (with-bytes {Bool} #65536 (λ buf → s-pump-all (toNat #1048576) ffd c buf)) (λ ok →
+    bind (sys-call #3 ffd #0 #0 #0 #0 #0) (λ cl → ret {lzero} {W} unit)))))

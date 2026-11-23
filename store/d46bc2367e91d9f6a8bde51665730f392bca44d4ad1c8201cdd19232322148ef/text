@@ -1,0 +1,25 @@
+-- optional HYPERACTIVE_DATA persistent directory (e.g. /var/data on Render Persistent Disk): union-merges boot store/ + .cubical-store/ and chdirs into it
+s-boot-data : List Word → Proc W (List Word)
+s-boot-data m =
+  bind h-cwd (λ cwd →
+  let abs-m = if h-prefix "/" m then m else list-append cwd (cons #47 m) in
+  bind (h-env "HYPERACTIVE_DATA") (λ ed →
+  case ed of
+    inl u → bind (s-make-bootstrap "bootstrap.tgz") (λ mb → bind (s-seed-place abs-m) (λ sp → ret {lzero} {W} abs-m))
+    inr ddir →
+      if h-null ddir then bind (s-make-bootstrap "bootstrap.tgz") (λ mb → bind (s-seed-place abs-m) (λ sp → ret {lzero} {W} abs-m))
+      else bind (h-mkdir ddir) (λ d0 →
+        bind (h-mkdir (list-append ddir "/store")) (λ d1 →
+        bind (h-mkdir (list-append ddir "/.cubical-store")) (λ d2 →
+        bind (s-make-bootstrap (list-append ddir "/bootstrap.tgz")) (λ mb →
+        bind (h-file-time "store") (λ st0 →
+        bind (if wlt #0 st0 then h-run (cons "/usr/bin/env" (cons "cp" (cons "-rn" (cons "store/." (cons (list-append ddir "/store/") nil))))) else ret {lzero} {W} #0) (λ cp1 →
+        bind (h-file-time ".cubical-store") (λ cs0 →
+        bind (if wlt #0 cs0 then h-run (cons "/usr/bin/env" (cons "cp" (cons "-rn" (cons ".cubical-store/." (cons (list-append ddir "/.cubical-store/") nil))))) else ret {lzero} {W} #0) (λ cp2 →
+        bind (s-chdir ddir) (λ cd →
+        bind (h-read "root") (λ lr →
+        bind (case lr of
+          inr rtxt → h-run (cons abs-m (cons "--take" (cons (h-trim (h-before (cons #10 nil) rtxt)) nil)))
+          inl u2 → h-run (cons abs-m (cons "--index" nil))) (λ ix →
+        bind (s-seed-place abs-m) (λ sp →
+        ret {lzero} {W} abs-m))))))))))))))

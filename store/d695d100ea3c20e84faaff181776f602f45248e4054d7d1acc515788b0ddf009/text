@@ -1,0 +1,9 @@
+s-pump-exact : Nat → Word → Word → Word → Word → Proc W Bool
+s-pump-exact zero src dst buf rem = ret (weq rem #0)
+s-pump-exact (suc k) src dst buf rem =
+  if weq rem #0 then ret {lzero} {W} true
+  else let want = if wlt rem #65536 then rem else #65536 in
+  bind (sys-call #0 src buf want #0 #0 #0) (λ n →
+  if orB (weq n #0) (wlt #9223372036854775807 n) then ret {lzero} {W} false
+  else bind (s-write-all-buf (toNat #64) dst buf n) (λ ok →
+    if ok then s-pump-exact k src dst buf (wsub rem n) else ret {lzero} {W} false))
