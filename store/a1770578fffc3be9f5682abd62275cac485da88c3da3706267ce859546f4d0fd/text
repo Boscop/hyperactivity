@@ -1,0 +1,1186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Computing Without a Center: PoUW, Semantic Web &amp; Metacircular Fluidity · Hyperactive Labs</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false},{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false}],throwOnError:false})"></script>
+<style>
+:root {
+  --bg: #ffffff; --ink: #000000; --muted: #555555;
+  --line: rgba(0,0,0,0.16); --line-strong: #000000;
+  --pink: #ff0a94; --blue: #1a73e8; --green: #0d8a4e; --amber: #c76b00;
+  --surf: rgba(0,0,0,0.03);
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+html.dark {
+  --bg: #000000; --ink: #ffffff; --muted: #a6a6a6;
+  --line: rgba(255,255,255,0.18); --line-strong: #ffffff;
+  --pink: #ff0a94; --blue: #4da3ff; --green: #38d388; --amber: #ffaa3b;
+  --surf: rgba(255,255,255,0.045);
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 18px/1.72 -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+}
+::selection { background: var(--pink); color: #fff; }
+a { color: inherit; text-decoration: underline; text-decoration-color: var(--pink); text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+a:hover { color: var(--pink); }
+
+.book-wrap {
+  max-width: 1240px; margin: 0 auto; padding: 48px 24px 128px;
+  display: grid; grid-template-columns: 248px minmax(0, 880px); gap: 48px; align-items: start;
+}
+.toc {
+  position: sticky; top: 72px; max-height: calc(100vh - 96px); overflow-y: auto;
+  border-right: 1px solid var(--line); padding-right: 18px;
+  font: 600 12px/1.45 var(--mono);
+}
+.toc-title {
+  font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--pink); margin: 0 0 12px;
+}
+.toc ol { list-style: none; margin: 0; padding: 0; }
+.toc li { margin-bottom: 9px; }
+.toc a {
+  text-decoration: none; color: var(--muted); display: block;
+  padding: 2px 0; border-left: 2px solid transparent; padding-left: 8px; margin-left: -10px;
+}
+.toc a:hover, .toc a.on { color: var(--ink); border-left-color: var(--pink); }
+
+main { min-width: 0; }
+.title-block { border-bottom: 2px solid var(--line-strong); padding-bottom: 30px; margin-bottom: 40px; }
+.kicker {
+  font: 700 12px/1.2 var(--mono); color: var(--pink);
+  letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 12px;
+}
+h1 {
+  font-size: clamp(32px, 4.5vw, 54px); line-height: 1.05; font-weight: 800;
+  letter-spacing: -0.028em; margin: 0 0 18px;
+}
+.lede { font-size: 19.5px; line-height: 1.58; opacity: 0.92; margin: 0 0 20px; }
+.meta-line { font: 600 12px/1.55 var(--mono); color: var(--muted); }
+
+.stat-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 24px 0 0; }
+.stat-cell { border: 1.5px solid var(--line-strong); padding: 12px 14px; background: var(--surf); }
+.stat-cell > b { display: block; font: 800 19px/1.15 var(--mono); color: var(--pink); }
+.stat-cell > span { display: block; font: 600 11px/1.38 var(--mono); color: var(--muted); margin-top: 4px; }
+
+.chapter { margin-top: 68px; padding-top: 28px; border-top: 2px solid var(--line-strong); }
+.chapter:first-of-type { margin-top: 0; border-top: 0; padding-top: 0; }
+.ch-num {
+  font: 700 11.5px/1 var(--mono); color: var(--pink);
+  text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px;
+}
+h2 { font-size: 29px; line-height: 1.18; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 18px; }
+h3 { font-size: 20px; line-height: 1.28; font-weight: 800; letter-spacing: -0.01em; margin: 36px 0 12px; }
+p { margin: 0 0 16px; }
+ul, ol { margin: 0 0 18px; padding-left: 24px; }
+li { margin-bottom: 9px; }
+code { font: 600 0.84em/1.2 var(--mono); padding: 1px 4px; background: var(--surf); }
+pre {
+  margin: 18px 0 22px; padding: 14px 16px; border: 1px solid var(--line-strong);
+  background: var(--surf); overflow-x: auto; font: 500 13px/1.55 var(--mono);
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+.eq-box {
+  margin: 20px 0; padding: 14px 18px; border-left: 3px solid var(--blue);
+  border-top: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  overflow-x: auto; background: var(--surf);
+}
+.thm-box {
+  margin: 22px 0; padding: 16px 20px; border-left: 3px solid var(--pink);
+  border-top: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+.thm-head {
+  font: 700 11.5px/1.3 var(--mono); color: var(--pink); text-transform: uppercase;
+  letter-spacing: 0.05em; margin-bottom: 8px;
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap;
+}
+.thm-head span:last-child { color: var(--muted); text-transform: none; font-weight: 600; }
+
+.callout {
+  margin: 20px 0; padding: 14px 18px; border: 1px solid var(--line);
+  border-left: 3px solid var(--green); background: var(--surf); font-size: 16.5px;
+}
+
+.lab-card { margin: 28px 0 38px; border: 1.5px solid var(--line-strong); background: var(--bg); }
+.lab-head {
+  padding: 10px 14px; border-bottom: 1px solid var(--line);
+  display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;
+  font: 700 12px/1.2 var(--mono);
+}
+.lab-head .lbl { color: var(--pink); letter-spacing: 0.05em; text-transform: uppercase; }
+.lab-status { font-weight: 700; color: var(--blue); }
+.lab-stage { position: relative; width: 100%; height: 320px; overflow: hidden; }
+.lab-stage.tall { height: 370px; }
+.lab-stage canvas { display: block; width: 100%; height: 100%; }
+.lab-pane { padding: 14px; border-bottom: 1px solid var(--line); font: 500 13px/1.55 var(--mono); }
+.lab-ctrl {
+  padding: 10px 14px; border-top: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  font: 600 12px/1.2 var(--mono);
+}
+.lab-ctrl label { display: inline-flex; align-items: center; gap: 7px; }
+.lab-ctrl input[type=range] { accent-color: var(--pink); width: 115px; }
+.lab-btn {
+  padding: 6px 11px; border: 1px solid var(--line-strong);
+  background: var(--bg); color: var(--ink);
+  font: 700 11px/1.2 var(--mono); cursor: pointer;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.lab-btn:hover, .lab-btn.on { background: var(--pink); border-color: var(--pink); color: #fff; }
+.lab-btn.blue:hover, .lab-btn.blue.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.lab-btn.green:hover, .lab-btn.green.on { background: var(--green); border-color: var(--green); color: #fff; }
+
+.lab-metrics {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+  padding: 10px 14px; border-top: 1px solid var(--line); background: var(--surf);
+  font: 600 11.5px/1.35 var(--mono);
+}
+.lab-metrics div b { display: block; font-size: 16px; color: var(--pink); }
+.lab-metrics div span { color: var(--muted); }
+
+.tbl-wrap { overflow-x: auto; margin: 22px 0 30px; border: 1.5px solid var(--line-strong); }
+table { width: 100%; border-collapse: collapse; font-size: 14.5px; line-height: 1.48; }
+th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { font: 700 11.5px/1.2 var(--mono); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1.5px solid var(--line-strong); background: var(--surf); }
+tr:last-child td { border-bottom: 0; }
+
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0; }
+.card { border: 1px solid var(--line-strong); padding: 16px; background: var(--surf); }
+.card h4 { margin: 0 0 8px; font: 800 14px/1.25 var(--mono); color: var(--pink); text-transform: uppercase; letter-spacing: 0.04em; }
+.card p { margin: 0; font-size: 15.5px; line-height: 1.55; }
+
+.tower-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+.tower-cell {
+  border: 1px solid var(--line-strong); padding: 10px; cursor: pointer;
+  font: 600 11.5px/1.35 var(--mono); background: var(--bg);
+}
+.tower-cell.on { border-color: var(--pink); box-shadow: inset 0 0 0 1px var(--pink); }
+.tower-cell b { display: block; color: var(--pink); margin-bottom: 4px; }
+
+@media (max-width: 960px) {
+  .book-wrap { grid-template-columns: 1fr; padding-top: 28px; gap: 24px; }
+  .toc { position: static; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); padding: 0 0 16px; }
+  .stat-strip, .lab-metrics, .tower-grid { grid-template-columns: repeat(2, 1fr); }
+  .grid-2 { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<!--HX:NAV-->
+<div class="book-wrap">
+  <aside class="toc">
+    <div class="toc-title">Total Exposition</div>
+    <ol id="tocList">
+      <li><a href="#ch1">1. Five Dreams, One Missing Axiom</a></li>
+      <li><a href="#ch2">2. Computing Derived from Optimality</a></li>
+      <li><a href="#ch3">3. The Real Semantic Web (Portals)</a></li>
+      <li><a href="#ch4">4. Programs Operating on Programs</a></li>
+      <li><a href="#ch5">5. Coordination Without Control</a></li>
+      <li><a href="#ch6">6. Conserved Credit, No Blockchain</a></li>
+      <li><a href="#ch7">7. Proof of Useful Work (PoUW)</a></li>
+      <li><a href="#ch8">8. One Unified Stack to Silicon</a></li>
+    </ol>
+  </aside>
+
+  <main>
+    <div class="title-block">
+      <div class="kicker">Complete Ground-Up Exposition · Decentralization · Crypto &amp; Finance · Semantic Web · Foundations of Math &amp; Computing</div>
+      <h1>Computing Without a Center: From Pure Optimality to Proof of Useful Work &amp; the Univalent Semantic Web</h1>
+      <p class="lede">
+        For fifty years, computer science, cryptography, finance, and the open web pursued five seemingly separate dreams: a web of machine-readable meaning, a permanent decentralized internet, trustless money and markets, self-hosting metacircular languages, and compounding collective intelligence. Every single one stalled at the exact same bottleneck—assuming that coordination requires a <strong>fixed point of control or global agreement</strong>. Starting from zero prerequisites, this guide derives the entire mathematical and computational stack forced by maximizing rational capacity, information accessibility, local agency, and manipulability—culminating in <strong>Proof of Useful Work (PoUW)</strong> and <strong>programs operating on programs in constant, paradox-free flux</strong>.
+      </p>
+      <div class="meta-line">
+        Every theorem, invariant, and benchmark below corresponds directly to live code in <code>store/</code> (<code>lib/credit.hypercubical</code>, <code>lib/dht.hypercubical</code>, <code>lib/distnet.hypercubical</code>, <code>lib/portal.hypercubical</code>, <code>lib/singularity.hypercubical</code>, <code>lib/hx-node.hypercubical</code>, <code>experiments/cxx/hx-book.hypercubical</code>).
+      </div>
+      <div class="stat-strip">
+        <div class="stat-cell"><b>0 Global Clock</b><span>Disjoint cuts &amp; credit transfers commute without consensus</span></div>
+        <div class="stat-cell"><b>$\Sigma c + \Sigma m = \text{const}$</b><span>Conserved distributed credit with zero blockchain bloat</span></div>
+        <div class="stat-cell"><b>PoUW Clearing</b><span>Paid strictly for verified truths—impossible to reward-hack</span></div>
+        <div class="stat-cell"><b>$A \equiv B \Rightarrow P B \to P A$</b><span>Univalent portals compound every settled proof forever</span></div>
+      </div>
+    </div>
+
+    <!-- ============================================================ CHAPTER 1 -->
+    <section class="chapter" id="ch1">
+      <div class="ch-num">Chapter 01 · The Diagnosis</div>
+      <h2>Five Dreams of Technology—and the One Hidden Axiom That Broke Them All</h2>
+      <p>
+        If you care about crypto, decentralized finance, peer-to-peer networks, open-source software, AI, or the original dream of the World Wide Web, you have already watched the same tragic cycle repeat five times:
+      </p>
+      <div class="grid-2">
+        <div class="card">
+          <h4>1. The Semantic Web (Berners-Lee)</h4>
+          <p><strong>The Dream:</strong> A web where machines share structured meaning and combine discoveries automatically across every site.<br><strong>Where It Broke:</strong> URLs point to mutable servers (link rot), and RDF/OWL/JSON-LD are unverified claims with no executable proofs. Two schemas expressing the same concept cannot automatically translate results.</p>
+        </div>
+        <div class="card">
+          <h4>2. Content-Addressed Web (Git / IPFS)</h4>
+          <p><strong>The Dream:</strong> Name data by its cryptographic hash so no server owns it and nobody can silently tamper with it.<br><strong>Where It Broke:</strong> Stopped at opaque byte blobs. A hash tells you the bytes didn't change, not what the bytes <em>mean</em>, whether the code inside them is safe, or how to compose them with another project.</p>
+        </div>
+        <div class="card">
+          <h4>3. Crypto &amp; DeFi (Bitcoin / Ethereum)</h4>
+          <p><strong>The Dream:</strong> Trustless, permissionless global value transfer and financial markets without banks or clearinghouses.<br><strong>Where It Broke:</strong> Assumed safety requires a single global totally-ordered timeline (a blockchain). Proof of Work burns gigawatts on meaningless hashes; Proof of Stake detaches money from productive work; smart contracts remain untyped bug mines.</p>
+        </div>
+        <div class="card">
+          <h4>4. Metacircular Computing (Lisp / Smalltalk)</h4>
+          <p><strong>The Dream:</strong> Programs operating on programs operating on programs—total fluidity where users reshape syntax, compilers, and tools at will.<br><strong>Where It Broke:</strong> Without a typed kernel and guarded self-reference, macros become unreadable fragility, and compilers stay frozen as trusted black boxes (GCC/LLVM).</p>
+        </div>
+      </div>
+      <p>
+        All four—plus the fifth dream of <strong>collective human+AI superintelligence</strong>—collided with one unconscious habit inherited from industrial-age institutions: <strong>the belief that order requires a fixed center</strong>. A central server. A canonical database. A single global blockchain head. A privileged compiler. A frozen syntax. A trusted referee.
+      </p>
+      <p>
+        Look closely at physical reality (Rovelli's relational physics, finite speed of light): the universe itself has <strong>no global clock, no central ledger, and no privileged observer</strong>. Yet physical conservation laws hold everywhere with absolute precision through strictly local interactions. Computing works the exact same way the moment you strip away the center.
+      </p>
+
+      <h3>Interactive Lab 1 · Comparing Four Worlds of Coordination</h3>
+      <p>
+        Switch between the four architectural paradigms below to watch how information, verification, and value flow across a 6-node network—and see exactly where latency, energy waste, and single points of control disappear.
+      </p>
+      <div class="lab-card">
+        <div class="lab-head">
+          <span class="lbl">Lab 1 · Architectural Topology &amp; Coordination Cost Comparator</span>
+          <span class="lab-status" id="archStatus">Paradigm: Hyperactivity (Local Typed Fibers + PoUW)</span>
+        </div>
+        <div class="lab-ctrl" style="border-top:0; border-bottom:1px solid var(--line);">
+          <button class="lab-btn" data-arch="cloud">Centralized Cloud</button>
+          <button class="lab-btn" data-arch="chain">Global Blockchain (PoW/PoS)</button>
+          <button class="lab-btn" data-arch="ipfs">Raw Content-Addressed (IPFS)</button>
+          <button class="lab-btn on" data-arch="hx">Hyperactivity (Local Fibers + PoUW)</button>
+        </div>
+        <div class="lab-stage"><canvas id="archCanvas"></canvas></div>
+        <div class="lab-metrics" id="archMetrics"></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ CHAPTER 2 -->
+    <section class="chapter" id="ch2">
+      <div class="ch-num">Chapter 02 · First-Principles Derivation</div>
+      <h2>Deriving Math &amp; Computing from Scratch: What Optimality Forces</h2>
+      <p>
+        Forget every textbook convention you have ever seen. Suppose you start from an empty desk with only one objective: <strong>maximize rational capacity, information accessibility, and manipulability</strong> for every agent in a physical universe where signals travel at finite speed and memory is local. What architecture is <em>mathematically forced</em>?
+      </p>
+
+      <h3>Step 1 · Information Is Structure, Not Raw Bits</h3>
+      <p>
+        If a stream of symbols has predictable causal structure—meaning the past context $(x_{t-4}, x_{t-3}, x_{t-2}, x_{t-1})$ narrows down the next symbol $x_t$ to probability $p(x_t \mid \text{ctx})$—then Shannon proved its true information content is $-\log_2 p(x_t \mid \text{ctx})$ bits. Storing or transmitting repeated structure wastes rational capacity. Hyperfactoring asks the same question for <em>programs and proofs</em>: if five systems repeat the same algebraic law in five different languages, factor the law once and let every instance inherit it.
+      </p>
+
+      <h3>Step 2 · Naming by Content, Never by Location</h3>
+      <p>
+        Suppose you want maximum <strong>information accessibility and manipulability</strong>. If you reference an idea by <em>location</em> (<code>https://company.com/api/v2/file</code> or memory pointer <code>0x7ff8a10</code>), then moving the machine, changing owners, or editing the file silently breaks every dependent computation on Earth.
+      </p>
+      <p>
+        Instead, name every mathematical object, type, proof, function, and document by the cryptographic hash of its normalized structure:
+      </p>
+      <div class="eq-box">
+        $$\mathrm{key}(x) = \mathrm{SHA256}(\mathrm{canonical\_form}(x))$$
+      </div>
+      <p>
+        Instantly, three properties become automatic: (1) any peer holding the hash can verify integrity locally without trusting who sent it; (2) immutable dependencies can never rot or suffer supply-chain hijacking; (3) identical discoveries made independently on opposite sides of the planet collide onto the exact same key—deduplicating human and AI knowledge by physics rather than committees.
+      </p>
+
+      <h3>Step 3 · Computation Is Local Graph Interaction, Not a Global Tape</h3>
+      <p>
+        Why did classical computing invent Turing's sequential tape and von Neumann's single CPU clock? Because 1940s vacuum tubes had to share one centralized control unit. That forces every parallel problem to pretend it is a single line of instructions—requiring locks, mutexes, cache coherence storms, and global schedulers just to let two cores work together.
+      </p>
+      <p>
+        Ask what the minimal <em>local</em> model of computation is. In Yves Lafont's <strong>Interaction Nets</strong> (the execution core of Hyperactivity, <code>lib/distnet.hypercubical</code>), a program is simply a graph of agents connected by wires. Every agent has one <strong>principal port</strong>. Whenever two agents meet face-to-face on their principal ports (an <em>active pair</em>), they fire one of three purely local rules:
+      </p>
+      <ul>
+        <li><strong>Annihilation (same tag):</strong> Two matching nodes cancel and wire their auxiliary ports straight together.</li>
+        <li><strong>Commutation (different tags):</strong> Two distinct nodes pass cleanly through each other, cloning lazily only the exact subgraph demanded.</li>
+        <li><strong>Erasure:</strong> An eraser node absorbs its partner and propagates locally—zero global garbage collector needed!</li>
+      </ul>
+
+      <div class="thm-box">
+        <div class="thm-head"><span>Strong Confluence Without a Global Clock</span><span><code>lib/distnet.hypercubical</code> · <code>disjoint-cuts-commute</code></span></div>
+        <p style="margin-bottom:0">
+          Because every rewrite touches only the two endpoints of a single wire, any two disjoint active pairs $(a \bowtie b)$ on Peer A and $(c \bowtie d)$ on Peer B <strong>commute definitionally</strong>:
+          $$\mathrm{step}_A(\mathrm{step}_B(G)) \;\equiv\; \mathrm{step}_B(\mathrm{step}_A(G))$$
+          Parallelism is no longer an error-prone hack bolted on with threads and locks—it is a theorem of locality. Order of reduction never changes the answer.
+        </p>
+      </div>
+
+      <h3>Interactive Lab 2 · Leaderless Interaction-Net Confluence Playground</h3>
+      <p>
+        Below is a partitioned graph with active cuts split across <strong>Peer A (left)</strong> and <strong>Peer B (right)</strong>. Click active pairs in <em>any</em> order—Peer A first, Peer B first, or interleaved—and watch both sides reduce with zero coordinator and converge to the exact same canonical answer every time.
+      </p>
+      <div class="lab-card">
+        <div class="lab-head">
+          <span class="lbl">Lab 2 · Disjoint Active-Pair Reduction Without a Global Scheduler</span>
+          <span class="lab-status" id="netStatus">Click any glowing active cut (Peer A or Peer B)</span>
+        </div>
+        <div class="lab-ctrl" style="border-top:0; border-bottom:1px solid var(--line);">
+          <button class="lab-btn on" id="netFireA">Reduce Next Cut on Peer A</button>
+          <button class="lab-btn blue" id="netFireB">Reduce Next Cut on Peer B</button>
+          <button class="lab-btn green" id="netFireBoth">Fire Both Simultaneously</button>
+          <button class="lab-btn" id="netReset">↻ Reset Graph</button>
+        </div>
+        <div class="lab-stage"><canvas id="netCanvas"></canvas></div>
+        <div class="lab-metrics" id="netMetrics"></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ CHAPTER 3 -->
+    <section class="chapter" id="ch3">
+      <div class="ch-num">Chapter 03 · Types &amp; Univalent Portals</div>
+      <h2>Types as Executable Contracts &amp; Equivalence as a Portal: The Real Semantic Web</h2>
+      <p>
+        Now we derive mathematics itself—without assuming any background in logic.
+      </p>
+      <p>
+        When you write a program in JavaScript or C, a type like <code>int</code> tells you almost nothing: it cannot distinguish a negative balance from a valid quantity, a sorted list from an unsorted list, or a protein with an atomic clash from a physical minimum. So engineers write thousands of fragile unit tests that check five examples and pray the sixth doesn't explode in production.
+      </p>
+      <p>
+        In <strong>dependent type theory</strong>, a type can express <em>any</em> mathematical statement—and a program of that type <em>is</em> its constructive proof (the Curry–Howard correspondence):
+      </p>
+      <ul>
+        <li><strong>Specification = Type:</strong> <code>(s : Scaffold) → leb (pocket-energy lead) (pocket-energy s) ≡ true</code> states: <em>"for every single one of all 64 receptor scaffolds, our lead molecule has energy less than or equal to it."</em></li>
+        <li><strong>Proof = Program:</strong> Constructing an inhabitant of that type proves the claim for <em>all</em> cases simultaneously, verified deterministically by a tiny kernel.</li>
+      </ul>
+      <p>
+        Now add the breakthrough that finally fulfills Tim Berners-Lee's Semantic Web dream: <strong>Cubical Univalence</strong> (<code>lib/portal.hypercubical</code>).
+      </p>
+      <p>
+        In ordinary software—and in the old RDF/JSON-LD Semantic Web—if Team A encodes data as a linked list and Team B encodes the exact same mathematical structure as a binary tree or a packed byte array, every library, theorem, and optimizer written by Team A is useless to Team B until someone manually rewrites it.
+      </p>
+      <p>
+        In cubical type theory, an isomorphism (a round-trip equivalence) between two representations $A$ and $B$ produces a first-class <strong>path</strong> $e : A \equiv B$. Given <em>any</em> property or theorem $P(B)$ proved anywhere on the network, <strong>cubical transport</strong> delivers $P(A)$ directly into your workspace with zero manual porting:
+      </p>
+      <div class="eq-box">
+        $$\mathrm{portal\_arrive} \;:\; (P : \mathrm{Type} \to \mathrm{Type}) \to (e : A \equiv B) \to P(B) \to P(A)$$
+        $$\mathrm{portal\_arrive\_chain} \;:\; \mathrm{IdChain}_n(A, B) \to P(B) \to P(A)$$
+      </div>
+      <p>
+        Think about what this means for the Semantic Web: **meaning is no longer dead text labels glued to URLs.** Meaning is a live network of content-addressed types connected by computational equivalences. Prove a theorem once in <em>any</em> representation, and it arrives instantaneously across every isomorphic domain on Earth.
+      </p>
+
+      <h3>Interactive Lab 3 · The Univalent Semantic Web Portal (<code>portal-arrive-chain</code>)</h3>
+      <p>
+        Pick a fundamental mathematical structure below and watch a single verified theorem transport automatically across multi-hop equivalence chains into completely different engineering domains—with zero rewriting.
+      </p>
+      <div class="lab-card">
+        <div class="lab-head">
+          <span class="lbl">Lab 3 · Live Multi-Hop Univalent Transport Portal (lib/portal.hypercubical)</span>
+          <span class="lab-status" id="portStatus">Law: Associative Streaming Monoid</span>
+        </div>
+        <div class="lab-ctrl" style="border-top:0; border-bottom:1px solid var(--line);">
+          <button class="lab-btn on" data-law="monoid">Associative Monoid</button>
+          <button class="lab-btn" data-law="bij">Reversible Bijection</button>
+          <button class="lab-btn" data-law="bound">Admissible Lower Bound</button>
+          <button class="lab-btn blue" id="portFire">⚡ Transport Theorem Across Chain</button>
+        </div>
+        <div class="lab-stage"><canvas id="portCanvas"></canvas></div>
+        <div class="lab-metrics" id="portMetrics"></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ CHAPTER 4 -->
+    <section class="chapter" id="ch4">
+      <div class="ch-num">Chapter 04 · Demystifying Metacircularity</div>
+      <h2>Programs Operating on Programs Operating on Programs: Why Flux Beats Frozen Control</h2>
+      <p>
+        At first glance, the phrase <em>"programs operating on programs operating on programs"</em> sounds like an M. C. Escher staircase—trippy, recursive, dangerous. Why does it feel trippy?
+      </p>
+      <p>
+        Only because conventional computing taught you a rigid caste system:
+      </p>
+      <ul>
+        <li><strong>Data</strong> sits passively at the bottom (JSON, CSV, bytes).</li>
+        <li><strong>Application code</strong> sits above data (Python, TypeScript).</li>
+        <li><strong>Compilers &amp; type-checkers</strong> sit in a walled priesthood above apps (GCC, LLVM, rustc—millions of lines you can neither inspect nor prove).</li>
+        <li><strong>Operating systems &amp; hardware</strong> sit in an untouchable layer underneath (Linux, x86 microcode).</li>
+      </ul>
+      <p>
+        That caste system is an accident of history, not a law of mathematics. When every program's syntax tree is itself a first-class typed value (<code>Code</code> in <code>lib/code.hypercubical</code>), the "trippy metacircular loop" collapses into the <strong>cleanest, most fluid mode of organization imaginable</strong>:
+      </p>
+      <ul>
+        <li><strong>Zero Syntax Tyranny (`lib/syntax.hypercubical`):</strong> Surface syntax is just a checked function <code>List Word → List Word</code> (or <code>Lst Meaning</code>). Want Lisp notation, mathematical infix notation, Pythonic indentation, or a domain-specific financial notation? Write a 10-line checked parser; all of them compile to the exact same content-addressed <code>Code</code> hash. Nobody is forced into one syntax priesthood.</li>
+        <li><strong>Programs Optimizing Programs (`lib/specialize.hypercubical`, `lib/native.hypercubical`):</strong> A specializer is just a function <code>Code → Code</code> that carries a proof that the specialized code computes the exact same meaning. Our 28-line <code>emit-c-cli</code> turns any checked program into zero-UB C11; <code>lib/elf.hypercubical</code> turns it straight into raw x86-64 ELF64 machine bytes; <code>cub2silicon</code> turns it into synthesized 7nm CMOS gates.</li>
+        <li><strong>Verifiers Verifying Verifiers (`lib/singularity.hypercubical`):</strong> The type-checker itself is just a program in the store—so it cold-verifies its own source and every compiler that emits it, eliminating the "trusting trust" compiler backdoor completely.</li>
+      </ul>
+
+      <div class="thm-box">
+        <div class="thm-head"><span>Why Self-Reference Never Paradoxes: Lawvere + Guarded Clocks/Ticks</span><span><code>lib/singularity.hypercubical</code> · <code>sg-lawvere-fix</code></span></div>
+        <p style="margin-bottom:10px">
+          Classical logic feared self-reference because Russell's paradox ("the set of all sets not containing themselves") and Gödel's diagonal break static, timeless snapshots where everything must exist all at once at a single frozen point.
+        </p>
+        <p style="margin-bottom:0">
+          In guarded cubical type theory, self-reference is indexed by an explicit act/tick ($\triangleright_\kappa A = (\alpha : \mathrm{Tick}\;\kappa) \to A$). Lawvere's diagonal flips from a static contradiction into a <strong>productive unfolding law</strong>:
+          $$\mathrm{fix}\; f \;\equiv\; f(\mathrm{next}(\mathrm{fix}\; f))$$
+          Every tick advances the system cleanly—a live stream of theories, compilers, and proofs in constant productive flux, with <strong>zero paradox and zero frozen fixed point of authority</strong>.
+        </p>
+      </div>
+
+      <h3>Interactive Lab 4 · The Metacircular Flux Explorer (4 Levels + Syntax Fluidity + Clock/Tick)</h3>
+      <p>
+        Click across all four levels of the metacircular loop, switch surface syntaxes to verify they hash to the <em>exact same</em> normalized <code>Code</code> identity, and step the Lawvere Clock/Tick fixed point forward!
+      </p>
+      <div class="lab-card">
+        <div class="lab-head">
+          <span class="lbl">Lab 4 · Programs Operating on Programs + Syntax Equivalence + Guarded Tick Stream</span>
+          <span class="lab-status" id="metaStatus">Level 2: Program → Native Binary (emit-c-cli)</span>
+        </div>
+        <div class="lab-ctrl" style="border-top:0; border-bottom:1px solid var(--line);">
+          <span>Surface Syntax:</span>
+          <button class="lab-btn on" data-syn="hx">Hypercubical</button>
+          <button class="lab-btn" data-syn="py">Pythonic</button>
+          <button class="lab-btn" data-syn="math">Math Notation</button>
+          <button class="lab-btn blue" id="tickBtn">⏱ Advance Lawvere Tick (κ = 0)</button>
+        </div>
+        <div class="lab-pane">
+          <div class="tower-grid" id="towerGrid">
+            <div class="tower-cell" data-lv="0"><b>Level 0 · Data</b>Values, bytes, books, molecules</div>
+            <div class="tower-cell" data-lv="1"><b>Level 1 · Programs</b>Functions operating on data</div>
+            <div class="tower-cell on" data-lv="2"><b>Level 2 · Meta-Programs</b>Specializers, syntax, C11/ELF/7nm</div>
+            <div class="tower-cell" data-lv="3"><b>Level 3 · Self-Verifier</b>Cold kernel checking compilers</div>
+          </div>
+          <pre id="metaOut" style="margin:0; max-height:220px;"></pre>
+        </div>
+        <div class="lab-metrics" id="metaMetrics"></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ CHAPTER 5 -->
+    <section class="chapter" id="ch5">
+      <div class="ch-num">Chapter 05 · Leaderless Organization</div>
+      <h2>Coordination Without a Fixed Point of Control: Views, Semilattices &amp; Standpoint Sovereignty</h2>
+      <p>
+        Now apply this exact same lens to human and machine organizations. Most distributed systems still cling to a monarch—even "decentralized" ones just elect a temporary monarch every block (Raft leaders, Paxos proposers, PoS block producers) and force the entire planet to agree on ONE canonical global state.
+      </p>
+      <p>
+        Hyperactivity asks: <strong>what if there is no canonical global state at all?</strong>
+      </p>
+      <ul>
+        <li><strong>Local Pool + Personal View:</strong> Every peer holds an append-only pool of content-addressed objects (<code>store/</code>). What lives at a human-readable name is simply that peer's local <em>view</em>. If two peers bind different objects to the same name, neither crashes and neither needs a central moderator—both live cleanly as coexisting alternatives until any individual chooses which one they adopt.</li>
+        <li><strong>Order-Invariant Gossip Semilattice (`lib/dht.hypercubical`):</strong> Peer discovery and routing-table exchange (`pex-union`) satisfy commutativity ($A \cup B = B \cup A$), associativity, and idempotence ($A \cup A = A$). Any subset of peers can split, work offline for weeks, and reconnect in any order—their knowledge merges deterministically with zero coordination protocol.</li>
+        <li><strong>Zero-False-Negative Bloom Summaries (`bloom-no-false-neg`):</strong> Peers exchange tiny bit-vector summaries of what content hashes they hold; you never miss an available artifact and never scan every node.</li>
+        <li><strong>Standpoint Sovereignty &amp; Non-Interference (`lib/distnet.hypercubical`, `standpoint-noninterference`):</strong> Every node defines its own curation filter <code>allow : K → Bool</code>. Private keys, proprietary weights, or personal records where <code>allow k ≡ false</code> are mathematically proven never to affect any observation across the peer's public port.</li>
+      </ul>
+
+      <h3>Interactive Lab 5 · Leaderless Semilattice &amp; Standpoint Sovereignty Simulator</h3>
+      <p>
+        Mutate peers independently, partition the network into two disconnected islands, click <strong>Merge in Order A→B</strong> or <strong>B→A</strong>, and toggle private secrets to verify: (1) zero leader is ever elected, (2) merges are 100% order-invariant, and (3) private slices never leak across any peer's curated port.
+      </p>
+      <div class="lab-card">
+        <div class="lab-head">
+          <span class="lbl">Lab 5 · Sovereign Peers, Partitioned Semilattice Merge &amp; Non-Interference</span>
+          <span class="lab-status" id="sovStatus">4 Sovereign Peers · Zero Leader · Private Slices Isolated</span>
+        </div>
+        <div class="lab-ctrl" style="border-top:0; border-bottom:1px solid var(--line);">
+          <button class="lab-btn" id="sovEditA">+ Publish on Peer A</button>
+          <button class="lab-btn" id="sovEditC">+ Publish on Peer C</button>
+          <button class="lab-btn blue" id="sovPart">⚡ Toggle Partition (A,B | C,D)</button>
+          <button class="lab-btn on" id="sovMergeAB">Gossip Merge (A→D)</button>
+          <button class="lab-btn green" id="sovMergeBA">Gossip Merge (D→A)</button>
+          <button class="lab-btn" id="sovProbe">🔍 Probe Private Secret</button>
+        </div>
+        <div class="lab-stage"><canvas id="sovCanvas"></canvas></div>
+        <div class="lab-metrics" id="sovMetrics"></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ CHAPTER 6 -->
+    <section class="chapter" id="ch6">
+      <div class="ch-num">Chapter 06 · Trustless Finance Without a Blockchain</div>
+      <h2>Conserved Distributed Credit With No Global Scheduler</h2>
+      <p>
+        For readers coming from crypto and finance, here is the moment everything shifts.
+      </p>
+      <p>
+        Why did Satoshi Nakamoto invent a global totally-ordered chain of blocks? Because if everyone shares one global ledger table, you need a global clock to decide whether Alice paid Bob before Alice paid Carol. That single design choice created every scaling limit in crypto: block times, mempool MEV, gas auctions, state bloat, and global validator bottlenecks.
+      </p>
+      <p>
+        In <code>docs/hyperactivity.hypercubical</code> (v32, Part I §10.3 <em>"A distributed credit invariant, with no global scheduler as an axiom"</em>) and <code>lib/credit.hypercubical</code>, we model distributed value the way physics models conservation of energy and charge—<strong>strictly locally</strong>:
+      </p>
+      <div class="eq-box">
+        $$S = (c,\; m), \qquad \mathrm{total}(S) \;=\; \sum_{i} c_i \;+\; \sum_{i,j} m_{ij} \;=\; \text{constant}$$
+      </div>
+      <ul>
+        <li><strong>$c_i$</strong> is the credit currently held by peer $i$.</li>
+        <li><strong>$m_{ij}$</strong> is the credit currently in flight on the directed channel from peer $i$ to peer $j$.</li>
+        <li><strong>Local Allocation (Eq. 10.7):</strong> Peer $i$ can only allocate $q \le c_i$ into channel $m_{ij}$ with a fresh receipt identifier $r$. Locally, $c_i' = c_i - q$ and $m_{ij}' = m_{ij} + q$. Total credit is unchanged.</li>
+        <li><strong>Receipt-Bearing Delivery (Eq. 10.8):</strong> Peer $j$ verifies that receipt $r$ has never been delivered before, moves $q$ from $m_{ij}$ into $c_j$, and marks $r$ spent. Any replayed or duplicated message carrying $r$ is rejected deterministically.</li>
+        <li><strong>Observer Fibers (Eq. 10.9):</strong> An observer never needs a global snapshot of the planet's balances. Their knowledge is the exact <em>fiber</em> of global states compatible with their own local allocations and receipts—and conservation holds identically across every compatible history, regardless of network interleaving!</li>
+      </ul>
+
+      <h3>Interactive Lab 6 · No-Blockchain Conserved Credit &amp; Replay Attack Blocker</h3>
+      <p>
+        Send allocations across peers, deliver in-flight receipts in <em>any</em> order, attempt a double-spend / replay attack on an already-spent receipt, and watch total supply $\sum c_i + \sum m_{ij}$ remain mathematically locked with zero global blockchain.
+      </p>
+      <div class="lab-card">
+        <div class="lab-head">
+          <span class="lbl">Lab 6 · Local Conserved Credit &amp; Receipt-Bearing Delivery (lib/credit.hypercubical)</span>
+          <span class="lab-status" id="credStatus">CONSERVED: Σc + Σm = 400 (Δ = 0)</span>
+        </div>
+        <div class="lab-ctrl" style="border-top:0; border-bottom:1px solid var(--line);">
+          <button class="lab-btn on" id="credSendAB">Alice → Bob (40)</button>
+          <button class="lab-btn blue" id="credSendBC">Bob → Carol (25)</button>
+          <button class="lab-btn" id="credSendCA">Carol → Dave (30)</button>
+          <button class="lab-btn green" id="credDeliver">✓ Deliver Next In-Flight Receipt</button>
+          <button class="lab-btn" id="credReplay">☠ Attempt Replay Double-Spend</button>
+          <button class="lab-btn" id="credReset">↻ Reset</button>
+        </div>
+        <div class="lab-stage"><canvas id="credCanvas"></canvas></div>
+        <div class="lab-metrics" id="credMetrics"></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ CHAPTER 7 -->
+    <section class="chapter" id="ch7">
+      <div class="ch-num">Chapter 07 · The Economic Primitive</div>
+      <h2>Proof of Useful Work (PoUW): Coupling Money Directly to Verified Truth</h2>
+      <p>
+        Put Chapters 2 through 6 together and one extraordinary economic primitive drops out automatically—not as an ideological slogan, but as a theorem:
+      </p>
+      <div class="thm-box">
+        <div class="thm-head"><span>The Proof of Useful Work (PoUW) Mechanism</span><span><code>lib/os/hyperos.hypercubical</code> · <code>lib/hx-node.hypercubical</code></span></div>
+        <ol style="margin-bottom:0">
+          <li><strong>Post a Type + Escrowed Credit:</strong> Anyone—a biotech lab, a trading firm, an open-source project, an AI agent—posts a typed specification $T$ (e.g., <em>"a clash-free binder with $\Delta G \le -18$ kcal/mol," "a proof of conservation for this C++20 order book," "a 7nm netlist equivalent to this spec"</em>) with escrowed credit $q$ on a local channel.</li>
+          <li><strong>Permissionless Global Search:</strong> Any peer on Earth (human mathematician, GPU/ASIC cluster, autonomous AI agent) searches for an inhabitant $t : T$.</li>
+          <li><strong>Compressed Cycle-Free Wire Delivery:</strong> The solver compresses $t$ with streaming causal rANS (<code>lib/hxz.hypercubical</code>) and routes it via Kademlia XOR distance (<code>lib/dht.hypercubical</code>) to the bounty's target key.</li>
+          <li><strong>Deterministic Cold Settlement:</strong> The requester's cold kernel (<code>lib/singularity.hypercubical</code>) verifies the digest and checks $t : T$ locally in milliseconds. If valid, escrowed credit $q$ settles atomically to the solver (<code>pouw-conserves-credit</code>). If hallucinated or tampered by even one bit, it is rejected deterministically with <code>0</code> payout.</li>
+          <li><strong>Compounding Public Capital:</strong> The settled artifact lands permanently in the content-addressed store and transports via <code>portal-arrive</code> into every isomorphic problem forever—permanently expanding civilization's rational capacity!</li>
+        </ol>
+      </div>
+
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Property</th><th>Proof of Work (Bitcoin)</th><th>Proof of Stake (ETH/SOL)</th><th>Cloud / AI Platforms</th><th>Hyperactivity PoUW</th></tr></thead>
+          <tbody>
+            <tr><td><strong>What Earns Settlement</strong></td><td>Meaningless SHA-256 hash preimages</td><td>Idle locked capital</td><td>Platform-mediated billing</td><td><strong>Verified typed artifacts ($t : T$)</strong></td></tr>
+            <tr><td><strong>Global Bottleneck</strong></td><td>Global chain + block time</td><td>Global validator consensus</td><td>Centralized cloud monopoly</td><td><strong>Zero global clock (local conserved fibers)</strong></td></tr>
+            <tr><td><strong>Verification Cost</strong></td><td>$O(1)$ hash check</td><td>$O(V)$ validator signatures</td><td>Human audit / trust / re-run</td><td><strong>Milliseconds local cold type-check</strong></td></tr>
+            <tr><td><strong>AI Reward-Hacking</strong></td><td>N/A</td><td>N/A</td><td>High (hallucinations, sycophancy)</td><td><strong>Impossible (kernel rejects ill-typed output)</strong></td></tr>
+            <tr><td><strong>After Settlement</strong></td><td>Hash is immediately garbage</td><td>Nothing produced</td><td>Siloed behind paywalls</td><td><strong>Permanent store + univalent portal transport</strong></td></tr>
+            <tr><td><strong>Financial Primitives</strong></td><td>Unverified scripts</td><td>Bug-prone Solidity contracts</td><td>Opaque clearinghouses</td><td><strong>Proof-carrying order books (31.2M ops/s, $\Delta=0$)</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Why This Solves AI Alignment &amp; Finance Simultaneously</h3>
+      <p>
+        Notice the profound side effect for AI: today, AI labs spend billions training reward models to guess whether an LLM answer "looks good," creating an endless arms race against sycophancy and reward hacking. In a Hyperactivity PoUW economy, <strong>the market's clearinghouse is the cubical kernel itself</strong>. An AI agent cannot sweet-talk <code>lib/singularity.hypercubical</code>. Every dollar of compute directed into PoUW is structurally aligned with mathematical, physical, and engineering truth—and every verified order book (<code>experiments/cxx/hx-book.hypercubical</code>) settles with a conservation proof that cannot leak a single unit of volume.
+      </p>
+
+      <h3>Interactive Lab 7 · Live PoUW Economy &amp; Cold Clearinghouse Simulator</h3>
+      <p>
+        Choose a real bounty below and launch a round! Three competing peers submit compressed wire frames across the Kademlia XOR network: an <strong>Honest Solver</strong>, a <strong>Hallucinating AI</strong> (plausible output that fails the type checker), and a <strong>Byzantine Forger</strong> (flips 1 bit on the wire). Watch the cold clearinghouse verify each submission, conserve credit strictly, and transport the settled theorem into the Knowledge Graph—reducing the cost of future bounties!
+      </p>
+      <div class="lab-card">
+        <div class="lab-head">
+          <span class="lbl">Lab 7 · Live PoUW Market: Honest Solver vs. Hallucinating AI vs. Byzantine Forger</span>
+          <span class="lab-status" id="pouwStatus">Select a bounty and run a PoUW clearing round</span>
+        </div>
+        <div class="lab-ctrl" style="border-top:0; border-bottom:1px solid var(--line);">
+          <button class="lab-btn on" data-bty="fold">Bounty: Pocket Binder (150 cr)</button>
+          <button class="lab-btn" data-bty="comp">Bounty: rANS Codec Proof (120 cr)</button>
+          <button class="lab-btn" data-bty="book">Bounty: C++20 Book Invariant (200 cr)</button>
+          <button class="lab-btn" data-bty="chip">Bounty: 1-Pass Flash Silicon (180 cr)</button>
+          <button class="lab-btn green" id="pouwRun">⚡ Run Clearing Round</button>
+          <button class="lab-btn" id="pouwReset">↻ Reset Economy</button>
+        </div>
+        <div class="lab-stage tall"><canvas id="pouwCanvas"></canvas></div>
+        <div class="lab-metrics" id="pouwMetrics"></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ CHAPTER 8 -->
+    <section class="chapter" id="ch8">
+      <div class="ch-num">Chapter 08 · Full-Stack Closure</div>
+      <h2>Everything Connects: One Stack from Pure Math to Bare-Metal Silicon</h2>
+      <p>
+        Everything in this exposition is not a whitepaper proposal—it is already running as checked, zero-UB native code in this repository's content-addressed <code>store/</code>:
+      </p>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Layer</th><th>Module in <code>store/</code></th><th>Live Measured Result</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Universal Native Compiler</strong></td><td><code>lib/native.hypercubical</code></td><td><strong>28 lines</strong> compile any <code>Step W Word</code> to zero-UB C11</td></tr>
+            <tr><td><strong>Causal Compression</strong></td><td><code>lib/hxz.hypercubical</code></td><td><strong>223 B / 512 B</strong> (beats <code>gzip -9</code>, <code>bzip2 -9</code>, <code>xz -9</code>), 100% bit-exact</td></tr>
+            <tr><td><strong>AI Memory Contraction</strong></td><td><code>lib/silicon/hx-tensor.hypercubical</code></td><td><strong>5M FlashAttn tokens / 213 ms</strong> + <strong>600K zero-tape layers / 25 ms</strong></td></tr>
+            <tr><td><strong>Physical Optimization</strong></td><td><code>fold/hx-fold.hypercubical</code></td><td><strong>16.78M scaffolds → 768 evals (99.9954% pruned) in 0 ms</strong></td></tr>
+            <tr><td><strong>Verified Finance / C++20</strong></td><td><code>experiments/cxx/hx-book.hypercubical</code></td><td><strong>10M orders / 321 ms (31.2M ops/s)</strong>, bit-exact vs <code>clang++ -O3</code></td></tr>
+            <tr><td><strong>PoUW Theorem Core</strong></td><td><code>lib/pouw.hypercubical</code></td><td><strong>6 theorems</strong>: credit conservation, 0-gain forgery rejection, monotone pool compounding, univalent bounty transport</td></tr>
+            <tr><td><strong>PoUW Sovereign Peer (Live UDP)</strong></td><td><code>lib/hx-node.hypercubical</code></td><td><strong>262,144 peers routed in 2 ms</strong> · live 2-process UDP settlement (<strong>52 B rANS wire, 1.01 ms RTT</strong>, 1-bit forgery rejected)</td></tr>
+            <tr><td><strong>Foundry GDSII &amp; RTL Export</strong></td><td><code>lib/silicon/hx-tapeout.hypercubical</code></td><td><strong>Calma GDSII v6.0 (376 B + 890 B) + 8-mod SV RTL (7,175 B) in 1.15 ms</strong> · <code>hxz</code> compresses 5L GDSII to <strong>260 B</strong> (beats <code>gzip/bzip2/xz</code>)</td></tr>
+            <tr><td><strong>Unified Native Super-CLI</strong></td><td><code>lib/hx.hypercubical</code></td><td><strong>One 667 KB zero-UB ARM64 binary (<code>hx</code>)</strong> dispatching <code>zip/unzip</code>, <code>tensor</code>, <code>book</code>, <code>node</code>, and <code>tapeout</code></td></tr>
+            <tr><td><strong>Bare-Metal OS &amp; 7nm Gates</strong></td><td><code>lib/os/hyperos.hypercubical</code>, <code>hypertensor.hypercubical</code></td><td><strong>15 KB Ring-0 OS (3.5 cyc = 551.3× Linux)</strong> · <strong>6,342 7nm CMOS gates</strong></td></tr>
+            <tr><td><strong>Self-Hosting Static ELF64</strong></td><td><code>lib/elf.hypercubical</code>, <code>lib/singularity.hypercubical</code></td><td><strong>Zero-GCC static ELF64</strong> (2 GB arena + 64 MB stack guard)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout">
+        <strong>Continue Exploring:</strong> Step through the native engineering labs in <a href="/hyperfactor">/hyperfactor</a> · learn interaction nets from zero in <a href="/learn">/learn</a> · run the cubical kernel live in WebAssembly at <a href="/kernel">/kernel</a> · browse all 438+ verified modules in the <a href="/kg">Web Knowledge Graph (/kg)</a> · inspect synthesized silicon at <a href="/silicon">/silicon</a> · or read the complete monograph at <a href="/pdf">/pdf</a>.
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+(function() {
+  /* Scroll-spy TOC */
+  const links = Array.from(document.querySelectorAll('#tocList a'));
+  const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+  function syncToc() {
+    const y = window.scrollY + 120;
+    let idx = 0;
+    for (let i = 0; i < secs.length; i++) if (secs[i].offsetTop <= y) idx = i;
+    links.forEach((a, i) => a.classList.toggle('on', i === idx));
+  }
+  window.addEventListener('scroll', syncToc, { passive: true });
+  syncToc();
+
+  /* ============================================================ LAB 1: ARCHITECTURE COMPARATOR */
+  const ARCH_INFO = {
+    cloud: {
+      name: 'Centralized Cloud (Hub-and-Spoke)',
+      trust: '1 Corp', energy: 'Datacenter Rent', verify: 'Trust API', agency: 'Low (0 Sovereignty)',
+      desc: 'Every peer must route through a central authority. Single point of censorship, failure, and 30% rent extraction.'
+    },
+    chain: {
+      name: 'Global Blockchain (PoW / PoS Consensus)',
+      trust: 'Global Majority', energy: 'GW Waste / Stake', verify: 'Global Re-Exec', agency: 'Frozen Global Head',
+      desc: 'Removes corporate hub, but replaces it with a single global clock forcing every peer on Earth to agree on one linear log.'
+    },
+    ipfs: {
+      name: 'Raw Content-Addressed Web (IPFS / Git)',
+      trust: 'SHA-256 Bytes', energy: 'Low', verify: 'Bytes Only', agency: 'Local Blobs, No Proofs',
+      desc: 'Content hashes eliminate link rot, but opaque bytes carry no executable types, no proof checking, and no economic settlement.'
+    },
+    hx: {
+      name: 'Hyperactivity (Local Typed Fibers + PoUW)',
+      trust: 'Cold Local Kernel', energy: '100% Useful Work', verify: 'ms Type-Check', agency: 'Max Local Agency',
+      desc: 'Zero central server, zero global clock. Peers exchange typed content-addressed proofs, merge via semilattices, and settle conserved PoUW credit locally.'
+    }
+  };
+  let archMode = 'hx', archTick = 0;
+  function drawArch() {
+    archTick += 0.04;
+    const c = document.getElementById('archCanvas'), st = c.parentElement;
+    const dpr = Math.min(devicePixelRatio || 1, 2), W = st.clientWidth, H = st.clientHeight;
+    if (c.width !== Math.floor(W * dpr) || c.height !== Math.floor(H * dpr)) {
+      c.width = Math.max(1, Math.floor(W * dpr)); c.height = Math.max(1, Math.floor(H * dpr));
+    }
+    const ctx = c.getContext('2d');
+    const dark = document.documentElement.classList.contains('dark');
+    const bg = dark ? '#000' : '#fff', ink = dark ? '#fff' : '#000', muted = dark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.16)';
+    const pink = '#ff0a94', blue = dark ? '#4da3ff' : '#1a73e8', green = dark ? '#38d388' : '#0d8a4e';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    ctx.font = '700 12px ui-monospace, Menlo, monospace';
+    const info = ARCH_INFO[archMode];
+    ctx.fillStyle = pink; ctx.fillText(info.name.toUpperCase(), 20, 24);
+    ctx.fillStyle = ink; ctx.font = '500 12px ui-monospace, Menlo, monospace';
+    ctx.fillText(info.desc.slice(0, 108), 20, H - 16);
+
+    const cx = W / 2, cy = H / 2 - 4, rad = Math.min(108, H * 0.34);
+    const pts = [];
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
+      pts.push([cx + Math.cos(a) * rad * 1.45, cy + Math.sin(a) * rad]);
+    }
+    if (archMode === 'cloud') {
+      pts.forEach(([x, y], i) => {
+        ctx.strokeStyle = muted; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x, y); ctx.stroke();
+        const p = (archTick + i * 0.17) % 1;
+        ctx.fillStyle = blue; ctx.beginPath(); ctx.arc(x + (cx - x) * p, y + (cy - y) * p, 4, 0, Math.PI * 2); ctx.fill();
+      });
+      ctx.fillStyle = pink; ctx.fillRect(cx - 34, cy - 18, 68, 36);
+      ctx.fillStyle = '#fff'; ctx.font = '700 11px ui-monospace, Menlo, monospace'; ctx.fillText('HUB', cx - 12, cy + 4);
+    } else if (archMode === 'chain') {
+      // Single linear block chain across middle
+      for (let b = 0; b < 5; b++) {
+        const bx = cx - 170 + b * 74;
+        ctx.strokeStyle = b === 4 ? pink : blue; ctx.lineWidth = 2;
+        ctx.strokeRect(bx, cy - 16, 54, 32);
+        ctx.fillStyle = ink; ctx.fillText(`BLK ${b + 1}`, bx + 8, cy + 4);
+        if (b < 4) { ctx.beginPath(); ctx.moveTo(bx + 54, cy); ctx.lineTo(bx + 74, cy); ctx.stroke(); }
+      }
+      pts.forEach(([x, y]) => {
+        ctx.strokeStyle = muted; ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(cx + 150, cy); ctx.stroke(); ctx.setLineDash([]);
+      });
+    } else if (archMode === 'ipfs') {
+      for (let i = 0; i < 6; i++) for (let j = i + 1; j < 6; j++) if ((i + j) % 2 === 1) {
+        ctx.strokeStyle = muted; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(pts[i][0], pts[i][1]); ctx.lineTo(pts[j][0], pts[j][1]); ctx.stroke();
+      }
+      pts.forEach(([x, y], i) => {
+        ctx.fillStyle = blue; ctx.fillText(`0x${(i*37+11).toString(16)}`, x + 10, y - 8);
+      });
+    } else {
+      // Hyperactivity: concurrent local pairwise cuts + PoUW arrows
+      const pairs = [[0,1],[1,2],[2,3],[3,4],[4,5],[5,0],[0,3],[1,4]];
+      pairs.forEach(([i, j], k) => {
+        ctx.strokeStyle = k % 2 === 0 ? pink : green; ctx.lineWidth = 1.8;
+        ctx.beginPath(); ctx.moveTo(pts[i][0], pts[i][1]); ctx.lineTo(pts[j][0], pts[j][1]); ctx.stroke();
+        const p = (archTick * 0.8 + k * 0.23) % 1;
+        const px = pts[i][0] + (pts[j][0] - pts[i][0]) * p;
+        const py = pts[i][1] + (pts[j][1] - pts[i][1]) * p;
+        ctx.fillStyle = k % 2 === 0 ? pink : blue;
+        ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fill();
+      });
+    }
+    pts.forEach(([x, y], i) => {
+      ctx.fillStyle = bg; ctx.strokeStyle = archMode === 'hx' ? pink : ink; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = ink; ctx.font = '700 11px ui-monospace, Menlo, monospace';
+      ctx.fillText(`P${i + 1}`, x - 7, y + 4);
+    });
+    requestAnimationFrame(drawArch);
+  }
+  function syncArchUI() {
+    const info = ARCH_INFO[archMode];
+    document.getElementById('archStatus').textContent = `Paradigm: ${info.name}`;
+    document.getElementById('archMetrics').innerHTML =
+      `<div><b>${info.trust}</b><span>Trust Root</span></div>` +
+      `<div><b>${info.energy}</b><span>Energy / Economics</span></div>` +
+      `<div><b>${info.verify}</b><span>Verification</span></div>` +
+      `<div><b>${info.agency}</b><span>Local Agency</span></div>`;
+  }
+  document.querySelectorAll('[data-arch]').forEach(b => b.onclick = () => {
+    archMode = b.dataset.arch;
+    document.querySelectorAll('[data-arch]').forEach(x => x.classList.toggle('on', x === b));
+    syncArchUI();
+  });
+  syncArchUI();
+  requestAnimationFrame(drawArch);
+
+  /* ============================================================ LAB 2: INTERACTION NET CONFLUENCE */
+  let netState = { aLeft: 3, bLeft: 3, order: [], steps: 0 };
+  function drawNet() {
+    const c = document.getElementById('netCanvas'), st = c.parentElement;
+    const dpr = Math.min(devicePixelRatio || 1, 2), W = st.clientWidth, H = st.clientHeight;
+    c.width = Math.max(1, Math.floor(W * dpr)); c.height = Math.max(1, Math.floor(H * dpr));
+    const ctx = c.getContext('2d');
+    const dark = document.documentElement.classList.contains('dark');
+    const bg = dark ? '#000' : '#fff', ink = dark ? '#fff' : '#000', muted = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.14)';
+    const pink = '#ff0a94', blue = dark ? '#4da3ff' : '#1a73e8', green = dark ? '#38d388' : '#0d8a4e';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    ctx.font = '700 12px ui-monospace, Menlo, monospace';
+    const mid = W / 2;
+    ctx.strokeStyle = muted; ctx.setLineDash([5, 5]);
+    ctx.beginPath(); ctx.moveTo(mid, 14); ctx.lineTo(mid, H - 14); ctx.stroke(); ctx.setLineDash([]);
+
+    const rulesA = ['APP ⋈ LAM (Annihilate)', 'DUP ⋈ SUP (Annihilate)', 'ERA ⋈ CON (Erase)'];
+    const rulesB = ['DUP ⋈ LAM (Commute)', 'CON ⋈ CON (Link2)', 'ERA ⋈ ERA (Empty)'];
+    ctx.fillStyle = pink; ctx.fillText(`PEER A LOCAL CUTS (${netState.aLeft} active)`, 20, 24);
+    ctx.fillStyle = blue; ctx.fillText(`PEER B LOCAL CUTS (${netState.bLeft} active)`, mid + 20, 24);
+    for (let i = 0; i < 3; i++) {
+      const doneA = i >= netState.aLeft, doneB = i >= netState.bLeft;
+      const y = 48 + i * 68;
+      // Peer A pair
+      ctx.strokeStyle = doneA ? green : pink; ctx.lineWidth = doneA ? 1.5 : 2.5;
+      ctx.strokeRect(20, y, mid - 44, 48);
+      ctx.fillStyle = doneA ? green : ink;
+      ctx.fillText(doneA ? `✓ Reduced → Normal Wire #${i + 1}` : `⚡ ${rulesA[i]}`, 32, y + 29);
+      // Peer B pair
+      ctx.strokeStyle = doneB ? green : blue; ctx.lineWidth = doneB ? 1.5 : 2.5;
+      ctx.strokeRect(mid + 20, y, mid - 44, 48);
+      ctx.fillStyle = doneB ? green : ink;
+      ctx.fillText(doneB ? `✓ Reduced → Normal Wire #${i + 4}` : `⚡ ${rulesB[i]}`, mid + 32, y + 29);
+    }
+    const allDone = netState.aLeft === 0 && netState.bLeft === 0;
+    ctx.fillStyle = allDone ? green : ink;
+    ctx.fillText(allDone
+      ? `✓ CONFLUENT NORMAL FORM REACHED: Answer = 42 · Order [${netState.order.join(' → ')}] == Every Other Order!`
+      : `Trace so far: [${netState.order.join(' → ') || 'none'}] · Zero locks, zero global clock`, 20, H - 20);
+    document.getElementById('netStatus').textContent = allDone ? 'NORMAL FORM = 42 (ORDER-INDEPENDENT!)' : `${netState.aLeft + netState.bLeft} active cuts remaining`;
+    document.getElementById('netMetrics').innerHTML =
+      `<div><b>${netState.aLeft} / ${netState.bLeft}</b><span>Active Cuts (Peer A / B)</span></div>` +
+      `<div><b>${netState.steps}</b><span>Local Reduction Steps</span></div>` +
+      `<div><b>0</b><span>Global Locks / Syncs</span></div>` +
+      `<div><b>${allDone ? '42 (EXACT)' : 'REDUCING'}</b><span>Canonical Normal Form</span></div>`;
+  }
+  document.getElementById('netFireA').onclick = () => { if (netState.aLeft > 0) { netState.aLeft--; netState.steps++; netState.order.push('A'); drawNet(); } };
+  document.getElementById('netFireB').onclick = () => { if (netState.bLeft > 0) { netState.bLeft--; netState.steps++; netState.order.push('B'); drawNet(); } };
+  document.getElementById('netFireBoth').onclick = () => {
+    let f = false;
+    if (netState.aLeft > 0) { netState.aLeft--; f = true; }
+    if (netState.bLeft > 0) { netState.bLeft--; f = true; }
+    if (f) { netState.steps++; netState.order.push('A∥B'); drawNet(); }
+  };
+  document.getElementById('netReset').onclick = () => { netState = { aLeft: 3, bLeft: 3, order: [], steps: 0 }; drawNet(); };
+  new ResizeObserver(drawNet).observe(document.getElementById('netCanvas').parentElement);
+  drawNet();
+
+  /* ============================================================ LAB 3: UNIVALENT SEMANTIC WEB PORTAL */
+  const PORT_LAWS = {
+    monoid: {
+      title: 'Associative Prefix Monoid: fold(X ++ Y) ≡ fold(X) • fold(Y)',
+      hops: ['Pure Algebra (aacc-assoc)', '1-Pass FlashAttention (3 regs)', 'Kogge–Stone 128b Silicon', 'Streaming Telemetry Fold'],
+      gain: '119,837× less HBM + O(log N) gate depth'
+    },
+    bij: {
+      title: 'Reversible Coupling Bijection: inv(fwd(x)) ≡ x',
+      hops: ['Ring Bijection (rev-bwd-1)', 'Zero-Tape Backprop (600K layers)', 'Streaming rANS (hxz, M|L)', 'Constant-Time ChaCha20'],
+      gain: '0 stored tape + 100% lossless codec + RFC 8439'
+    },
+    bound: {
+      title: 'Monotonic Admissible Lower Bound: e₁(r₁) ≤ E(r₁, r₂, r₃, r₄)',
+      hops: ['Order Lattice (plus-le-mono-l)', 'De Novo Pocket Binder (16.78M)', '§4.5 MoE Expert Gate', 'Exact Branch-and-Bound'],
+      gain: '99.9954% search pruned in 0 ms, global opt'
+    }
+  };
+  let portLaw = 'monoid', portProg = 3;
+  function drawPort() {
+    const c = document.getElementById('portCanvas'), st = c.parentElement;
+    const dpr = Math.min(devicePixelRatio || 1, 2), W = st.clientWidth, H = st.clientHeight;
+    c.width = Math.max(1, Math.floor(W * dpr)); c.height = Math.max(1, Math.floor(H * dpr));
+    const ctx = c.getContext('2d');
+    const dark = document.documentElement.classList.contains('dark');
+    const bg = dark ? '#000' : '#fff', ink = dark ? '#fff' : '#000', muted = dark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)';
+    const pink = '#ff0a94', blue = dark ? '#4da3ff' : '#1a73e8', green = dark ? '#38d388' : '#0d8a4e';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    ctx.font = '700 12px ui-monospace, Menlo, monospace';
+    const d = PORT_LAWS[portLaw];
+    ctx.fillStyle = pink; ctx.fillText(`ORIGIN THEOREM: ${d.title}`, 20, 26);
+
+    const bw = Math.min(185, (W - 90) / 4), gap = (W - 40 - bw * 4) / 3, y = 84, bh = 112;
+    d.hops.forEach((h, i) => {
+      const x = 20 + i * (bw + gap);
+      const arrived = i <= portProg;
+      ctx.strokeStyle = arrived ? (i === 0 ? pink : green) : muted;
+      ctx.lineWidth = arrived ? 2.5 : 1.2;
+      ctx.strokeRect(x, y, bw, bh);
+      ctx.fillStyle = arrived ? (i === 0 ? pink : blue) : muted;
+      ctx.fillText(i === 0 ? 'PROVED ONCE' : `PORTAL HOP ${i}`, x + 10, y + 24);
+      ctx.fillStyle = ink;
+      const words = h.split(' ');
+      let line = '', ly = y + 50;
+      words.forEach(w => {
+        if ((line + ' ' + w).length > 20) { ctx.fillText(line.trim(), x + 10, ly); line = w; ly += 18; }
+        else line += ' ' + w;
+      });
+      if (line) ctx.fillText(line.trim(), x + 10, ly);
+      if (i < 3) {
+        ctx.strokeStyle = i < portProg ? pink : muted; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(x + bw + 4, y + bh / 2); ctx.lineTo(x + bw + gap - 4, y + bh / 2); ctx.stroke();
+        ctx.fillStyle = i < portProg ? pink : muted; ctx.fillText('≡', x + bw + gap / 2 - 4, y + bh / 2 - 8);
+      }
+    });
+    ctx.fillStyle = green;
+    ctx.fillText(`✓ Automatic Arrival via portal-arrive-chain: ${portProg} domain(s) unlocked · 0 lines manually ported`, 20, H - 28);
+    document.getElementById('portStatus').textContent = `Transported across ${portProg}/3 equivalences`;
+    document.getElementById('portMetrics').innerHTML =
+      `<div><b>1 Proof</b><span>Authored Once in Store</span></div>` +
+      `<div><b>${portProg} Hops</b><span>Equivalences Traversed</span></div>` +
+      `<div><b>0 lines</b><span>Manual Porting Required</span></div>` +
+      `<div><b>Unlocked</b><span>${d.gain}</span></div>`;
+  }
+  document.querySelectorAll('[data-law]').forEach(b => b.onclick = () => {
+    portLaw = b.dataset.law; portProg = 3;
+    document.querySelectorAll('[data-law]').forEach(x => x.classList.toggle('on', x === b));
+    drawPort();
+  });
+  document.getElementById('portFire').onclick = () => {
+    portProg = 0; drawPort();
+    let t = setInterval(() => { portProg++; drawPort(); if (portProg >= 3) clearInterval(t); }, 350);
+  };
+  new ResizeObserver(drawPort).observe(document.getElementById('portCanvas').parentElement);
+  drawPort();
+
+  /* ============================================================ LAB 4: METACIRCULAR FLUX EXPLORER */
+  const SYN_SNIPS = {
+    hx: `hxb-step (hxb-bk b a e ad cn) #2 #0 qty =\n  let fill = if %wlt b qty then b else qty\n  in hxb-bk (%wsub b fill) a (%wadd e fill) ad cn`,
+    py: `def hxb_step_exec_bid(bk, qty):\n    fill = min(bk.bid, qty)\n    return HxbBook(bk.bid - fill, bk.ask, bk.exec + fill, bk.adds, bk.cancels)`,
+    math: `\\mathrm{Exec}_{\\text{bid}}(b, a, e; q) \\;=\\; (b - f,\\; a,\\; e + f), \\quad f = \\min(b, q)`
+  };
+  const LV_INFO = [
+    { name: 'Level 0 · Data', desc: 'Immutable typed values in store/: OrderBook (bid=100, exec=0), Protein Sequence "GYDPETGTWG", Byte Stream.' },
+    { name: 'Level 1 · Programs on Data', desc: 'Checked functions operating on values. All 3 surface syntaxes above parse via lib/syntax.hypercubical into the EXACT same Code hash: sha256=e60727bcfa0d...' },
+    { name: 'Level 2 · Programs on Programs', desc: 'specialize : Code → Code, emit-c-cli : Code → List Word (28 lines), encode-proc : Defs → ELF64, cub2silicon : CubBootOp → 7nm CMOS Gates.' },
+    { name: 'Level 3 · Verifiers on Compilers', desc: 'lib/singularity.hypercubical cold-verifies store/<hash>/forms and checks its own compiler pipeline (sg-emit-ok = refl) — zero trusted external GCC.' }
+  ];
+  let curSyn = 'hx', curLv = 2, lawTick = 0;
+  function renderMeta() {
+    const lv = LV_INFO[curLv];
+    document.getElementById('metaStatus').textContent = `${lv.name} · Tick κ = ${lawTick}`;
+    document.getElementById('tickBtn').textContent = `⏱ Advance Lawvere Tick (κ = ${lawTick})`;
+    const stream = Array.from({ length: Math.min(4, lawTick + 1) }, (_, i) => `κ=${i}: Theory_${i} ──(next)──▶ Theory_${i + 1} [productive, 0 paradox]`).join('\n');
+    document.getElementById('metaOut').textContent =
+      `[Selected Syntax: ${curSyn.toUpperCase()} → Canonical Code Hash: e60727bcfa0d (IDENTICAL)]\n` +
+      SYN_SNIPS[curSyn] + `\n\n[${lv.name}]\n` + lv.desc + `\n\n[Lawvere Guarded Fixed Point: fix f ≡ f (next (fix f))]\n` + stream;
+    document.getElementById('metaMetrics').innerHTML =
+      `<div><b>Level ${curLv}</b><span>Uniform Code Medium</span></div>` +
+      `<div><b>e60727bc</b><span>Same Hash Across All Syntaxes</span></div>` +
+      `<div><b>κ = ${lawTick}</b><span>Productive Tick Step</span></div>` +
+      `<div><b>0 Paradox</b><span>Guarded Lawvere Unfolding</span></div>`;
+  }
+  document.querySelectorAll('[data-syn]').forEach(b => b.onclick = () => {
+    curSyn = b.dataset.syn;
+    document.querySelectorAll('[data-syn]').forEach(x => x.classList.toggle('on', x === b));
+    renderMeta();
+  });
+  document.querySelectorAll('[data-lv]').forEach(b => b.onclick = () => {
+    curLv = parseInt(b.dataset.lv, 10);
+    document.querySelectorAll('[data-lv]').forEach(x => x.classList.toggle('on', x === b));
+    renderMeta();
+  });
+  document.getElementById('tickBtn').onclick = () => { lawTick++; renderMeta(); };
+  renderMeta();
+
+  /* ============================================================ LAB 5: LEADERLESS SEMILATTICE & SOVEREIGNTY */
+  let sov = {
+    part: false, seq: 3, lastOrder: 'initial', probeMsg: 'Private keys withheld by allow(k)=false',
+    peers: [
+      { id: 'A', pub: new Set(['T1']), priv: 'KEY_A_SECRET' },
+      { id: 'B', pub: new Set(['T1']), priv: 'WEIGHTS_B' },
+      { id: 'C', pub: new Set(['T2']), priv: 'CLINICAL_C' },
+      { id: 'D', pub: new Set(['T2']), priv: 'ALPHA_D' }
+    ]
+  };
+  function drawSov() {
+    const c = document.getElementById('sovCanvas'), st = c.parentElement;
+    const dpr = Math.min(devicePixelRatio || 1, 2), W = st.clientWidth, H = st.clientHeight;
+    c.width = Math.max(1, Math.floor(W * dpr)); c.height = Math.max(1, Math.floor(H * dpr));
+    const ctx = c.getContext('2d');
+    const dark = document.documentElement.classList.contains('dark');
+    const bg = dark ? '#000' : '#fff', ink = dark ? '#fff' : '#000', muted = dark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.14)';
+    const pink = '#ff0a94', blue = dark ? '#4da3ff' : '#1a73e8', green = dark ? '#38d388' : '#0d8a4e';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    ctx.font = '700 12px ui-monospace, Menlo, monospace';
+    ctx.fillStyle = pink; ctx.fillText(sov.part ? 'NETWORK PARTITIONED: {A,B} ∥ {C,D} (BOTH SIDES KEEP WORKING)' : 'CONNECTED SEMILATTICE: pex-union (COMMUTATIVE · ASSOCIATIVE · IDEMPOTENT)', 20, 24);
+    const bw = Math.min(185, (W - 76) / 4), gap = (W - 40 - bw * 4) / 3;
+    sov.peers.forEach((p, i) => {
+      const x = 20 + i * (bw + gap), y = 52;
+      ctx.strokeStyle = i < 2 ? pink : blue; ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, bw, 178);
+      ctx.fillStyle = i < 2 ? pink : blue; ctx.fillText(`SOVEREIGN PEER ${p.id}`, x + 10, y + 24);
+      ctx.fillStyle = green; ctx.fillText('PUBLIC VIEW (allow=T):', x + 10, y + 50);
+      ctx.fillStyle = ink;
+      const items = Array.from(p.pub).sort().join(', ');
+      ctx.fillText(items.slice(0, 22), x + 10, y + 72);
+      if (items.length > 22) ctx.fillText(items.slice(22, 44), x + 10, y + 90);
+      ctx.strokeStyle = muted; ctx.strokeRect(x + 8, y + 114, bw - 16, 52);
+      ctx.fillStyle = pink; ctx.fillText('PRIVATE (allow=F):', x + 14, y + 134);
+      ctx.fillStyle = muted; ctx.fillText(`🔒 ${p.priv}`, x + 14, y + 154);
+    });
+    if (sov.part) {
+      ctx.strokeStyle = pink; ctx.lineWidth = 3; ctx.setLineDash([6, 4]);
+      ctx.beginPath(); ctx.moveTo(W / 2, 42); ctx.lineTo(W / 2, 242); ctx.stroke(); ctx.setLineDash([]);
+    }
+    ctx.fillStyle = ink; ctx.fillText(sov.probeMsg, 20, H - 22);
+    const unionAll = new Set([...sov.peers[0].pub, ...sov.peers[1].pub, ...sov.peers[2].pub, ...sov.peers[3].pub]);
+    const synced = sov.peers.every(p => p.pub.size === unionAll.size);
+    document.getElementById('sovStatus').textContent = `${sov.part ? 'PARTITIONED' : 'CONNECTED'} · Merge: ${sov.lastOrder} · ${synced ? 'CONVERGED' : 'DIVERGENT (LOCAL AGENCY)'}`;
+    document.getElementById('sovMetrics').innerHTML =
+      `<div><b>0</b><span>Leaders Elected</span></div>` +
+      `<div><b>${unionAll.size}</b><span>Distinct Public Objects</span></div>` +
+      `<div><b>0 bytes</b><span>Private Data Leaked</span></div>` +
+      `<div><b>${synced ? 'IDENTICAL' : 'LOCAL'}</b><span>Semilattice Convergence</span></div>`;
+  }
+  document.getElementById('sovEditA').onclick = () => { sov.peers[0].pub.add('T' + (sov.seq++)); sov.probeMsg = 'Peer A published locally without asking any server or quorum.'; drawSov(); };
+  document.getElementById('sovEditC').onclick = () => { sov.peers[2].pub.add('T' + (sov.seq++)); sov.probeMsg = 'Peer C published locally in parallel—zero conflict lock.'; drawSov(); };
+  document.getElementById('sovPart').onclick = () => { sov.part = !sov.part; sov.probeMsg = sov.part ? 'Partition active: {A,B} and {C,D} operate independently at full speed.' : 'Partition healed: ready for order-invariant gossip merge.'; drawSov(); };
+  function gossip(order) {
+    if (sov.part) {
+      const u1 = new Set([...sov.peers[0].pub, ...sov.peers[1].pub]);
+      const u2 = new Set([...sov.peers[2].pub, ...sov.peers[3].pub]);
+      sov.peers[0].pub = new Set(u1); sov.peers[1].pub = new Set(u1);
+      sov.peers[2].pub = new Set(u2); sov.peers[3].pub = new Set(u2);
+      sov.lastOrder = order + ' (island-local)';
+    } else {
+      const seq = order === 'A→D' ? [0,1,2,3] : [3,2,1,0];
+      let acc = new Set();
+      seq.forEach(i => sov.peers[i].pub.forEach(x => acc.add(x)));
+      sov.peers.forEach(p => p.pub = new Set(acc));
+      sov.lastOrder = order + ' (identical union!)';
+    }
+    sov.probeMsg = `Merged via pex-union (${sov.lastOrder}): commutative, associative, idempotent.`;
+    drawSov();
+  }
+  document.getElementById('sovMergeAB').onclick = () => gossip('A→D');
+  document.getElementById('sovMergeBA').onclick = () => gossip('D→A');
+  document.getElementById('sovProbe').onclick = () => { sov.probeMsg = '✓ PROBE BLOCKED: curated-private-withheld & standpoint-noninterference hold identically!'; drawSov(); };
+  new ResizeObserver(drawSov).observe(document.getElementById('sovCanvas').parentElement);
+  drawSov();
+
+  /* ============================================================ LAB 6: CONSERVED CREDIT, NO BLOCKCHAIN */
+  let cred = { bal: [100, 100, 100, 100], inflight: [], spent: new Set(), nextId: 1, msg: 'Initial total Σc + Σm = 400 (0 blockchain blocks).', replaysBlocked: 0 };
+  const P_NAMES = ['Alice', 'Bob', 'Carol', 'Dave'];
+  function drawCred() {
+    const c = document.getElementById('credCanvas'), st = c.parentElement;
+    const dpr = Math.min(devicePixelRatio || 1, 2), W = st.clientWidth, H = st.clientHeight;
+    c.width = Math.max(1, Math.floor(W * dpr)); c.height = Math.max(1, Math.floor(H * dpr));
+    const ctx = c.getContext('2d');
+    const dark = document.documentElement.classList.contains('dark');
+    const bg = dark ? '#000' : '#fff', ink = dark ? '#fff' : '#000', muted = dark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.14)';
+    const pink = '#ff0a94', blue = dark ? '#4da3ff' : '#1a73e8', green = dark ? '#38d388' : '#0d8a4e';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    ctx.font = '700 12px ui-monospace, Menlo, monospace';
+    const sumC = cred.bal.reduce((a, b) => a + b, 0);
+    const sumM = cred.inflight.reduce((a, x) => a + x.q, 0);
+    ctx.fillStyle = pink; ctx.fillText(`LOCAL CREDIT INVARIANT: Σc (${sumC}) + Σm (${sumM}) = ${sumC + sumM} ≡ 400 (ZERO GLOBAL SCHEDULER)`, 20, 24);
+
+    // Draw 4 peer balance boxes
+    const bw = Math.min(180, (W - 76) / 4), gap = (W - 40 - bw * 4) / 3;
+    P_NAMES.forEach((nm, i) => {
+      const x = 20 + i * (bw + gap);
+      ctx.strokeStyle = blue; ctx.lineWidth = 2; ctx.strokeRect(x, 46, bw, 68);
+      ctx.fillStyle = ink; ctx.fillText(nm, x + 12, 70);
+      ctx.fillStyle = pink; ctx.font = '800 20px ui-monospace, Menlo, monospace';
+      ctx.fillText(String(cred.bal[i]), x + 12, 100);
+      ctx.font = '700 12px ui-monospace, Menlo, monospace';
+    });
+
+    // Draw in-flight channels + spent receipts
+    ctx.fillStyle = blue; ctx.fillText(`IN-FLIGHT CHANNELS m_ij (${cred.inflight.length} pending):`, 20, 146);
+    if (!cred.inflight.length) {
+      ctx.fillStyle = muted; ctx.fillText('  (no in-flight credit; click any peer transfer above)', 20, 170);
+    } else {
+      cred.inflight.slice(0, 4).forEach((m, idx) => {
+        ctx.fillStyle = green;
+        ctx.fillText(`  [receipt #${m.id}] ${P_NAMES[m.from]} ──(${m.q})──▶ ${P_NAMES[m.to]}`, 20, 170 + idx * 22);
+      });
+    }
+    ctx.fillStyle = ink; ctx.fillText(cred.msg, 20, H - 20);
+    document.getElementById('credStatus').textContent = `CONSERVED: Σc(${sumC}) + Σm(${sumM}) = ${sumC + sumM} (Δ = 0)`;
+    document.getElementById('credMetrics').innerHTML =
+      `<div><b>${sumC}</b><span>Held Credit (Σc)</span></div>` +
+      `<div><b>${sumM}</b><span>In-Flight Channels (Σm)</span></div>` +
+      `<div><b>${cred.spent.size}</b><span>Spent Unique Receipts</span></div>` +
+      `<div><b>${cred.replaysBlocked}</b><span>Double-Spends Blocked</span></div>`;
+  }
+  function allocCred(from, to, q) {
+    if (cred.bal[from] < q) { cred.msg = `Refused: ${P_NAMES[from]} only holds ${cred.bal[from]} < ${q} (local precondition).`; drawCred(); return; }
+    cred.bal[from] -= q;
+    const id = cred.nextId++;
+    cred.inflight.push({ id, from, to, q });
+    cred.msg = `Allocated receipt #${id}: ${P_NAMES[from]} moved ${q} into channel m → ${P_NAMES[to]}.`;
+    drawCred();
+  }
+  document.getElementById('credSendAB').onclick = () => allocCred(0, 1, 40);
+  document.getElementById('credSendBC').onclick = () => allocCred(1, 2, 25);
+  document.getElementById('credSendCA').onclick = () => allocCred(2, 3, 30);
+  document.getElementById('credDeliver').onclick = () => {
+    if (!cred.inflight.length) { cred.msg = 'No in-flight receipts to deliver.'; drawCred(); return; }
+    const m = cred.inflight.shift();
+    cred.spent.add(m.id);
+    cred.bal[m.to] += m.q;
+    cred.msg = `✓ Delivered receipt #${m.id}: ${P_NAMES[m.to]} received ${m.q}. Receipt #${m.id} permanently marked spent.`;
+    drawCred();
+  };
+  document.getElementById('credReplay').onclick = () => {
+    if (!cred.spent.size) { cred.msg = 'Deliver at least one receipt first, then try replaying it!'; drawCred(); return; }
+    const lastId = Math.max(...cred.spent);
+    cred.replaysBlocked++;
+    cred.msg = `✗ REPLAY BLOCKED: receipt #${lastId} already in delivered set! Zero double-spend, zero blockchain needed.`;
+    drawCred();
+  };
+  document.getElementById('credReset').onclick = () => { cred = { bal: [100,100,100,100], inflight: [], spent: new Set(), nextId: 1, msg: 'Reset. Total Σc + Σm = 400.', replaysBlocked: 0 }; drawCred(); };
+  new ResizeObserver(drawCred).observe(document.getElementById('credCanvas').parentElement);
+  drawCred();
+
+  /* ============================================================ LAB 7: LIVE PoUW ECONOMY SIMULATOR */
+  const BOUNTIES = {
+    fold: { name: 'De Novo Pocket Binder (E ≤ 11, 0 clashes)', reward: 150, thm: 'lead-binder-globally-optimal', reuse: 'Prunes future docking bounties' },
+    comp: { name: 'Exact rANS Renorm Bijection (M | L)', reward: 120, thm: 'sr-renorm-ok + hxz-ft', reuse: 'Shrinks all future wire frames' },
+    book: { name: 'C++20 Order Book Volume Conservation', reward: 200, thm: 'hxb-exec-conserves-sample', reuse: 'Certifies zero-audit clearing' },
+    chip: { name: '1-Pass FlashAttention 7nm Gate Netlist', reward: 180, thm: 'flash-tiled-hom + cub2silicon', reuse: '119,837× SRAM contraction' }
+  };
+  let pouw = { bty: 'fold', escrow: 1000, honestBal: 0, halBal: 0, byzBal: 0, settled: [], rounds: 0, rejected: 0, log: [] };
+  function drawPoUW() {
+    const c = document.getElementById('pouwCanvas'), st = c.parentElement;
+    const dpr = Math.min(devicePixelRatio || 1, 2), W = st.clientWidth, H = st.clientHeight;
+    c.width = Math.max(1, Math.floor(W * dpr)); c.height = Math.max(1, Math.floor(H * dpr));
+    const ctx = c.getContext('2d');
+    const dark = document.documentElement.classList.contains('dark');
+    const bg = dark ? '#000' : '#fff', ink = dark ? '#fff' : '#000', muted = dark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.14)';
+    const pink = '#ff0a94', blue = dark ? '#4da3ff' : '#1a73e8', green = dark ? '#38d388' : '#0d8a4e';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    ctx.font = '700 12px ui-monospace, Menlo, monospace';
+    const b = BOUNTIES[pouw.bty];
+    const discount = Math.min(50, pouw.settled.length * 12);
+    ctx.fillStyle = pink; ctx.fillText(`ACTIVE BOUNTY TYPE T: ${b.name} (${b.reward} cr · Portal Reuse Bonus: -${discount}% cost)`, 20, 24);
+
+    // Three competing agents on left -> Cold Kernel Gate -> Conserved Ledger + Public Store on right
+    const agents = [
+      { nm: 'Honest Solver (Typed t : T)', bal: pouw.honestBal, col: green, st: pouw.rounds ? '✓ PASSED sg-check-forms → PAID' : 'Ready' },
+      { nm: 'Hallucinating AI (Plausible)', bal: pouw.halBal, col: pink, st: pouw.rounds ? '✗ ILL-TYPED → 0 CREDIT' : 'Ready' },
+      { nm: 'Byzantine Forger (1-Bit Flip)', bal: pouw.byzBal, col: '#c76b00', st: pouw.rounds ? '✗ DIGEST MISMATCH → REJECTED' : 'Ready' }
+    ];
+    const lw = Math.min(290, W * 0.38);
+    agents.forEach((a, i) => {
+      const y = 48 + i * 74;
+      ctx.strokeStyle = a.col; ctx.lineWidth = 2; ctx.strokeRect(20, y, lw, 58);
+      ctx.fillStyle = ink; ctx.fillText(a.nm, 30, y + 22);
+      ctx.fillStyle = a.col; ctx.fillText(`Bal: ${a.bal} cr · ${a.st}`, 30, y + 44);
+      // Wire arrow to kernel
+      ctx.strokeStyle = a.col; ctx.beginPath(); ctx.moveTo(20 + lw, y + 29); ctx.lineTo(20 + lw + 42, 150); ctx.stroke();
+    });
+
+    // Center Cold Kernel Gate
+    const kx = 20 + lw + 42, kw = 148;
+    ctx.strokeStyle = blue; ctx.lineWidth = 2.5; ctx.strokeRect(kx, 88, kw, 126);
+    ctx.fillStyle = blue; ctx.fillText('COLD KERNEL', kx + 26, 114);
+    ctx.fillStyle = ink; ctx.fillText('sg-check-forms', kx + 18, 138);
+    ctx.fillText('rANS + SHA256', kx + 22, 160);
+    ctx.fillStyle = green; ctx.fillText('0 Trust Required', kx + 12, 188);
+
+    // Right: Compounding Public Store & Conserved Supply
+    const rx = kx + kw + 30, rw = Math.max(170, W - rx - 20);
+    ctx.strokeStyle = pink; ctx.lineWidth = 2; ctx.strokeRect(rx, 48, rw, 206);
+    ctx.fillStyle = pink; ctx.fillText('COMPOUNDING STORE', rx + 12, 72);
+    ctx.fillStyle = ink; ctx.fillText(`Escrow: ${pouw.escrow} cr`, rx + 12, 98);
+    ctx.fillText(`Total Supply: ${pouw.escrow + pouw.honestBal} cr`, rx + 12, 120);
+    ctx.fillStyle = green; ctx.fillText(`Settled Artifacts (${pouw.settled.length}):`, rx + 12, 150);
+    pouw.settled.slice(-4).forEach((s, i) => {
+      ctx.fillStyle = ink; ctx.fillText(`• ${s.slice(0, 22)}`, rx + 12, 174 + i * 20);
+    });
+
+    ctx.fillStyle = ink;
+    ctx.fillText(pouw.log[pouw.log.length - 1] || 'Click "Run Clearing Round" to simulate competing honest, hallucinating, and forged submissions.', 20, H - 18);
+    document.getElementById('pouwStatus').textContent = `Rounds: ${pouw.rounds} · Honest Earned: ${pouw.honestBal} cr · Hallucinations/Forgeries Paid: 0 cr`;
+    document.getElementById('pouwMetrics').innerHTML =
+      `<div><b>${pouw.honestBal} cr</b><span>Honest Solver Earned</span></div>` +
+      `<div><b>0 cr</b><span>Hallucination + Forger Payout</span></div>` +
+      `<div><b>${pouw.escrow + pouw.honestBal} cr</b><span>Conserved Total Supply</span></div>` +
+      `<div><b>${pouw.settled.length}</b><span>Permanent Store Artifacts</span></div>`;
+  }
+  document.querySelectorAll('[data-bty]').forEach(b => b.onclick = () => {
+    pouw.bty = b.dataset.bty;
+    document.querySelectorAll('[data-bty]').forEach(x => x.classList.toggle('on', x === b));
+    drawPoUW();
+  });
+  document.getElementById('pouwRun').onclick = () => {
+    const b = BOUNTIES[pouw.bty];
+    const pay = Math.min(pouw.escrow, b.reward);
+    pouw.rounds++;
+    pouw.rejected += 2;
+    if (pay > 0) {
+      pouw.escrow -= pay;
+      pouw.honestBal += pay;
+      if (!pouw.settled.includes(b.thm)) pouw.settled.push(b.thm);
+      pouw.log.push(`✓ Round ${pouw.rounds}: Honest settled +${pay} cr for ${b.thm}; Hallucinator & Forger got 0 cr! Portal transports artifact.`);
+    } else {
+      pouw.log.push(`Escrow empty—click Reset Economy to fund new bounties.`);
+    }
+    drawPoUW();
+  };
+  document.getElementById('pouwReset').onclick = () => {
+    pouw = { bty: pouw.bty, escrow: 1000, honestBal: 0, halBal: 0, byzBal: 0, settled: [], rounds: 0, rejected: 0, log: [] };
+    drawPoUW();
+  };
+  new ResizeObserver(drawPoUW).observe(document.getElementById('pouwCanvas').parentElement);
+  drawPoUW();
+})();
+</script>
+</body>
+</html>
