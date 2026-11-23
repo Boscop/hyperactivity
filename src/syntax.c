@@ -951,7 +951,11 @@ static Node *pat_norm(Node *p) {
     return p;
 }
 static Node *x_copy(Node *t) {
-    if (!t->list) { Node *s = nsym(t->s); s->cmt = t->cmt; return s; }
+    if (!t->list) {
+        Node *s = nsym(t->s); s->cmt = t->cmt;
+        if (t->it) { bnd_slots(s); s->it[0] = t->it[0] ? x_copy(t->it[0]) : NULL; s->it[1] = t->it[1]; s->it[2] = t->it[2]; }
+        return s;
+    }
     Node *r = nlist(t->n); r->cmt = t->cmt; for (int i = 0; i < t->n; i++) r->it[i] = x_copy(t->it[i]); return r;
 }
 static Node *cc_match(Node **vars, int nv, Row *rows, int nr, const char *fname);
