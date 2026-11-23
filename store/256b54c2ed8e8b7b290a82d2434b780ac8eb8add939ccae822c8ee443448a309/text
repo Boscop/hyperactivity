@@ -1,0 +1,24 @@
+-- Universal Fan-In-2 Light-Cone Theorem: EVERY circuit of depth `d` reads at most `2^d` input leaves!
+fanin2-lightcone-leB : {O0 O1 O2 V : Type} → (c : Circ O0 O1 O2 V) →
+  leB (circ-leaves {O0} {O1} {O2} {V} c) (pow2 (circ-depth {O0} {O1} {O2} {V} c)) ≡ true
+fanin2-lightcone-leB {O0} {O1} {O2} {V} c =
+  case c return (λ w →
+    Path Bool
+      (leB (circ-leaves {O0} {O1} {O2} {V} w) (pow2 (circ-depth {O0} {O1} {O2} {V} w)))
+      true) of
+    cwire _ → λ _ → true
+    cop0 _  → λ _ → true
+    cop1 _ a →
+      leB-trans
+        (circ-leaves {O0} {O1} {O2} {V} a)
+        (pow2 (circ-depth {O0} {O1} {O2} {V} a))
+        (plus (pow2 (circ-depth {O0} {O1} {O2} {V} a)) (pow2 (circ-depth {O0} {O1} {O2} {V} a)))
+        (rec a)
+        (leB-add-rc (pow2 (circ-depth {O0} {O1} {O2} {V} a)) (pow2 (circ-depth {O0} {O1} {O2} {V} a)))
+    cop2 _ x y →
+      let dx = circ-depth {O0} {O1} {O2} {V} x
+          dy = circ-depth {O0} {O1} {O2} {V} y
+          m  = maxN dx dy
+          lx = leB-trans (circ-leaves {O0} {O1} {O2} {V} x) (pow2 dx) (pow2 m) (rec x) (pow2-mono dx m (leB-max-l dx dy))
+          ly = leB-trans (circ-leaves {O0} {O1} {O2} {V} y) (pow2 dy) (pow2 m) (rec y) (pow2-mono dy m (leB-max-r dx dy))
+      in leB-plus (circ-leaves {O0} {O1} {O2} {V} x) (pow2 m) (circ-leaves {O0} {O1} {O2} {V} y) (pow2 m) lx ly

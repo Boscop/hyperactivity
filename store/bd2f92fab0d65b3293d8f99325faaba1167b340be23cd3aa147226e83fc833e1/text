@@ -1,0 +1,20 @@
+-- SWMR (Single-Writer / Multiple-Reader) Safety Theorem on Coherent Writes:
+swmr-wr-branch : (writer c1 c2 : Word) → (val : Nat) →
+  (b1 b2 : Bool) →
+  (b1 ≡ weq c1 writer) → (b2 ≡ weq c2 writer) →
+  (weq c1 c2 ≡ false) →
+  mesi-is-excl (fst (wr-line val b1)) ≡ true →
+  fst (wr-line val b2) ≡ m-inv
+swmr-wr-branch writer c1 c2 val false b2 _ _ _ hEx =
+  Empty-rec {lzero} {fst (wr-line val b2) ≡ m-inv} (false≢true hEx)
+swmr-wr-branch writer c1 c2 val true false _ _ _ _ = λ _ → m-inv
+swmr-wr-branch writer c1 c2 val true true e1 e2 hDisj _ =
+  let p1 : c1 ≡ writer
+      p1 = weq-sound c1 writer (sym e1)
+      p2 : c2 ≡ writer
+      p2 = weq-sound c2 writer (sym e2)
+      p12 : c1 ≡ c2
+      p12 = catw p1 (symw p2)
+      hTrue : weq c1 c2 ≡ true
+      hTrue = catB (weq c1 c2) (weq c2 c2) true (λ i → weq (p12 i) c2) (weq-refl c2)
+  in Empty-rec {lzero} {m-mod ≡ m-inv} (false≢true (catB false (weq c1 c2) true (sym hDisj) hTrue))

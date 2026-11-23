@@ -1,0 +1,45 @@
+-- 100% Single-Bit Cosmic-Ray Self-Healing Theorem: flipping ANY bit `p : Pos8` of `secded-encode m`
+-- is automatically located and healed back to the EXACT original message `m`!
+secded-1bit-heals : (m : Msg4) → (p : Pos8) →
+  secded-heal (bv-xor (toNat #8) (unit-err p) (secded-encode m)) ≡ m
+secded-1bit-heals m p =
+  let cw   = secded-encode m
+      rx   = bv-xor (toNat #8) (unit-err p) cw
+      hOdd : syn-all rx ≡ true
+      hOdd = catB (syn-all rx) (b-xor2 (syn-all (unit-err p)) (syn-all cw)) true
+               (syn-all-linear (unit-err p) cw)
+               (catB (b-xor2 (syn-all (unit-err p)) (syn-all cw)) (b-xor2 true false) true
+                 (λ i → b-xor2 (unit-err-odd p i) (encode-syn-all m i))
+                 (λ _ → true))
+      hSyn : syn3 rx ≡ syn3 (unit-err p)
+      hSyn = concat {lzero} {Bit3}
+               {syn3 rx}
+               {syn3-xor (syn3 (unit-err p)) (syn3 cw)}
+               {syn3 (unit-err p)}
+               (syn3-linear (unit-err p) cw)
+               (concat {lzero} {Bit3}
+                 {syn3-xor (syn3 (unit-err p)) (syn3 cw)}
+                 {syn3-xor (syn3 (unit-err p)) (false , (false , false))}
+                 {syn3 (unit-err p)}
+                 (λ i → syn3-xor (syn3 (unit-err p)) (encode-syn3 m i))
+                 (syn3-false-r (syn3 (unit-err p))))
+      hPos : pos-of-syn3 (syn3 rx) ≡ p
+      hPos = concat {lzero} {Pos8}
+               {pos-of-syn3 (syn3 rx)}
+               {pos-of-syn3 (syn3 (unit-err p))}
+               {p}
+               (λ i → pos-of-syn3 (hSyn i))
+               (pos-syn3-id p)
+      hCw  : bv-xor (toNat #8) (unit-err (pos-of-syn3 (syn3 rx))) rx ≡ cw
+      hCw  = catV (toNat #8)
+               (bv-xor (toNat #8) (unit-err (pos-of-syn3 (syn3 rx))) rx)
+               (bv-xor (toNat #8) (unit-err p) rx)
+               cw
+               (λ i → bv-xor (toNat #8) (unit-err (hPos i)) rx)
+               (bv-xor-inv (toNat #8) (unit-err p) cw)
+  in concat {lzero} {Msg4}
+       {secded-heal rx}
+       {extract-msg4 (bv-xor (toNat #8) (unit-err (pos-of-syn3 (syn3 rx))) rx)}
+       {m}
+       (λ i → if hOdd i then extract-msg4 (bv-xor (toNat #8) (unit-err (pos-of-syn3 (syn3 rx))) rx) else extract-msg4 rx)
+       (λ i → extract-msg4 (hCw i))

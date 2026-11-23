@@ -1,0 +1,22 @@
+-- Processor Read (`BusRd` with dirty snoop intervention from `snoopOwner` if `m-mod`)
+mesi-miss-at : Word → Word → MesiCluster → (Mesi × Nat) → MesiCluster
+mesi-miss-at reader owner cl ownLine =
+  case (fst ownLine) of
+    m-mod →
+      let vDirty = snd ownLine
+      in ( vDirty
+         , (λ c →
+              if weq c reader then (m-shd , vDirty)
+              else (if weq c owner then (m-shd , vDirty) else snd cl c)) )
+    m-excl →
+      let vEx = snd ownLine
+      in ( fst cl
+         , (λ c →
+              if weq c reader then (m-shd , vEx)
+              else (if weq c owner then (m-shd , vEx) else snd cl c)) )
+    m-shd →
+      ( fst cl
+      , (λ c → if weq c reader then (m-shd , fst cl) else snd cl c) )
+    m-inv →
+      ( fst cl
+      , (λ c → if weq c reader then (m-excl , fst cl) else snd cl c) )

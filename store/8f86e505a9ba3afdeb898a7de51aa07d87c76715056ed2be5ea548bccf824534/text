@@ -1,0 +1,58 @@
+-- 100% Double-Bit Silent-Data-Corruption Detection Theorem (`SDC = 0`!):
+-- Flipping ANY two distinct bit positions `p1 ≠ p2` on ANY codeword `secded-encode m` ALWAYS raises
+-- `is-double-error ≡ true` (proved for all 448 cases at once via `Pos8 ≃ Bit3` injectivity!)
+secded-2bit-detects : (m : Msg4) → (p1 p2 : Pos8) → (p1 ≡ p2 → Empty) →
+  is-double-error (bv-xor (toNat #8) (unit-err p1) (bv-xor (toNat #8) (unit-err p2) (secded-encode m))) ≡ true
+secded-2bit-detects m p1 p2 neq =
+  let cw   = secded-encode m
+      rx1  = bv-xor (toNat #8) (unit-err p2) cw
+      rx2  = bv-xor (toNat #8) (unit-err p1) rx1
+      hOdd1 : syn-all rx1 ≡ true
+      hOdd1 = catB (syn-all rx1) (b-xor2 (syn-all (unit-err p2)) (syn-all cw)) true
+                (syn-all-linear (unit-err p2) cw)
+                (catB (b-xor2 (syn-all (unit-err p2)) (syn-all cw)) (b-xor2 true false) true
+                  (λ i → b-xor2 (unit-err-odd p2 i) (encode-syn-all m i))
+                  (λ _ → true))
+      hEven2 : syn-all rx2 ≡ false
+      hEven2 = catB (syn-all rx2) (b-xor2 (syn-all (unit-err p1)) (syn-all rx1)) false
+                 (syn-all-linear (unit-err p1) rx1)
+                 (catB (b-xor2 (syn-all (unit-err p1)) (syn-all rx1)) (b-xor2 true true) false
+                   (λ i → b-xor2 (unit-err-odd p1 i) (hOdd1 i))
+                   (λ _ → false))
+      hSyn1 : syn3 rx1 ≡ syn3 (unit-err p2)
+      hSyn1 = concat {lzero} {Bit3} {syn3 rx1} {syn3-xor (syn3 (unit-err p2)) (syn3 cw)} {syn3 (unit-err p2)}
+                (syn3-linear (unit-err p2) cw)
+                (concat {lzero} {Bit3}
+                  {syn3-xor (syn3 (unit-err p2)) (syn3 cw)}
+                  {syn3-xor (syn3 (unit-err p2)) (false , (false , false))}
+                  {syn3 (unit-err p2)}
+                  (λ i → syn3-xor (syn3 (unit-err p2)) (encode-syn3 m i))
+                  (syn3-false-r (syn3 (unit-err p2))))
+      hSyn2 : syn3 rx2 ≡ syn3-xor (syn3 (unit-err p1)) (syn3 (unit-err p2))
+      hSyn2 = concat {lzero} {Bit3}
+                {syn3 rx2}
+                {syn3-xor (syn3 (unit-err p1)) (syn3 rx1)}
+                {syn3-xor (syn3 (unit-err p1)) (syn3 (unit-err p2))}
+                (syn3-linear (unit-err p1) rx1)
+                (λ i → syn3-xor (syn3 (unit-err p1)) (hSyn1 i))
+      hNz : syn3-nonzero (syn3 rx2) ≡ true
+      hNz = bool-not-false (syn3-nonzero (syn3 rx2)) (λ hz →
+              let hzXor : syn3-nonzero (syn3-xor (syn3 (unit-err p1)) (syn3 (unit-err p2))) ≡ false
+                  hzXor = catB (syn3-nonzero (syn3-xor (syn3 (unit-err p1)) (syn3 (unit-err p2))))
+                            (syn3-nonzero (syn3 rx2)) false
+                            (λ i → syn3-nonzero (hSyn2 (~ i))) hz
+                  sEq   = syn3-xor-zero-eq (syn3 (unit-err p1)) (syn3 (unit-err p2)) hzXor
+                  pEq   : p1 ≡ p2
+                  pEq   = concat {lzero} {Pos8} {p1} {pos-of-syn3 (syn3 (unit-err p1))} {p2}
+                            (sym (pos-syn3-id p1))
+                            (concat {lzero} {Pos8}
+                              {pos-of-syn3 (syn3 (unit-err p1))}
+                              {pos-of-syn3 (syn3 (unit-err p2))}
+                              {p2}
+                              (λ i → pos-of-syn3 (sEq i))
+                              (pos-syn3-id p2))
+              in neq pEq)
+  in catB (andB (not (syn-all rx2)) (syn3-nonzero (syn3 rx2)))
+          (andB true true) true
+          (λ i → andB (not (hEven2 i)) (hNz i))
+          (λ _ → true)

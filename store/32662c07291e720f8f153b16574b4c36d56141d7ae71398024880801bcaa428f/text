@@ -1,0 +1,25 @@
+-- Cross-Core Write-Then-Read Coherence Theorem:
+mesi-rd-branch : (writer reader : Word) → (val : Nat) → (cl : MesiCluster) →
+  (bHit : Bool) → (bHit ≡ weq reader writer) →
+  snd (snd (mesi-snoop-rd reader writer (mesi-pr-wr writer val cl)
+              (mesi-is-valid (fst (wr-line val bHit))))
+           reader)
+  ≡ val
+mesi-rd-branch writer reader val cl true eHit =
+  λ i → snd (wr-line val (eHit (~ i)))
+mesi-rd-branch writer reader val cl false _ =
+  let cl1  = mesi-pr-wr writer val cl
+      hOwn : snd cl1 writer ≡ (m-mod , val)
+      hOwn = λ i → wr-line val (weq-refl writer i)
+      hRR  = weq-refl reader
+      mid  = snd (the (Mesi × Nat)
+               (if weq reader reader then (m-shd , val)
+                else (if weq reader writer then (m-shd , val) else snd cl1 reader)))
+  in concat {lzero} {Nat}
+       {snd (snd (mesi-miss-at reader writer cl1 (snd cl1 writer)) reader)}
+       {mid}
+       {val}
+       (λ i → snd (snd (mesi-miss-at reader writer cl1 (hOwn i)) reader))
+       (λ i → snd (the (Mesi × Nat)
+                   (if hRR i then (m-shd , val)
+                    else (if weq reader writer then (m-shd , val) else snd cl1 reader))))
