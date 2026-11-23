@@ -2,7 +2,9 @@
 #include <sys/stat.h>
 #include <sys/file.h>
 #include <fcntl.h>
+#ifndef __APPLE__
 extern int close(int);   /* unistd.h is not included: its `link` is a name of this file */
+#endif
 /* syntax.c — the surface language: tokens, layout, parsing into the core forms, and printing the
  * core forms back in the surface language. Included by lang.c (it uses its Node and tables).
  *
@@ -2523,8 +2525,37 @@ static void w_file(const char *text, const char *path) {
         if (np && witems[i].name && ps[np - 1].name && !strcmp(ps[np - 1].name, witems[i].name) && a == ps[np - 1].last + 1) { ps[np - 1].last = b; prev_end = b; continue; }
         ps[np++] = (WItem){ witems[i].name, a, b }; prev_end = b;
     }
-    SBuf names = {0}; sb_put(&names, "");
     SBuf mod = {0}; char h[65]; int c = 1;
+    /* fast path: hash every piece in memory first; when the module is already recorded and indexed
+     * at this exact module hash (the common case on every load/check), skip all per-piece stats and
+     * per-definition index reads and only update roots/<rel> */
+    char (*ph)[65] = malloc((size_t)(2 * np + 2) * 65);
+    int nph = 0;
+    for (int i = 0; i <= np; i++) {
+        int a = i < np ? ps[i].first : nl + 1;
+        if (a > c) { key_hash(text + off[c], off[a] - off[c], ph[nph]); sb_put(&mod, ph[nph]); sb_put(&mod, "\n"); nph++; }
+        if (i == np) break;
+        key_hash(text + off[ps[i].first], off[ps[i].last + 1] - off[ps[i].first], ph[nph]);
+        sb_put(&mod, ph[nph]); sb_put(&mod, "\n"); nph++;
+        c = ps[i].last + 1;
+    }
+    if (mod.b && !rec_base && !w_indexing) {
+        char mh0[65]; key_hash(mod.b, mod.n, mh0);
+        char *rel0 = w_rel(path); SBuf hx0 = {0}; w_hex(&hx0, rel0);
+        char *cur_mh = hx0.b && hx0.n <= 250 ? idx_read("modules", hx0.b) : NULL;
+        if (cur_mh && !strncmp(cur_mh, mh0, 64)) {
+            if (load_root && store_dir()) {
+                char *rr = w_rel(load_root);
+                if (w_held(rr) && hx0.b && hx0.n <= 250) { char *cur = store_read("roots", hx0.b); if (!cur || strcmp(cur, rr)) store_write("roots", hx0.b, rr, false); free(cur); }
+                free(rr);
+            }
+            free(cur_mh); free(hx0.b); free(rel0); free(ph); free(mod.b); free(ps); free(off); nwitems = 0; return;
+        }
+        free(cur_mh); free(hx0.b); free(rel0);
+    }
+    free(ph); free(mod.b); mod = (SBuf){0};
+    SBuf names = {0}; sb_put(&names, "");
+    c = 1;
     for (int i = 0; i <= np; i++) {
         int a = i < np ? ps[i].first : nl + 1;
         if (a > c) { w_piece(text + off[c], off[a] - off[c], h); sb_put(&mod, h); sb_put(&mod, "\n"); }
@@ -6769,7 +6800,7 @@ static void x_checked(const char *name, Node *sig, Node *body, bool expect, uint
     else x_top(lst(3, nsym(expect ? "check" : "check-fail"), T, t));
     /* beside its key, what the key does not hold and a use's elaboration needs: the implicit mask
      * with the instance bits, and whether it computes (read by load_key) */
-    if (name && expect && store_dir() && (bind_work || keep_free)) {
+    if (name && expect && store_dir() && (bind_work || keep_free) && (!read_only || keep_free || !last_chk_hit)) {
         int ck = checked_index(name); const char *k = ck >= 0 ? ckey_of(ck) : "?";
         if (k[0] != '?') {
             IMask *im = imask_of(name);
@@ -6778,13 +6809,11 @@ static void x_checked(const char *name, Node *sig, Node *body, bool expect, uint
             if (is_computing(name)) { char *c = NULL; kobj_write(k, "computing", "1\n"); free(c); }
             /* its type and term as elaborated, in the form that is read back (as the elaboration's
              * own record is): what load_key gives the checked form's handler */
-            { char *have = kobj_read(k, "forms");
-              if (!have && !has_hole(T) && !has_hole(t)) {
-                  SBuf a = { 0 }, b = { 0 }; int sd = cur_deps.n; kfresh_on = kser_on = true; nkfresh = 0; canon(&a, T); canon(&b, t); kfresh_on = kser_on = false; cur_deps.n = sd;
-                  if (a.b && b.b) { SBuf w = { 0 }; sb_put(&w, a.b); sb_put(&w, "\n"); sb_put(&w, b.b); kobj_write(k, "forms", w.b); free(w.b); }
-                  free(a.b); free(b.b);
-              }
-              free(have); }
+            if (!kobj_has(k, "forms") && !has_hole(T) && !has_hole(t)) {
+                SBuf a = { 0 }, b = { 0 }; int sd = cur_deps.n; kfresh_on = kser_on = true; nkfresh = 0; canon(&a, T); canon(&b, t); kfresh_on = kser_on = false; cur_deps.n = sd;
+                if (a.b && b.b) { SBuf w = { 0 }; sb_put(&w, a.b); sb_put(&w, "\n"); sb_put(&w, b.b); kobj_write(k, "forms", w.b); free(w.b); }
+                free(a.b); free(b.b);
+            }
         }
     }
     /* the copies are the checked form's, which keeps none of them once handled (its tables take

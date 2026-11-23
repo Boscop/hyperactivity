@@ -48,7 +48,7 @@ Everything in this document is live, self-hosted, and executable. You can enter 
   - [**`hyperactivity.ai/neuro`**](https://hyperactivity.ai/neuro) — Nernst/Hodgkin–Huxley/FitzHugh–Nagumo phase planes, intrinsic cortical manifolds, two-learner neural co-processor SOS Lyapunov & Control Barrier certificates, and interface-reshaping `RProc`.
   - [**`hyperactivity.ai/physics`**](https://hyperactivity.ai/physics) — Relational Quantum Mechanics, $SU(2)$ spin networks, Loop Quantum Cosmology Big Bounce, relativistic Dirac atoms ($Z \le 137$), superconductivity, zero-float quantum chemistry, peptide kinematics, and bioelectric morphogenesis.
   - [**`hyperactivity.ai/compression`**](https://hyperactivity.ai/compression) — Zero-search causal context-fiber rANS compression with exact `refl` benchmarks vs `deflate -9`, `gzip -9`, `bzip2 -9`, and `lzma`.
-  - [**`hyperactivity.ai/silicon`**](https://hyperactivity.ai/silicon) ([paper: `/chip-design`](https://hyperactivity.ai/chip-design)) — Cycle-accurate 16-tile `HyperNet-16` (`4×4`) vs. pipelined RISC-V simulator (`69.0×` fewer cycles / `43.0×` faster 7nm latency on `5-Queens`), official 128-bit EPFL SkyWater 130nm synthesis (`-50.1%` cells on `bar`, `13.0×` faster `adder`), Tiny Tapeout Sky130 `tt_um_hyperinet`, and `18,664,712`-polygon Calma GDSII v6.0 die inspector.
+  - [**`hyperactivity.ai/silicon`**](https://hyperactivity.ai/silicon) ([paper: `/chip-design`](https://hyperactivity.ai/chip-design)) — Cycle-accurate 16-tile `HyperNet-16` (`4×4`) vs. pipelined RISC-V simulator (`69.0×` fewer cycles / `43.0×` faster 7nm latency on `5-Queens`), official 128-bit EPFL SkyWater 130nm synthesis (`-50.1%` cells on `bar`, `13.0×` faster `adder`), Tiny Tapeout Sky130 `tt_um_hyperinet`, and `1,166,552`-polygon Calma GDSII v6.0 die inspector.
   - [**`hyperactivity.ai/learn`**](https://hyperactivity.ai/learn) — Ground-up interactive textbook on interaction nets with live inline programs.
 
 ### On Your Machine (Requires `gcc` or `clang` and `make`)
@@ -432,7 +432,7 @@ readings {S} {M} {A} R s u = (s' : S) × (a : A) × R s u s' a
 
 3. **Lexical refusal gates violate framing invariance.**
    Safety classifiers and keyword filters operate on surface byte strings $w \in \Sigma^\ast$. Because surface syntax is not invariant under semantic equivalence ($\equiv_{\mathrm{sem}}$), two prompts $t_1 \equiv_{\mathrm{sem}} t_2$ with identical meaning receive opposite classifications under benign rephrasing (false refusals), while adversarial rephrasing trivially bypasses the filter (jailbreaks).
-   - **Hyperactivity's resolution:** Safety invariants are typed predicates over semantic equivalence classes and observation fibers (such as `SafeGateDS` and `disagreement-blocks-gate` in `neuro/reshaping-coproc.hypercubical`), strictly invariant under path transport (`ua`).
+   - **Hyperactivity's resolution:** Safety invariants are typed predicates over semantic equivalence classes and observation fibers (such as `SafeGateDS` and `disagreement-blocks-activation` in `neuro/reshaping-coproc.hypercubical`), strictly invariant under path transport (`ua`).
 
 ---
 
@@ -585,7 +585,7 @@ c17-n23-spec n1 n2 n3 n6 n7 =
 4. **Post-von-Neumann Interaction-Net Silicon & Hierarchical GDSII Signoff (`lib/silicon/inet-fabric.hypercubical`, `hypernet.hypercubical`, `hypernet16.hypercubical`, `export.hypercubical`):**
    - **Tiny Tapeout SkyWater 130nm `tt_um_hyperinet`:** 1-cycle Lafont interaction-net processor (`3,826` Sky130 cells, `24,529.78 µm²` — **`2.63×` smaller silicon area** and **`3.99×` fewer flip-flops** than pipelined von Neumann `hypercore_soc` on the same library).
    - **16-Tile (`4×4`) GALS `HyperNet-16` vs. Pipelined RISC-V (`Verilator 5.020`, `Yosys + ABC` 7nm NLDM):** Zero central switch via low-4-bit striped `VAR_SRAM` `vxchg`, solving **`5-Queens = 10` in `29` clock cycles (`40.90 ns`) vs. `2,001` cycles (`1,758.82 ns`) on pipelined RISC-V (`69.0×` fewer cycles / `43.0×` faster physical latency)** with `84.1%` tile-cycles clock-gated, **`-18.8%` smaller per-tile silicon area**, and 1-cycle §4.5 cubical dead-tree pruning (`hn16-cubical-nq5-cert`).
-   - **Byte-Level Lossless Calma GDSII v6.0 & `18,664,712`-Polygon Die (`KLayout 0.28.16`):**
+   - **Byte-Level Lossless Calma GDSII v6.0 & `1,166,552`-Polygon Die (`KLayout 0.28.16`):**
 
 ```haskell
 data GdsByte2 = gb2 (hi : Word) (lo : Word)
@@ -595,7 +595,7 @@ gb2-eta : (x : GdsByte2) → gb2 (gb2-hi x) (gb2-lo x) ≡ x
 gb2-eta (gb2 hi lo) = refl
 ```
 
-   - Universal lossless binary Calma GDSII v6.0 round-trip (`gds6-file-roundtrip-sound`) plus hierarchical `AREF 4×4` × `AREF 45×30` 11-layer `HYPERNET16_4X4_DIE` (`5,386` bytes representing **`129,600` placed CMOS7 cells** and **`18,664,712` polygons** with `0` DRC violations in `KLayout`).
+   - Universal lossless binary Calma GDSII v6.0 round-trip (`gds6-file-roundtrip-sound`) plus hierarchical `AREF 4×4` × `AREF 45×30` 11-layer `HYPERNET16_4X4_DIE` (`5,386` bytes representing **`129,600` placed CMOS7 cells** and **`1,166,552` polygons** with `0` DRC violations in `KLayout`).
 
 ---
 
@@ -705,7 +705,7 @@ d_1 \cdot \big(\dot{h} + \alpha h\big) = d_1 \alpha R^2 + (d_1 e_B - 2\gamma e_C
    guaranteeing that whenever $2\eta_B > \alpha > 0$ and $(2\eta_B - \alpha)(2\eta_C - \alpha) \ge 4\gamma^2$, the coupled brain–machine state can never exit the safe ball. In the same module, `fhn-driven-trapping-sos-id` proves a global trapping-region SOS certificate for the full externally driven FitzHugh–Nagumo neuron for *every* stimulation current $I_{\text{ext}}$, recovery offset $a$, and $b > 0$.
 
 3. **Interface-Reshaping Guarded Co-Processors (`lib/polyproc.hypercubical`, `neuro/reshaping-coproc.hypercubical`):**
-   Real neural interfaces do not keep a fixed channel layout: electrodes drift, channels open and close, and decoders rebind mid-run. [`lib/polyproc.hypercubical`](https://hyperactivity.ai/kg?mod=lib/polyproc.hypercubical) generalizes guarded processes to indexed **interface-reshaping processes** `RProc κ D A i` over dynamic signatures `DynSig` (with exact round-trip path `gproc-rproc-id`). [`neuro/reshaping-coproc.hypercubical`](https://hyperactivity.ai/kg?mod=neuro/reshaping-coproc.hypercubical) wraps stimulation commands in `SafeGateDS`, proving `disagreement-blocks-gate`: whenever two histories in the observation fiber disagree on safety, the split witness structurally blocks stimulation from firing.
+   Real neural interfaces do not keep a fixed channel layout: electrodes drift, channels open and close, and decoders rebind mid-run. [`lib/polyproc.hypercubical`](https://hyperactivity.ai/kg?mod=lib/polyproc.hypercubical) generalizes guarded processes to indexed **interface-reshaping processes** `RProc κ D A i` over dynamic signatures `DynSig` (with exact round-trip path `gproc-rproc-id`). [`neuro/reshaping-coproc.hypercubical`](https://hyperactivity.ai/kg?mod=neuro/reshaping-coproc.hypercubical) wraps stimulation commands in `SafeGateDS`, proving `disagreement-blocks-activation`: whenever two histories in the observation fiber disagree on safety, the split witness structurally blocks stimulation from firing.
 
 4. **Cognitive Geometry, Synesthesia, Addiction & Dyadic Co-Processing:**
    - [`neuro/inhibition.hypercubical`](https://hyperactivity.ai/kg?mod=neuro/inhibition.hypercubical) — REBUS (Relaxed Beliefs Under Psychedelics; Carhart-Harris & Friston, 2019) precision-weighted prior relaxation over hierarchical predictive fibers.
@@ -794,7 +794,7 @@ phys-bdg-dispersion-id = λ i → true
 ### Peptide Kinematics, Autonomous Sequence-to-Fold & Bioelectric Morphogenesis (`fold/`, `chem/`)
 
 - **Zero-Drift Rational $SO(3)/SE(3)$ Peptide Kinematics & Autonomous Folding ([`fold/backbone-kinematics.hypercubical`](https://hyperactivity.ai/kg?mod=fold/backbone-kinematics.hypercubical), `fold/se3-monoid.hypercubical`, `fold/amino-ramachandran.hypercubical`, `fold/sequence-folder.hypercubical`):** Constructs all-atom 3D protein backbones using exact rational Cayley/Rodrigues parameterizations — eliminating floating-point drift and quaternion renormalization error permanently. Hyperfactoring 3D folding onto $SE(3)$ monoid hinge invariance and a 20-amino-acid discrete Ramachandran quotient drives an autonomous sequence-to-fold engine selecting native $\beta$-hairpin and $\alpha$-helical folds on **Chignolin (`GYDPETGTWG`, PDB 1UAO)** and **Trp-cage (PDB 1L2Y)** with exact steric and hydrogen-bond verification.
-- **Bioelectric Morphogenesis (`neuro/barrier.hypercubical`, `chem/`):** Models Michael Levin's morphogenetic bioelectric networks as gap-junction interaction nets ($I_{ij} = g_{\text{gj}}(V_j - V_i)$) relaxing bistable cellular potentials into stable isopotential anatomical domains, with exact mean-field + isopotential-difference dissipation splitting (`bioelectric-gap-dissipation-sos-id`).
+- **Bioelectric Morphogenesis (`neuro/barrier.hypercubical`, `chem/`):** Models Michael Levin's morphogenetic bioelectric networks as gap-junction interaction nets ($I_{ij} = g_{\text{gj}}(V_j - V_i)$) relaxing bistable cellular potentials into stable isopotential anatomical domains, with exact mean-field + isopotential-difference dissipation splitting (`bioelectric-gap-split-sos-id`).
 
 ---
 

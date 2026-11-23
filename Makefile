@@ -1,5 +1,8 @@
 CC      ?= gcc
 CFLAGS  ?= -std=gnu11 -O2 -g -Wall -Wextra -Wno-unused-parameter
+ifeq ($(shell uname -s),Darwin)
+LDFLAGS ?= -Wl,-stack_size,0x10000000
+endif
 SAN     := -fsanitize=address,undefined -fno-omit-frame-pointer
 
 SRC := src/dnf.c src/big.c src/net.c src/lang.c
@@ -9,11 +12,11 @@ all: build/cubical
 
 build/cubical: $(SRC) $(HDR)
 	@mkdir -p build
-	$(CC) $(CFLAGS) -o $@ $(SRC) -lpthread -lm -ldl
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(SRC) -lpthread -lm -ldl
 
 build/cubical-asan: $(SRC) $(HDR)
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(SAN) -o $@ $(SRC) -lpthread -lm -ldl
+	$(CC) $(CFLAGS) $(SAN) $(LDFLAGS) -o $@ $(SRC) -lpthread -lm -ldl
 
 build/cubical-tsan: $(SRC) $(HDR)
 	@mkdir -p build

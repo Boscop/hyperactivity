@@ -16,14 +16,19 @@
 #include <sys/wait.h>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
+#define link hy_posix_link
+#include <unistd.h>
+#undef link
 #endif
-extern int access(const char *, int);
 #include <sys/resource.h>
 #include <limits.h>
+#include <stdarg.h>
+#ifndef __APPLE__
+extern int access(const char *, int);
 extern int execv(const char *path, char *const argv[]);   /* <unistd.h>, whose link(2) the net's link shadows */
 extern int fork(void); extern int getpid(void);
-#include <stdarg.h>
 extern int dup(int); extern int dup2(int, int); extern int close(int); extern FILE *fdopen(int, const char *);
+#endif
 
 /* grow an array to hold at least n elements */
 #define GROW(arr, cap, n) do { if ((size_t)(n) > (size_t)(cap)) { size_t nc_ = (cap) ? (size_t)(cap) * 2 : 16; while (nc_ < (size_t)(n)) nc_ *= 2; (arr) = realloc((arr), nc_ * sizeof *(arr)); (cap) = nc_; } } while (0)
@@ -3428,6 +3433,7 @@ static int sig_add(const char *name, long g, long tyg, bool hidden) {
     if (g >= 0) G[g].chk = nchecked;
     return nchecked++;
 }
+static bool read_only;
 #include "store.c"
 /* an unchecked definition (a library printer, the specializer) has no key: the libraries loaded
  * before the file stand for it (an unchecked definition of the file itself: the file's text too) */
@@ -3709,8 +3715,7 @@ static int ud_new(const char *p) {
 static int ud_owner = -1; static char ud_pos[512];
 /* --read: what is declared is read and checked; commands that act on the world (#run, #build,
  * #build-loop) are read, not performed (a check of every file and the reading of every
- * declaration's uses do not perform a program's effects) */
-static bool read_only;
+ * declaration's uses do not perform a program's effects); read_only is declared above store.c */
 /* the declaration a form belongs to: the one already holding the name it defines (its signature, or
  * a `declare` emitted where it was used before being defined), else the one at the form's position */
 static int ud_cur(const char *defines) {
@@ -3923,6 +3928,7 @@ static void toplevel_in(Node *f) {
             chksrc_set(ck, dt); chkty_set(ck, dT);
             if (lg >= 0) { G[lg].lazy = CHKSRC[ck]; if (G[lg].npark) global_fill(lg); }   /* a use already waiting: now */
             gsteps_set(ck, stored ? store_steps(key) : steps);
+            last_chk_hit = stored;
             ckey_set(ck, key); deps_take(&CDEPS, &capcdeps, ck);
             /* the parameters' computed usages (PLAN.md revision 7.9, 6 Nov 2026, git 2ca8d747aaa5:PLAN.md, §18.1 “B11 — Multiplicities (static side)”): asked of the checker (or read from the store),
              * kept, and recorded with the module's forms so a cached load has them */
@@ -4164,6 +4170,7 @@ static void toplevel_in(Node *f) {
         free(r); free(tr);
         chk_pending = -1;
         if (!accepted) { nchkdata--; free(kcode); return; }
+        last_chk_hit = stored;
         dkey_set(di, key); deps_take(&DDEPS, &capddeps, di); store_put(DATA[d].name, key, kcode, "", steps, NULL); store_decl(key, dd, d); free(kcode);
         char dent[32]; snprintf(dent, sizeof dent, "%%dent%d", di);
         Node *ed = nlist(3); ed->it[0] = nsym("def"); ed->it[1] = nsym(dent); ed->it[2] = nl3("%%data-entry", wordd(di), ent);
@@ -4222,6 +4229,7 @@ static void toplevel_in(Node *f) {
         free(r);
         chk_pending = -1;
         if (!accepted) { nchkdata--; free(kcode); return; }
+        last_chk_hit = stored;
         dkey_set(di, key); deps_take(&DDEPS, &capddeps, di); store_put(D, key, kcode, "", steps, NULL); store_decl(key, dd, d); free(kcode);
         char dent[32]; snprintf(dent, sizeof dent, "%%dent%d", di);
         Node *ed = nlist(3); ed->it[0] = nsym("def"); ed->it[1] = nsym(dent); ed->it[2] = nl3("%%codata-entry", wordd(di), ent);

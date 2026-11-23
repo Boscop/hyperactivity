@@ -1,0 +1,19 @@
+-- Single parallel clock cycle: fires every disjoint adjacent active pair simultaneously (`dual_fire`),
+-- structurally recursive on `List INetSlot` by threading the pending rewire `(dst, nr)` forward
+inet-cycle-go : Word → Word → List INetSlot → List INetSlot × Word
+inet-cycle-go _ _ nil = (nil , #0)
+inet-cycle-go dst nr (cons a rs) =
+  let a' = inet-rw-slot dst nr a in
+  case rs of
+    nil → (cons a' nil , #0)
+    cons b tl →
+      let b' = inet-rw-slot dst nr b in
+      if inet-active a' b' then
+        let act  = inet-pair-act a' b' in
+        let ab   = fst act in
+        let rw   = snd act in
+        let tail = inet-cycle-go (fst rw) (snd rw) tl in
+        (cons (fst ab) (cons (snd ab) (fst tail)) , %wadd #1 (snd tail))
+      else
+        let tail = inet-cycle-go dst nr rs in
+        (cons a' (fst tail) , snd tail)

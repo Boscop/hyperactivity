@@ -413,40 +413,44 @@ static void write_in(const char *d, const char *key, const char *file, const cha
  * elaborated, its implicit mask, whether it computes, a data type's declaration, a definition's
  * text. They are objects of the pool, under the key, written once: a machine that never checked
  * the definition takes it by key from them (src/syntax.c, load_key) and checks it itself */
+static bool path_has(const char *d, const char *key, const char *file) {
+    char *p = path_in(d, key, file); if (!p) return false;
+    struct stat st; bool ok = stat(p, &st) == 0; free(p); return ok;
+}
+static bool store_has(const char *key, const char *file) { return path_has(store_dir(), key, file); }
+static bool kobj_has(const char *key, const char *file) { return path_has(source_dir(), key, file); }
 static char *kobj_read(const char *key, const char *file) { return src_read(key, file); }
 static void kobj_write(const char *key, const char *file, const char *text) {
-    char *p = src_path(key, file); if (!p) return;
-    FILE *f = fopen(p, "rb"); if (f) fclose(f); else src_write(key, file, text);
-    free(p);
+    if (!kobj_has(key, file)) src_write(key, file, text);
 }
-/* a `check` line by the current checker */
-static bool store_checked(const char *key) {
+/* a `check` line by the current checker (1-entry cache avoids re-reading <key>/check 3x per def) */
+static char last_ok_key[65], last_ok_salt[65]; static long last_ok_steps;
+static bool store_check_get(const char *key, long *steps_out) {
     if (!chk_salt[0]) return false;
-    char *c = store_read(key, "check"); if (!c) return false;
-    bool hit = false;
-    for (char *l = c; *l && !hit; ) {
-        char *e = strchr(l, '\n'); if (e) *e = 0;
-        char *sp = strrchr(l, ' ');
-        if (sp && !strcmp(sp + 1, chk_salt) && !strncmp(l, "ok ", 3)) hit = true;
-        l = e ? e + 1 : l + strlen(l);
+    if (!strcmp(key, last_ok_key) && !strcmp(chk_salt, last_ok_salt)) {
+        if (steps_out) *steps_out = last_ok_steps;
+        return true;
     }
-    free(c);
-    return hit;
-}
-/* the steps on the key's ok line for the current checker (the latest such line), 0 when none */
-static long store_steps(const char *key) {
-    if (!chk_salt[0]) return 0;
-    char *c = store_read(key, "check"); if (!c) return 0;
-    long steps = 0;
+    char *c = store_read(key, "check"); if (!c) return false;
+    bool hit = false; long steps = 0;
     for (char *l = c; *l; ) {
         char *e = strchr(l, '\n'); if (e) *e = 0;
         char *sp = strrchr(l, ' ');
-        if (sp && !strcmp(sp + 1, chk_salt) && !strncmp(l, "ok ", 3)) steps = atol(l + 3);
+        if (sp && !strcmp(sp + 1, chk_salt) && !strncmp(l, "ok ", 3)) { hit = true; steps = atol(l + 3); }
         l = e ? e + 1 : l + strlen(l);
     }
     free(c);
-    return steps;
+    if (hit) {
+        snprintf(last_ok_key, sizeof last_ok_key, "%s", key);
+        snprintf(last_ok_salt, sizeof last_ok_salt, "%s", chk_salt);
+        last_ok_steps = steps;
+        if (steps_out) *steps_out = steps;
+    }
+    return hit;
 }
+static bool store_checked(const char *key) { return store_check_get(key, NULL); }
+/* the steps on the key's ok line for the current checker (the latest such line), 0 when none */
+static long store_steps(const char *key) { long s = 0; return store_check_get(key, &s) ? s : 0; }
 /* the names log: name key time; read once, the latest key of each name kept */
 typedef struct { char *name; char *key; } NameBind;
 static NameBind *NB; static size_t capnb; static int nnb; static bool nb_read;
@@ -499,6 +503,7 @@ static bool keep_free;
  * claimed (w_file) */
 static const char *bind_rel;
 static char *idx_read(const char *dir, const char *hx);
+static bool last_chk_hit;
 static void names_bind(const char *name, const char *key) {
     if (!store_dir() || !bind_work) return;
     /* bound/<name in hex>: the name's key now, read by name with no log to scan */
@@ -521,7 +526,7 @@ static void names_bind(const char *name, const char *key) {
  * users/<name in hex>: a line for each name whose definition has mentioned it (a reader keeps a
  * line only while that name's deps/ still holds the name, so a change of mind is no stale use) */
 static void deps_note(const char *name, const Deps *d) {
-    if (!name || name[0] == '%' || !store_dir()) return;
+    if (!name || name[0] == '%' || !store_dir() || (read_only && last_chk_hit)) return;
     SBuf hx = {0}; for (const unsigned char *c = (const unsigned char *)name; *c; c++) sb_fmt(&hx, "%02x", *c);
     if (!hx.b || hx.n > 250) { free(hx.b); return; }
     SBuf o = {0}; sb_put(&o, "");
@@ -570,23 +575,29 @@ static void store_refuse(const char *key, long steps, const char *r) {
     for (char *p = l; p[1]; p++) if (*p == '\n') *p = ' ';
     store_write(key, "check", l, true); free(l);
 }
-/* a definition's entry: written when it is checked (or replayed as checked) */
+/* a definition's entry: written when it is checked (or replayed as checked).
+ * code, type, and usage are immutable functions of the content-addressed key, so existing entries
+ * are never rewritten with temp+rename on warm loads. */
 static void store_put(const char *name, const char *key, const char *code, const char *type, long steps, const char *usage) {
     if (!store_dir()) return;
-    if (code) store_write(key, "code", code, false);
-    if (type) store_write(key, "type", type, false);
-    if (usage) store_write(key, "usage", usage, false);
-    if (chk_salt[0] && !store_checked(key)) { char l[160]; snprintf(l, sizeof l, "ok %ld %s\n", steps, chk_salt); store_write(key, "check", l, true); }
+    if (read_only && store_checked(key)) return;
+    if (code && !store_has(key, "code")) store_write(key, "code", code, false);
+    if (type && !store_has(key, "type")) store_write(key, "type", type, false);
+    if (usage && !store_has(key, "usage")) store_write(key, "usage", usage, false);
+    if (chk_salt[0] && !store_checked(key)) {
+        char l[160]; snprintf(l, sizeof l, "ok %ld %s\n", steps, chk_salt); store_write(key, "check", l, true);
+        snprintf(last_ok_key, sizeof last_ok_key, "%s", key);
+        snprintf(last_ok_salt, sizeof last_ok_salt, "%s", chk_salt);
+        last_ok_steps = steps;
+    }
     if (name) names_bind(name, key);
 }
 
 /* a data type's declaration kept beside its key, and each of its constructors' and fields' names
  * pointed at the key (conof/NAME), so a name of either finds the type that holds it */
 static void store_decl(const char *key, Node *dd, int d) {
-    if (!store_dir()) return;
-    char *have = kobj_read(key, "decl");
-    if (!have) { SBuf s = { 0 }; int sd = cur_deps.n; ser_decl(&s, dd); cur_deps.n = sd; if (s.b && (bind_work || keep_free)) kobj_write(key, "decl", s.b); free(s.b); }
-    free(have);
+    if (!store_dir() || (read_only && !keep_free && last_chk_hit)) return;
+    if (!kobj_has(key, "decl")) { SBuf s = { 0 }; int sd = cur_deps.n; ser_decl(&s, dd); cur_deps.n = sd; if (s.b && (bind_work || keep_free)) kobj_write(key, "decl", s.b); free(s.b); }
     if (!bind_work) return;
     for (int pass = 0; pass < 2; pass++) {
         int n = pass == 0 ? DATA[d].ncons : nfld;
