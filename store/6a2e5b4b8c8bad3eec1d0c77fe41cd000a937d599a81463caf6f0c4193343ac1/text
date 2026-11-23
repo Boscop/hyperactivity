@@ -1,0 +1,12 @@
+hxz-sym-enc : Nat → List Word → CtxState → Word → SRState → SRState
+hxz-sym-enc zero _ _ x st =
+  let fl = sr-flush-loop sr-sample-fuel hxz-L (fst st) (snd st)
+  in (wadd (wmul (fst fl) #256) x , snd fl)
+hxz-sym-enc (suc k) excl st x st0 =
+  case ftbl-exclude excl (cstate-fiber-at k st) of
+    nil → hxz-sym-enc k excl st x st0
+    cons e r →
+      let ft = hxz-ft e r
+      in case ftbl-find #0 (wadd #1 x) ft of
+           some _ → sr-enc-step ft hxz-L sr-sample-fuel st0 (wadd #1 x)
+           none → sr-enc-step ft hxz-L sr-sample-fuel (hxz-sym-enc k (ftbl-add-syms (cons e r) excl) st x st0) #0

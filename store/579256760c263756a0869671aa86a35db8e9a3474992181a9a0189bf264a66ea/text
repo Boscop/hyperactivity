@@ -1,0 +1,937 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hyperactivity from First Principles · Hyperactive Labs</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false},{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false}],throwOnError:false})"></script>
+<style>
+:root {
+  --bg: #ffffff; --ink: #000000; --muted: #555555;
+  --line: rgba(0,0,0,0.16); --line-strong: #000000;
+  --pink: #ff0a94; --blue: #1a73e8; --green: #0a8f5c; --amber: #d97706;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+html.dark {
+  --bg: #000000; --ink: #ffffff; --muted: #a6a6a6;
+  --line: rgba(255,255,255,0.18); --line-strong: #ffffff;
+  --pink: #ff0a94; --blue: #4da3ff; --green: #22c55e; --amber: #fbbf24;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 18px/1.7 -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+}
+::selection { background: var(--pink); color: #fff; }
+a { color: inherit; text-decoration: underline; text-decoration-color: var(--pink); text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+a:hover { color: var(--pink); }
+
+.book-wrap {
+  max-width: 1220px; margin: 0 auto; padding: 48px 24px 120px;
+  display: grid; grid-template-columns: 244px minmax(0, 860px); gap: 48px; align-items: start;
+}
+.toc {
+  position: sticky; top: 72px; max-height: calc(100vh - 96px); overflow-y: auto;
+  border-right: 1px solid var(--line); padding-right: 18px;
+  font: 600 12px/1.45 var(--mono);
+}
+.toc-title {
+  font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--pink); margin: 0 0 12px;
+}
+.toc ol { list-style: none; margin: 0; padding: 0; }
+.toc li { margin-bottom: 9px; }
+.toc a {
+  text-decoration: none; color: var(--muted); display: block;
+  padding: 2px 0; border-left: 2px solid transparent; padding-left: 8px; margin-left: -10px;
+}
+.toc a:hover, .toc a.on { color: var(--ink); border-left-color: var(--pink); }
+.toc-foot {
+  margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line);
+  font-size: 11px; color: var(--muted); line-height: 1.55;
+}
+
+main { min-width: 0; }
+.title-block { border-bottom: 2px solid var(--line-strong); padding-bottom: 28px; margin-bottom: 40px; }
+.kicker { font: 700 11.5px/1.2 var(--mono); color: var(--pink); letter-spacing: 0.09em; text-transform: uppercase; margin-bottom: 12px; }
+h1 {
+  font-size: clamp(32px, 4.4vw, 52px); line-height: 1.06; font-weight: 800;
+  letter-spacing: -0.028em; margin: 0 0 18px;
+}
+.lede { font-size: 19.5px; line-height: 1.58; color: var(--ink); opacity: 0.92; margin: 0 0 24px; }
+.stat-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 0 0 18px; }
+.stat-cell { border: 1.5px solid var(--line-strong); padding: 12px 14px; }
+.stat-cell > b { display: block; font: 800 22px/1.15 var(--mono); color: var(--pink); }
+.stat-cell > span { display: block; font: 600 11.5px/1.35 var(--mono); color: var(--muted); margin-top: 4px; }
+.kg-hint {
+  font: 600 12px/1.45 var(--mono); padding: 10px 14px; border: 1px solid var(--line);
+  display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+
+.chapter { margin-top: 66px; padding-top: 24px; border-top: 2px solid var(--line-strong); }
+.chapter:first-of-type { margin-top: 0; border-top: 0; padding-top: 0; }
+.ch-num { font: 700 11.5px/1 var(--mono); color: var(--pink); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
+h2 { font-size: 29px; line-height: 1.18; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 16px; }
+h3 { font-size: 20px; line-height: 1.28; font-weight: 800; letter-spacing: -0.01em; margin: 34px 0 12px; }
+p { margin: 0 0 16px; }
+ul, ol { margin: 0 0 18px; padding-left: 24px; }
+li { margin-bottom: 9px; }
+code { font: 600 0.84em/1.2 var(--mono); padding: 1px 4px; border-radius: 0; }
+pre {
+  margin: 18px 0 24px; padding: 14px 16px; border: 1.5px solid var(--line-strong);
+  overflow-x: auto; font: 500 13.5px/1.55 var(--mono); background: var(--bg);
+}
+pre code { padding: 0; font: inherit; }
+
+.eq-box {
+  margin: 20px 0; padding: 14px 18px; border-left: 2px solid var(--blue);
+  border-top: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+}
+.thm-box {
+  margin: 24px 0; padding: 16px 20px; border-left: 3px solid var(--pink);
+  border-top: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+.thm-head {
+  font: 700 11.5px/1.3 var(--mono); color: var(--pink); text-transform: uppercase;
+  letter-spacing: 0.05em; margin-bottom: 8px;
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap;
+}
+.thm-head span:last-child { color: var(--muted); text-transform: none; font-weight: 600; }
+
+.lab-card { margin: 28px 0 36px; border: 1.5px solid var(--line-strong); background: var(--bg); }
+.lab-head {
+  padding: 10px 14px; border-bottom: 1px solid var(--line);
+  display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;
+  font: 700 12px/1.2 var(--mono);
+}
+.lab-head .lbl { color: var(--pink); letter-spacing: 0.05em; text-transform: uppercase; }
+.lab-status { font-weight: 700; color: var(--blue); }
+.lab-stage { position: relative; width: 100%; height: 350px; overflow: hidden; }
+.lab-stage canvas { display: block; width: 100%; height: 100%; }
+.lab-ctrl {
+  padding: 10px 14px; border-top: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  font: 600 12px/1.2 var(--mono);
+}
+.lab-ctrl label { display: inline-flex; align-items: center; gap: 6px; }
+.lab-btn {
+  padding: 5px 10px; border: 1px solid var(--line-strong);
+  background: var(--bg); color: var(--ink);
+  font: 700 11px/1.2 var(--mono); cursor: pointer;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.lab-btn:hover, .lab-btn.on { background: var(--pink); border-color: var(--pink); color: #fff; }
+.lab-btn.alt.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+.hx-embed { margin: 24px 0 30px; border: 1.5px solid var(--line-strong); }
+.hx-embed-bar {
+  padding: 8px 14px; border-bottom: 1px solid var(--line);
+  display: flex; justify-content: space-between; align-items: center;
+  font: 700 12px/1.2 var(--mono);
+}
+.hx-embed-bar span { color: var(--pink); text-transform: uppercase; letter-spacing: 0.04em; }
+.hx-net-frame { display: block; width: 100%; height: 420px; border: 0; background: var(--bg); }
+
+.tbl-wrap { overflow-x: auto; margin: 22px 0 28px; border: 1.5px solid var(--line-strong); }
+table { width: 100%; border-collapse: collapse; font-size: 14.5px; line-height: 1.48; }
+th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { font: 700 11.5px/1.2 var(--mono); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1.5px solid var(--line-strong); }
+tr:last-child td { border-bottom: 0; }
+
+.stack-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 22px 0 32px; }
+.stack-card {
+  display: block; text-decoration: none; border: 1.5px solid var(--line-strong); padding: 16px 18px;
+  transition: border-color .12s;
+}
+.stack-card:hover { border-color: var(--pink); color: var(--ink); }
+.stack-card .sc-tag { font: 700 11px/1.2 var(--mono); color: var(--pink); text-transform: uppercase; letter-spacing: 0.07em; }
+.stack-card .sc-title { font-size: 18px; font-weight: 800; margin: 5px 0 6px; line-height: 1.25; }
+.stack-card .sc-desc { font-size: 14px; color: var(--muted); line-height: 1.48; margin: 0; }
+
+@media (max-width: 1120px) {
+  .book-wrap { grid-template-columns: 1fr; gap: 24px; padding: 36px 20px 96px; }
+  .toc { position: static; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); padding: 0 0 16px; }
+}
+@media (max-width: 720px) {
+  .stat-strip { grid-template-columns: repeat(2, 1fr); }
+  .stack-grid { grid-template-columns: 1fr; }
+  .lab-stage { height: 310px; }
+  .hx-net-frame { height: 360px; }
+}
+</style>
+</head>
+<body>
+<!--HX:NAV-->
+<div class="book-wrap">
+  <aside class="toc" aria-label="Contents">
+    <div class="toc-title">Ground-Up Textbook</div>
+    <ol>
+      <li><a href="#ch1">1. Why Conventional Computing Pays a Cartesian Tax</a></li>
+      <li><a href="#ch2">2. Interaction Nets from Zero (No Clock, No Stack, No GC)</a></li>
+      <li><a href="#ch3">3. Proof IS Computational Content (Mechanized Relations)</a></li>
+      <li><a href="#ch4">4. Cubical Paths, §4.5 Face Pruning &amp; Univalence</a></li>
+      <li><a href="#ch5">5. Universal Hyperfactoring: One Rule, One Table</a></li>
+      <li><a href="#ch6">6. No Filesystem: Content-Addressed Store &amp; Sub-2s Flow</a></li>
+      <li><a href="#ch7">7. The Complete Vertical Stack &amp; 60-Second Quickstart</a></li>
+    </ol>
+    <div class="toc-foot">
+      Every pink-underlined <code>theorem</code> or <code>module</code> opens live in the Knowledge Graph inspector.
+      <br><br>
+      <a href="/ide">Open WASM IDE →</a><br>
+      <a href="/nets">Full Net Lab →</a><br>
+      <a href="/pdf">102-Page Paper →</a>
+    </div>
+  </aside>
+
+  <main>
+    <div class="title-block">
+      <div class="kicker">Ground-Up Interactive Textbook · Zero Prerequisites</div>
+      <h1>Hyperactivity from First Principles</h1>
+      <p class="lede">Most of modern computing is scar tissue from a 1945 bottleneck: flattening concurrent mathematical structure onto a sequential instruction tape, then layering cache coherence, garbage collectors, separate test suites, unverified compilers, and hand-edited documentation on top. <strong>Hyperactivity</strong> rebuilds the entire stack from one local degree-2 interaction law and one zero-postulate cubical kernel — where <em>proofs are live computational content</em> that execute, optimize, and verify everything from 7nm silicon to AI, chemistry, and bare-metal OS.</p>
+      <div class="stat-strip">
+        <div class="stat-cell"><b>0</b><span>Postulates in kernel (<code>lib/check.hypercubical</code>)</span></div>
+        <div class="stat-cell"><b>1 Law</b><span>Degree-2 active pair <code>●═●</code> kills GC &amp; MESI</span></div>
+        <div class="stat-cell"><b>5.15×</b><span>Warm store speedup (<code>hypernet16</code> 6.64s → 1.29s)</span></div>
+        <div class="stat-cell"><b>607</b><span>Content-addressed modules, 22,570+ defs</span></div>
+      </div>
+      <div class="kg-hint">
+        <span>Click any pink-underlined <code>theorem</code> or <code>module</code> below to inspect its checked source live.</span>
+        <span>Press <code>/</code> anywhere to search the full corpus.</span>
+      </div>
+    </div>
+
+    <!-- CHAPTER 1 -->
+    <section class="chapter" id="ch1">
+      <div class="ch-num">Chapter 1 · The Diagnosis</div>
+      <h2>Why Conventional Computing Pays a Cartesian Tax</h2>
+      <p>Start with an honest question: why does a single software-and-hardware stack today require a 28-million-line Linux kernel, multi-level MESI cache coherence directories, tracing garbage collectors, separate unit-test harnesses, external synthesis heuristics, and prose docs that constantly rot out of sync with code?</p>
+      <p>Because conventional engineering models each concern as an independent unverified layer and pays the <strong>Cartesian product</strong> of every boundary between them:</p>
+      <div class="eq-box">$$\text{Conventional Complexity} \;\sim\; \mathrm{ISA} \times \mathrm{ROB} \times \mathrm{MESI} \times \mathrm{GC} \times \mathrm{Compiler} \times \mathrm{Tests} \times \mathrm{Docs}$$</div>
+      <p>Every unmechanized boundary is a place where truth silently diverges:</p>
+      <ul>
+        <li><strong>Spec vs. Hardware Drift:</strong> A compiler emits pin transactions or RTL as untyped strings while a separate function computes the "expected" answer. If one side changes, the testbench quietly checks the wrong invariant or only catches the bug at runtime.</li>
+        <li><strong>Artifact vs. Metric Drift:</strong> A layout generator emits a hierarchical GDSII chip array, while a human hand-multiplies polygon counts for documentation (e.g., an extra $16\times$ factor turning <code>1,166,552</code> polygons into <code>18,664,712</code>).</li>
+        <li><strong>Code vs. Citation Drift:</strong> A theorem is renamed or refined in code while READMEs, papers, and web pages keep citing the dead name.</li>
+        <li><strong>Execution vs. Trust Drift:</strong> On a network, Peer A sends Peer B a bare output; Peer B must either blindly trust Peer A or re-execute the entire search from scratch.</li>
+      </ul>
+      <p>Hyperactivity eliminates this entire class of failure at the root by unifying <strong>execution</strong> (local degree-2 interaction nets), <strong>meaning</strong> (a zero-postulate cubical dependent type theory), and <strong>storage</strong> (an immutable content-addressed object pool with no mutable filesystem).</p>
+
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr><th>Layer</th><th>Conventional Stack (Cartesian Tax)</th><th>Hyperactivity (Single Cubical Substrate)</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Parallelism &amp; Memory</strong></td><td>Global clock, sequential ISA, MESI snoop directories, stop-the-world GC</td><td>Degree-2 interaction nets: 1-word <code>vxchg</code> involution + local LIFO cell conservation (<code>vxchg-order-sym</code>)</td></tr>
+            <tr><td><strong>Correctness</strong></td><td>Post-hoc unit tests &amp; runtime assertions</td><td>Inline mechanized relations: proofs are live computational content checked by <code>refl</code></td></tr>
+            <tr><td><strong>Control / Search</strong></td><td>Speculative execution + register rollback</td><td>§4.5 cubical face-lattice meet kills contradicted subgraphs in 1 cycle (<code>ucell-conflict-erases</code>)</td></tr>
+            <tr><td><strong>Storage &amp; Builds</strong></td><td>Mutable filesystems, stale caches, ad-hoc build scripts</td><td>Content-addressed <code>store/&lt;sha256&gt;/</code> + canonical nameless keys (<code>src/store.c</code>)</td></tr>
+            <tr><td><strong>Documentation</strong></td><td>Hand-counted numbers &amp; unverified citations</td><td>Single-source AST projections (<code>GdsHier</code>) + live verifier <code>lib/cite.hypercubical</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- CHAPTER 2 -->
+    <section class="chapter" id="ch2">
+      <div class="ch-num">Chapter 2 · The Computational Atom</div>
+      <h2>Degree-2 Interaction Nets from Zero (No Clock, No Stack, No GC)</h2>
+      <p>Forget instructions, registers, and heaps for five minutes. Imagine a machine built from just two ingredients: <strong>cells</strong> and <strong>wires</strong>. Every wire has exact degree 2 (two endpoints — it can never secretly fork or dangle). Every cell has one <strong>principal port</strong> (the dot on its edge) and zero or more <strong>auxiliary ports</strong>, and belongs to one of two polarities:</p>
+      <ul>
+        <li><strong>Value (<code>V_*</code>, pink octagon):</strong> passive data constructors — numbers, bits, booleans, pairs, functions, paths.</li>
+        <li><strong>Operation (<code>O_*</code>, blue rectangle):</strong> active consumers — <code>+</code>, <code>×</code>, <code>cmp</code>, <code>app</code>, duplicator <code>δ</code>, eraser <code>ε</code>.</li>
+      </ul>
+      <p>Whenever a Value's principal port meets an Operation's principal port head-to-head, they form an <strong>active pair (<code>●═●</code>)</strong>. Firing that pair rewrites <em>only those two cells and their immediate wires</em>. Disjoint active pairs anywhere in the graph fire simultaneously with zero locks, zero cache coherence traffic, and guaranteed confluence (strong Church–Rosser).</p>
+
+      <h3>2.1 Natural Numbers &amp; Addition from Nothing</h3>
+      <p>Peano numbers require just two Value cells: <code>Z</code> (zero, 0 aux ports) and <code>S</code> (successor, 1 aux port). Addition (<code>+</code>) needs just two local rewrite rules: <code>+ ⋈ Z ⟶</code> wire <code>y</code> straight out; <code>+ ⋈ S(n) ⟶ S(+ ⋈ n)</code>. Click any glowing pink wire below, press <strong>Play</strong>, or edit <code>add 2 3</code> to <code>add 4 5</code> and click <strong>Compile</strong>:</p>
+      <p><a href="/nets?preset=add">Unary Addition: add 2 3 →</a></p>
+
+      <pre><code>data Nat : Set where
+  zero : Nat
+  suc  : Nat → Nat
+
+add : Nat → Nat → Nat
+add zero    y = y
+add (suc n) y = suc (add n y)</code></pre>
+
+      <h3>2.2 Explicit Sharing (<code>δ</code>) &amp; Erasure (<code>ε</code>) Kill Garbage Collection</h3>
+      <p>Addition uses each input once. Multiplication (<code>0 × y = 0</code>, <code>(n+1) × y = y + n × y</code>) either <em>discards</em> <code>y</code> or uses <code>y</code> <em>twice</em>. Because wires are strictly degree-2, copying and discarding are explicit, local cells: <strong><code>δ</code> (<code>O_DUP</code>)</strong> copies one layer on demand, and <strong><code>ε</code> (<code>O_ERA</code>)</strong> dissolves unused cells one layer at a time — deterministic local memory reclamation with zero stop-the-world GC:</p>
+      <p><a href="/nets?preset=mul">Multiplication via Sharing (δ) and Erasure (ε): mul 2 3 →</a></p>
+
+      <h3>2.3 Binary Ripple-Carry &amp; Automatic Parallel Sorting</h3>
+      <p>Representing numbers in binary LSB-first (<code>end</code>, <code>0</code>, <code>1</code>) shrinks cells from $O(n)$ to $O(\log n)$, turning carry propagation into a local wave. And in divide-and-conquer sorting, disjoint active pairs fire in the exact same depth step with zero threads or mutexes:</p>
+      <p><a href="/nets?preset=badd">Binary Ripple-Carry Addition: badd 5 3 →</a></p>
+      <p><a href="/nets?preset=sort">Automatic Parallel Compare-and-Swap Sort: sort [3, 1, 4, 2] →</a></p>
+    </section>
+
+    <!-- CHAPTER 3 -->
+    <section class="chapter" id="ch3">
+      <div class="ch-num">Chapter 3 · The Core Paradigm Shift</div>
+      <h2>Proof IS Computational Content (Mechanized Relations)</h2>
+      <p>Most people think formal verification means writing a program first and bolting on a separate theorem prover afterward to stamp a badge on it. That is the wrong mental model. In Hyperactivity, <strong>a proof is not a post-hoc badge — a proof is live computational content</strong> that drives compilation, transport, specialization, and zero-trust exchange.</p>
+      <p>First, by Curry–Howard, a proposition like <code>add 2 3 ≡ 5</code> is a type, and its proof is an interaction net that reduces to <code>refl</code> — while a false claim like <code>add 2 2 ≡ 5</code> actively reduces to a structural refutation <code>⊥ (≠)</code>. Try editing <code>prove 2+3=5</code> to <code>prove 2+2=5</code> below:</p>
+      <p><a href="/nets?preset=prove">Proof Content Computing: prove 2+3=5 →</a></p>
+      <p>Second, on a decentralized network, shipping a dependent pair <code>(output , proof-witness) : Σ (xs : List Nat) (Sorted xs × (bag xs ≡ bag input))</code> lets any peer verify correctness locally without trusting the sender or repeating the search:</p>
+      <p><a href="/nets?preset=certsort">Proof-Carrying Sort on the Network: certsort [3, 1, 4, 2] →</a></p>
+
+      <h3>3.1 Single-Source Mechanized Relations: Why Bugs Become Unwritable</h3>
+      <p>Here is the engineering bar enforced across Hyperactivity: <strong>every relied-on property must be proven inline as a mechanized relation, hyperfactored so proof length never exceeds the size of the rationale</strong>. Instead of maintaining two disconnected representations (e.g., an emitter and a spec, or a GDSII byte stream and a polygon count), you define <em>one</em> algebraic AST and project both the artifact and the semantics from it:</p>
+      <div class="thm-box">
+        <div class="thm-head"><span>Real Mechanized Relations Checked Today</span><span><code>lib/silicon/inet-compiler.hypercubical</code> · <code>lib/silicon/hypernet16.hypercubical</code> · <code>lib/cite.hypercubical</code></span></div>
+        <pre style="margin:8px 0 10px;border:1px solid var(--line);"><code>-- 1. Universal Compiler Soundness (4 lines of refl, ALL HExpr &amp; symbolic Word inputs)
+ic-compile-sound : (e : HExpr) →
+  Path (Word × Word) (inet-readout e (fst (inet-run-cnt (toNat #2) (ic-graph e))))
+                     (hexpr-eval-hi e , hexpr-eval-lo e)
+ic-compile-sound (hx-lit v)           = refl
+ic-compile-sound (hx-add x y)         = refl
+ic-compile-sound (hx-dup-add v)       = refl
+ic-compile-sound (hx-par-add a b c d) = refl
+
+-- 2. Single-Source GDSII Hierarchy Certificates (bytes &amp; counts share gds-rep-cols/rows)
+hypernet16-tile-polys-cert : Path Word (gds-hier-polys hypernet16-tile-hier) #72909   ; refl
+hypernet16-die-polys-cert  : Path Word (gds-hier-polys hypernet16-die-hier)  #1166552 ; refl
+hypernet16-die-cells-cert  : Path Word (gds-hier-leaves hypernet16-die-hier) #129600  ; refl</code></pre>
+        <p style="margin:0;font-size:15px;">Notice the proof-to-rationale ratio: <strong>4 lines of <code>refl</code></strong> prove universal soundness across every symbolic 64-bit input, and <strong>3 lines of <code>refl</code></strong> lock a 1.17-million-polygon 7nm die to its exact GDSII bytes. Interact with all three real failure modes below:</p>
+      </div>
+
+      <div class="lab-card">
+        <div class="lab-head">
+          <span class="lbl">Lab 1 · Mechanized Relation vs. Conventional Pipeline (Real Failure Modes)</span>
+          <span class="lab-status" id="mrStatus">Scenario 1: Hardware–Spec Drift (hx-dup-add)</span>
+        </div>
+        <div class="lab-stage" id="mrStage"><canvas id="mrCanvas"></canvas></div>
+        <div class="lab-ctrl">
+          <button class="lab-btn on" data-mr="0">1. Compiler Spec Drift (hx-dup-add)</button>
+          <button class="lab-btn" data-mr="1">2. GDSII 16× Hand-Count Drift</button>
+          <button class="lab-btn" data-mr="2">3. Stale Doc Theorem Citation</button>
+          <button class="lab-btn alt on" id="mrMode">Toggle: Inject Bug (ON)</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- CHAPTER 4 -->
+    <section class="chapter" id="ch4">
+      <div class="ch-num">Chapter 4 · Cubical Geometry Meets Silicon</div>
+      <h2>Cubical Paths, §4.5 Face Pruning &amp; Computational Univalence</h2>
+      <p>Hyperactivity is not merely an interaction-net evaluator — it is a <strong>cubical dependent type theory</strong> where higher-dimensional equalities compute directly as graph rewrites.</p>
+      <ul>
+        <li><strong>Intervals &amp; Paths:</strong> The interval <code>I</code> has endpoints <code>0</code>, <code>1</code>, meet <code>i ∧ j</code>, join <code>i ∨ j</code>, and De Morgan negation <code>~i</code>. A path <code>p : Path A x y</code> is a map <code>I → A</code>; applying it at <code>0</code> propagates a parallel substitution wave <code>O_SUBST [i:=0]</code>.</li>
+        <li><strong>Kan Box Filling (<code>comp</code>):</strong> Given three walls of an open square, <code>O_COMP</code> constructs the missing lid — unifying path composition, symmetry, and transport.</li>
+        <li><strong>Computational Univalence (<code>ua</code>):</strong> Any equivalence <code>e : A ≃ B</code> becomes an actual path <code>ua e : A ≡ B</code>. Transporting across it never gets stuck on an axiom; it fires <code>O_COMP ⋈ V_GLUE ⟶ O_UNGLUE ⟶ app(e, x)</code>.</li>
+      </ul>
+      <p><a href="/nets?preset=path">Cubical Dimension Substitution Wave →</a></p>
+      <p><a href="/nets?preset=kan">Kan Box Filling (comp) →</a></p>
+      <p><a href="/nets?preset=univalence">Computational Univalence: transport (ua notEquiv) true →</a></p>
+
+      <h3>4.1 §4.5 Cubical Face-Lattice Hardware Pruning</h3>
+      <p>Here is where cubical geometry directly crushes conventional hardware speculation. Every active redex in <code>HyperNet-16</code> carries a bit-vector face clause $(\mathrm{pa}, \mathrm{na})$ representing which interval dimensions are forced to $1$ ($\mathrm{pa}$) or $0$ ($\mathrm{na}$). When two ports meet, a <strong>15-gate combinational meet unit (~25 ps)</strong> evaluates:</p>
+      <div class="eq-box">$$\mathrm{conf} \;=\; \bigvee_{k} \bigl((\mathrm{pa}_k \lor \mathrm{pb}_k) \land (\mathrm{na}_k \lor \mathrm{nb}_k)\bigr)$$</div>
+      <p>The instant any dimension $r_k$ is required to be simultaneously $0$ and $1$, $\mathrm{conf} = 1$ and the tile annihilates the entire contradicted subgraph in <strong>1 clock cycle</strong> (proved in <code>ucell-conflict-erases</code> and <code>hnode-conflict-prunes-subgraph</code>). Click the dimension buttons below to test the exact 15-gate hardware formula live:</p>
+
+      <div class="lab-card">
+        <div class="lab-head">
+          <span class="lbl">Lab 2 · §4.5 Cubical Face-Lattice 15-Gate Hardware Pruner</span>
+          <span class="lab-status" id="flStatus">Consistent Face · Tree Active</span>
+        </div>
+        <div class="lab-stage" id="flStage"><canvas id="flCanvas"></canvas></div>
+        <div class="lab-ctrl">
+          <span style="opacity:.75;">Click any dimension cell on canvas to cycle (free → 0 → 1), or try presets:</span>
+          <button class="lab-btn" id="flConsistent">Consistent (r₀=1, r₁=0)</button>
+          <button class="lab-btn on" id="flConflict">Conflict (r₁=0 ∧ r₁=1 → ⊥)</button>
+          <button class="lab-btn" id="flReset">Clear All</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- CHAPTER 5 -->
+    <section class="chapter" id="ch5">
+      <div class="ch-num">Chapter 5 · The Architecture Principle</div>
+      <h2>Universal Hyperfactoring: Find the One Rule, Write the Table</h2>
+      <p>Across AI, chip design, computational chemistry, bare-metal OS, and cryptography, teams normally write tens of thousands of lines of domain-specific glue. When you step back into cubical algebra, those seemingly unrelated bottlenecks collapse into <strong>four orthogonal algebraic laws</strong>:</p>
+      <ol>
+        <li><strong>Associative Tiled Monoids:</strong> 128-bit Kogge–Stone carry-lookahead (<code>prefix-g-assoc</code>, <strong>15.0×</strong> shallower than EPFL ripple) and 1-pass <code>FlashAttention</code> (<code>flash-tiled-hom</code>, <strong>119,837×</strong> smaller workspace: 16,384 KB → 0.14 KB) are the <em>exact same monoid homomorphism</em> $\mathrm{fold}(X \mathbin{+\!\!+} Y) \equiv \mathrm{fold}(X) \bullet \mathrm{fold}(Y)$.</li>
+        <li><strong>Reversible Coupling Bijections:</strong> Zero-tape $O(1)$-memory backpropagation (<code>rev-zero-tape-grad-cert</code>, <strong>64×</strong> less RAM, bit-identical gradients) and constant-time RFC 8439 <code>ChaCha20</code> (<code>chacha20-qr-inv</code>, <code>chacha20-ct-noninterference</code>) are the <em>exact same invertible coupling</em> $(u, v) \mapsto (v, u + F_w(v))$.</li>
+        <li><strong>§4.5 Face-Contradiction Pruning:</strong> Killing a 2,001-cycle dead 5-Queens tree in <strong>1 cycle</strong> on <code>HyperNet-16</code> (<code>hn16-cubical-nq5-cert</code>) and pruning <strong>60 of 64 (93.75%)</strong> de novo receptor-pocket scaffolds with certified global optimum $\Delta G^* = -19$ kcal/mol (<code>pocket-pruned-60-of-64</code>, <code>lead-binder-globally-optimal</code>) are the <em>exact same admissible lattice cut</em>.</li>
+        <li><strong>Proof-Carrying Ring-0 Fibers:</strong> Because type-checked processes satisfy non-interference statically (<code>sip-ring0-noninterference</code>), hardware MMU page-table switches (<code>CR3</code> flushes) vanish — dropping isolation overhead from 1,945.5 Linux syscall cycles to <strong>3.5 cycles (551.3× faster)</strong> in a 15 KB freestanding x86-64 kernel (<code>lib/os/hyperos.hypercubical</code>).</li>
+      </ol>
+
+      <div class="lab-card">
+        <div class="lab-head">
+          <span class="lbl">Lab 3 · Universal Hyperfactoring 4-Law Contraction Explorer</span>
+          <span class="lab-status" id="hfStatus">Law 1: Associative Tiled Monoid</span>
+        </div>
+        <div class="lab-stage" id="hfStage"><canvas id="hfCanvas"></canvas></div>
+        <div class="lab-ctrl">
+          <button class="lab-btn on" data-hf="0">1. Associative Monoid (119,837×)</button>
+          <button class="lab-btn" data-hf="1">2. Reversible Coupling (64× / CT)</button>
+          <button class="lab-btn" data-hf="2">3. §4.5 Pruning (1 cyc / 93.75%)</button>
+          <button class="lab-btn" data-hf="3">4. Ring-0 Fiber (551.3× vs Linux)</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- CHAPTER 6 -->
+    <section class="chapter" id="ch6">
+      <div class="ch-num">Chapter 6 · Zero-Friction Infrastructure</div>
+      <h2>No Filesystem: Content-Addressed Store &amp; Sub-2s Verified Flowstate</h2>
+      <p>There are no <code>.hypercubical</code> source files on disk in this repository. Every piece of code, every module, every elaborated core form, and every proof certificate lives in an immutable SHA-256 object pool (<code>store/</code>), addressed by canonical nameless content rather than mutable file paths:</p>
+      <ul>
+        <li><strong>Canonical Content Keys (<code>src/store.c</code>):</strong> Before hashing a checked definition, every bound variable is replaced by its de Bruijn index (<code>@k</code>), every referenced definition by its SHA-256 key (<code>G&lt;key&gt;</code>), and every constructor by its type's key and index (<code>C&lt;key&gt;.i</code>). Renaming local variables or editing comments produces the <strong>exact same key</strong> — zero rechecking.</li>
+        <li><strong>One Cryptographic Root (<code>store/ROOT/root</code>):</strong> The entire codebase — all 607 modules and 22,570+ definitions — is named by one 64-hex SHA-256 root hash. Two machines taking the same root converge to identical object hashes.</li>
+        <li><strong>Sub-2-Second Verified Flowstate:</strong> A long-running warm session daemon (<code>build/cubical lib/hyperactive.hypercubical --session</code> on <code>build/session.sock</code>) eliminates CLI cold start, while immutable skip-if-present caching in <code>store_put</code>, single-open <code>store_check_get</code>, and module-hash fast-pathing in <code>w_file</code> cut warm checks by <strong>3.0×–5.15×</strong> (<code>lib/silicon/hypernet16.hypercubical</code>: 6.64s → <strong>1.29s</strong>; 12-def batched writes in <strong>3.58s</strong>).</li>
+        <li><strong>Structural Pre-Commit &amp; Citation Guards:</strong> Every commit is gated by <code>lib/guard.hypercubical</code> (preventing unverified external code from entering the repo) and audited by <code>lib/cite.hypercubical</code> (verifying every theorem citation in prose resolves in the live store).</li>
+      </ul>
+
+      <div class="lab-card">
+        <div class="lab-head">
+          <span class="lbl">Lab 4 · Content-Addressed Store &amp; Incremental Proof Cache Simulator</span>
+          <span class="lab-status" id="stStatus">Click an edit action to see exact SHA-256 cache behavior</span>
+        </div>
+        <div class="lab-stage" id="stStage"><canvas id="stCanvas"></canvas></div>
+        <div class="lab-ctrl">
+          <button class="lab-btn on" data-st="0">α-Rename Local Var (0 rechecks!)</button>
+          <button class="lab-btn" data-st="1">Edit Leaf Body (1 key + 1 user)</button>
+          <button class="lab-btn" data-st="2">Warm --read Fast Path (5.15×)</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- CHAPTER 7 -->
+    <section class="chapter" id="ch7">
+      <div class="ch-num">Chapter 7 · Explore the Stack &amp; Run Locally</div>
+      <h2>The Complete Vertical Stack &amp; 60-Second Quickstart</h2>
+      <p>Every domain below is formalized inside the same zero-postulate cubical kernel, linked directly to the live Knowledge Graph, and paired with interactive labs:</p>
+
+      <div class="stack-grid">
+        <a class="stack-card" href="/silicon">
+          <div class="sc-tag">Silicon &amp; Univalent EDA</div>
+          <div class="sc-title">Metacircular Silicon, HyperNet-16 &amp; GDSII</div>
+          <p class="sc-desc">Live <code>HExpr → INetSlot → ic-compile-sound</code> compiler simulator, 16-tile HyperNet-16 (69× vs RISC-V), official Sky130 EPFL-128 benchmarks, and single-source <code>GdsHier</code> 1,166,552-polygon GDSII die inspector.</p>
+        </a>
+        <a class="stack-card" href="/hyperfactor">
+          <div class="sc-tag">4-Law Unification</div>
+          <div class="sc-title">Universal Hyperfactoring</div>
+          <p class="sc-desc">1-pass FlashAttention (119,837×), zero-tape reversible AD (64×), 6,342-gate 7nm boot, 93.75%-pruned de novo pocket binder, and 15 KB bare-metal x86-64 HyperOS (551× faster than Linux syscall).</p>
+        </a>
+        <a class="stack-card" href="/ai">
+          <div class="sc-tag">9-Chapter Interactive Textbook</div>
+          <div class="sc-title">AI, Observation Fibers &amp; Alignment</div>
+          <p class="sc-desc">From statistical learning, exact bias–variance, and deep architectures to observation fibers, Lawvere fixed points, exact causal compression, and standpoint alignment.</p>
+        </a>
+        <a class="stack-card" href="/neuro">
+          <div class="sc-tag">Neuroscience &amp; Control</div>
+          <div class="sc-title">Neural Interaction Networks &amp; Co-Processors</div>
+          <p class="sc-desc">FitzHugh–Nagumo phase-space trapping, Riemannian SPD manifold geometry, Control Barrier Functions, and bioelectric gap-junction safety (<code>disagreement-blocks-activation</code>).</p>
+        </a>
+        <a class="stack-card" href="/physics">
+          <div class="sc-tag">Physics &amp; Quantum Chemistry</div>
+          <div class="sc-title">Physics, LQG &amp; Molecular Identity</div>
+          <p class="sc-desc">Relational Quantum Mechanics, Loop Quantum Gravity spin networks, Dirac fine structure, Helium Ritz variational bounds, and exact protein folding bounds.</p>
+        </a>
+        <a class="stack-card" href="/ide">
+          <div class="sc-tag">In-Browser Kernel &amp; Graph</div>
+          <div class="sc-title">WASM Cubical IDE &amp; Knowledge Graph</div>
+          <p class="sc-desc">Typecheck real <code>.hypercubical</code> code directly in WebAssembly (<a href="/ide">/ide</a>) or browse all 22,570+ content-addressed definitions and dependency edges (<a href="/kg">/kg</a>).</p>
+        </a>
+      </div>
+
+      <h3>Run Everything Locally in 60 Seconds</h3>
+      <pre><code># 1. Clone and build the C interaction-net &amp; cubical kernel (Linux &amp; macOS Darwin)
+git clone https://github.com/avikj/hyperactivity.git &amp;&amp; cd hyperactivity
+make
+
+# 2. Verify our mechanized silicon compiler &amp; 1.17M-polygon GDSII hierarchy proofs
+./hyperactive check lib/silicon/inet-compiler.hypercubical lib/silicon/hypernet16.hypercubical
+
+# 3. Inspect any checked theorem directly from the content-addressed store
+./hyperactive def ic-compile-sound
+./hyperactive def hypernet16-die-polys-cert
+
+# 4. Run the live citation audit &amp; pre-commit structural guard
+./build/cubical lib/cite.hypercubical
+./build/cubical lib/guard.hypercubical</code></pre>
+    </section>
+  </main>
+</div>
+
+<script>
+// Sticky TOC scroll-spy
+(function() {
+  const links = Array.from(document.querySelectorAll('.toc a[href^="#"]'));
+  const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+  function upd() {
+    let idx = 0;
+    for (let i = 0; i < secs.length; i++) if (secs[i].getBoundingClientRect().top <= 120) idx = i;
+    links.forEach((a, i) => a.classList.toggle('on', i === idx));
+  }
+  window.addEventListener('scroll', upd, { passive: true });
+  upd();
+})();
+
+// LAB 1: Mechanized Relation vs. Conventional Pipeline Simulator
+(function() {
+  const stage = document.getElementById('mrStage'), canvas = document.getElementById('mrCanvas'), ctx = canvas.getContext('2d');
+  const st = document.getElementById('mrStatus'), modeBtn = document.getElementById('mrMode');
+  let sc = 0, bugOn = true, pulse = 0;
+
+  const SCENARIOS = [
+    {
+      title: 'Scenario 1: Metacircular Compiler (hx-dup-add #21)',
+      convA: 'Spec fn: hexpr-eval-hi = v + v = 42',
+      convB: 'Emitter: NUM(21) ⋈ DUP → (21, 21)',
+      convOutBug: 'SILENT BUG: Spec says 42, silicon outputs (21, 21)!',
+      convOutOk: 'Outputs match by luck until next edit (unproved)',
+      hySrc: 'Single AST: ic-graph (hx-dup-add v) = [NUM v, DUP]',
+      hyProofBug: 'REFUSED AT PROOF-TIME: (21,21) ≠ (42,42) in ic-compile-sound!',
+      hyProofOk: 'PROVED BY refl: ic-compile-sound (∀ v : Word) ✓'
+    },
+    {
+      title: 'Scenario 2: 7nm GDSII Hierarchy Polygon Count',
+      convA: 'Byte stream: AREF 45×30 → AREF 4×4 (1,166,552 polys)',
+      convB: 'Hand arithmetic in docs: 16 × 1,166,544 + 8 = 18,664,712',
+      convOutBug: 'SILENT BUG: Docs claim 18.66M polygons (16× too high)!',
+      convOutOk: 'Numbers agree today; breaks silently if grid changes',
+      hySrc: 'Single AST: GdsHier (gds-rep-cols/rows → bytes & count)',
+      hyProofBug: 'REFUSED AT PROOF-TIME: #1166552 ≠ #18664712 in die-polys-cert!',
+      hyProofOk: 'PROVED BY refl: hypernet16-die-polys-cert = #1166552 ✓'
+    },
+    {
+      title: 'Scenario 3: Theorem Citations Across README & Docs',
+      convA: 'Checked code renamed: disagreement-blocks-activation',
+      convB: 'README / docs still cite: disagreement-blocks-gate',
+      convOutBug: 'SILENT BUG: Dangling citation ships to public website!',
+      convOutOk: 'Manual review required on every refactor',
+      hySrc: 'Live store index: h-index/written/<hex(name)> + lib/cite',
+      hyProofBug: 'BLOCKED BY lib/cite.hypercubical: unresolved ref → exit 1!',
+      hyProofOk: 'VERIFIED (0.84s): all README & audited refs resolve ✓'
+    }
+  ];
+
+  function resize() {
+    const r = stage.getBoundingClientRect(), dpr = Math.min(devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.floor(r.width * dpr)); canvas.height = Math.max(1, Math.floor(r.height * dpr));
+  }
+  new ResizeObserver(resize).observe(stage); resize();
+
+  document.querySelectorAll('[data-mr]').forEach(b => {
+    b.onclick = () => { sc = parseInt(b.dataset.mr, 10); document.querySelectorAll('[data-mr]').forEach(x => x.classList.toggle('on', x === b)); };
+  });
+  modeBtn.onclick = () => {
+    bugOn = !bugOn;
+    modeBtn.classList.toggle('on', bugOn);
+    modeBtn.textContent = bugOn ? 'Toggle: Inject Bug (ON)' : 'Toggle: Clean Fix (OFF)';
+  };
+
+  function drawBox(x, y, w, h, stroke, fill, title, line1, line2, titleCol, ink) {
+    ctx.fillStyle = fill; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = stroke; ctx.lineWidth = 1.6; ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = titleCol; ctx.font = '700 11px ui-monospace, Menlo, monospace';
+    ctx.fillText(title, x + 10, y + 18);
+    ctx.fillStyle = ink; ctx.font = '600 11.5px ui-monospace, Menlo, monospace';
+    ctx.fillText(line1, x + 10, y + 38);
+    if (line2) ctx.fillText(line2, x + 10, y + 56);
+  }
+
+  function draw() {
+    pulse += 0.04;
+    const S = SCENARIOS[sc];
+    const dark = document.documentElement.classList.contains('dark');
+    const bg = dark ? '#000' : '#fff', ink = dark ? '#fff' : '#000';
+    const sub = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.035)';
+    const pink = '#ff0a94', blue = dark ? '#4da3ff' : '#1a73e8', green = dark ? '#22c55e' : '#0a8f5c';
+    const dpr = Math.min(devicePixelRatio || 1, 2), W = canvas.width / dpr, H = canvas.height / dpr;
+    ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle = bg; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.scale(dpr, dpr);
+
+    const pad = 16, gap = 18, halfW = (W - pad * 2 - gap) / 2;
+    // Left column: Conventional disconnected pipeline
+    ctx.fillStyle = dark ? '#aaa' : '#555'; ctx.font = '700 11.5px ui-monospace, Menlo, monospace';
+    ctx.fillText('CONVENTIONAL: TWO DISCONNECTED TRACKS', pad, 20);
+    drawBox(pad, 32, halfW, 68, blue, sub, 'TRACK A (SPEC / PROSE)', S.convA, 'No mechanical link to Track B', blue, ink);
+    drawBox(pad, 114, halfW, 68, blue, sub, 'TRACK B (ARTIFACT / CODE)', S.convB, 'Compiled / emitted independently', blue, ink);
+    const convCol = bugOn ? '#ef4444' : '#888';
+    drawBox(pad, 208, halfW, 96, convCol, bugOn ? 'rgba(239,68,68,0.12)' : sub,
+      bugOn ? 'RESULT: COMPILES & SHIPS BUG' : 'RESULT: NO PROOF OF CONSISTENCY',
+      bugOn ? S.convOutBug : S.convOutOk,
+      bugOn ? 'Only caught later by human audit or runtime crash.' : 'Any future edit can re-introduce drift.',
+      convCol, ink);
+
+    // Right column: Hyperactivity Single-Source Mechanized Relation
+    const rx = pad + halfW + gap;
+    ctx.fillStyle = pink; ctx.font = '700 11.5px ui-monospace, Menlo, monospace';
+    ctx.fillText('HYPERACTIVITY: SINGLE-SOURCE MECHANIZED RELATION', rx, 20);
+    drawBox(rx, 32, halfW, 68, pink, sub, 'SINGLE SOURCE OF TRUTH (AST)', S.hySrc, 'Artifact & semantics are two projections of ONE value', pink, ink);
+
+    // Arrow down from AST to Proof Gate
+    ctx.strokeStyle = pink; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(rx + halfW / 2, 100); ctx.lineTo(rx + halfW / 2, 128); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(rx + halfW / 2 - 5, 122); ctx.lineTo(rx + halfW / 2, 129); ctx.lineTo(rx + halfW / 2 + 5, 122); ctx.stroke();
+
+    const hyCol = bugOn ? pink : green;
+    const hyFill = bugOn ? `rgba(255,10,148,${0.10 + 0.06 * Math.sin(pulse * 2)})` : 'rgba(10,143,92,0.12)';
+    drawBox(rx, 132, halfW, 172, hyCol, hyFill,
+      bugOn ? 'PROOF-TIME GATE: WRITE REFUSED (0 RUNTIME BUGS)' : 'PROOF-TIME GATE: ACCEPTED BY refl',
+      bugOn ? S.hyProofBug : S.hyProofOk,
+      bugOn ? './hyperactive write refuses to record unproved drift.' : 'Proof travels with value; impossible to ship stale output.',
+      hyCol, ink);
+
+    ctx.fillStyle = dark ? '#bbb' : '#444'; ctx.font = '600 11px ui-monospace, Menlo, monospace';
+    ctx.fillText(bugOn ? 'Status: Contradiction caught statically before any byte enters store/' : 'Status: Artifact, semantics, and proof locked by SHA-256 key', rx + 10, 286);
+
+    st.textContent = `${S.title} · ${bugOn ? 'Bug Injected → Caught at Proof-Time' : 'Certified Clean by refl'}`;
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+
+// LAB 2: §4.5 Cubical Face-Lattice 15-Gate Hardware Pruner
+(function() {
+  const stage = document.getElementById('flStage'), canvas = document.getElementById('flCanvas'), ctx = canvas.getContext('2d');
+  const st = document.getElementById('flStatus');
+  // 0 = free, 1 = r_k=0 (na=1), 2 = r_k=1 (pa=1)
+  let portA = [2, 1, 0, 0], portB = [0, 2, 0, 0];
+  let hitBoxes = [], phase = 0;
+
+  function resize() {
+    const r = stage.getBoundingClientRect(), dpr = Math.min(devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.floor(r.width * dpr)); canvas.height = Math.max(1, Math.floor(r.height * dpr));
+  }
+  new ResizeObserver(resize).observe(stage); resize();
+
+  canvas.onclick = (e) => {
+    const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+    for (const b of hitBoxes) {
+      if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+        if (b.port === 'A') portA[b.k] = (portA[b.k] + 1) % 3;
+        else portB[b.k] = (portB[b.k] + 1) % 3;
+        return;
+      }
+    }
+  };
+  document.getElementById('flConsistent').onclick = () => { portA = [2, 1, 0, 0]; portB = [2, 0, 1, 0]; };
+  document.getElementById('flConflict').onclick   = () => { portA = [2, 1, 0, 0]; portB = [0, 2, 0, 0]; };
+  document.getElementById('flReset').onclick      = () => { portA = [0, 0, 0, 0]; portB = [0, 0, 0, 0]; };
+
+  function labelOf(v) { return v === 0 ? 'free' : (v === 1 ? 'r=0' : 'r=1'); }
+
+  function draw() {
+    phase += 0.05;
+    const dark = document.documentElement.classList.contains('dark');
+    const bg = dark ? '#000' : '#fff', ink = dark ? '#fff' : '#000';
+    const muted = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.14)';
+    const pink = '#ff0a94', blue = dark ? '#4da3ff' : '#1a73e8', green = dark ? '#22c55e' : '#0a8f5c';
+    const dpr = Math.min(devicePixelRatio || 1, 2), W = canvas.width / dpr, H = canvas.height / dpr;
+    ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle = bg; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.scale(dpr, dpr);
+
+    hitBoxes = [];
+    let pa = 0, na = 0, pb = 0, nb = 0;
+    for (let k = 0; k < 4; k++) {
+      if (portA[k] === 2) pa |= (1 << k); if (portA[k] === 1) na |= (1 << k);
+      if (portB[k] === 2) pb |= (1 << k); if (portB[k] === 1) nb |= (1 << k);
+    }
+    const confMask = (pa | pb) & (na | nb);
+    const hasConf = confMask !== 0;
+
+    // Left side: interactive Port A & Port B dimension toggles
+    const lx = 20, cw = 68, ch = 36, cg = 8;
+    ctx.font = '700 11.5px ui-monospace, Menlo, monospace';
+    ctx.fillStyle = blue; ctx.fillText('PORT A FACE (pa, na) — click cells', lx, 24);
+    ctx.fillStyle = blue; ctx.fillText('PORT B FACE (pb, nb) — click cells', lx, 102);
+
+    for (let k = 0; k < 4; k++) {
+      const x = lx + k * (cw + cg);
+      const conflictK = ((confMask >> k) & 1) === 1;
+      // Port A cell
+      const ya = 34;
+      ctx.fillStyle = portA[k] === 0 ? bg : (conflictK ? 'rgba(255,10,148,0.22)' : 'rgba(26,115,232,0.16)');
+      ctx.fillRect(x, ya, cw, ch);
+      ctx.strokeStyle = conflictK ? pink : (portA[k] ? blue : muted); ctx.lineWidth = conflictK ? 2 : 1.2;
+      ctx.strokeRect(x, ya, cw, ch);
+      ctx.fillStyle = ink; ctx.fillText(`r${k}:${labelOf(portA[k])}`, x + 7, ya + 22);
+      hitBoxes.push({ x, y: ya, w: cw, h: ch, port: 'A', k });
+
+      // Port B cell
+      const yb = 112;
+      ctx.fillStyle = portB[k] === 0 ? bg : (conflictK ? 'rgba(255,10,148,0.22)' : 'rgba(26,115,232,0.16)');
+      ctx.fillRect(x, yb, cw, ch);
+      ctx.strokeStyle = conflictK ? pink : (portB[k] ? blue : muted); ctx.lineWidth = conflictK ? 2 : 1.2;
+      ctx.strokeRect(x, yb, cw, ch);
+      ctx.fillStyle = ink; ctx.fillText(`r${k}:${labelOf(portB[k])}`, x + 7, yb + 22);
+      hitBoxes.push({ x, y: yb, w: cw, h: ch, port: 'B', k });
+    }
+
+    // Combinational formula box
+    const bx = lx, by = 172, bw = 4 * cw + 3 * cg, bh = 152;
+    ctx.strokeStyle = hasConf ? pink : green; ctx.lineWidth = 1.8;
+    ctx.fillStyle = hasConf ? 'rgba(255,10,148,0.08)' : 'rgba(10,143,92,0.07)';
+    ctx.fillRect(bx, by, bw, bh); ctx.strokeRect(bx, by, bw, bh);
+    const bin4 = n => n.toString(2).padStart(4, '0');
+    ctx.fillStyle = hasConf ? pink : green;
+    ctx.fillText('15-GATE MEET UNIT (~25 ps COMBINATIONAL)', bx + 12, by + 22);
+    ctx.fillStyle = ink; ctx.font = '600 12px ui-monospace, Menlo, monospace';
+    ctx.fillText(`pa | pb  = 4'b${bin4(pa | pb)}   (dims forced to 1)`, bx + 12, by + 48);
+    ctx.fillText(`na | nb  = 4'b${bin4(na | nb)}   (dims forced to 0)`, bx + 12, by + 70);
+    ctx.fillText(`conflict = 4'b${bin4(confMask)}   →  conf = ${hasConf ? '1 (⊥)' : '0 (OK)'}`, bx + 12, by + 94);
+    ctx.fillStyle = hasConf ? pink : green; ctx.font = '700 12px ui-monospace, Menlo, monospace';
+    ctx.fillText(hasConf ? 'ACTION: ERASE ROOT IN 1 CLOCK CYCLE!' : 'ACTION: MERGE FACE & FIRE SUBTREE', bx + 12, by + 126);
+
+    // Right side: downstream search tree visualization
+    const tx = bx + bw + 28, tw = Math.max(180, W - tx - 20);
+    ctx.fillStyle = hasConf ? pink : blue; ctx.font = '700 11.5px ui-monospace, Menlo, monospace';
+    ctx.fillText(hasConf ? 'DOWNSTREAM SUBTREE: ANNIHILATED AT ROOT' : 'DOWNSTREAM SUBTREE: LIVE & REDUCING', tx, 24);
+
+    // Draw 3-level binary tree
+    const nodes = [
+      { x: tx + tw * 0.5, y: 66 },
+      { x: tx + tw * 0.25, y: 146 }, { x: tx + tw * 0.75, y: 146 },
+      { x: tx + tw * 0.13, y: 236 }, { x: tx + tw * 0.37, y: 236 },
+      { x: tx + tw * 0.63, y: 236 }, { x: tx + tw * 0.87, y: 236 }
+    ];
+    const edges = [[0,1],[0,2],[1,3],[1,4],[2,5],[2,6]];
+    edges.forEach(([u, v]) => {
+      ctx.strokeStyle = hasConf ? muted : blue;
+      ctx.setLineDash(hasConf ? [4, 4] : []);
+      ctx.lineWidth = hasConf ? 1 : 1.8;
+      ctx.beginPath(); ctx.moveTo(nodes[u].x, nodes[u].y); ctx.lineTo(nodes[v].x, nodes[v].y); ctx.stroke();
+    });
+    ctx.setLineDash([]);
+    nodes.forEach((n, i) => {
+      const r = i === 0 ? 20 : 14;
+      ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+      if (hasConf && i === 0) {
+        ctx.fillStyle = pink; ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font = '700 13px ui-monospace, Menlo, monospace'; ctx.textAlign = 'center';
+        ctx.fillText('⊥', n.x, n.y + 5);
+      } else if (hasConf) {
+        ctx.fillStyle = bg; ctx.fill(); ctx.strokeStyle = muted; ctx.lineWidth = 1; ctx.stroke();
+        ctx.fillStyle = muted; ctx.font = '700 10px ui-monospace, Menlo, monospace'; ctx.textAlign = 'center';
+        ctx.fillText('×', n.x, n.y + 4);
+      } else {
+        const glow = (Math.floor(phase) % 7 === i);
+        ctx.fillStyle = glow ? pink : (i === 0 ? blue : bg); ctx.fill();
+        ctx.strokeStyle = i === 0 ? blue : pink; ctx.lineWidth = 1.6; ctx.stroke();
+        ctx.fillStyle = (glow || i === 0) ? '#fff' : ink; ctx.font = '700 10px ui-monospace, Menlo, monospace'; ctx.textAlign = 'center';
+        ctx.fillText(i === 0 ? '●═●' : `n${i}`, n.x, n.y + 4);
+      }
+      ctx.textAlign = 'left';
+    });
+
+    ctx.fillStyle = ink; ctx.font = '600 11.5px ui-monospace, Menlo, monospace';
+    ctx.fillText(hasConf ? 'Theorem: ucell-conflict-erases (0 wasted work)' : 'Work continues concurrently across live branches', tx, 294);
+    ctx.fillStyle = dark ? '#999' : '#666';
+    ctx.fillText(hasConf ? 'On 5-Queens: kills 2,001-cyc dead branch in 1 cyc!' : 'Try setting r₁=0 on Port A and r₁=1 on Port B.', tx, 314);
+
+    st.textContent = hasConf
+      ? `CONFLICT conf = 4'b${bin4(confMask)} · ⊥ PRUNED IN 1 CYCLE (ucell-conflict-erases)`
+      : `CONSISTENT · Merged Face (pa|pb)=4'b${bin4(pa|pb)}, (na|nb)=4'b${bin4(na|nb)}`;
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+
+// LAB 3: Universal Hyperfactoring 4-Law Contraction Explorer
+(function() {
+  const stage = document.getElementById('hfStage'), canvas = document.getElementById('hfCanvas'), ctx = canvas.getContext('2d');
+  const st = document.getElementById('hfStatus');
+  let law = 0, t = 0;
+
+  const LAWS = [
+    {
+      name: 'Law 1: Associative Tiled Monoids',
+      eq: 'fold(X ++ Y) ≡ fold(X) • fold(Y)',
+      aTitle: '128-Bit Silicon Adder (EPFL-128)', aThm: 'prefix-g-assoc (hy_adder128_ks)',
+      aBefore: '255 depth (66 MHz ripple)', aAfter: '17 depth (859 MHz, 15.0× shallower)',
+      bTitle: '1-Pass FlashAttention (N=2048, d=32)', bThm: 'flash-tiled-hom (hypertensor)',
+      bBefore: '16,384 KB O(N²) HBM matrix', bAfter: '0.14 KB SRAM regs (119,837× smaller)',
+      ratio: 119837
+    },
+    {
+      name: 'Law 2: Reversible Coupling Bijections',
+      eq: '(u, v) ↦ (v, u + F_w(v))   with exact inverse',
+      aTitle: 'Zero-Tape Backpropagation (L=64)', aThm: 'rev-zero-tape-grad-cert',
+      aBefore: '1,024 KB stored HBM activation tape', aAfter: '16 KB live state (64.0× less RAM, bit-exact)',
+      bTitle: 'RFC 8439 ChaCha20 (20 rounds)', bThm: 'chacha20-qr-inv & ct-noninterference',
+      bBefore: 'Unverified C / timing side channels', bAfter: 'Proved bijective & constant-time in Ring 0',
+      ratio: 64
+    },
+    {
+      name: 'Law 3: §4.5 Face-Contradiction Pruning',
+      eq: 'conf = ⋁((pa | pb) ∧ (na | nb)) → 1-cycle ⊥ kill',
+      aTitle: 'HyperNet-16 Cubical 5-Queens', aThm: 'hn16-cubical-nq5-cert',
+      aBefore: '4,002 cycles unpruned sequential RV32', aAfter: '32 cycles (125.1× faster; dead tree = 1 cyc)',
+      bTitle: 'De Novo Receptor Pocket Synthesis', bThm: 'pocket-pruned-60-of-64 & lead-binder-opt',
+      bBefore: '64 poses / diffusion hallucinations', bAfter: '60/64 (93.75%) pruned; certified ΔG* = −19',
+      ratio: 125
+    },
+    {
+      name: 'Law 4: Proof-Carrying Ring-0 Fibers',
+      eq: 'Static non-interference ⇒ 0 CR3 MMU flushes',
+      aTitle: 'Bare-Metal x86-64 HyperOS (15 KB ELF)', aThm: 'sip-ring0-noninterference',
+      aBefore: '1,945.5 cycles Linux SYS_getpid', aAfter: '3.5 cycles Ring-0 SIP (551.3× faster)',
+      bTitle: 'Conserved PoUW Compute Market', bThm: 'pouw-conserves-credit & pouw-market-cert',
+      bBefore: 'Trusted coordinator / double-spend risk', bAfter: 'Conservation proved inline in Ring 0',
+      ratio: 551
+    }
+  ];
+
+  function resize() {
+    const r = stage.getBoundingClientRect(), dpr = Math.min(devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.floor(r.width * dpr)); canvas.height = Math.max(1, Math.floor(r.height * dpr));
+  }
+  new ResizeObserver(resize).observe(stage); resize();
+  document.querySelectorAll('[data-hf]').forEach(b => {
+    b.onclick = () => { law = parseInt(b.dataset.hf, 10); t = 0; document.querySelectorAll('[data-hf]').forEach(x => x.classList.toggle('on', x === b)); };
+  });
+
+  function draw() {
+    t += 0.03;
+    const L = LAWS[law];
+    const dark = document.documentElement.classList.contains('dark');
+    const bg = dark ? '#000' : '#fff', ink = dark ? '#fff' : '#000';
+    const sub = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.035)';
+    const muted = dark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.14)';
+    const pink = '#ff0a94', blue = dark ? '#4da3ff' : '#1a73e8';
+    const dpr = Math.min(devicePixelRatio || 1, 2), W = canvas.width / dpr, H = canvas.height / dpr;
+    ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle = bg; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.scale(dpr, dpr);
+
+    // Top central law box
+    const pad = 20, topW = W - pad * 2;
+    ctx.fillStyle = 'rgba(255,10,148,0.09)'; ctx.fillRect(pad, 16, topW, 64);
+    ctx.strokeStyle = pink; ctx.lineWidth = 2; ctx.strokeRect(pad, 16, topW, 64);
+    ctx.fillStyle = pink; ctx.font = '700 12px ui-monospace, Menlo, monospace';
+    ctx.fillText(L.name.toUpperCase(), pad + 14, 38);
+    ctx.fillStyle = ink; ctx.font = '700 14px ui-monospace, Menlo, monospace';
+    ctx.fillText(L.eq, pad + 14, 62);
+
+    // Two domain projections below
+    const gap = 18, cardW = (topW - gap) / 2, cardY = 112, cardH = 212;
+    const prog = Math.min(1, t / 1.4);
+    [[pad, L.aTitle, L.aThm, L.aBefore, L.aAfter], [pad + cardW + gap, L.bTitle, L.bThm, L.bBefore, L.bAfter]].forEach(([cx, ti, th, bef, aft]) => {
+      // Connector from top law
+      ctx.strokeStyle = pink; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(W / 2, 80); ctx.lineTo(cx + cardW / 2, cardY); ctx.stroke();
+
+      ctx.fillStyle = sub; ctx.fillRect(cx, cardY, cardW, cardH);
+      ctx.strokeStyle = blue; ctx.lineWidth = 1.5; ctx.strokeRect(cx, cardY, cardW, cardH);
+      ctx.fillStyle = blue; ctx.font = '700 12px ui-monospace, Menlo, monospace';
+      ctx.fillText(ti, cx + 12, cardY + 24);
+      ctx.fillStyle = pink; ctx.font = '600 11px ui-monospace, Menlo, monospace';
+      ctx.fillText('Theorem: ' + th, cx + 12, cardY + 44);
+
+      // Before bar
+      ctx.fillStyle = dark ? '#aaa' : '#555'; ctx.font = '600 11px ui-monospace, Menlo, monospace';
+      ctx.fillText('BEFORE: ' + bef, cx + 12, cardY + 78);
+      ctx.fillStyle = muted; ctx.fillRect(cx + 12, cardY + 86, cardW - 24, 14);
+      ctx.fillStyle = blue; ctx.fillRect(cx + 12, cardY + 86, (cardW - 24) * prog, 14);
+
+      // After bar (hyperfactored!)
+      ctx.fillStyle = ink; ctx.font = '700 11px ui-monospace, Menlo, monospace';
+      ctx.fillText('AFTER: ' + aft, cx + 12, cardY + 134);
+      ctx.fillStyle = muted; ctx.fillRect(cx + 12, cardY + 142, cardW - 24, 14);
+      ctx.fillStyle = pink; ctx.fillRect(cx + 12, cardY + 142, Math.max(8, (cardW - 24) * 0.09 * prog), 14);
+
+      ctx.fillStyle = pink; ctx.font = '700 11px ui-monospace, Menlo, monospace';
+      ctx.fillText('✓ Zero-postulate inline cubical proof', cx + 12, cardY + 190);
+    });
+
+    st.textContent = `${L.name} · Same Algebra, Two Frontier Domains`;
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+
+// LAB 4: Content-Addressed Store & Certificate Pipeline Simulator
+(function() {
+  const stage = document.getElementById('stStage'), canvas = document.getElementById('stCanvas'), ctx = canvas.getContext('2d');
+  const st = document.getElementById('stStatus');
+  let mode = 0, anim = 0;
+
+  function resize() {
+    const r = stage.getBoundingClientRect(), dpr = Math.min(devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.floor(r.width * dpr)); canvas.height = Math.max(1, Math.floor(r.height * dpr));
+  }
+  new ResizeObserver(resize).observe(stage); resize();
+  document.querySelectorAll('[data-st]').forEach(b => {
+    b.onclick = () => { mode = parseInt(b.dataset.st, 10); anim = 0; document.querySelectorAll('[data-st]').forEach(x => x.classList.toggle('on', x === b)); };
+  });
+
+  function draw() {
+    anim += 0.035;
+    const dark = document.documentElement.classList.contains('dark');
+    const bg = dark ? '#000' : '#fff', ink = dark ? '#fff' : '#000';
+    const sub = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.035)';
+    const pink = '#ff0a94', blue = dark ? '#4da3ff' : '#1a73e8', green = dark ? '#22c55e' : '#0a8f5c';
+    const dpr = Math.min(devicePixelRatio || 1, 2), W = canvas.width / dpr, H = canvas.height / dpr;
+    ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle = bg; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.scale(dpr, dpr);
+
+    const nodes = [
+      { id: 'ic-graph', key: 'a75695e0...', x: 40,  y: 70,  w: 175, h: 64 },
+      { id: 'compile-hexpr', key: '45ef710f...', x: 280, y: 36,  w: 195, h: 64 },
+      { id: 'ic-compile-sound', key: '075e0f45...', x: 280, y: 122, w: 195, h: 64 },
+      { id: 'store/ROOT/root', key: 'f52070b7...', x: 540, y: 78,  w: 220, h: 68 }
+    ];
+    // Edges
+    ctx.strokeStyle = blue; ctx.lineWidth = 1.6;
+    [[0,1],[0,2],[1,3],[2,3]].forEach(([u,v]) => {
+      ctx.beginPath(); ctx.moveTo(nodes[u].x + nodes[u].w, nodes[u].y + nodes[u].h / 2);
+      ctx.lineTo(nodes[v].x, nodes[v].y + nodes[v].h / 2); ctx.stroke();
+    });
+
+    nodes.forEach((n, i) => {
+      let badge = 'CACHE HIT (0 steps)', col = green;
+      if (mode === 1 && (i === 0 || i === 2 || i === 3)) {
+        badge = i === 3 ? 'ROOT UPDATED' : 'RECHECKED (new SHA-256)';
+        col = pink;
+      } else if (mode === 2) {
+        badge = i === 3 ? 'w_file FAST PATH' : '1 open, 0 renames';
+        col = blue;
+      }
+      ctx.fillStyle = sub; ctx.fillRect(n.x, n.y, n.w, n.h);
+      ctx.strokeStyle = col; ctx.lineWidth = 1.8; ctx.strokeRect(n.x, n.y, n.w, n.h);
+      ctx.fillStyle = ink; ctx.font = '700 12px ui-monospace, Menlo, monospace';
+      ctx.fillText(n.id, n.x + 10, n.y + 20);
+      ctx.fillStyle = dark ? '#999' : '#666'; ctx.font = '600 10.5px ui-monospace, Menlo, monospace';
+      ctx.fillText('sha256: ' + (mode === 1 && i !== 1 ? 'new_' + n.key.slice(0,6) : n.key), n.x + 10, n.y + 38);
+      ctx.fillStyle = col; ctx.font = '700 10.5px ui-monospace, Menlo, monospace';
+      ctx.fillText(badge, n.x + 10, n.y + 54);
+    });
+
+    // Bottom detail panel
+    const py = 216, pw = W - 40, ph = 114;
+    ctx.fillStyle = sub; ctx.fillRect(20, py, pw, ph);
+    ctx.strokeStyle = pink; ctx.lineWidth = 1.5; ctx.strokeRect(20, py, pw, ph);
+    ctx.fillStyle = pink; ctx.font = '700 12px ui-monospace, Menlo, monospace';
+    if (mode === 0) {
+      ctx.fillText('CANONICAL NAMELESS HASHING (de Bruijn @0, @1 + G<sha256>)', 34, py + 24);
+      ctx.fillStyle = ink; ctx.font = '600 12px ui-monospace, Menlo, monospace';
+      ctx.fillText('Renaming λ x → x  to  λ val → val  produces the IDENTICAL canonical form (lam %b @0).', 34, py + 50);
+      ctx.fillText('Key unchanged → store_check_get hits in 1 read → 0 interaction steps performed.', 34, py + 74);
+      ctx.fillStyle = green; ctx.fillText('Result: 0 rechecks, 0 disk rewrites, instant certificate reuse.', 34, py + 98);
+      st.textContent = 'α-Rename: Identical Canonical Key → 0 Rechecks';
+    } else if (mode === 1) {
+      ctx.fillText('INCREMENTAL CONTENT-ADDRESSED RECHECK (./hyperactive write)', 34, py + 24);
+      ctx.fillStyle = ink; ctx.font = '600 12px ui-monospace, Menlo, monospace';
+      ctx.fillText('Editing ic-graph changes its SHA-256 key; only ic-graph & dependent ic-compile-sound recheck.', 34, py + 50);
+      ctx.fillText('All 1,200+ unaffected library definitions hit .cubical-store/<key>/check in 0 steps.', 34, py + 74);
+      ctx.fillStyle = pink; ctx.fillText('Warm --session daemon + batched write: 12 new defs + proofs verified in 3.58s.', 34, py + 98);
+      st.textContent = 'Body Edit: Only Changed Key & Direct Dependents Recheck';
+    } else {
+      ctx.fillText('MEASURED STORE FAST PATH (src/store.c + src/syntax.c + --session)', 34, py + 24);
+      ctx.fillStyle = ink; ctx.font = '600 12px ui-monospace, Menlo, monospace';
+      ctx.fillText('Before: 3 temp+rename writes/def + 3 check opens/def + full w_file scan = 6.64s (hypernet16).', 34, py + 50);
+      ctx.fillText('After: skip immutable code/type/usage rewrites + 1-entry check cache + w_file hash fast-path = 1.29s.', 34, py + 74);
+      ctx.fillStyle = blue; ctx.fillText('Result: 5.15× faster warm verification (8.8× lower kernel syscall time).', 34, py + 98);
+      st.textContent = 'Warm --read Fast Path: 6.64s → 1.29s (5.15× Speedup)';
+    }
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>

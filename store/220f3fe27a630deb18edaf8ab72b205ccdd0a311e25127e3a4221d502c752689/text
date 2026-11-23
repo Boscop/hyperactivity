@@ -1,0 +1,12 @@
+hxn-main : List (List Word) → Step W Word
+hxn-main args =
+  let peers = hxn-arg1 args
+      key   = hxn-digest hxn-msg
+      frame = cfs-enc-list sr-sample-L sr-sample-fuel (sr-sample-L , nil) cfs-sample-init-ctx hxn-msg
+  in scmd w-now (λ t0 →
+     let hop  = hxn-route peers key
+         ok1  = hxn-settle key #100 #50 #42 frame
+         bad  = hxn-settle (%wxor key #1) #100 #50 #42 frame
+         pass = if %weq (fst ok1) #1 then %weq (fst bad) #0 else false
+     in scmd w-now (λ t1 →
+        cli-say (list-append "HX-Node peers=" (list-append (ce-dec peers) (list-append " hop=" (list-append (ce-dec (fst hop)) (list-append " valid_bal=" (list-append (ce-dec (snd (snd ok1))) (list-append " forged_rej=" (list-append (ce-dec (if %weq (fst bad) #0 then #1 else #0)) (list-append " (" (list-append (ce-dec (%wdiv (%wsub t1 t0) #1000000)) " ms)")))))))))) (sdone (if pass then #0 else #1))))

@@ -1,0 +1,12 @@
+hxz-sym-dec : Nat → List Word → CtxState → SRState → Word × SRState
+hxz-sym-dec zero _ _ st =
+  let x = wrem (fst st) #256
+      s0 = wquot (fst st) #256
+  in (x , sr-refill-loop (suc sr-sample-fuel) hxz-L s0 (snd st))
+hxz-sym-dec (suc k) excl st st0 =
+  case ftbl-exclude excl (cstate-fiber-at k st) of
+    nil → hxz-sym-dec k excl st st0
+    cons e r →
+      let p = sr-dec-step (hxz-ft e r) hxz-L sr-sample-fuel st0
+      in if weq (fst p) #0 then hxz-sym-dec k (ftbl-add-syms (cons e r) excl) st (snd p)
+         else (wsub (fst p) #1 , snd p)
