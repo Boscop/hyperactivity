@@ -2420,7 +2420,11 @@ static void index_sync(void) {
 /* a file of the repository as the source holds it, its module's pieces in order; one the source does
  * not hold yet, read from the disk (the one reader), when it is there; else NULL. A path holding
  * alternatives is not read: they are named */
-static char *src_text(const char *rel, size_t *len) {
+static bool is_hc_ext(const char *p) {
+    size_t n = strlen(p);
+    return (n > 4 && !strcmp(p + n - 4, ".cub")) || (n > 13 && !strcmp(p + n - 13, ".hypercubical"));
+}
+static char *src_text_exact(const char *rel, size_t *len) {
     /* --with PATH FILE: for this run the path's text is the file's (a change checked before it is recorded) */
     for (int i = 0; i < novs; i++) if (!strcmp(rel, ovs[i].rel)) { char *t = malloc(ovs[i].n + 1); memcpy(t, ovs[i].text, ovs[i].n + 1); if (len) *len = ovs[i].n; return t; }
     index_sync();
@@ -2437,6 +2441,20 @@ static char *src_text(const char *rel, size_t *len) {
     fclose(f); b[nb] = 0;
     if (len) *len = nb;
     return b;
+}
+static char *src_text(const char *rel, size_t *len) {
+    char *t = src_text_exact(rel, len);
+    if (t) return t;
+    size_t n = strlen(rel);
+    if (n > 4 && !strcmp(rel + n - 4, ".cub")) {
+        char *alt = malloc(n + 10); memcpy(alt, rel, n - 4); strcpy(alt + n - 4, ".hypercubical");
+        t = src_text_exact(alt, len); free(alt); return t;
+    }
+    if (n > 13 && !strcmp(rel + n - 13, ".hypercubical")) {
+        char *alt = malloc(n - 8); memcpy(alt, rel, n - 13); strcpy(alt + n - 13, ".cub");
+        t = src_text_exact(alt, len); free(alt); return t;
+    }
+    return NULL;
 }
 /* a document (any file the source holds whole, not cut into declarations): one piece, its module and pointer */
 static void w_whole(const char *text, const char *rel) {
@@ -2455,8 +2473,7 @@ static char *src_document(const char *full, size_t *len) {
     index_sync();
     char *had = hx.b && hx.n <= 250 ? idx_read("modules", hx.b) : NULL; free(hx.b);
     char *t = src_text(rel, len);
-    size_t rl = strlen(rel);
-    if (t && !had && w_held(rel) && strlen(t) == *len && !(rl > 4 && !strcmp(rel + rl - 4, ".cub"))) w_whole(t, rel);
+    if (t && !had && w_held(rel) && strlen(t) == *len && !is_hc_ext(rel)) w_whole(t, rel);
     free(had); free(rel);
     return t;
 }
@@ -2580,8 +2597,7 @@ static void w_file(const char *text, const char *path) {
  * document whole. `--ingest PATH ...` records each file on the disk under its own path (the one
  * reader); `--record PATH FILE` records FILE's text as PATH's (hyperactive write) */
 static void record_source(const char *text, const char *path) {
-    size_t pl = strlen(path);
-    if (!(pl > 4 && !strcmp(path + pl - 4, ".cub"))) { char *rel = w_rel(path); w_whole(text, rel); free(rel); return; }
+    if (!is_hc_ext(path)) { char *rel = w_rel(path); w_whole(text, rel); free(rel); return; }
     Tok *s_xt = xt, *s_lt = lt; int s_nxt = nxt, s_capxt = capxt, s_nlt = nlt, s_caplt = caplt, s_xp = xp;
     const char *s_file = x_file;
     xt = NULL; nxt = capxt = 0; lt = NULL; nlt = caplt = 0; x_file = path;

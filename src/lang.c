@@ -4870,8 +4870,7 @@ static void load_file(const char *path, bool must) {
     char *rel = w_rel(path);
     for (int i = 0; i < nloaded; i++) if (!strcmp(loaded[i], rel)) { free(rel); return; }
     GROW(loaded, caploaded, (size_t)nloaded + 1); loaded[nloaded++] = rel;
-    size_t pl = strlen(rel);
-    if (pl <= 4 || strcmp(rel + pl - 4, ".cub")) die("refused: a file of core forms is outside the type system; only .cub files load:", path);
+    if (!is_hc_ext(rel)) die("refused: a file of core forms is outside the type system; only .hypercubical or .cub files load:", path);
     char *text = src_text(rel, NULL);
     if (!text) die("cannot open", path);
     char *rp = abs_of(rel);
