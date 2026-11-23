@@ -30,10 +30,11 @@
 
 ```sh
 git clone https://github.com/avikj/hyperactivity.git && cd hyperactivity && make
-./hyperactive                                   # interactive loop over store/
-./build/cubical neuro/lyapunov.hypercubical     # run a module (.hypercubical and .cub both resolve)
+./build/cubical neuro/lyapunov.hypercubical     # verify a module (.hypercubical and .cub both resolve)
+make brunerie                                   # compute Brunerie's number (-2) on 1 and 4 workers
 ./hyperactive def two-learner-asym-sos-id       # inspect any definition & its SHA-256 content key
 ./build/cubical lib/server.hypercubical 8080    # boot your own local mirror of hyperactivity.ai
+./hyperactive                                   # full interactive onboarding walk over store/
 ```
 
 ---
@@ -189,7 +190,7 @@ Every definition, proof, document, and web route lives as an immutable SHA-256 o
 src/            C11 interaction-net evaluator, cubical normalizer, content-addressed store & drivers
 store/          immutable SHA-256 objects (lib/, neuro/, chem/, phys/, lqg/, fold/, docs/)
 tools/          lifters (clang2cub, mir2cub, sail2cub, agda2cub) & assembly helpers
-experiments/    Brunerie's number (-2), C++ & Rust lifting suites
+experiments/    Brunerie's number (-2), C++/Rust lifters & WIP experimental suites
 Makefile        native kernel, library, and Brunerie targets
 hyperactive     entrypoint symlink to build/cubical
 LICENSE         Hyperactive Anti-Capitalist Commons & Commercial License v1.0
