@@ -1,0 +1,13 @@
+-- POST /peer/reduce : isolated read-only interaction-net reduction & cubical kernel verification on this peer
+s-peer-reduce : List Word → List Word → List Word → Proc W (List Word)
+s-peer-reduce st m body =
+  let f = list-append st "/peer-cut.hypercubical" in
+  bind (h-mkdir st) (λ mk →
+  bind (h-write f (h-take (toNat #65536) body)) (λ wr →
+  bind (h-capture (cons m (cons "--read" (cons "--with" (cons "peer_cut.hypercubical" (cons f (cons "peer_cut.hypercubical" nil))))))) (λ res →
+  bind (h-unlink f) (λ ul →
+  let ok = weq (fst res) #0 in
+  ret {lzero} {W} (s-response "application/json" (h-concat (cons "{" (
+    cons (s-cj-str "ok") (cons ":" (cons (if ok then "true" else "false") (cons "," (
+    cons (s-cj-str "code") (cons ":" (cons (h-decimal (fst res)) (cons "," (
+    cons (s-cj-str "output") (cons ":" (cons (s-json-nl-str (snd res)) (cons "}" nil)))))))))))))))))))

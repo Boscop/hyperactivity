@@ -1,0 +1,1144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Knowledge Graph · hyperactivity</title>
+<style>
+:root {
+  --bg: #ffffff;
+  --ink: #000000;
+  --muted: #555555;
+  --line: rgba(0,0,0,0.16);
+  --line-strong: #000000;
+  --pink: #ff0a94;
+  --blue: #1a73e8;
+  --code-bg: #ffffff;
+  --sel-bg: rgba(255,10,148,0.10);
+}
+html.dark {
+  --bg: #000000;
+  --ink: #ffffff;
+  --muted: #a0a0a0;
+  --line: rgba(255,255,255,0.18);
+  --line-strong: #ffffff;
+  --pink: #ff0a94;
+  --blue: #4da3ff;
+  --code-bg: #000000;
+  --sel-bg: rgba(255,10,148,0.18);
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%; overflow: hidden;
+  background: var(--bg); color: var(--ink);
+  font: 13px/1.45 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  -webkit-font-smoothing: antialiased;
+}
+.kg-shell {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr) 480px;
+  height: calc(100vh - 48px);
+  width: 100vw;
+}
+.kg-rail {
+  border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--bg);
+}
+.kg-rail-head {
+  padding: 12px; border-bottom: 1px solid var(--line);
+}
+.kg-search {
+  width: 100%; padding: 8px 10px;
+  background: var(--bg); color: var(--ink);
+  border: 1px solid var(--line-strong);
+  font: 600 12.5px/1.2 inherit; outline: none;
+}
+.kg-search:focus { border-color: var(--pink); }
+.kg-filters {
+  display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px;
+}
+.kg-pill {
+  padding: 3px 7px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--ink);
+  font: 600 11px/1.2 inherit; cursor: pointer; text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.kg-pill:hover { border-color: var(--pink); color: var(--pink); }
+.kg-pill.on { background: var(--pink); border-color: var(--pink); color: #fff; }
+.kg-meta-bar {
+  padding: 6px 12px; border-bottom: 1px solid var(--line);
+  font-size: 11px; color: var(--muted);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.kg-list {
+  flex: 1; overflow-y: auto; min-height: 0;
+}
+.kg-item {
+  padding: 7px 12px; border-bottom: 1px solid var(--line);
+  cursor: pointer; display: flex; flex-direction: column; gap: 2px;
+}
+.kg-item:hover { background: var(--sel-bg); }
+.kg-item.on { background: var(--sel-bg); border-left: 3px solid var(--pink); padding-left: 9px; }
+.kg-item-top {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+}
+.kg-item-name {
+  font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.kg-badge {
+  font-size: 10px; font-weight: 700; padding: 1px 5px;
+  border: 1px solid currentColor; text-transform: uppercase; flex-shrink: 0;
+}
+.kg-badge.p { color: var(--pink); }
+.kg-badge.t { color: var(--blue); }
+.kg-badge.d { color: var(--muted); }
+.kg-badge.m { color: var(--ink); }
+.kg-item-sub {
+  font-size: 11px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.kg-stage {
+  position: relative; min-width: 0; min-height: 0; overflow: hidden;
+  background: var(--bg);
+}
+#kgCanvas {
+  display: block; width: 100%; height: 100%; cursor: grab;
+}
+#kgCanvas:active { cursor: grabbing; }
+.kg-hud-top {
+  position: absolute; top: 12px; left: 12px; right: 12px;
+  display: flex; justify-content: space-between; align-items: flex-start;
+  pointer-events: none; gap: 10px;
+}
+.kg-hud-box {
+  pointer-events: auto; background: var(--bg);
+  border: 1px solid var(--line-strong); padding: 6px 10px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.kg-btn {
+  padding: 4px 8px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--ink);
+  font: 600 11px/1.2 inherit; cursor: pointer; text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.kg-btn:hover { border-color: var(--pink); color: var(--pink); }
+.kg-btn.on { background: var(--pink); border-color: var(--pink); color: #fff; }
+.kg-legend {
+  position: absolute; bottom: 12px; left: 12px;
+  background: var(--bg); border: 1px solid var(--line);
+  padding: 6px 10px; font-size: 11px; display: flex; gap: 14px; align-items: center;
+  pointer-events: none;
+}
+.kg-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+.kg-tip {
+  position: absolute; pointer-events: none; display: none;
+  background: var(--bg); color: var(--ink);
+  border: 1px solid var(--line-strong); padding: 6px 9px;
+  font-size: 11px; max-width: 300px; z-index: 10;
+}
+
+.kg-inspector {
+  border-left: 1px solid var(--line);
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--bg);
+}
+.kg-ins-head {
+  padding: 12px 14px; border-bottom: 1px solid var(--line);
+}
+.kg-ins-title {
+  font-size: 15px; font-weight: 800; word-break: break-all;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.kg-ins-meta {
+  margin-top: 5px; font-size: 11px; color: var(--muted);
+  display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+}
+.kg-hash { color: var(--pink); font-weight: 700; }
+.kg-ins-summary {
+  margin-top: 6px; font-size: 12px; color: var(--ink); opacity: 0.85;
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+}
+.kg-ins-deps {
+  padding: 8px 14px; border-bottom: 1px solid var(--line);
+  font-size: 11px; max-height: 110px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.kg-dep-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.kg-dep-lbl { font-weight: 700; margin-right: 4px; text-transform: uppercase; font-size: 10px; }
+.kg-dep-chip {
+  padding: 1px 6px; border: 1px solid var(--line); cursor: pointer;
+  background: var(--bg); color: var(--ink); font: 600 11px/1.3 inherit;
+}
+.kg-dep-chip.out { border-color: var(--blue); color: var(--blue); }
+.kg-dep-chip.in { border-color: var(--pink); color: var(--pink); }
+.kg-dep-chip:hover { background: var(--pink); border-color: var(--pink); color: #fff; }
+
+.kg-code-wrap {
+  flex: 1; overflow: auto; min-height: 0; padding: 10px 0;
+  background: var(--code-bg);
+}
+.kg-line {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr);
+  padding: 0 12px 0 0; line-height: 1.5; font-size: 12px;
+}
+.kg-line.hl { background: var(--sel-bg); }
+.kg-ln {
+  text-align: right; padding-right: 10px; color: var(--muted);
+  user-select: none; opacity: 0.6; font-size: 11px;
+}
+.kg-src { white-space: pre-wrap; word-break: break-word; }
+.tok-com { color: var(--muted); font-style: italic; }
+.tok-kw { font-weight: 800; color: var(--ink); }
+.tok-op { color: var(--pink); font-weight: 700; }
+.tok-ref {
+  color: var(--blue); cursor: pointer;
+  text-decoration: underline; text-decoration-color: rgba(26,115,232,0.35);
+  text-underline-offset: 2px;
+}
+.tok-ref:hover { color: var(--pink); text-decoration-color: var(--pink); }
+.tok-def { color: var(--pink); font-weight: 800; }
+
+.kg-mobile-tabs {
+  display: none;
+  height: 38px;
+  border-bottom: 1px solid var(--line-strong);
+  background: var(--bg);
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  gap: 8px;
+}
+.kg-mtab {
+  border: 1px solid var(--line-strong);
+  background: var(--bg); color: var(--ink);
+  padding: 4px 10px;
+  font: 700 11px/1.2 ui-monospace, 'SF Mono', Menlo, monospace;
+  text-transform: uppercase; letter-spacing: 0.04em; cursor: pointer;
+}
+.kg-mtab.on, .kg-mtab:hover { background: var(--pink); border-color: var(--pink); color: #fff; }
+.kg-mpath {
+  font: 700 11.5px/1.2 ui-monospace, 'SF Mono', Menlo, monospace;
+  color: var(--pink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+@media (max-width: 1180px) {
+  .kg-shell { grid-template-columns: 240px minmax(0, 1fr) 380px; }
+}
+@media (max-width: 960px) {
+  .kg-mobile-tabs { display: flex; }
+  .kg-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: 38% 62%;
+    height: calc(100vh - 86px);
+  }
+  .kg-rail {
+    display: none; border: 0; height: 100%; min-height: 0;
+  }
+  .kg-stage {
+    display: block; border: 0; border-bottom: 2px solid var(--line-strong); min-height: 0;
+  }
+  .kg-inspector {
+    display: flex; border: 0; min-height: 0;
+  }
+  .kg-shell[data-pane="index"] {
+    grid-template-rows: 1fr;
+  }
+  .kg-shell[data-pane="index"] .kg-rail { display: flex; }
+  .kg-shell[data-pane="index"] .kg-stage,
+  .kg-shell[data-pane="index"] .kg-inspector { display: none; }
+  .kg-legend { display: none; }
+}
+</style>
+</head>
+<body>
+<!--HX:NAV-->
+<div class="kg-mobile-tabs" id="kgMobileTabs">
+  <button class="kg-mtab" id="kgBtnIndex" data-pane="index">⌕ Search 298 Modules</button>
+  <span class="kg-mpath" id="kgSrcTab">neuro/lyapunov.hypercubical</span>
+</div>
+<div class="kg-shell" id="kgShell" data-pane="split">
+  <aside class="kg-rail">
+    <div class="kg-rail-head">
+      <input id="kgSearch" class="kg-search" type="search" placeholder="Search 298 modules &amp; 14,604 terms…" autocomplete="off" spellcheck="false">
+      <div class="kg-filters" id="kgFilters">
+        <button class="kg-pill on" data-dom="all">All</button>
+        <button class="kg-pill" data-dom="lib">lib</button>
+        <button class="kg-pill" data-dom="neuro">neuro</button>
+        <button class="kg-pill" data-dom="chem">chem</button>
+        <button class="kg-pill" data-dom="phys">phys</button>
+        <button class="kg-pill" data-dom="fold">fold</button>
+        <button class="kg-pill" data-dom="lqg">lqg</button>
+      </div>
+    </div>
+    <div class="kg-meta-bar">
+      <span id="kgCount">Loading Knowledge Graph…</span>
+      <span id="kgRootHash" class="kg-hash"></span>
+    </div>
+    <div class="kg-list" id="kgList"></div>
+  </aside>
+
+  <section class="kg-stage" id="kgStage">
+    <canvas id="kgCanvas"></canvas>
+    <div class="kg-hud-top">
+      <div class="kg-hud-box">
+        <button class="kg-btn on" id="btnLocal">◈ Local</button>
+        <button class="kg-btn" id="btnGlobal">◎ All 298</button>
+        <button class="kg-btn" id="btnDepth">2-Hop</button>
+        <button class="kg-btn" id="btnZIn" title="Zoom in">+</button>
+        <button class="kg-btn" id="btnZOut" title="Zoom out">−</button>
+        <button class="kg-btn" id="btnFit">Fit</button><span id="kgLiveBadge" style="font-size:11px;font-weight:700;color:var(--pink);margin-left:4px">● 1 live</span><span id="kgCasBadge" style="font-size:11px;font-weight:600;color:var(--blue);margin-left:4px">⚡ 0 cached</span>
+      </div>
+    </div>
+    <div class="kg-legend">
+      <span><span class="kg-dot" style="background:var(--pink)"></span>Selected / Dependents (← used by)</span>
+      <span><span class="kg-dot" style="background:var(--blue)"></span>Dependencies (imports →)</span>
+    </div>
+    <div class="kg-tip" id="kgTip"></div>
+  </section>
+
+  <aside class="kg-inspector">
+    <div class="kg-ins-head">
+      <div class="kg-ins-title" id="insTitle">Select a module or term</div>
+      <div class="kg-ins-meta" id="insMeta"></div>
+      <div class="kg-ins-summary" id="insSummary"></div>
+    </div>
+    <div class="kg-ins-deps" id="insDeps"></div>
+    <div class="kg-code-wrap" id="insCode"></div>
+  </aside>
+</div>
+
+<script>
+(function() {
+  let KG = null;
+  let modByPath = new Map();
+  let modCache = new Map();
+
+  const liveId = (() => {
+    try {
+      let id = sessionStorage.getItem('hxLiveId');
+      if (!id) { id = 'p_' + Math.random().toString(16).slice(2, 10).padEnd(8, '0'); sessionStorage.setItem('hxLiveId', id); }
+      return id;
+    } catch (e) { return 'p_' + Math.random().toString(16).slice(2, 10).padEnd(8, '0'); }
+  })();
+
+  // Browser-local Content-Addressed Store (IndexedDB hx-cas-v1 v2 shared with /kernel) + WebRTC/Local P2P Mesh
+  let casDB = null, casCount = 0;
+  const p2pPeers = new Map(); // peerId -> { pc, dc, transport, lastSeen }
+  const rtcPending = new Map();
+  const myOffers = {}, myAnswers = {};
+  const pendingWants = new Map(); // hash -> [resolve...]
+  const meshBC = ('BroadcastChannel' in window) ? new BroadcastChannel('hx-p2p-v1') : null;
+
+  async function sha256Text(str) {
+    const buf = new TextEncoder().encode(str);
+    const d = await crypto.subtle.digest('SHA-256', buf);
+    const u8 = new Uint8Array(d);
+    let s = '';
+    for (let i = 0; i < u8.length; i++) s += u8[i].toString(16).padStart(2, '0');
+    return s;
+  }
+
+  function livePeerCount() {
+    let n = 0;
+    const now = Date.now();
+    p2pPeers.forEach(p => {
+      if ((p.dc && p.dc.readyState === 'open') || (p.transport === 'LOCAL' && now - p.lastSeen < 18000)) n++;
+    });
+    return n;
+  }
+
+  function updateCasHud() {
+    const el = document.getElementById('kgCasBadge');
+    if (el) el.textContent = `⚡ P2P:${livePeerCount()} · ${casCount} local`;
+  }
+
+  function hxCasOpen() {
+    if (!('indexedDB' in window)) return Promise.resolve(null);
+    return new Promise(res => {
+      const req = indexedDB.open('hx-cas-v1', 2);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains('obj')) db.createObjectStore('obj');
+        if (!db.objectStoreNames.contains('ws')) db.createObjectStore('ws', { keyPath: 'path' });
+      };
+      req.onsuccess = () => {
+        casDB = req.result;
+        const tx = casDB.transaction('obj', 'readonly');
+        const c = tx.objectStore('obj').count();
+        c.onsuccess = () => { casCount = c.result || 0; updateCasHud(); };
+        res(casDB);
+      };
+      req.onerror = () => res(null);
+    });
+  }
+  function casGet(hash) {
+    if (!casDB || !hash) return Promise.resolve(null);
+    return new Promise(res => {
+      try {
+        const r = casDB.transaction('obj', 'readonly').objectStore('obj').get(hash);
+        r.onsuccess = () => res(r.result || null);
+        r.onerror = () => res(null);
+      } catch (e) { res(null); }
+    });
+  }
+  async function casPut(hash, txt) {
+    if (!casDB || !hash || !txt) return false;
+    const full = await sha256Text(txt);
+    if ((hash.length === 64 && full !== hash) || (hash.length === 12 && !full.startsWith(hash))) return false;
+    try {
+      const tx = casDB.transaction('obj', 'readwrite');
+      tx.objectStore('obj').put(txt, hash);
+      if (hash.length !== 64) tx.objectStore('obj').put(txt, full);
+      tx.oncomplete = () => {
+        const c = casDB.transaction('obj', 'readonly').objectStore('obj').count();
+        c.onsuccess = () => { casCount = c.result || casCount; updateCasHud(); };
+      };
+      return true;
+    } catch (e) { return false; }
+  }
+
+  async function handleMeshMsg(m, via, dc) {
+    if (!m || !m.from || m.from === liveId) return;
+    if (m.to && m.to !== liveId) return;
+    let p = p2pPeers.get(m.from);
+    if (!p) { p = { pc: null, dc: dc || null, transport: via, lastSeen: Date.now() }; p2pPeers.set(m.from, p); }
+    else { p.lastSeen = Date.now(); if (dc) { p.dc = dc; p.transport = 'WEBRTC'; } }
+    updateCasHud();
+    if (m.t === 'WANT' && m.h) {
+      const hit = await casGet(m.h);
+      if (hit) {
+        const out = JSON.stringify({ t: 'OBJ', h: m.h, s: hit, from: liveId, to: m.from });
+        if (dc && dc.readyState === 'open') dc.send(out);
+        else if (meshBC) meshBC.postMessage(out);
+      }
+    } else if (m.t === 'OBJ' && m.h && typeof m.s === 'string') {
+      if (await casPut(m.h, m.s)) {
+        const waiters = pendingWants.get(m.h);
+        if (waiters) { pendingWants.delete(m.h); waiters.forEach(fn => fn(m.s)); }
+      }
+    }
+  }
+
+  if (meshBC) {
+    meshBC.onmessage = ev => { try { handleMeshMsg(JSON.parse(ev.data), 'LOCAL', null); } catch (e) {} };
+  }
+
+  function waitIceComplete(pc) {
+    if (pc.iceGatheringState === 'complete') return Promise.resolve();
+    return new Promise(res => {
+      const t = setTimeout(res, 1600);
+      pc.addEventListener('icegatheringstatechange', () => {
+        if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); }
+      });
+    });
+  }
+
+  function wireDC(peerId, pc, dc) {
+    dc.onopen = () => {
+      p2pPeers.set(peerId, { pc, dc, transport: 'WEBRTC', lastSeen: Date.now() });
+      delete myOffers[peerId];
+      updateCasHud();
+    };
+    dc.onclose = () => { p2pPeers.delete(peerId); updateCasHud(); };
+    dc.onmessage = e => { try { handleMeshMsg(JSON.parse(e.data), 'WEBRTC', dc); } catch (err) {} };
+  }
+
+  function p2pWant(hash) {
+    let open = [];
+    p2pPeers.forEach(p => { if (p.dc && p.dc.readyState === 'open') open.push(p.dc); });
+    if (!open.length && !meshBC) return Promise.resolve(null);
+    return new Promise(res => {
+      const timer = setTimeout(() => { pendingWants.delete(hash); res(null); }, 450);
+      const list = pendingWants.get(hash) || [];
+      list.push(txt => { clearTimeout(timer); res(txt); });
+      pendingWants.set(hash, list);
+      const req = JSON.stringify({ t: 'WANT', h: hash, from: liveId });
+      if (meshBC) meshBC.postMessage(req);
+      open.forEach(dc => { try { dc.send(req); } catch (e) {} });
+    });
+  }
+
+  async function p2pAnnounce() {
+    if (meshBC) meshBC.postMessage(JSON.stringify({ t: 'HELLO', from: liveId }));
+    if (typeof RTCPeerConnection === 'undefined') return;
+    try {
+      const r = await fetch('/api/p2p/signal?id=' + encodeURIComponent(liveId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ts: Date.now(), offers: myOffers, answers: myAnswers })
+      });
+      if (!r.ok) return;
+      const d = await r.json();
+      if (!d || !Array.isArray(d.peers)) return;
+      const now = Date.now();
+      for (const [pid, raw] of d.peers) {
+        if (!pid || pid === liveId) continue;
+        let env = null;
+        try { env = JSON.parse(raw); } catch (e) { continue; }
+        if (!env || (env.ts && now - env.ts > 45000)) continue;
+        const cur = p2pPeers.get(pid);
+        if (cur && cur.dc && cur.dc.readyState === 'open') continue;
+
+        if (env.answers && env.answers[liveId] && rtcPending.has(pid)) {
+          const st = rtcPending.get(pid);
+          if (st.role === 'offerer' && st.pc.signalingState === 'have-local-offer') {
+            await st.pc.setRemoteDescription(env.answers[liveId]);
+          }
+        }
+        if (env.offers && env.offers[liveId] && !rtcPending.has(pid)) {
+          const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+          rtcPending.set(pid, { pc, role: 'answerer' });
+          pc.ondatachannel = ev => wireDC(pid, pc, ev.channel);
+          await pc.setRemoteDescription(env.offers[liveId]);
+          const ans = await pc.createAnswer();
+          await pc.setLocalDescription(ans);
+          await waitIceComplete(pc);
+          myAnswers[pid] = pc.localDescription;
+        }
+        if (liveId < pid && !rtcPending.has(pid) && rtcPending.size < 4) {
+          const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+          const dc = pc.createDataChannel('hx-p2p-v1');
+          rtcPending.set(pid, { pc, role: 'offerer' });
+          wireDC(pid, pc, dc);
+          const off = await pc.createOffer();
+          await pc.setLocalDescription(off);
+          await waitIceComplete(pc);
+          myOffers[pid] = pc.localDescription;
+        }
+      }
+    } catch (e) {}
+  }
+  hxCasOpen().then(() => { setTimeout(p2pAnnounce, 600); setInterval(p2pAnnounce, 6000); });
+
+  let activeDom = 'all';
+  let activeModIdx = 0;
+  let activeTerm = null;
+  let activeLine = 0;
+  let viewMode = 'local'; // 'local' | 'global'
+  let twoHop = false;
+
+  // Graph layout state
+  let nodes = [];
+  let edges = [];
+  let hoverNode = null;
+  let cam = { x: 0, y: 0, s: 1 };
+  let dragging = false, dragStart = { x: 0, y: 0 }, camStart = { x: 0, y: 0 };
+  let animT = 0;
+  let liveByMod = new Map(); // modPath -> count
+  let liveTotal = 1;
+  const liveBC = ('BroadcastChannel' in window) ? new BroadcastChannel('hx-live') : null;
+  function applyLive(pairs) {
+    const m = new Map();
+    pairs.forEach(([id, node]) => {
+      if (!node) return;
+      const norm = node.endsWith('.cub') ? node.slice(0, -4) + '.hypercubical' : node;
+      m.set(norm, (m.get(norm) || 0) + 1);
+    });
+    liveByMod = m;
+    liveTotal = Math.max(1, pairs.length);
+    const el = document.getElementById('kgLiveBadge');
+    if (el) el.textContent = `● ${liveTotal} live`;
+  }
+  function sendPulse(modPath) {
+    if (!modPath) return;
+    fetch('/api/live/pulse?id=' + encodeURIComponent(liveId) + '&node=' + encodeURIComponent(modPath))
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d && Array.isArray(d.live)) { applyLive(d.live); if (liveBC) liveBC.postMessage({ live: d.live }); } })
+      .catch(() => {});
+  }
+  if (liveBC) liveBC.onmessage = e => { if (e.data && Array.isArray(e.data.live)) applyLive(e.data.live); };
+  window.addEventListener('pagehide', () => {
+    try { navigator.sendBeacon('/api/live/pulse?id=' + encodeURIComponent(liveId) + '&node='); } catch (e) {}
+  });
+  setInterval(() => { if (KG && KG.mods[activeModIdx]) sendPulse(KG.mods[activeModIdx][0]); }, 12000);
+
+  const canvas = document.getElementById('kgCanvas');
+  const ctx = canvas.getContext('2d');
+  const stage = document.getElementById('kgStage');
+  const tip = document.getElementById('kgTip');
+  const searchEl = document.getElementById('kgSearch');
+  const listEl = document.getElementById('kgList');
+  const countEl = document.getElementById('kgCount');
+  const rootEl = document.getElementById('kgRootHash');
+  const insTitle = document.getElementById('insTitle');
+  const insMeta = document.getElementById('insMeta');
+  const insSummary = document.getElementById('insSummary');
+  const insDeps = document.getElementById('insDeps');
+  const insCode = document.getElementById('insCode');
+
+  const KEYWORDS = new Set(['import','data','record','let','in','where','if','then','else','λ','forall','Type','Path','refl','transport','hcomp','comp','Glue','unglue','ua']);
+
+  function resize() {
+    const r = stage.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.floor(r.width * dpr));
+    canvas.height = Math.max(1, Math.floor(r.height * dpr));
+  }
+  new ResizeObserver(resize).observe(stage);
+  resize();
+
+  function isDark() {
+    return document.documentElement.classList.contains('dark');
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function renderList() {
+    if (!KG) return;
+    const q = searchEl.value.trim().toLowerCase();
+    const out = [];
+    if (!q) {
+      KG.mods.forEach((m, idx) => {
+        if (activeDom !== 'all' && m[2] !== activeDom) return;
+        out.push({ kind: 'm', name: m[0], sub: m[3] || `${m[6]} defs · ${m[1]}`, modIdx: idx, line: 0 });
+      });
+      countEl.textContent = `${out.length} modules · ${Object.keys(KG.terms).length.toLocaleString()} terms`;
+    } else {
+      // Match modules first, then terms (capped at 160 for instant DOM speed)
+      KG.mods.forEach((m, idx) => {
+        if (activeDom !== 'all' && m[2] !== activeDom) return;
+        if (m[0].toLowerCase().includes(q) || (m[3] && m[3].toLowerCase().includes(q))) {
+          out.push({ kind: 'm', name: m[0], sub: m[3] || `${m[6]} defs`, modIdx: idx, line: 0 });
+        }
+      });
+      let termHits = 0;
+      for (const [tname, tinfo] of Object.entries(KG.terms)) {
+        const m = KG.mods[tinfo[0]];
+        if (activeDom !== 'all' && m[2] !== activeDom) continue;
+        if (tname.toLowerCase().includes(q)) {
+          out.push({ kind: tinfo[2], name: tname, sub: `${m[0]}:${tinfo[1]}`, modIdx: tinfo[0], line: tinfo[1], term: tname });
+          termHits++;
+          if (termHits >= 160) break;
+        }
+      }
+      countEl.textContent = `${out.length} matches`;
+    }
+
+    const frag = document.createDocumentFragment();
+    out.forEach(item => {
+      const div = document.createElement('div');
+      div.className = 'kg-item' + (item.modIdx === activeModIdx && (!activeTerm ? item.kind === 'm' : item.term === activeTerm) ? ' on' : '');
+      const bLabel = item.kind === 'm' ? 'MOD' : item.kind === 'p' ? 'THM' : item.kind === 't' ? 'TYPE' : 'DEF';
+      div.innerHTML = `<div class="kg-item-top"><span class="kg-item-name">${escHtml(item.name)}</span><span class="kg-badge ${item.kind}">${bLabel}</span></div><div class="kg-item-sub">${escHtml(item.sub)}</div>`;
+      div.onclick = () => selectNode(item.modIdx, item.term || null, item.line || 0);
+      frag.appendChild(div);
+    });
+    listEl.textContent = '';
+    listEl.appendChild(frag);
+  }
+
+  function buildGraph() {
+    if (!KG) return;
+    nodes = [];
+    edges = [];
+    if (viewMode === 'global') {
+      // Cluster all 298 modules by domain in clean concentric rings
+      const domains = ['lib', 'chem', 'neuro', 'phys', 'fold', 'lqg'];
+      const centers = {
+        lib:   { x: 0,    y: 0,    r: 220 },
+        chem:  { x: 430,  y: -120, r: 150 },
+        neuro: { x: -390, y: -150, r: 85  },
+        phys:  { x: -360, y: 170,  r: 65  },
+        fold:  { x: 350,  y: 210,  r: 45  },
+        lqg:   { x: 140,  y: 270,  r: 45  },
+      };
+      const byD = {};
+      domains.forEach(d => byD[d] = []);
+      KG.mods.forEach((m, idx) => (byD[m[2]] || byD.lib).push(idx));
+      const posByIdx = new Map();
+      domains.forEach(d => {
+        const arr = byD[d];
+        const c = centers[d];
+        arr.forEach((idx, k) => {
+          const ring = Math.floor(Math.sqrt(k));
+          const ang = k * 2.39996; // golden angle phyllotaxis
+          const rad = arr.length === 1 ? 0 : Math.min(c.r, 18 + Math.sqrt(k) * (c.r / Math.sqrt(arr.length)));
+          const x = c.x + Math.cos(ang) * rad;
+          const y = c.y + Math.sin(ang) * rad;
+          const m = KG.mods[idx];
+          const node = {
+            id: idx, label: m[0], short: m[0].split('/').pop().replace(/\.(hypercubical|cub)$/,''),
+            domain: m[2], x, y, r: idx === activeModIdx ? 8 : Math.min(6.5, 3 + Math.log2(1 + m[4].length + m[5].length)),
+            role: idx === activeModIdx ? 'center' : 'mod'
+          };
+          nodes.push(node);
+          posByIdx.set(idx, node);
+        });
+      });
+      KG.mods.forEach((m, idx) => {
+        const a = posByIdx.get(idx);
+        m[4].forEach(imp => {
+          const b = posByIdx.get(imp);
+          if (a && b) edges.push({ from: a, to: b, kind: (idx === activeModIdx ? 'out' : imp === activeModIdx ? 'in' : 'bg') });
+        });
+      });
+      fitView();
+      return;
+    }
+
+    // Local neighborhood: centered on activeModIdx
+    // Left arc = imports (dependencies, blue), Right arc = reverse dependents (used-by, pink)
+    const centerMod = KG.mods[activeModIdx];
+    const centerNode = {
+      id: activeModIdx, label: centerMod[0], short: centerMod[0],
+      domain: centerMod[2], x: 0, y: 0, r: 13, role: 'center'
+    };
+    const byId = new Map([[activeModIdx, centerNode]]);
+    nodes.push(centerNode);
+
+    const imps = centerMod[4];
+    const revs = centerMod[5];
+
+    function placeArc(arr, side, radius, role) {
+      const n = arr.length;
+      if (!n) return;
+      const spread = Math.min(Math.PI * 0.82, Math.max(0.45, n * 0.22));
+      const baseAngle = side < 0 ? Math.PI : 0;
+      arr.forEach((idx, k) => {
+        if (byId.has(idx)) return;
+        const t = n === 1 ? 0 : (k / (n - 1) - 0.5);
+        const ang = baseAngle + t * spread;
+        const rOff = radius + (n > 10 && k % 2 === 1 ? 48 : 0);
+        const m = KG.mods[idx];
+        const nd = {
+          id: idx, label: m[0], short: m[0],
+          domain: m[2], x: Math.cos(ang) * rOff, y: Math.sin(ang) * rOff,
+          r: 8, role
+        };
+        byId.set(idx, nd);
+        nodes.push(nd);
+      });
+    }
+
+    placeArc(imps, -1, 220, 'dep');
+    placeArc(revs, 1, 220, 'rev');
+
+    imps.forEach(idx => {
+      if (byId.has(idx)) edges.push({ from: centerNode, to: byId.get(idx), kind: 'out' });
+    });
+    revs.forEach(idx => {
+      if (byId.has(idx)) edges.push({ from: byId.get(idx), to: centerNode, kind: 'in' });
+    });
+
+    if (twoHop) {
+      const hop2Dep = [];
+      const hop2Rev = [];
+      imps.forEach(idx => KG.mods[idx][4].forEach(i2 => { if (!byId.has(i2) && hop2Dep.length < 18) hop2Dep.push(i2); }));
+      revs.forEach(idx => KG.mods[idx][5].forEach(r2 => { if (!byId.has(r2) && hop2Rev.length < 18) hop2Rev.push(r2); }));
+      placeArc(hop2Dep, -1, 380, 'dep2');
+      placeArc(hop2Rev, 1, 380, 'rev2');
+      imps.forEach(idx => {
+        const a = byId.get(idx);
+        KG.mods[idx][4].forEach(i2 => { if (byId.has(i2)) edges.push({ from: a, to: byId.get(i2), kind: 'out2' }); });
+      });
+      revs.forEach(idx => {
+        const a = byId.get(idx);
+        KG.mods[idx][5].forEach(r2 => { if (byId.has(r2)) edges.push({ from: byId.get(r2), to: a, kind: 'in2' }); });
+      });
+    }
+
+    fitView();
+  }
+
+  function fitView() {
+    if (!nodes.length) return;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    nodes.forEach(n => {
+      minX = Math.min(minX, n.x - 90);
+      maxX = Math.max(maxX, n.x + 90);
+      minY = Math.min(minY, n.y - 40);
+      maxY = Math.max(maxY, n.y + 40);
+    });
+    const r = stage.getBoundingClientRect();
+    const w = Math.max(200, r.width - 60);
+    const h = Math.max(200, r.height - 90);
+    const s = Math.min(1.35, Math.min(w / Math.max(120, maxX - minX), h / Math.max(120, maxY - minY)));
+    cam.s = s;
+    cam.x = -(minX + maxX) / 2;
+    cam.y = -(minY + maxY) / 2;
+  }
+
+  function worldToScreen(x, y) {
+    const r = stage.getBoundingClientRect();
+    return {
+      x: (x + cam.x) * cam.s + r.width / 2,
+      y: (y + cam.y) * cam.s + r.height / 2,
+    };
+  }
+  function screenToWorld(sx, sy) {
+    const r = stage.getBoundingClientRect();
+    return {
+      x: (sx - r.width / 2) / cam.s - cam.x,
+      y: (sy - r.height / 2) / cam.s - cam.y,
+    };
+  }
+
+  function draw() {
+    animT += 0.012;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const dark = isDark();
+    const bg = dark ? '#000000' : '#ffffff';
+    const ink = dark ? '#ffffff' : '#000000';
+    const pink = '#ff0a94';
+    const blue = dark ? '#4da3ff' : '#1a73e8';
+    const faint = dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.10)';
+
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.scale(dpr, dpr);
+
+    // Draw edges
+    edges.forEach((e, ei) => {
+      const a = worldToScreen(e.from.x, e.from.y);
+      const b = worldToScreen(e.to.x, e.to.y);
+      const isHot = hoverNode && (e.from === hoverNode || e.to === hoverNode);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      if (e.kind === 'bg') {
+        ctx.strokeStyle = isHot ? pink : faint;
+        ctx.lineWidth = isHot ? 1.5 : 0.7;
+      } else if (e.kind === 'out' || e.kind === 'out2') {
+        ctx.strokeStyle = blue;
+        ctx.globalAlpha = e.kind === 'out' ? (isHot ? 1 : 0.78) : 0.35;
+        ctx.lineWidth = e.kind === 'out' ? 1.6 : 1;
+      } else {
+        ctx.strokeStyle = pink;
+        ctx.globalAlpha = e.kind === 'in' ? (isHot ? 1 : 0.78) : 0.35;
+        ctx.lineWidth = e.kind === 'in' ? 1.6 : 1;
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // Active-pair interaction pulse on primary local edges
+      if (e.kind === 'out' || e.kind === 'in') {
+        const u = (animT * 0.45 + ei * 0.17) % 1;
+        const px = a.x + (b.x - a.x) * u;
+        const py = a.y + (b.y - a.y) * u;
+        ctx.beginPath();
+        ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = e.kind === 'out' ? blue : pink;
+        ctx.fill();
+      }
+    });
+
+    // Draw nodes
+    ctx.font = '600 11px ui-monospace, "SF Mono", Menlo, monospace';
+    ctx.textBaseline = 'middle';
+    nodes.forEach(n => {
+      const p = worldToScreen(n.x, n.y);
+      const isCenter = n.role === 'center';
+      const isHover = n === hoverNode;
+      const rad = n.r * Math.max(0.75, Math.min(1.25, cam.s));
+
+      const liveCnt = liveByMod.get(n.label) || 0;
+      if (liveCnt > 0) {
+        const pulseR = rad + 5 + ((animT * 18) % 16);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, pulseR, 0, Math.PI * 2);
+        ctx.strokeStyle = pink;
+        ctx.globalAlpha = Math.max(0.08, 1 - (pulseR - rad - 5) / 16);
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+      if (isCenter) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, rad + 6 + Math.sin(animT * 3) * 1.5, 0, Math.PI * 2);
+        ctx.strokeStyle = pink;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
+      ctx.fillStyle = isCenter ? pink : (n.role === 'dep' || n.role === 'dep2') ? blue : (n.role === 'rev' || n.role === 'rev2') ? pink : (n.domain === 'neuro' || n.domain === 'phys' ? pink : blue);
+      ctx.fill();
+      if (isHover || isCenter) {
+        ctx.strokeStyle = ink;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      if (viewMode === 'local' || isCenter || isHover || cam.s > 1.0) {
+        const lbl = n.short;
+        ctx.fillStyle = isCenter ? pink : ink;
+        const alignLeft = n.x >= 0;
+        ctx.textAlign = isCenter ? 'center' : (alignLeft ? 'left' : 'right');
+        const tx = isCenter ? p.x : (alignLeft ? p.x + rad + 6 : p.x - rad - 6);
+        const ty = isCenter ? p.y - rad - 12 : p.y;
+        ctx.fillText(lbl, tx, ty);
+      }
+    });
+
+    requestAnimationFrame(draw);
+  }
+
+  function hitTest(sx, sy) {
+    let best = null, bestD = 18;
+    for (const n of nodes) {
+      const p = worldToScreen(n.x, n.y);
+      const d = Math.hypot(p.x - sx, p.y - sy);
+      if (d < bestD) { best = n; bestD = d; }
+    }
+    return best;
+  }
+
+  canvas.addEventListener('mousedown', e => {
+    const r = canvas.getBoundingClientRect();
+    const hit = hitTest(e.clientX - r.left, e.clientY - r.top);
+    if (hit) {
+      selectNode(hit.id, null, 0);
+      return;
+    }
+    dragging = true;
+    dragStart = { x: e.clientX, y: e.clientY };
+    camStart = { x: cam.x, y: cam.y };
+  });
+  window.addEventListener('mousemove', e => {
+    const r = canvas.getBoundingClientRect();
+    if (dragging) {
+      cam.x = camStart.x + (e.clientX - dragStart.x) / cam.s;
+      cam.y = camStart.y + (e.clientY - dragStart.y) / cam.s;
+      return;
+    }
+    if (e.target !== canvas) { hoverNode = null; tip.style.display = 'none'; return; }
+    const sx = e.clientX - r.left, sy = e.clientY - r.top;
+    const hit = hitTest(sx, sy);
+    hoverNode = hit;
+    canvas.style.cursor = hit ? 'pointer' : 'grab';
+    if (hit) {
+      const m = KG.mods[hit.id];
+      tip.innerHTML = `<strong>${escHtml(m[0])}</strong><br><span style="color:var(--pink)">sha256: ${m[1]}</span> · ${m[6]} defs<br>${escHtml(m[3] || '')}`;
+      tip.style.left = Math.min(r.width - 310, sx + 14) + 'px';
+      tip.style.top = Math.max(10, sy - 10) + 'px';
+      tip.style.display = 'block';
+    } else {
+      tip.style.display = 'none';
+    }
+  });
+  window.addEventListener('mouseup', () => { dragging = false; });
+  canvas.addEventListener('wheel', e => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.12 : 0.89;
+    cam.s = Math.max(0.25, Math.min(3.5, cam.s * factor));
+  }, { passive: false });
+
+  function highlightLine(raw, lineNum) {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith('--')) return `<span class="tok-com">${escHtml(raw)}</span>`;
+    // Tokenize identifiers and operators
+    const parts = raw.split(/([A-Za-z][A-Za-z0-9_'\-]*|≡|→|λ|×|Σ|Π)/g);
+    let firstIdentDone = false;
+    return parts.map(tok => {
+      if (!tok) return '';
+      if (tok === '≡' || tok === '→' || tok === 'λ' || tok === '×' || tok === 'Σ' || tok === 'Π') {
+        return `<span class="tok-op">${tok}</span>`;
+      }
+      if (/^[A-Za-z]/.test(tok)) {
+        if (KEYWORDS.has(tok)) return `<span class="tok-kw">${escHtml(tok)}</span>`;
+        if (!firstIdentDone && raw.startsWith(tok) && (raw.includes(' : ') || raw.includes(' = '))) {
+          firstIdentDone = true;
+          return `<span class="tok-def">${escHtml(tok)}</span>`;
+        }
+        firstIdentDone = true;
+        if (KG && KG.terms[tok]) {
+          return `<span class="tok-ref" data-term="${escHtml(tok)}">${escHtml(tok)}</span>`;
+        }
+      }
+      return escHtml(tok);
+    }).join('');
+  }
+
+  async function loadModuleSource(path) {
+    if (modCache.has(path)) return modCache.get(path);
+    const idx = modByPath.get(path);
+    const hash = (idx != null && KG && KG.mods[idx]) ? KG.mods[idx][1] : null;
+    if (hash) {
+      const local = await casGet(hash);
+      if (local) { modCache.set(path, local); return local; }
+      const peerHit = await p2pWant(hash);
+      if (peerHit) { modCache.set(path, peerHit); return peerHit; }
+    }
+    const res = await fetch('/api/kg/module?path=' + encodeURIComponent(path));
+    if (!res.ok) return `-- Unable to load ${path} (${res.status})`;
+    const txt = await res.text();
+    modCache.set(path, txt);
+    if (hash) casPut(hash, txt);
+    return txt;
+  }
+
+  async function selectNode(modIdx, termName, lineNum) {
+    activeModIdx = modIdx;
+    activeTerm = termName;
+    activeLine = lineNum || 0;
+    const m = KG.mods[modIdx];
+
+    // Update URL cleanly without reload
+    const url = new URL(location.href);
+    if (termName) { url.searchParams.set('term', termName); url.searchParams.delete('mod'); }
+    else { url.searchParams.set('mod', m[0]); url.searchParams.delete('term'); }
+    history.replaceState(null, '', url.toString());
+
+    renderList();
+    buildGraph();
+
+    insTitle.innerHTML = termName
+      ? `<span style="color:var(--pink)">${escHtml(termName)}</span> <span style="font-size:11px;color:var(--muted)">in ${escHtml(m[0])}</span>`
+      : `${escHtml(m[0])}`;
+    insMeta.innerHTML = `<span class="kg-hash">sha256: ${m[1]}</span><span>domain: <strong>${m[2]}</strong></span><span>${m[6]} defs</span><span>${(m[7]/1024).toFixed(1)} KB</span>`;
+    insSummary.textContent = m[3] || '';
+
+    // Dependency chips
+    insDeps.textContent = '';
+    if (m[4].length) {
+      const r1 = document.createElement('div');
+      r1.className = 'kg-dep-row';
+      r1.innerHTML = '<span class="kg-dep-lbl" style="color:var(--blue)">imports →</span>';
+      m[4].forEach(idx => {
+        const b = document.createElement('button');
+        b.className = 'kg-dep-chip out';
+        b.textContent = KG.mods[idx][0];
+        b.onclick = () => selectNode(idx, null, 0);
+        r1.appendChild(b);
+      });
+      insDeps.appendChild(r1);
+    }
+    if (m[5].length) {
+      const r2 = document.createElement('div');
+      r2.className = 'kg-dep-row';
+      r2.innerHTML = '<span class="kg-dep-lbl" style="color:var(--pink)">← used by</span>';
+      m[5].slice(0, 18).forEach(idx => {
+        const b = document.createElement('button');
+        b.className = 'kg-dep-chip in';
+        b.textContent = KG.mods[idx][0];
+        b.onclick = () => selectNode(idx, null, 0);
+        r2.appendChild(b);
+      });
+      if (m[5].length > 18) {
+        const more = document.createElement('span');
+        more.style.color = 'var(--muted)';
+        more.textContent = `+${m[5].length - 18} more`;
+        r2.appendChild(more);
+      }
+      insDeps.appendChild(r2);
+    }
+
+    insCode.innerHTML = '<div style="padding:14px;color:var(--muted)">Reading content-addressed source from store…</div>';
+    const src = await loadModuleSource(m[0]);
+    const lines = src.split('\n');
+    const html = lines.map((ln, i) => {
+      const num = i + 1;
+      const hl = activeLine && num >= activeLine && num <= activeLine + 1 ? ' hl' : '';
+      return `<div class="kg-line${hl}" id="kgl-${num}"><span class="kg-ln">${num}</span><span class="kg-src">${highlightLine(ln, num)}</span></div>`;
+    }).join('');
+    insCode.innerHTML = html;
+
+    if (activeLine) {
+      const target = document.getElementById('kgl-' + activeLine);
+      if (target) target.scrollIntoView({ block: 'center', behavior: 'instant' });
+    } else {
+      insCode.scrollTop = 0;
+    }
+  }
+
+  insCode.addEventListener('click', e => {
+    const ref = e.target.closest('.tok-ref');
+    if (!ref) return;
+    const t = ref.getAttribute('data-term');
+    if (KG && KG.terms[t]) {
+      const info = KG.terms[t];
+      selectNode(info[0], t, info[1]);
+    }
+  });
+
+  document.getElementById('kgFilters').addEventListener('click', e => {
+    const btn = e.target.closest('.kg-pill');
+    if (!btn) return;
+    activeDom = btn.getAttribute('data-dom');
+    document.querySelectorAll('.kg-pill').forEach(b => b.classList.toggle('on', b === btn));
+    renderList();
+  });
+
+  searchEl.addEventListener('input', () => renderList());
+  document.getElementById('btnLocal').onclick = function() {
+    viewMode = 'local';
+    this.classList.add('on');
+    document.getElementById('btnGlobal').classList.remove('on');
+    buildGraph();
+  };
+  document.getElementById('btnGlobal').onclick = function() {
+    viewMode = 'global';
+    this.classList.add('on');
+    document.getElementById('btnLocal').classList.remove('on');
+    buildGraph();
+  };
+  document.getElementById('btnDepth').onclick = function() {
+    twoHop = !twoHop;
+    this.classList.toggle('on', twoHop);
+    buildGraph();
+  };
+  document.getElementById('btnZIn').onclick = () => { cam.s = Math.min(3.5, cam.s * 1.25); };
+  document.getElementById('btnZOut').onclick = () => { cam.s = Math.max(0.25, cam.s * 0.8); };
+  document.getElementById('btnFit').onclick = fitView;
+
+  const shellEl = document.getElementById('kgShell');
+  const srcTabEl = document.getElementById('kgSrcTab');
+  const btnIndexEl = document.getElementById('kgBtnIndex');
+  function setPane(p) {
+    shellEl.setAttribute('data-pane', p);
+    if (btnIndexEl) {
+      btnIndexEl.classList.toggle('on', p === 'index');
+      btnIndexEl.textContent = p === 'index' ? '✕ Back to Graph + Code' : '⌕ Search 298 Modules';
+    }
+    if (p === 'split') { resize(); setTimeout(fitView, 25); }
+  }
+  if (btnIndexEl) {
+    btnIndexEl.onclick = () => setPane(shellEl.getAttribute('data-pane') === 'index' ? 'split' : 'index');
+  }
+  const origSelectNode = selectNode;
+  selectNode = async function(modIdx, termName, lineNum) {
+    if (window.innerWidth <= 960 && shellEl.getAttribute('data-pane') === 'index') setPane('split');
+    await origSelectNode(modIdx, termName, lineNum);
+    if (KG && KG.mods[modIdx]) sendPulse(KG.mods[modIdx][0]);
+    if (KG && KG.mods[modIdx] && srcTabEl) {
+      srcTabEl.textContent = termName ? `${termName} · ${KG.mods[modIdx][0]}` : KG.mods[modIdx][0];
+    }
+  };
+
+  fetch('/api/kg/index')
+    .then(r => r.json())
+    .then(data => {
+      KG = data;
+      KG.mods.forEach((m, i) => modByPath.set(m[0], i));
+      rootEl.textContent = 'root:' + KG.root;
+      const qs = new URLSearchParams(location.search);
+      const qTerm = qs.get('term');
+      const qMod = qs.get('mod');
+      if (qTerm && KG.terms[qTerm]) {
+        const info = KG.terms[qTerm];
+        selectNode(info[0], qTerm, info[1]);
+      } else if (qMod) {
+        const norm = qMod.endsWith('.cub') ? qMod.slice(0,-4)+'.hypercubical' : qMod;
+        if (modByPath.has(norm)) selectNode(modByPath.get(norm), null, 0);
+        else selectNode(modByPath.get('neuro/lyapunov.hypercubical') ?? 0, null, 0);
+      } else {
+        const defIdx = modByPath.get('neuro/lyapunov.hypercubical') ?? modByPath.get('lib/compress.hypercubical') ?? 0;
+        selectNode(defIdx, null, 0);
+      }
+      requestAnimationFrame(draw);
+    })
+    .catch(err => {
+      countEl.textContent = 'Error loading Knowledge Graph';
+      console.error(err);
+    });
+})();
+</script>
+</body>
+</html>

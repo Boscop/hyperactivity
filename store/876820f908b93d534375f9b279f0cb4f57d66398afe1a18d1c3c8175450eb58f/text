@@ -1,0 +1,15 @@
+-- `hyperactive peer-pull PEER_URL MODULE_PATH`: pull a module from a live peer, verify with local cubical kernel, then record
+hy-peer-pull : List Word → List Word → List (List Word) → Proc W Unit
+hy-peer-pull st m (cons url (cons path rs)) =
+  let tmp = list-append st "/peer-pull.tmp" in
+  bind (h-mkdir st) (λ mk →
+  bind (h-run (cons "/usr/bin/env" (cons "curl" (cons "-fsS" (cons "-o" (cons tmp (cons (list-append url (list-append "/source/text?path=" (h-hex path))) nil))))))) (λ c1 →
+  bind (if weq c1 #0 then ret {lzero} {W} #0
+        else h-run (cons "/usr/bin/env" (cons "curl" (cons "-fsS" (cons "-o" (cons tmp (cons (list-append url (list-append "/api/kg/module?path=" path)) nil))))))) (λ c2 →
+  if h-not (weq c2 #0) then bind (h-unlink tmp) (λ u → h-fail (list-append "hyperactive peer-pull: module not exposed on peer: " path))
+  else bind (h-capture (cons m (cons "--read" (cons "--with" (cons path (cons tmp (cons path nil))))))) (λ chk →
+    if h-not (weq (fst chk) #0)
+    then bind (h-unlink tmp) (λ u → h-fail (list-append "hyperactive peer-pull: rejected by local cubical kernel (peer-forged-rejected): " (snd chk)))
+    else bind (h-capture (cons m (cons "--record" (cons path (cons tmp nil))))) (λ rc →
+      bind (h-unlink tmp) (λ u → h-out (h-line (list-append "pulled & verified from peer: " path))))))))
+hy-peer-pull st m l = h-fail "hyperactive peer-pull PEER_URL MODULE_PATH"
