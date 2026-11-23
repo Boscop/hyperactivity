@@ -1,4 +1,14 @@
 <p align="center">
+  <a href="https://hyperactivity.ai">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://hyperactivity.ai/logo.svg?v=hopf5" />
+      <source media="(prefers-color-scheme: light)" srcset="https://hyperactivity.ai/logo-light.svg?v=hopf5" />
+      <img src="https://hyperactivity.ai/logo.svg?v=hopf5" alt="hyperactivity — 4D Hopf Fibration S³ → S²" width="108" />
+    </picture>
+  </a>
+</p>
+
+<p align="center">
   <a href="https://hyperactivity.ai/nets">
     <img src="https://hyperactivity.ai/readme-hero.svg" alt="Hyperactivity — Active Pair Reduction and Guarded Corecursion Interaction Net" width="100%" />
   </a>
