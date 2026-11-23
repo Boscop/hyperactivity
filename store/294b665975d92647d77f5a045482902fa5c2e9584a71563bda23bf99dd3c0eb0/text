@@ -1,0 +1,190 @@
+# Computation from First Principles on Interaction Nets
+
+A ground-up introduction to **Hyperactivity** and interaction-net computation: starting from nothing, we build natural numbers, addition, multiplication, binary ripple-carry arithmetic, parallel sorting, functions, optimal sharing, and finally cubical paths and univalence.
+
+Every diagram below is **live**. Click any glowing pink wire (`●═●`) to fire a single local rewrite, press **Play** to watch parallel reduction, or **edit the expression** in any box (`add 4 5`, `mul 3 2`, `badd 7 1`, `sort [9, 2, 7, 1]`) and hit **Compile**.
+
+---
+
+## 1. Two Primitives: Values and Operations
+
+In a conventional computer, a CPU fetches instructions one by one from memory, mutating a global state. In **Hyperactivity**, there is no global clock, no call stack, and no garbage collector. Computation is a graph of **cells** connected by **wires**.
+
+Every cell has one **principal port** (the dot on its edge) and zero or more **auxiliary ports**, and belongs to one of two polarities:
+
+- **Value** (`V_*`, pink octagon) — data constructors: numbers, bits, booleans, pairs, functions.
+- **Operation** (`O_*`, blue rectangle) — consumers and eliminators: `+`, `×`, `cmp`, `app`, `δ` (duplicate), `ε` (erase).
+
+Whenever a Value's principal port meets an Operation's principal port head-to-head, they form an **active pair** (`●═●`). A rewrite touches **only those two cells and their immediate wires** — so disjoint active pairs anywhere in the graph can fire simultaneously with zero locks and guaranteed identical results (confluence).
+
+---
+
+## 2. Natural Numbers and Addition
+
+How do you build numbers from scratch with no hardware integers? Peano's definition uses just two Value cells:
+
+- **`Z`** — zero (0 auxiliary ports)
+- **`S`** — successor (1 auxiliary port pointing to the previous number)
+
+So `0` is `Z`, `1` is `S(Z)`, `2` is `S(S(Z))`, and `3` is `S(S(S(Z)))`.
+
+Now define **addition** (`+`, an Operation cell `O_ADD`) with just **two local interaction rules**:
+
+1. **`+ ⋈ Z ⟶`** annihilate both cells and wire the second argument `y` straight to the output (`0 + y = y`).
+2. **`+ ⋈ S(n) ⟶ S(+ ⋈ n)`** peel one `S` off the front, wire it to the output, and push `+` one step deeper (`(n + 1) + y = (n + y) + 1`).
+
+Click **Step** or click the pink wire below to watch `add 2 3` walk down the chain of `S` cells and assemble `5`. Try editing `add 2 3` to `add 4 5` and clicking **Compile**.
+
+**[Unary Addition: `add 2 3` →](/nets?preset=add)**
+
+In Hyperactivity's surface syntax (every code block below is typechecked by `build/cubical`):
+
+```cubical
+data Nat : Set where
+  zero : Nat
+  suc  : Nat → Nat
+
+add : Nat → Nat → Nat
+add zero    y = y
+add (suc n) y = suc (add n y)
+```
+
+---
+
+## 3. Multiplication, Sharing (`δ`), and Erasure (`ε`)
+
+Addition uses each input **once**. Multiplication is different:
+
+- `0 × y = 0` — we **discard** `y`!
+- `(n + 1) × y = y + (n × y)` — we **use `y` twice**!
+
+In an interaction net, wires cannot secretly fork or dangle in midair. Copying and discarding are explicit, local cells:
+
+- **`δ` (`O_DUP`)** — duplicates a Value cell one layer at a time (`δ ⋈ S(n) ⟶ S(δ n), S(δ n)`).
+- **`ε` (`O_ERA`)** — dissolves an unused Value cell one layer at a time (`ε ⋈ S(n) ⟶ ε n`, `ε ⋈ Z ⟶` nothing).
+
+Watch `mul 2 3` below: each time `×` meets `S`, it spawns `δ` to share `3` into `+` and the next `×`; when `×` finally hits `Z`, it spawns `ε` to erase the leftover `3` cleanly with zero garbage collector.
+
+**[Multiplication via Sharing and Erasure: `mul 2 3` →](/nets?preset=mul)**
+
+---
+
+## 4. Binary Arithmetic and Ripple-Carry Waves
+
+Unary numbers take $n$ cells to represent $n$, so `add` takes $O(n)$ steps. Real hardware — and fast interaction nets — represent numbers in **binary**, using only $\lceil \log_2 n \rceil$ cells!
+
+We represent a binary number **least-significant bit (LSB) first** using three Value cells:
+
+- **`end`** — empty bit-string (`0`)
+- **`0`** — append bit `0` (multiply by 2)
+- **`1`** — append bit `1` (multiply by 2 and add 1)
+
+So `5` (`101₂`) is `1 · 0 · 1 · end` and `3` (`011₂`) is `1 · 1 · end`.
+
+First, look at **increment / carry (`+1`, `O_BINC`)**:
+- **`+1 ⋈ end ⟶ 1 · end`** (allocate a new most-significant bit)
+- **`+1 ⋈ 0 · x ⟶ 1 · x`** (carry absorbed in **1 step**!)
+- **`+1 ⋈ 1 · x ⟶ 0 · (+1 ⋈ x)`** (flip `1` to `0` and ripple the carry one bit deeper!)
+
+Binary addition (`+₂`, `O_BADD`) simply adds pairs of bits LSB-first and spawns a `+1` carry cell whenever `1 + 1 = 0 carry 1`. Watch `badd 5 3` (`101₂ + 011₂`) propagate a full ripple-carry wave across every bit to produce `1000₂ = 8` — then try `badd 7 1` or `badd 6 5`!
+
+**[Binary Ripple-Carry Addition: `badd 5 3` →](/nets?preset=badd)**
+
+---
+
+## 5. Parallel Comparison and Sorting
+
+Because disjoint active pairs never interfere, divide-and-conquer algorithms execute **automatically in parallel** on interaction nets.
+
+In `sort [3, 1, 4, 2]`, the two leaf comparisons `cmp(3, 1)` and `cmp(4, 2)` sit on completely separate wires. Press **Step** once: **both fire in the exact same depth step** ($W = 2, D = 1 \implies W/D = 2\times$ parallelism), producing `[1, 3]` and `[2, 4]`, which then merge into `[1, 2, 3, 4]`.
+
+Try editing the array to any 4 numbers like `sort [9, 2, 7, 1]` and hitting **Compile**.
+
+**[Parallel Compare-and-Swap Sort: 3, 1, 4, 2 →](/nets?preset=sort)**
+
+---
+
+## 6. Proof Content: Propositions as Types
+
+Everything up to Chapter 5 is computation. What makes **Hyperactivity** fundamentally different from an ordinary language is that **proofs are not erased comments or external tests — a proof is a first-class interaction net**.
+
+By the **Curry–Howard correspondence**:
+- A **proposition** (like `add 2 3 ≡ 5`) is a **type**.
+- A **proof** of that proposition is a **program** whose net reduces to a canonical witness (`refl`).
+- A **false claim** (like `add 2 2 ≡ 5`) has no inhabitant — reducing its equality net hits a structural mismatch (`S` vs `Z`) and emits **`⊥ (Refuted)`**.
+
+Watch `prove 2+3=5` below: first `add 2 3` reduces to `S(S(S(S(S(Z)))))`, then `≡` (`O_EQ`) peels matching `S` layers off both sides (`cong suc`) until `Z ≡ Z` emits **`refl`**. Now edit the expression to a false claim — `prove 2+2=5` — and click **Compile** to watch the machine refute it with **`⊥ (≠)`**!
+
+**[Proof Content Computing: `prove 2+3=5` →](/nets?preset=prove)**
+
+In Hyperactivity's dependent type system, equality proofs are written and checked in the exact same language:
+
+```cubical
+two-plus-three : add (suc (suc zero)) (suc (suc (suc zero))) ≡ suc (suc (suc (suc (suc zero))))
+two-plus-three = refl
+```
+
+---
+
+## 7. Proof-Carrying Data on the Network
+
+Why does proof content matter on a **decentralized network**?
+
+In an ordinary distributed system, when Peer A sends Peer B the output `[1, 2, 3, 4]`, Peer B has only two bad options: **blindly trust** Peer A, or **re-run the entire computation** from scratch.
+
+In Hyperactivity, every definition, value, and proof is **content-addressed by its cryptographic hash** (`store/<sha256>/` — the exact store serving this page). Instead of shipping a bare value, a peer ships a **dependent pair (`Σ`)**:
+
+```
+( output , proof-witness )  :  Σ (xs : List Nat) (Sorted xs × (bag xs ≡ bag input))
+```
+
+1. **The value and its rationale travel together on the wire.**
+2. **Zero-trust verification**: any peer on the network can typecheck the proof witness locally in the same language, without trusting the sender or repeating the search.
+3. **Retained knowledge**: established rationales are stored once by content hash and **transported** into downstream computations instead of being thrown away.
+
+Watch `certsort [3, 1, 4, 2]` below: in parallel, the net sorts `[3, 1]` and `[4, 2]`, then merges them into a **dependent pair `Σ`** whose left wire carries `[1, 2, 3, 4]` and whose right wire carries the proof certificate `sorted × bag≡`.
+
+**[Proof-Carrying Sort on the Network: 3, 1, 4, 2 →](/nets?preset=certsort)**
+
+---
+
+## 8. Functions, Linearity, and Optimal Sharing
+
+Functions (`λ`) and function application (`app`) are just one more pair of cells:
+
+- **`app ⋈ λ ⟶`** wire argument to parameter, wire body to output (β-reduction).
+
+**[The Atom of Functions: `(λ x → x) v` →](/nets?preset=beta)**
+
+When a function uses its argument twice and discards part of a pair — `(λ x → (x , x)) (fst (a , b))` — the compiler inserts `δ` and `ε` automatically:
+
+**[Sharing (`δ`) and Erasure (`ε`) on Functions →](/nets?preset=share)**
+
+And when higher-order functions duplicate other functions — like Church exponentiation `2² = (λ f x → f (f x)) (λ y → (y , y)) a` — `δ` commutes right through `λ` and `pair`, achieving **Lévy-optimal sharing** (never computing the same subexpression twice):
+
+**[Optimal Sharing: Church `2²` →](/nets?preset=church)**
+
+---
+
+## 9. Cubical Paths, Kan Box Filling, and Univalence
+
+Hyperactivity is not just an interaction-net runtime — it is a **cubical dependent type theory** where equality proofs compute as interaction nets.
+
+An **interval** `I` has endpoints `0` and `1` and De Morgan negation `~i`. A **path** `p : Path A x y` is a function `I → A` from the interval into a type. Applying a path at `0` spawns a dimension-substitution wave `O_SUBST [i:=0]` that ripples across the net in parallel:
+
+**[Cubical Dimension Substitution Wave →](/nets?preset=path)**
+
+Composing two paths `p : x ≡ y` and `q : y ≡ z` is **Kan box filling** (`comp`): given three sides of an open square, `O_COMP` fills the missing lid `p ∙ q`:
+
+**[Kan Box Filling (`comp`) →](/nets?preset=kan)**
+
+Finally, **Univalence** (`ua`) turns any equivalence `e : A ≃ B` (like `notEquiv : Bool ≃ Bool`) into an actual path `A ≡ B`. Transporting `true` across `ua notEquiv` is not an axiom that gets stuck — it reduces `O_COMP ⋈ V_GLUE ⟶ O_UNGLUE ⟶ app(not, true) ⟶ false`:
+
+**[Computational Univalence: `transport (ua notEquiv) true` →](/nets?preset=univalence)**
+
+---
+
+## Where to Go Next
+
+- **[Full Interaction Net Lab (`/nets`)](/nets)** — Open the full-screen compiler with all 12 lessons, live rewrite trace, and optional hyperbolic view.
+- **[Read the Paper (`/paper`)](/paper)** or **[View the 102-Page PDF (`/pdf`)](/pdf)** — The complete formal exposition of Hyperactivity, its C runtime, bag merge-sort (§4.4), reflection, and decentralized exchange.
