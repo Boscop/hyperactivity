@@ -1,0 +1,16 @@
+s-dht-node-id : List Word → Proc W (List Word)
+s-dht-node-id st =
+  let idf = list-append st "/dht/node-id" in
+  bind (h-read idf) (λ cur →
+  let c0 = s-dht-trim (s-or nil cur) in
+  if s-hex64 c0 then ret {lzero} {W} c0
+  else bind (h-mkdir (list-append st "/dht")) (λ md →
+    bind h-cwd (λ cwd →
+    bind (h-env "HYPERACTIVE_NODE_URL") (λ nu →
+    let seedf = list-append st "/dht/node-seed" in
+    let seed = h-concat (cons "hx-dht-v1:" (cons cwd (cons ":" (cons st (cons ":" (cons (s-or nil nu) nil)))))) in
+    bind (h-write seedf seed) (λ ws →
+    bind (s-sha256 seedf) (λ sh →
+    let nid = s-head "0000000000000000000000000000000000000000000000000000000000000000" (h-split #32 (snd sh)) in
+    bind (h-write idf (h-line nid)) (λ wi →
+    ret {lzero} {W} nid)))))))

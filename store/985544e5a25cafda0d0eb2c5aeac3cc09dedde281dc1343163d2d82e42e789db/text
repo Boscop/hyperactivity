@@ -1,0 +1,20 @@
+eval-cub-boot : FlashState → Word → Word → List CubBootOp → Word × Word
+eval-cub-boot (fstate flAct _ d n) acc prn nil =
+  let flVal = if flAct then (if %weq d #0 then #0 else %wdiv n d) else #0
+  in (%wadd flVal acc , prn)
+eval-cub-boot fl acc prn (cons op rest) =
+  case op of
+    cbo-ho-beta a b →
+      eval-cub-boot fl (%wadd acc (%wadd b (%wmul #2 a))) prn rest
+    cbo-dup-let a b →
+      eval-cub-boot fl (%wadd acc (%wmul #2 (%wadd a b))) prn rest
+    cbo-face-if pa na v →
+      if %weq (%wand pa na) #0
+      then eval-cub-boot fl (%wadd acc v) prn rest
+      else eval-cub-boot fl acc (%wadd prn #1) rest
+    cbo-flash-kv s v →
+      eval-cub-boot (flash-step-1pass fl (s , v)) acc prn rest
+    cbo-moe-mac pa na x w →
+      if %weq (%wand pa na) #0
+      then eval-cub-boot fl (%wadd acc (%wmul x w)) prn rest
+      else eval-cub-boot fl acc (%wadd prn #1) rest

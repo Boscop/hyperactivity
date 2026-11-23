@@ -13,6 +13,10 @@
 #include <ctype.h>
 #include <pthread.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 extern int access(const char *, int);
 #include <sys/resource.h>
 #include <limits.h>
@@ -56,6 +60,19 @@ static int nix_get(const NameIx *t, const char *s) {   /* the latest entry named
 }
 
 /* a failure where the caller has a way out (printing a result in the surface syntax): back to it */
+static int hy_main_argc; static char **hy_main_argv;
+static const char *self_exe(void) {
+#ifdef __APPLE__
+    static char p[4096];
+    if (!p[0]) { uint32_t sz = sizeof p; char t[4096];
+        if (_NSGetExecutablePath(t, &sz) == 0) { if (!realpath(t, p)) snprintf(p, sizeof p, "%s", t); }
+        else if (hy_main_argv && hy_main_argv[0] && !realpath(hy_main_argv[0], p)) snprintf(p, sizeof p, "%s", hy_main_argv[0]);
+    }
+    return p[0] ? p : "build/cubical";
+#else
+    return "/proc/self/exe";
+#endif
+}
 static jmp_buf *die_jb;
 static char die_msg[512];
 /* hyperactive's session (session_serve): a request's w-exit returns to the session with its code
@@ -5111,15 +5128,15 @@ static void session_client(int argc, char **argv) {
         posix_spawn_file_actions_addopen(&fa, 0, "/dev/null", 0, 0);
         posix_spawn_file_actions_addopen(&fa, 1, "/dev/null", 1, 0);
         posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", 1, 0);
-        char *sv[] = { "build/cubical", "lib/hyperactive.cub", "--session", NULL };
-        posix_spawn(&pid, "/proc/self/exe", &fa, NULL, sv, environ);
+        char *sv[] = { "build/cubical", "lib/hyperactive.hypercubical", "--session", NULL };
+        posix_spawn(&pid, self_exe(), &fa, NULL, sv, environ);
         posix_spawn_file_actions_destroy(&fa);
         return;
     }
-    size_t n = strlen("build/cubical") + 1 + strlen("lib/hyperactive.cub") + 1;
+    size_t n = strlen("build/cubical") + 1 + strlen("lib/hyperactive.hypercubical") + 1;
     for (int i = 1; i < argc; i++) n += strlen(argv[i]) + 1;
     char *b = malloc(n), *p = b;
-    p = stpcpy(p, "build/cubical") + 1; p = stpcpy(p, "lib/hyperactive.cub") + 1;
+    p = stpcpy(p, "build/cubical") + 1; p = stpcpy(p, "lib/hyperactive.hypercubical") + 1;
     for (int i = 1; i < argc; i++) p = stpcpy(p, argv[i]) + 1;
     uint64_t len = n; int fds[3] = { 0, 1, 2 };
     char cb[CMSG_SPACE(3 * sizeof(int))]; memset(cb, 0, sizeof cb);
@@ -5178,7 +5195,11 @@ static void place_first(const char *place, const char *root) {
             char h[65]; h[0] = 0; if (b) key_hash(b, n, h);
             if (!b || strcmp(h, p)) die("the place gave no pack of that name, or one that is not what its name says", p);
             free(b);
+            #ifdef __APPLE__
+            char *a3[] = { "tar", "-k", "-xzf", "build/pack.tgz", "store", NULL };
+#else
             char *a3[] = { "tar", "-xzf", "build/pack.tgz", "--skip-old-files", "store", NULL };
+#endif
             if (place_run(a3) != 0) die("cannot take the objects out of the pack", p);
             FILE *f = fopen(".cubical-store/packs", "a"); if (f) { fprintf(f, "%s\n", p); fclose(f); }
         }
@@ -5194,17 +5215,18 @@ int main(int argc, char **argv)
 {
     /* the machine by another name (2026-11-16: no file holds a program): ./hyperactive and the
      * pre-commit hook are links to the machine, which runs the program the source holds for the name */
+    hy_main_argc = argc; hy_main_argv = argv;
     {
         const char *b = strrchr(argv[0], '/'); b = b ? b + 1 : argv[0];
-        const char *prog = !strcmp(b, "hyperactive") ? "lib/hyperactive.cub" : !strcmp(b, "pre-commit") ? "lib/guard.cub" : NULL;
+        const char *prog = !strcmp(b, "hyperactive") ? "lib/hyperactive.hypercubical" : !strcmp(b, "pre-commit") ? "lib/guard.hypercubical" : NULL;
         if (prog) {
-            if (!strcmp(b, "hyperactive") && argc >= 3 && !strcmp(argv[1], "take") && getenv("HYPERACTIVE_PLACE")) { struct stat ps; if (stat("store", &ps) != 0) place_first(getenv("HYPERACTIVE_PLACE"), argv[2]); }
+            if (!strcmp(b, "hyperactive") && argc >= 3 && !strcmp(argv[1], "take") && getenv("HYPERACTIVE_PLACE")) { struct stat ps; struct stat ps2; if (stat("store/ROOT/root", &ps) != 0 && stat(".cubical-store/index/meta/root", &ps2) != 0) place_first(getenv("HYPERACTIVE_PLACE"), argv[2]); }
             if (!strcmp(b, "hyperactive")) session_client(argc, argv);   /* returns when it ran nothing */
             char **nv = malloc((size_t)(argc + 2) * sizeof(char *));
             nv[0] = "build/cubical"; nv[1] = (char *)prog;
             for (int i = 1; i < argc; i++) nv[i + 1] = argv[i];
             nv[argc + 1] = NULL;
-            execv("/proc/self/exe", nv);
+            execv(self_exe(), nv);
             die("cannot run the machine as", b);
         }
     }
@@ -5217,7 +5239,7 @@ int main(int argc, char **argv)
         if (rl.rlim_max != RLIM_INFINITY && rl.rlim_max < want) want = rl.rlim_max;
         if (rl.rlim_cur != RLIM_INFINITY && rl.rlim_cur < want) {
             rl.rlim_cur = want;
-            if (setrlimit(RLIMIT_STACK, &rl) == 0) { setenv("CUBICAL_STACKED", "1", 1); execv("/proc/self/exe", argv); }
+            { rlim_t orig = rl.rlim_cur - want + want; (void)orig; bool ok = setrlimit(RLIMIT_STACK, &rl) == 0; for (rlim_t fb = (rlim_t)64 << 20; !ok && fb > (8u << 20); fb >>= 1) { rl.rlim_cur = fb - 65536; ok = setrlimit(RLIMIT_STACK, &rl) == 0; } if (ok) { setenv("CUBICAL_STACKED", "1", 1); execv(self_exe(), argv); } }
         }
     }
     const char *w = getenv("CUBICAL_WORKERS");
@@ -5259,12 +5281,13 @@ int main(int argc, char **argv)
                 while ((k = fread(b + n, 1, cap - n - 1, f)) > 0) { n += k; if (cap - n < 2) { cap *= 2; b = realloc(b, cap); } }
                 fclose(f); b[n] = 0;
             } else { char *r0 = w_rel(from); b = src_text(r0, &n); free(r0); if (!b) die("cannot open", from); }
-            if (strlen(b) != n) { fprintf(stderr, "not recorded (it holds a zero byte): %s\n", from); free(b); if (rec) break; continue; }
+            if (rec && j + 1 >= argc) break;
+            if (strlen(b) != n) { fprintf(stderr, "not recorded (it holds a zero byte): %s\n", from); free(b); continue; }
             char *rel = w_rel(argv[j]); char *ab = abs_of(rel);
             record_source(b, ab);
             free(ab); free(rel); free(b);
-            if (rec) break;
         }
+        if (rec) idx_unlock();
         fflush(stdout); _Exit(0);
     }
     /* this machine's labels and the pool (src/syntax.c): `--head PATH` gives the module the path holds
@@ -5283,9 +5306,13 @@ int main(int argc, char **argv)
             idx_unlock(); fflush(stdout); _Exit(0);
         }
         if (!strcmp(argv[i], "--unrecord") && i + 1 < argc) {
-            char *rel = w_rel(argv[i + 1]); idx_lock(); index_sync(); w_forget(rel, "", "");
-            SBuf hx = {0}; w_hex(&hx, rel); if (hx.b && hx.n <= 250) { idx_remove("modules", hx.b); idx_remove("names-of", hx.b); }
-            idx_unlock(); free(hx.b); free(rel); fflush(stdout); _Exit(0);
+            idx_lock(); index_sync();
+            for (int j = i + 1; j < argc; j++) {
+                char *rel = w_rel(argv[j]); w_forget(rel, "", "");
+                SBuf hx = {0}; w_hex(&hx, rel); if (hx.b && hx.n <= 250) { idx_remove("modules", hx.b); idx_remove("names-of", hx.b); }
+                free(hx.b); free(rel);
+            }
+            idx_unlock(); fflush(stdout); _Exit(0);
         }
         if (!strcmp(argv[i], "--drop-view")) {
             /* what the removed layer left in the pool and in the labels: the entries, the versions
