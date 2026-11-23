@@ -147,16 +147,16 @@ Lock-free, clockless execution is proved in `lib/kernel.hypercubical`, not assum
 - **`nk-safe-commute`**: whenever the executor's test `nk-safe?` accepts two wires, stepping them in either order leaves memories that read the same at every wire.
 - **`nk-get-set`, `nk-get-set-other`, `nk-upd-swap-at`**: the memory laws both rest on.
 
-The order in which an executor steps safe wires therefore never changes the memory. One thread, a pool of workers, a browser tab and a grid of asynchronous silicon tiles are all executors of the same machine; `lib/silicon/inet.hypercubical` carries the same two facts (`wslot-order-indep`, `net-step-commute`) to the clockless GALS tile.
+An executor may therefore step any two wires `nk-safe?` accepts in either order. `lib/silicon/inet.hypercubical` states the corresponding facts for the hardware tile in its own model (`wslot-order-indep`, `net-step-commute`).
 
 ### The Machine Checks Its Own Computation
 
-- Two evaluators written in the language, the net (`nk-nf`) and an environment machine (`nk-ev-nf`), are checked to reach the same normal forms (`nk-ev-agree-*`): sharing, open bodies, De Morgan interval laws, path endpoints.
+- Two evaluators written in the language, the net (`nk-nf`) and an environment machine (`nk-ev-nf`), are checked by `refl` to reach the same normal form on worked terms (`nk-ev-agree-*`) covering sharing, open bodies, De Morgan interval laws and path endpoints.
 - Kan composition and univalence compute inside the machine: `nk-kan-ua` transports the pair `(1, 2)` along `ua swap` to `(2, 1)`, and `nk-ty-ua-over` types the glued value over the univalence path.
 - [`lib/check.hypercubical`](https://hyperactivity.ai/kg?mod=lib/check.hypercubical) is the type checker, written in the language.
 - [`lib/singularity.hypercubical`](https://hyperactivity.ai/kg?mod=lib/singularity.hypercubical) crawls `store/` cold from disk, checks each definition's body against its type with the definition's own slot masked (so a recursive definition cannot justify itself), and emits itself both as ISO C (`sg-c`) and as a static x86-64 ELF written byte by byte by [`lib/elf.hypercubical`](https://hyperactivity.ai/kg?mod=lib/elf.hypercubical), with no `gcc` and no libc (`sg-elf`). The pool's verifier is a binary hyperactivity wrote.
 
-`src/` is the bootstrap that runs these laws natively today; [`/kernel`](https://hyperactivity.ai/kernel) runs it compiled to WebAssembly.
+`src/` is the bootstrap that runs programs natively today; [`/kernel`](https://hyperactivity.ai/kernel) runs it compiled to WebAssembly.
 
 ### Guarded Corecursion in Bounded Memory
 
@@ -183,9 +183,32 @@ transport, composition (20 and up)             ⟶  kept whole, computed on the 
 
 An interval point is a join of meets of literals, each meet sorted, no meet containing another, so two points equal in the De Morgan algebra have one form.
 
+### The Bootstrap's Memory Layout, Sharing & Zero Ambient Context
+
+Choices in the bootstrap make cubical interaction nets fast enough to self-host a full operating system and compute Brunerie's number in seconds:
+
+1. **Dual-mode reference counting (`net_solo`):**
+   When running single-threaded (`net_solo = true`, set once at `net_start`), reference counts and step counters use plain integer arithmetic with zero atomic bus-lock overhead. When worker threads are active (`net_solo = false`), the exact same code switches to lock-free `__atomic_fetch_add(..., __ATOMIC_RELAXED)` and `__atomic_sub_fetch(..., __ATOMIC_ACQ_REL)`. There is no global heap lock and no stop-the-world garbage collector.
+2. **Immutable DNF payloads & zero ambient face context:**
+   Every dimension name `Dim` is a monotonically allocated `uint64_t` (never reused). Intervals (`V_IV`) and faces (`V_FACE`) carry immutable, reference-counted Disjunctive Normal Form (`Dnf`) arrays of sorted `Clause`s, where each literal packs `dim << 1 | polarity`. Because a face clause is literally a substitution of endpoints (`0` or `1`) for dimensions, working under a face is purely local reindexing via `O_SUBST` — **no cell ever consults an ambient typing or face context.**
+3. **Optimal lazy sharing (`O_DUP`, `V_REF`, `V_THUNK`, `V_DEFER`, `V_TEXT`):**
+   - Duplicating a compound value (`O_DUP ⋈ value`) never deep-copies its subgraph; it wraps the value once in `V_REF` and hands each consumer a reference. When an operation meets `V_REF`, only the top cell is copied out while all subparts remain shared `V_REF` pointers.
+   - Deferred operations (`V_DEFER`) avoid eagerly duplicating eliminators across every branch of a partial system `V_SYS`: each branch holds a deferred operation that only runs if that branch is demanded.
+   - `V_TEXT` represents a string of bytes as a `List Word` (`cons #b (cons #b ... nil)`) lazily one character at a time from a shared `Bytes` buffer, so copying a text shares the underlying bytes in $O(1)$.
+
 ### The Bootstrap's Laws
 
-`src/` runs the same rule natively with a wider table: Kan composition, Glue and higher inductive types are rows there rather than read-back computations. Read each law as `operation ⋈ value ⟶ replacement net`:
+The bootstrap in `src/` represents these value forms:
+
+- **Value (`V_*`):** A cell with a *positive* principal port — it offers data:
+  - Core values: `V_LAM` (closure with `Record` + environment ports), `V_PAIR`, `V_PI`, `V_SIGMA`, `V_U` (universe level), `V_PATHP`, `V_PLAM` (path abstraction binding a `Dim`), `V_IV` (interval `Dnf`), `V_FACE` (face `Dnf`), `V_SYS` (partial system of branches), `V_GLUE`, `V_GLUEV`.
+  - Data & codata values: `V_DATA`, `V_CON` (constructor with fields and interval dimensions), `V_HCOMP` (formal homogeneous composition), `V_TRANSH` (formal transported composition), `V_CASEF` (elimination as a function), `V_REC` (copattern body for guarded corecursion).
+  - Sharing & laziness values: `V_REF` (shared box — copying it copies the reference; an operation meeting it copies only the top cell out), `V_THUNK` (unbuilt subterm), `V_DEFER` (deferred operation, built on demand), `V_SUSP` / `V_WSUSP` (lazy induction hypotheses).
+  - Exact machine values: `V_WORD` (64-bit fast path or arbitrary-precision `Big` limb array from `src/big.c`), `V_PVAL` (`I64`, `U32`, `F64`, `F32`), `V_BYTES` (refcounted immutable byte buffer), `V_TEXT` (lazy `List Word` view over `Bytes` at offset `a`, costing zero cells until characters are read).
+  - Blocked neutrals (for open terms during type checking and specialization): `V_NVAR`, `V_NAPP`, `V_NFST`, `V_NSND`, `V_NPAPP`, `V_NCOMP`, `V_NUNGLUE`, `V_NCASE`, `V_NTRANS`, `V_NPROJ`, `V_WPLUS`, `V_NWOP`, `V_NWELIM`, `V_NPRIM`.
+- **Operation (`O_*`):** A cell with a *negative* principal port — it demands one value at port `0` and writes its output to its last port: `O_APP`, `O_CALL`, `O_FORCE`, `O_FST`, `O_SND`, `O_PAPPR`, `O_PAPPP`, `O_SUBST`, `O_DUP`, `O_ERA`, `O_COMP`, `O_COMPA`, `O_COMPH`, `O_COMPW`, `O_MKPLAM`, `O_MKGLUE`, `O_MKGLUEV`, `O_UNGLUE`, `O_CASE`, `O_HCOMP`, `O_TRANSD1`, `O_TRANSD2`, `O_VIEW`, `O_WEQ..O_WSHR`, `O_LOAD`, `O_STORE`, `O_NATIVE`, `O_FFI`.
+
+Its law listing; read each law as `operation ⋈ value ⟶ replacement net`:
 
 **Functions, pairs & guarded corecursion**
 ```text
