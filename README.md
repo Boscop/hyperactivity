@@ -36,11 +36,11 @@
 
 ## 0. Enter the System
 
-Everything in this document is live, self-hosted, and executable. You can enter from a browser with zero install, or compile the 18,273-line C11 kernel locally in seconds.
+Everything in this document is live, self-hosted, and executable: hyperactivity is written in hyperactivity. You can enter from a browser with zero install, or build it locally with `make`.
 
 ### In Your Browser (Zero Install, Zero Server Compute)
 
-- [**`hyperactivity.ai/kernel`**](https://hyperactivity.ai/kernel) — The C11 cubical interaction-net kernel compiled to WebAssembly (`cubical.wasm`), executing directly inside your browser tab.
+- [**`hyperactivity.ai/kernel`**](https://hyperactivity.ai/kernel) — The interaction-net machine compiled to WebAssembly (`cubical.wasm`), executing directly inside your browser tab.
 - [**`hyperactivity.ai/kg`**](https://hyperactivity.ai/kg) — Interactive explorer for the content-addressed Knowledge Graph (`lib/`, `neuro/`, `chem/`, `phys/`, `lqg/`, `fold/`), backed by a browser-local `IndexedDB` content-addressed object store (`hx-cas-v1`) and stateless WebRTC peer-to-peer object sync.
 - [**`hyperactivity.ai/nets`**](https://hyperactivity.ai/nets) — Multi-scale visual compiler (`Macro` / `Structural` / `Atomic`) for interaction nets: arithmetic, LSB-first binary carry, parallel merge sort, cubical paths, Kan box filling, computational univalence, and bounded $O(1)$ guarded-corecursive artificial life (`life ▸ κ`).
 - **Interactive domain treatises with live simulations and clickable source portals:**
@@ -75,7 +75,7 @@ make brunerie                                   # compute Brunerie's number (-2)
 9. [Neuroscience & Closed-Loop Neural Co-Processors (`neuro/`, `lib/polyproc.hypercubical`)](#9-neuroscience--closed-loop-neural-co-processors)
 10. [Relational Physics, Exact Quantum Chemistry & Living Matter (`lqg/`, `phys/`, `chem/`, `fold/`)](#10-relational-physics-exact-quantum-chemistry--living-matter)
 11. [The Decentralized Web Seed (`lib/server.hypercubical`)](#11-the-decentralized-web-seed)
-12. [Reference: Commands, Store Mechanics, C11 Kernel Map & Primary Literature](#12-reference-commands-store-mechanics-c11-kernel-map--primary-literature)
+12. [Reference: Commands, Store Mechanics & Primary Literature](#12-reference-commands-store-mechanics--primary-literature)
 
 ---
 
@@ -139,7 +139,7 @@ In [`src/core.h`](src/core.h) and [`src/net.c`](src/net.c), every term, type, pr
 
 ### Memory Layout, Lock-Free Parallelism & Zero Ambient Context
 
-Three implementation choices in `src/core.h` and `src/net.c` make cubical interaction nets fast enough to self-host a full operating system and compute Brunerie's number in seconds:
+Three choices in the machine make cubical interaction nets fast enough to self-host a full operating system and compute Brunerie's number in seconds:
 
 1. **Dual-mode reference counting (`net_solo`):**
    When running single-threaded (`net_solo = true`, set once at `net_start`), reference counts and step counters use plain integer arithmetic with zero atomic bus-lock overhead. When worker threads are active (`net_solo = false`), the exact same code switches to lock-free `__atomic_fetch_add(..., __ATOMIC_RELAXED)` and `__atomic_sub_fetch(..., __ATOMIC_ACQ_REL)`. There is no global heap lock and no stop-the-world garbage collector.
@@ -232,7 +232,7 @@ Every Kan composition clause is itself a term of the language, not ad-hoc compil
 
 ## 3. Cubical Type Theory, Kan Composition & Computational Univalence
 
-Hyperactivity implements **CCHM cubical type theory** (Cohen, Coquand, Huber, & Mörtberg, 2018) with a **self-hosted type checker** written inside the language itself ([`lib/check.hypercubical`](https://hyperactivity.ai/kg?mod=lib/check.hypercubical)). The C11 binary `build/cubical` does not embed a separate trusted type-checking engine; it provides the interaction-net evaluator and reflection operations (`O_VIEW`, `O_MKVAR`, `O_MKDIM`, `O_IEQ`, `O_FEQL`, `O_RESTRICT`, `O_NTYPE`, `O_CLOS`) over which `lib/check.hypercubical` runs directly.
+Hyperactivity implements **CCHM cubical type theory** (Cohen, Coquand, Huber, & Mörtberg, 2018) with a **self-hosted type checker** written inside the language itself ([`lib/check.hypercubical`](https://hyperactivity.ai/kg?mod=lib/check.hypercubical)). The machine `build/cubical` does not embed a separate trusted type-checking engine; it provides the interaction-net evaluator and reflection operations (`O_VIEW`, `O_MKVAR`, `O_MKDIM`, `O_IEQ`, `O_FEQL`, `O_RESTRICT`, `O_NTYPE`, `O_CLOS`) over which `lib/check.hypercubical` runs directly.
 
 ### The De Morgan Interval $I$ and Dependent Path Types
 
@@ -815,20 +815,20 @@ phys-bdg-dispersion-id = λ i → true
 3. **Stateless WebRTC P2P Object Mesh, Ambient Co-Presence & Distributed Cut Reduction (`lib/distnet.hypercubical`):**
    `/api/p2p/signal` and `/api/live/pulse` in `lib/server.hypercubical` hold **zero open sockets** and execute **zero server compute** — the seed only relays lightweight WebRTC SDP/ICE handshakes and presence pulses. Once two browsers complete their handshake, `WANT` / `OBJ` set-union object sync flows directly peer-to-peer over `RTCDataChannel`, while `lib/distnet.hypercubical` (`/peer/manifest`, `/peer/reduce`, CLI `peers` / `peer-pull` / `delegate`) partitions and reduces interaction-net cuts across sovereign peer nodes and `lib/portal.hypercubical` delivers results by mathematical transport.
 4. **Client-Side Kernel Execution (`cubical.wasm`):**
-   [`hyperactivity.ai/kernel`](https://hyperactivity.ai/kernel) runs the real C11 interaction-net kernel compiled to WebAssembly directly inside your browser.
+   [`hyperactivity.ai/kernel`](https://hyperactivity.ai/kernel) runs the interaction-net machine compiled to WebAssembly directly inside your browser.
 5. **Universal Knowledge Graph Portals:**
    Every `.hypercubical` module or definition referenced on any page of `hyperactivity.ai` is a live clickable portal that opens its exact content-addressed source, SHA-256 key, and dependency neighborhood right over the page.
 
 ---
 
-## 12. Reference: Commands, Store Mechanics, C11 Kernel Map & Primary Literature
+## 12. Reference: Commands, Store Mechanics & Primary Literature
 
 ### Build, Inspect & Run Locally
 
 Both `.hypercubical` and `.cub` extensions resolve bidirectionally across `src/syntax.c`, `src/lang.c`, `lib/guard.hypercubical`, and `/api/kg/module`:
 
 ```sh
-# Build the C11 kernel (requires gcc or clang and make)
+# Build the machine (gcc or clang, and make)
 make
 
 # Interactive loop over store/
@@ -844,7 +844,7 @@ make
 ./build/cubical lqg/cosmology-bounce.hypercubical
 ./build/cubical lib/observation.hypercubical
 
-# Run the repository guard (verifies frozen C kernel hashes + store integrity)
+# Run the repository guard (verifies frozen bootstrap hashes + store integrity)
 ./build/cubical lib/guard.hypercubical
 
 # Check the full core + library
@@ -857,24 +857,10 @@ make brunerie
 ./build/cubical lib/server.hypercubical 8080
 ```
 
-### C11 Kernel Architecture (`src/`, 18,273 LOC)
-
-| File | LOC | Role |
-| --- | ---: | --- |
-| [`src/core.h`](src/core.h) | 473 | Cell/port/wire enums (`V_*`, `O_*`), `Dnf`/`Clause`/`Subst`, `WN` bignum, lock-free/solo refcount primitives |
-| [`src/net.c`](src/net.c) | 3,802 | Lock-free interaction-net evaluator, active-pair rewrite rules, `V_REF`/`V_THUNK`/`V_DEFER` optimal sharing, worker pool |
-| [`src/lang.c`](src/lang.c) | 5,459 | Cubical elaborator, `CaseTab` compiler, `#jit`/`#build` native bridge, module loader (`.hypercubical` $\leftrightarrow$ `.cub`) |
-| [`src/syntax.c`](src/syntax.c) | 6,928 | Parser, pretty-printer, bidirectional store source reader, interactive loop |
-| [`src/store.c`](src/store.c) | 750 | Immutable SHA-256 content-addressed store, 256-way sharded `names` tree, pool sync |
-| [`src/dnf.c`](src/dnf.c) | 378 | Canonical De Morgan interval & face-lattice DNF normalization and substitution |
-| [`src/drivers.c`](src/drivers.c) | 279 | CLI entrypoints, POSIX/world I/O boundary |
-| [`src/big.c`](src/big.c) | 147 | Arbitrary-precision natural number arithmetic (`WN` / `Big`) |
-| [`src/sha256.c`](src/sha256.c) | 45 | Minimal standalone SHA-256 implementation |
-
 ### Repository Layout
 
 ```text
-src/            Self-contained C11 cubical interaction-net kernel & content-addressed store
+src/            Bootstrap: the interaction laws and the store, compiled once by make
 store/          Immutable SHA-256 content-addressed objects (read & written via ./hyperactive)
   lib/          Self-hosted cubical checker, observation fibers, rANS compression, specialization,
                 C++/Rust/x86 lifting, conserved credit, interface-reshaping RProc, distnet, portal,
@@ -889,7 +875,7 @@ store/          Immutable SHA-256 content-addressed objects (read & written via 
   docs/         Monograph, interactive domain treatises (/ai, /neuro, /physics, /compression, /chip-design), web apps
 tools/          Lifters (clang2cub.py, mir2cub.py, sail2cub.py, agda2cub.py) & assembly helpers
 experiments/    Brunerie's number (-2), C++ (book.cpp..seventh.cpp) & Rust (book.rs, more.rs) lifting suites
-Makefile        Native kernel, library, and Brunerie build targets
+Makefile        Machine, library, and Brunerie build targets
 hyperactive     Entrypoint symlink to build/cubical
 LICENSE         Hyperactive Anti-Capitalist Commons & Commercial License v1.0
 ```
