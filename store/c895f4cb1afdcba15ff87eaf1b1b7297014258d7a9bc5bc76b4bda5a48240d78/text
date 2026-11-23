@@ -1,0 +1,29 @@
+sg-erase : Nat → Word → Code → Lst Code → Code × Lst Code
+sg-erase zero _ _ _ = (cwlit #0 , lnil)
+sg-erase (suc k) mode c cs =
+  if %weq mode #1 then
+    (case cs return (λ _ → Code × Lst Code) of
+       lnil → (cwlit #0 , lnil)
+       lcons x r → (cwlit #0 , lcons (fst (sg-erase k #0 x lnil)) (snd (sg-erase k #1 (cwlit #0) r))))
+  else
+    (case c return (λ _ → Code × Lst Code) of
+       cvar n → (cvar n , lnil)
+       cglob g → (cglob g , lnil)
+       clam b → (clam (fst (sg-erase k #0 b lnil)) , lnil)
+       capp f a → (capp (fst (sg-erase k #0 f lnil)) (fst (sg-erase k #0 a lnil)) , lnil)
+       clet t b → (clet (fst (sg-erase k #0 t lnil)) (fst (sg-erase k #0 b lnil)) , lnil)
+       cann t _ → (fst (sg-erase k #0 t lnil) , lnil)
+       cpair a b → (cpair (fst (sg-erase k #0 a lnil)) (fst (sg-erase k #0 b lnil)) , lnil)
+       cfst p → (cfst (fst (sg-erase k #0 p lnil)) , lnil)
+       csnd p → (csnd (fst (sg-erase k #0 p lnil)) , lnil)
+       crec dd fs → (crec dd (snd (sg-erase k #1 (cwlit #0) fs)) , lnil)
+       cproj dd j p → (cproj dd j (fst (sg-erase k #0 p lnil)) , lnil)
+       ccon dd j fs ds → (ccon dd j (snd (sg-erase k #1 (cwlit #0) fs)) ds , lnil)
+       ccase dd bs x → (ccase dd (snd (sg-erase k #1 (cwlit #0) bs)) (fst (sg-erase k #0 x lnil)) , lnil)
+       cwlit n → (cwlit n , lnil)
+       cplit j b → (cplit j b , lnil)
+       cwsucc a → (cwsucc (fst (sg-erase k #0 a lnil)) , lnil)
+       cwop j a b → (cwop j (fst (sg-erase k #0 a lnil)) (fst (sg-erase k #0 b lnil)) , lnil)
+       cprim j as → (cprim j (snd (sg-erase k #1 (cwlit #0) as)) , lnil)
+       cwelim w z s _ → (cwelim (fst (sg-erase k #0 w lnil)) (fst (sg-erase k #0 z lnil)) (fst (sg-erase k #0 s lnil)) none , lnil)
+       _ → (cwlit #0 , lnil))

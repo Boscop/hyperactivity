@@ -1,0 +1,26 @@
+sg-crawl : Nat → Word → Lst (Bool × List Word) → Lst Word → Lst Word → Lst (Word × (Code × Lst Code)) → Lst (Word × List Word) → Proc W (Lst (Word × (Code × Lst Code)) × Lst (Word × List Word))
+sg-crawl zero _ _ _ _ datas rglobs = ret (datas , rglobs)
+sg-crawl (suc k) buf lnil _ _ datas rglobs = ret (datas , rglobs)
+sg-crawl (suc k) buf (lcons it rest) sd sg datas rglobs =
+  let is-d = fst it
+      hex = snd it
+      key = nk-key60 hex
+  in if is-d then
+       bind (sg-read-file buf (sg-decl-path hex)) (λ res →
+         case res return (λ _ → Proc W (Lst (Word × (Code × Lst Code)) × Lst (Word × List Word))) of
+           none → sg-crawl k buf rest sd sg datas rglobs
+           some txt →
+             let refs = sg-scan-refs txt nil lnil
+                 eq = sg-enqueue refs sd sg rest #0
+                 datas2 = case sg-parse-decl (toNat #512) (toNat #256) key hex txt return (λ _ → Lst (Word × (Code × Lst Code))) of
+                            some dc → lcons (key , dc) datas
+                            none → datas
+             in sg-crawl k buf (snd eq) (fst (fst eq)) (snd (fst eq)) datas2 rglobs)
+     else
+       bind (sg-read-file buf (sg-forms-path hex)) (λ res →
+         case res return (λ _ → Proc W (Lst (Word × (Code × Lst Code)) × Lst (Word × List Word))) of
+           none → sg-crawl k buf rest sd sg datas rglobs
+           some txt →
+             let refs = sg-scan-refs txt nil lnil
+                 eq = sg-enqueue refs sd sg rest #0
+             in sg-crawl k buf (snd eq) (fst (fst eq)) (snd (fst eq)) datas (lcons (key , txt) rglobs))

@@ -266,9 +266,7 @@ static bool boot_in(const char *const *names) {
     if (!x_file) return false;
     size_t l = strlen(x_file);
     for (int i = 0; names[i]; i++) {
-        char suf[128]; int n = snprintf(suf, sizeof suf, "/lib/%s.hypercubical", names[i]);
-        if (l >= (size_t)n && !strcmp(x_file + l - n, suf)) return true;
-        n = snprintf(suf, sizeof suf, "/lib/%s.cub", names[i]);
+        char suf[64]; int n = snprintf(suf, sizeof suf, "/lib/%s.cub", names[i]);
         if (l >= (size_t)n && !strcmp(x_file + l - n, suf)) return true;
     }
     return false;
@@ -2620,7 +2618,6 @@ static void record_source(const char *text, const char *path) {
         }
     }
     w_file(text, path);
-    free(xt); free(lt);
     xt = s_xt; nxt = s_nxt; capxt = s_capxt; lt = s_lt; nlt = s_nlt; caplt = s_caplt; xp = s_xp; x_file = s_file;
 }
 static void load_surface(const char *text, const char *path, bool imports_only) {

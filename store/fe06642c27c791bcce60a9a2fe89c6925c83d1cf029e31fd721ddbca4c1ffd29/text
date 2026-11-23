@@ -1,0 +1,15 @@
+sg-check-file : Word → List Word → Proc W Bool
+sg-check-file buf p =
+  bind (sg-read-file buf p) (λ res →
+    case res return (λ _ → Proc W Bool) of
+      none → bind (sg-out buf (sg-line (list-append "missing " p))) (λ _ → ret false)
+      some txt →
+        let refs = lcons (true , sg-bool-hex) (sg-scan-refs txt nil lnil)
+            eq = sg-enqueue refs lnil lnil lnil #0
+        in bind (sg-crawl (toNat #2048) buf (snd eq) (fst (fst eq)) (snd (fst eq)) lnil lnil) (λ dag →
+             let ksig-d = sg-compile-sig (fst dag , lnil)
+                 defs = sg-parse-globs ksig-d (snd dag) lnil
+                 ksig = sg-compile-sig (fst dag , defs)
+             in if sg-check-forms (sg-sig-for-path ksig p) txt
+                  then bind (sg-out buf (sg-line (list-append "ok " p))) (λ _ → ret true)
+                  else bind (sg-out buf (sg-line (list-append "refused " p))) (λ _ → ret false)))
