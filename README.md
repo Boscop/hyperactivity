@@ -81,11 +81,15 @@ Every Kan composition clause is itself a term of the language.
 
 Hyperactivity implements **CCHM cubical type theory** (Cohen, Coquand, Huber, & Mörtberg, 2018) with a self-hosted type checker (`lib/check.hypercubical`). An interval $I$ with endpoints $0, 1 : I$ turns equality into a function out of the interval:
 
-$$\mathrm{Path}_A(a, b) \;=\; \{ p : I \to A \mid p(0) \equiv a,\; p(1) \equiv b \}$$
+```math
+\mathrm{Path}_A(a, b) = \{\, p : I \to A \mid p(0) \equiv a,\; p(1) \equiv b \,\}
+```
 
 Any equivalence $e : A \simeq B$ produces a path $\mathrm{ua}(e) : \mathrm{Path}_{\mathcal{U}}(A, B)$ via `Glue` types (Voevodsky's Univalence Axiom, computing directly through the active-pair laws above):
 
-$$\mathrm{transport}\;(\lambda i.\; P(\mathrm{ua}(e)\;i))\;x \;\longrightarrow^*\; e_*(x)$$
+```math
+\mathrm{transport}\;(\lambda i.\; P(\mathrm{ua}(e)\,i))\;x \;\longrightarrow^{\ast}\; e_{\ast}(x)
+```
 
 Digest equality (identical SHA-256 hash in `store/`), definitional equality (identical normal form), and path/semantic equivalence (`ua`) stay distinct — so a proof, optimization, or chemical/physical identity established once transports automatically across every equivalent representation.
 
@@ -107,7 +111,9 @@ make brunerie
 
 An agent never sees the full world $h \in H$; it sees an observation $y = o(h) \in O$. Its exact epistemic state is the **observation fiber** — every world-history compatible with $y$ ([`lib/observation.hypercubical`](https://hyperactivity.ai/kg?mod=lib/observation.hypercubical)):
 
-$$\mathrm{Fib}_o(y) \;=\; \sum_{h : H} \big(o(h) \equiv y\big), \qquad \mathrm{Warranted}(o, y, P) \;:\equiv\; \prod_{h : H} \big(o(h) \equiv y\big) \to P(h)$$
+```math
+\mathrm{Fib}_o(y) = \sum_{h : H} \big(o(h) \equiv y\big), \qquad \mathrm{Warranted}(o, y, P) :\equiv \prod_{h : H} \big(o(h) \equiv y\big) \to P(h)
+```
 
 - **AI alignment & standpoint ([`hyperactivity.ai/ai`](https://hyperactivity.ai/ai)):** Claiming $P$ when two histories $(h_1, h_2)$ in $\mathrm{Fib}_o(y)$ disagree yields an explicit **split witness** instead of a hallucination. Active querying (`WorldAfter`) shrinks the fiber until every surviving history agrees. Merging agents takes the content-addressed set union of warranted claims with explicit split witnesses rather than collapsing incompatible human standpoints into a 1D RLHF scalar average.
 - **Zero-search lossless compression ([`hyperactivity.ai/compression`](https://hyperactivity.ai/compression)):** Applying the same causal observation-fiber machinery directly to ordered byte streams produces a streaming $O(N)$ renormalized rANS codec (Duda, 2009; [`lib/compress.hypercubical`](https://hyperactivity.ai/kg?mod=lib/compress.hypercubical), [`lib/compress-stream.hypercubical`](https://hyperactivity.ai/kg?mod=lib/compress-stream.hypercubical), [`lib/optimality.hypercubical`](https://hyperactivity.ai/kg?mod=lib/optimality.hypercubical)) with zero search, zero probability axioms, zero serialized lookup tables, universal `refl` round-trip proofs, and Shannon-rate / Kraft / pigeonhole bounds — outperforming `gzip -9`, `bzip2 -9`, and `lzma`.
@@ -129,17 +135,23 @@ A foundation that requires rewriting existing software and hardware is dead on a
 
 From ion-channel electrochemistry (Hodgkin & Huxley, 1952) and the 2D **FitzHugh–Nagumo** excitable membrane oscillator (FitzHugh, 1961; Nagumo, 1962),
 
-$$\frac{dv}{dt} = v - \frac{v^3}{3} - w + I_{\text{ext}}, \qquad \frac{dw}{dt} = \varepsilon\,(v + a - b\,w)$$
+```math
+\frac{dv}{dt} = v - \frac{v^3}{3} - w + I_{\text{ext}}, \qquad \frac{dw}{dt} = \varepsilon\,(v + a - b\,w)
+```
 
 cortical populations evolve on intrinsic manifolds where a readout $y = Cx$ induces an **output-null fiber** $\mathrm{Fib}_C(y) = x_0 + \ker C$ ([`neuro/descent.hypercubical`](https://hyperactivity.ai/kg?mod=neuro/descent.hypercubical)). In a closed-loop brain–machine co-processor (Carmena, Orsborn, Burden, & Madduri, 2023), brain ($B$) and decoder ($C$) co-adapt:
 
-$$\frac{de_B}{dt} = -\eta_B e_B + \gamma_1 e_C, \qquad \frac{de_C}{dt} = \gamma_2 e_B - \eta_C e_C$$
+```math
+\frac{de_B}{dt} = -\eta_B e_B + \gamma_1 e_C, \qquad \frac{de_C}{dt} = \gamma_2 e_B - \eta_C e_C
+```
 
 Hyperactivity decides symbolic **Sum-of-Squares (SOS)** stability and safety certificates in exact normal form over $\mathbb{Q}[x_1,\dots,x_n]$ via [`chem/algebra.hypercubical`](https://hyperactivity.ai/kg?mod=chem/algebra.hypercubical), so every proof holds for *all* real parameter values simultaneously:
 
 - **Weighted Lyapunov SOS ([`neuro/lyapunov.hypercubical`](https://hyperactivity.ai/kg?mod=neuro/lyapunov.hypercubical)):** For $V = p_1 e_B^2 + p_2 e_C^2$,
 
-$$4 p_1 \eta_B \left(-\frac{dV}{dt}\right) = \big(2 p_1 \eta_B e_B - (p_1 \gamma_1 + p_2 \gamma_2)\,e_C\big)^2 + \Big(4 p_1 p_2 \eta_B \eta_C - (p_1 \gamma_1 + p_2 \gamma_2)^2\Big)\,e_C^2$$
+```math
+4 p_1 \eta_B \left(-\frac{dV}{dt}\right) = \big(2 p_1 \eta_B e_B - (p_1 \gamma_1 + p_2 \gamma_2)\,e_C\big)^2 + \Big(4 p_1 p_2 \eta_B \eta_C - (p_1 \gamma_1 + p_2 \gamma_2)^2\Big)\,e_C^2
+```
 
   recovering the sharp Hurwitz boundary $\eta_B \eta_C > \gamma_1 \gamma_2$ constructively.
 - **Forward-invariant Control Barrier Functions ([`neuro/barrier.hypercubical`](https://hyperactivity.ai/kg?mod=neuro/barrier.hypercubical)):** Exact Nagumo invariance for the two-learner safe set (`cbf-2learner-safe-sos-id`) and the externally driven FitzHugh–Nagumo trapping ellipsoid (`fhn-driven-trapping-sos-id`).
