@@ -1,0 +1,23 @@
+-- `hyperactive dht-join BOOTSTRAP_URL [MY_PUBLIC_URL]`: 1-RTT Federated Peer Exchange
+hy-dht-join : List Word → List (List Word) → Proc W Unit
+hy-dht-join st nil = h-fail "hyperactive dht-join BOOTSTRAP_URL [MY_PUBLIC_URL]"
+hy-dht-join st (cons rawB rest) =
+  let burl = hy-dht-url rawB in
+  let myu = hy-dht-url (hy-head rest) in
+  bind (hy-dht-node-id st) (λ nid →
+  bind (h-mkdir (list-append st "/dht")) (λ md →
+  bind (h-read (list-append st "/dht/peers")) (λ oldp →
+  let body = list-append (h-line (list-append nid (cons #32 myu))) (hy-or nil oldp) in
+  let cmd = the (List (List Word)) (if hy-is-url myu
+            then cons "/usr/bin/env" (cons "curl" (cons "-fsS" (cons "-X" (cons "POST" (cons "--data-binary" (cons body (cons (list-append burl "/dht/announce") nil)))))))
+            else cons "/usr/bin/env" (cons "curl" (cons "-fsS" (cons (list-append burl "/dht/peers") nil)))) in
+  bind (h-capture cmd) (λ cr →
+  if h-not (weq (fst cr) #0)
+  then h-fail (list-append "hyperactive dht-join: peer unreachable at " burl)
+  else let js = snd cr in
+    let rid = hy-json-field "id" js in
+    let rpairs = hy-json-pairs (h-split #91 js) in
+    let withBoot = the (List (List Word)) (if weq (fromNat (list-length rid)) #64 then cons (list-append rid (cons #32 burl)) rpairs else rpairs) in
+    let merged = hy-dht-without nid (hy-dht-dedup (list-append withBoot (h-lines (hy-or nil oldp)))) in
+    bind (h-write (list-append st "/dht/peers") (h-concat (list-map h-line merged))) (λ wr →
+    h-out (list-append (h-line (list-append "dht-join ok (local id " (list-append (h-take 16 nid) "…):"))) (h-concat (list-map h-line merged))))))))

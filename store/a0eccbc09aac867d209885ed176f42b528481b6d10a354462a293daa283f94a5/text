@@ -1,0 +1,27 @@
+-- GET /dht/find/<keySha256> : Kademlia FIND_VALUE / GET_PROVIDERS (local CAS check + provider URLs + XOR-sorted closest peers)
+s-dht-find : List Word → List Word → Proc W (List Word)
+s-dht-find st key =
+  if h-not (s-hex64 key)
+  then ret {lzero} {W} (s-respond "400 Bad Request" "text/plain" "invalid dht key sha256")
+  else bind (s-dht-node-id st) (λ nid →
+    bind (h-file-time (list-append "packs/" key)) (λ pt →
+    bind (h-file-time (list-append "roots/" key)) (λ rt →
+    bind (h-env "HYPERACTIVE_NODE_URL") (λ nu →
+    bind (h-read (list-append st (list-append "/dht/providers/" key))) (λ pvs →
+    bind (h-read (list-append st "/dht/peers")) (λ prs →
+    let hasP = wlt #0 pt in
+    let hasR = wlt #0 rt in
+    let selfU = s-dht-clean-url (s-or nil nu) in
+    let baseUrls = h-lines (s-or nil pvs) in
+    let allUrls = s-dht-cap 16 (s-dht-clean-urls (if andB (orB hasP hasR) (s-valid-peer-url selfU) then cons selfU baseUrls else baseUrls)) in
+    let closest = s-dht-cap 16 (s-dht-sort-xor key (s-dht-without nid (s-dht-clean-rows (h-lines (s-or nil prs))))) in
+    let pjson = h-concat (cons "[" (cons (s-commas (list-map s-cj-str allUrls)) (cons "]" nil))) in
+    let cjson = h-concat (cons "[" (cons (s-commas (list-map s-dht-row-json closest)) (cons "]" nil))) in
+    let j = h-concat (cons "{" (cons (s-commas (
+      cons (s-dht-kv "id" (s-cj-str nid)) (
+      cons (s-dht-kv "key" (s-cj-str key)) (
+      cons (s-dht-kv "hasPack" (if hasP then "true" else "false")) (
+      cons (s-dht-kv "hasRoot" (if hasR then "true" else "false")) (
+      cons (s-dht-kv "providers" pjson) (
+      cons (s-dht-kv "closest" cjson) nil))))))) (cons "}" nil))) in
+    ret {lzero} {W} (s-response "application/json" j)))))))

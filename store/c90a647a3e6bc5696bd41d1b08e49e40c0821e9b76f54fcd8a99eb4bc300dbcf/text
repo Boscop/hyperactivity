@@ -1,0 +1,18 @@
+hy-dht-walk : Nat → List Word → List (List Word) → List (List Word) → Proc W Unit
+hy-dht-walk zero key queue visited = h-fail (list-append "hyperactive dht-find: exhausted multi-hop budget without locating " key)
+hy-dht-walk (suc fuel) key nil visited = h-fail (list-append "hyperactive dht-find: no providers found across reachable DHT peers for " key)
+hy-dht-walk (suc fuel) key (cons u rest) visited =
+  if orB (h-not (hy-is-url u)) (h-has u visited)
+  then hy-dht-walk fuel key rest visited
+  else bind (h-capture (cons "/usr/bin/env" (cons "curl" (cons "-fsS" (cons (list-append u (list-append "/dht/find/" key)) nil))))) (λ cr →
+    if h-not (weq (fst cr) #0)
+    then hy-dht-walk fuel key rest (cons u visited)
+    else let js = snd cr in
+      let hasLocal = orB (h-infix (list-append (hy-qs "hasPack") ":true") js) (h-infix (list-append (hy-qs "hasRoot") ":true") js) in
+      let provs = hy-json-providers js in
+      let foundUrls = the (List (List Word)) (if hasLocal then cons u provs else provs) in
+      bind (h-out (h-line (list-append "dht-hop " (list-append u (list-append " (id " (list-append (h-take 16 (hy-json-field "id" js)) "…)")))))) (λ o1 →
+      if hy-nonempty-list foundUrls
+      then h-out (list-append (h-line (list-append "FOUND " (list-append key ":"))) (h-concat (list-map h-line foundUrls)))
+      else let nextPeers = list-map hy-row-url (hy-json-pairs (h-split #91 js)) in
+           hy-dht-walk fuel key (list-append nextPeers rest) (cons u visited)))

@@ -1,0 +1,23 @@
+-- POST /dht/provide : Kademlia ADD_PROVIDER (<keySha256> <http-url>)
+s-dht-provide : List Word → List Word → Proc W (List Word)
+s-dht-provide st body =
+  let l = s-dht-ltrim (s-first-line (h-lines body)) in
+  let key = h-before " " l in
+  let url = s-dht-clean-url (h-after " " l) in
+  if h-not (andB (s-hex64 key) (s-valid-peer-url url))
+  then ret {lzero} {W} (s-respond "400 Bad Request" "text/plain" "invalid dht provide (expected: <key-sha256> <http-url>)")
+  else bind (s-dht-node-id st) (λ nid →
+    let pdir = list-append st "/dht/providers" in
+    let pf = list-append pdir (cons #47 key) in
+    bind (h-mkdir (list-append st "/dht")) (λ md0 →
+    bind (h-mkdir pdir) (λ md1 →
+    bind (h-read pf) (λ old →
+    let urls = s-dht-cap 16 (s-dht-clean-urls (cons url (h-lines (s-or nil old)))) in
+    let pjson = h-concat (cons "[" (cons (s-commas (list-map s-cj-str urls)) (cons "]" nil))) in
+    let j = h-concat (cons "{" (cons (s-commas (
+      cons (s-dht-kv "ok" "true") (
+      cons (s-dht-kv "id" (s-cj-str nid)) (
+      cons (s-dht-kv "key" (s-cj-str key)) (
+      cons (s-dht-kv "providers" pjson) nil))))) (cons "}" nil))) in
+    bind (h-write pf (h-concat (list-map h-line urls))) (λ wr →
+    ret {lzero} {W} (s-response "application/json" j))))))

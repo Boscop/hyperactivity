@@ -1,0 +1,9 @@
+-- GET /dht/peers : this node's flat 256-bit ID and known Kademlia/PEX peer table
+s-dht-peers : List Word → Proc W (List Word)
+s-dht-peers st =
+  bind (s-dht-node-id st) (λ nid →
+  bind (h-read (list-append st "/dht/peers")) (λ prs →
+  let rows = s-dht-cap 64 (s-dht-without nid (s-dht-clean-rows (h-lines (s-or nil prs)))) in
+  ret {lzero} {W} (s-response "application/json" (h-concat (cons "{" (
+    cons (s-cj-str "id") (cons ":" (cons (s-cj-str nid) (cons "," (
+    cons (s-cj-str "peers") (cons ":[" (cons (s-commas (list-map s-dht-row-json rows)) (cons "]}" nil)))))))))))))

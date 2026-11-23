@@ -1,0 +1,12 @@
+-- `hyperactive dht-find KEY_SHA256 [START_URL]`: iterative multi-hop Kademlia XOR lookup
+hy-dht-find : List Word → List (List Word) → Proc W Unit
+hy-dht-find st nil = h-fail "hyperactive dht-find KEY_SHA256 [START_URL]"
+hy-dht-find st (cons key rest) =
+  bind (h-read (list-append st "/dht/peers")) (λ prs →
+  bind (h-env "HYPERACTIVE_PLACE") (λ pl →
+  let startU = hy-dht-url (hy-head rest) in
+  let known = list-map hy-row-url (hy-dht-dedup (h-lines (hy-or nil prs))) in
+  let placeU = hy-dht-url (hy-or nil pl) in
+  let q0 = the (List (List Word)) (if hy-is-url placeU then list-append known (cons placeU nil) else known) in
+  let q1 = the (List (List Word)) (if hy-is-url startU then cons startU q0 else q0) in
+  hy-dht-walk 24 key q1 nil))

@@ -1,0 +1,1564 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cubical Kernel &amp; Sovereign Peer (WASM) · Hyperactivity</title>
+<meta name="description" content="Sovereign browser peer node running the Hyperactivity cubical kernel (lib/check.hypercubical) and interaction-net normalizer in WebAssembly, with IndexedDB CAS, private/public curation, and distributed P2P cut reduction.">
+<style>
+:root {
+  --bg: #ffffff;
+  --panel: #f7f7f7;
+  --ink: #000000;
+  --muted: #555555;
+  --line: rgba(0, 0, 0, 0.14);
+  --line-strong: rgba(0, 0, 0, 0.30);
+  --border-hi: #000000;
+  --pink: #ff0a94;
+  --blue: #1a73e8;
+  --ok: #0a8a43;
+  --err: #d91b42;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+html.dark {
+  --bg: #000000;
+  --panel: #0a0a0a;
+  --ink: #ffffff;
+  --muted: #929292;
+  --line: rgba(255, 255, 255, 0.15);
+  --line-strong: rgba(255, 255, 255, 0.32);
+  --border-hi: #ffffff;
+  --pink: #ff0a94;
+  --blue: #4da3ff;
+  --ok: #26d07c;
+  --err: #ff4d6d;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%;
+  background: var(--bg); color: var(--ink);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: var(--pink); color: #fff; }
+
+.shell {
+  display: grid;
+  grid-template-columns: 336px 1fr;
+  height: calc(100vh - 48px);
+}
+@media (max-width: 940px) {
+  html, body { height: auto; }
+  .shell { grid-template-columns: 1fr; height: auto; }
+}
+
+.sidebar {
+  border-right: 2px solid var(--border-hi);
+  background: var(--panel);
+  display: flex; flex-direction: column;
+  overflow-y: auto;
+  padding: 16px;
+  gap: 16px;
+}
+.sec-label {
+  font: 800 10.5px/1.2 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: var(--muted);
+  margin-bottom: 8px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.sec-label b { color: var(--pink); font-weight: 800; }
+
+.preset-btn {
+  display: block; width: 100%; text-align: left;
+  background: var(--bg); color: var(--ink);
+  border: 1.5px solid var(--line-strong);
+  padding: 8px 10px; margin-bottom: 5px;
+  font: 700 11.5px/1.3 var(--mono);
+  cursor: pointer;
+}
+.preset-btn:hover, .preset-btn.active {
+  border-color: var(--pink);
+  color: var(--pink);
+}
+.preset-sub {
+  display: block; font-weight: 400; font-size: 10.5px; color: var(--muted); margin-top: 2px;
+}
+
+.mod-box { display: flex; gap: 5px; }
+.mod-box input, .ws-input {
+  flex: 1; min-width: 0;
+  background: var(--bg); color: var(--ink);
+  border: 1.5px solid var(--line-strong);
+  padding: 6px 8px;
+  font: 600 11.5px var(--mono);
+  outline: none;
+}
+.mod-box input:focus, .ws-input:focus { border-color: var(--pink); }
+
+.mod-box button, .btn, .mini-btn {
+  background: var(--ink); color: var(--bg);
+  border: 1.5px solid var(--border-hi);
+  padding: 6px 11px;
+  font: 700 11.5px var(--mono);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-ghost {
+  background: var(--bg); color: var(--ink);
+  border: 1.5px solid var(--border-hi);
+}
+.btn-pink {
+  background: var(--pink); color: #fff;
+  border: 1.5px solid var(--pink);
+}
+.mod-box button:hover, .btn:hover, .mini-btn:hover {
+  background: var(--pink); border-color: var(--pink); color: #fff;
+}
+.btn:disabled, .mini-btn:disabled, .mod-box button:disabled { opacity: 0.42; cursor: wait; }
+.mini-btn { padding: 3px 7px; font-size: 10.5px; }
+
+.ws-card, .peer-box {
+  border: 1.5px solid var(--line-strong);
+  background: var(--bg);
+  padding: 10px;
+}
+.ws-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 6px;
+  padding: 5px 0; border-bottom: 1px solid var(--line);
+  font: 600 11px/1.35 var(--mono);
+}
+.ws-row:last-child { border-bottom: 0; }
+.tag-priv {
+  padding: 1px 5px; border: 1px solid var(--line-strong); color: var(--muted); font-size: 9.5px; cursor: pointer;
+}
+.tag-pub {
+  padding: 1px 5px; border: 1px solid var(--pink); color: var(--pink); font-size: 9.5px; cursor: pointer; font-weight: 800;
+}
+.peer-item {
+  padding: 6px 0; border-bottom: 1px solid var(--line);
+  font: 500 11px/1.4 var(--mono);
+}
+.peer-item:last-child { border-bottom: 0; }
+.peer-mod {
+  display: flex; justify-content: space-between; align-items: center; gap: 6px;
+  margin-top: 4px; padding-left: 8px; border-left: 2px solid var(--pink);
+}
+
+.hash-list {
+  font: 500 10.5px/1.5 var(--mono);
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+  max-height: 150px;
+  overflow-y: auto;
+  word-break: break-all;
+}
+.hash-row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+.hash-row .h-ok { color: var(--ok); white-space: nowrap; }
+
+.main {
+  display: grid;
+  grid-template-rows: auto minmax(220px, 1fr) minmax(190px, 42%);
+  min-width: 0; min-height: 0;
+}
+.toolbar {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 9px 16px;
+  border-bottom: 2px solid var(--border-hi);
+  font: 600 12px var(--mono);
+  flex-wrap: wrap;
+}
+.status { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.dot {
+  width: 9px; height: 9px;
+  background: var(--pink);
+  display: inline-block;
+}
+.dot.ready { background: var(--ok); }
+.dot.err { background: var(--err); }
+.p2p-pill {
+  padding: 2px 7px;
+  border: 1.5px solid var(--blue);
+  color: var(--blue);
+  font: 700 10.5px var(--mono);
+}
+
+.editor-wrap {
+  position: relative; display: flex; flex-direction: column; min-height: 0;
+  border-bottom: 2px solid var(--border-hi);
+}
+textarea#code {
+  flex: 1; width: 100%; resize: none; border: 0; outline: 0;
+  padding: 16px 20px;
+  background: var(--bg); color: var(--ink);
+  font: 500 13.5px/1.6 var(--mono);
+  tab-size: 2;
+}
+.out-wrap {
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--panel);
+}
+.out-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 7px 18px;
+  border-bottom: 1px solid var(--line-strong);
+  font: 700 10.5px var(--mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+pre#out {
+  flex: 1; margin: 0; padding: 14px 20px;
+  overflow: auto;
+  font: 500 12.5px/1.6 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+</style>
+</head>
+<body>
+<!--HX:NAV-->
+
+<div class="shell">
+  <aside class="sidebar">
+    <div>
+      <div class="sec-label"><span>Sovereign Node Workspace</span><b id="myNodeBadge">peer: …</b></div>
+      <div class="ws-card">
+        <div style="display:flex;gap:5px;margin-bottom:6px">
+          <input class="ws-input" id="savePathInput" value="local/my_lemma.hypercubical" spellcheck="false" placeholder="module/path.hypercubical">
+          <select id="saveVisSelect" class="ws-input" style="flex:0 0 auto;width:auto;cursor:pointer">
+            <option value="private">PRIVATE</option>
+            <option value="public">PUBLISHED</option>
+          </select>
+        </div>
+        <button class="btn" id="saveWsBtn" disabled style="width:100%">Check &amp; Record to My Pool</button>
+        <div style="font:400 10.5px/1.4 var(--mono);color:var(--muted);margin-top:6px">
+          <b>PRIVATE</b> stays in your browser IndexedDB (<code>curated-private-withheld</code>). <b>PUBLISHED</b> is served from your live node while open.
+        </div>
+        <div id="wsList" style="margin-top:8px"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="sec-label"><span>Live Peer Mesh (Kademlia + WebRTC)</span><b id="peerCountBadge">0 peers</b></div>
+      <div class="peer-box" id="peerList">
+        <div style="font:400 11px/1.45 var(--mono);color:var(--muted)">
+          Listening on WebRTC DataChannel + local channel. Open <code>/kernel</code> in another tab or device to form a multi-hop XOR mesh.
+        </div>
+      </div>
+      <div class="mod-box" style="margin-top:6px">
+        <input id="seedInput" spellcheck="false" placeholder="Federated seed https://peer.example">
+        <button id="addSeedBtn" title="Bridge an independent signaling/DHT seed">+ Seed</button>
+      </div>
+      <div id="seedList" style="font:400 10px/1.4 var(--mono);color:var(--muted);margin-top:4px"></div>
+    </div>
+
+    <div>
+      <div class="sec-label"><span>Kernel Presets</span></div>
+      <div id="presets"></div>
+    </div>
+
+    <div>
+      <div class="sec-label"><span>Pull Module or 64-Hex Key</span></div>
+      <div class="mod-box">
+        <input id="modInput" value="lib/dht.hypercubical" spellcheck="false" placeholder="lib/dht.hypercubical or <sha256>">
+        <button id="loadModBtn" disabled>Pull</button>
+      </div>
+    </div>
+
+    <div>
+      <div class="sec-label"><span>Verified CAS Pool (hx-cas-v1)</span><span id="casCountBadge">0 objs</span></div>
+      <div class="hash-list" id="hashes">Booting WebAssembly worker…</div>
+    </div>
+  </aside>
+
+  <section class="main">
+    <div class="toolbar">
+      <div class="status">
+        <span class="dot" id="dot"></span>
+        <span id="statusText">Initializing cubical.wasm…</span>
+        <span class="p2p-pill" id="meshBadge">⚡ P2P: 0 live</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span id="stepBadge" style="color:var(--muted)">0 net steps</span>
+        <button class="btn btn-ghost" id="distBtn" disabled title="Partition independent #show / #type cuts across live P2P workers and verify witnesses locally">⚡ Distribute Cuts</button>
+        <button class="btn btn-pink" id="runBtn" disabled title="Elaborate &amp; Normalize locally (Ctrl+Enter / Cmd+Enter)">Elaborate &amp; Normalize ↵</button>
+      </div>
+    </div>
+
+    <div class="editor-wrap">
+      <textarea id="code" spellcheck="false"></textarea>
+    </div>
+
+    <div class="out-wrap">
+      <div class="out-bar">
+        <span>Interaction-Net Normalizer &amp; Self-Hosted Kernel (lib/check.hypercubical)</span>
+        <span id="timeBadge"></span>
+      </div>
+      <pre id="out">Booting cubical.wasm (src/dnf.c + src/big.c + src/net.c + src/lang.c) and opening local IndexedDB CAStore (hx-cas-v1)…</pre>
+    </div>
+  </section>
+</div>
+
+<script>
+const PRESETS = [
+  {
+    title: '1 · Distributed Net Cuts (P2P)',
+    sub: 'Parallel interaction-net reductions partitioned across live peers + local witness check',
+    code: `-- Click "⚡ Distribute Cuts" with 1+ live peers (open /kernel in a second tab
+-- or machine!) to partition each #show cut across peer cubical.wasm workers
+-- and verify every returned normal form locally in lib/check.hypercubical.
+
+p2p-fib : Nat → Nat
+p2p-fib zero = zero
+p2p-fib (suc zero) = suc zero
+p2p-fib (suc (suc n)) = plus (p2p-fib (suc n)) (p2p-fib n)
+
+p2p-sum-sq : Nat → Nat
+p2p-sum-sq zero = zero
+p2p-sum-sq (suc n) = plus (times (suc n) (suc n)) (p2p-sum-sq n)
+
+#show p2p-fib 14
+#show p2p-sum-sq 12
+#show times 29 31
+#show p2p-fib 15
+`
+  },
+  {
+    title: '2 · Path Symmetry & Involutivity',
+    sub: 'Interval reversal (~ i) is definitionally involutive in src/dnf.c',
+    code: `k-sym : {A : Type} {x y : A} → Path A x y → Path A y x
+k-sym p = λ i → p (~ i)
+
+k-sym-invol : {A : Type} {x y : A} (p : Path A x y) → Path (Path A x y) (k-sym (k-sym p)) p
+k-sym-invol p = refl
+
+#type k-sym-invol {Bool} {true} {true}
+#show plus 21 21
+`
+  },
+  {
+    title: '3 · Kademlia XOR DHT & Sovereign Curation',
+    sub: 'Load lib/dht.hypercubical & lib/distnet.hypercubical (XOR unidirectionality, multi-hop soundness, Bloom)',
+    code: `import "lib/distnet.hypercubical"
+import "lib/dht.hypercubical"
+
+#type xor-unidirectional
+#type dht-routing-sound {Nat}
+#type dht-forged-hop-rejected {Nat}
+#type bloom-no-false-neg
+#type standpoint-noninterference {Nat} {Nat} {Bool}
+`
+  },
+  {
+    title: '4 · Forged Proof Rejection',
+    sub: 'Watch lib/check.hypercubical reject Path Bool true false = refl & recover',
+    code: `-- False claim: lib/check.hypercubical rejects refl because endpoint i1
+-- reduces to true rather than false, leaving your CAStore untouched.
+
+forged-claim : Path Bool true false
+forged-claim = refl
+`
+  }
+];
+
+const CORE_IMPORTS = [
+  'lib/prelude.hypercubical',
+  'lib/code.hypercubical',
+  'lib/match.hypercubical',
+  'lib/nav.hypercubical',
+  'lib/cost.hypercubical',
+  'lib/lin.hypercubical',
+  'lib/check.hypercubical',
+  'lib/std.hypercubical',
+  'lib/core.hypercubical'
+];
+
+function toHex(u8) {
+  let s = '';
+  for (let i = 0; i < u8.length; i++) s += u8[i].toString(16).padStart(2, '0');
+  return s;
+}
+async function sha256Text(str) {
+  const bytes = new TextEncoder().encode(str);
+  const d = await crypto.subtle.digest('SHA-256', bytes);
+  return toHex(new Uint8Array(d));
+}
+
+// ---------------- Sovereign IndexedDB CAStore (hx-cas-v1) ----------------
+let casDB = null;
+const workspace = new Map(); // path -> { path, sha256, visibility, text, updatedAt }
+
+function openLocalPool() {
+  if (!('indexedDB' in window)) return Promise.resolve(null);
+  return new Promise(res => {
+    const req = indexedDB.open('hx-cas-v1', 2);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('obj')) db.createObjectStore('obj');
+      if (!db.objectStoreNames.contains('ws')) db.createObjectStore('ws', { keyPath: 'path' });
+    };
+    req.onsuccess = () => { casDB = req.result; res(casDB); };
+    req.onerror = () => res(null);
+  });
+}
+
+function casGet(hash) {
+  if (!casDB || !hash) return Promise.resolve(null);
+  return new Promise(res => {
+    try {
+      const r = casDB.transaction('obj', 'readonly').objectStore('obj').get(hash);
+      r.onsuccess = async () => {
+        const val = r.result;
+        if (typeof val !== 'string') return res(null);
+        // ca-check on read
+        if (hash.length === 64 && (await sha256Text(val)) !== hash) return res(null);
+        res(val);
+      };
+      r.onerror = () => res(null);
+    } catch (e) { res(null); }
+  });
+}
+
+async function casPutVerified(expectedHash, text) {
+  const actual = await sha256Text(text);
+  if (expectedHash && expectedHash.length === 64 && actual !== expectedHash) {
+    throw new Error('peer-forged-rejected: SHA-256 mismatch (' + actual.slice(0, 12) + ' != ' + expectedHash.slice(0, 12) + ')');
+  }
+  if (casDB) {
+    await new Promise(res => {
+      try {
+        const tx = casDB.transaction('obj', 'readwrite');
+        tx.objectStore('obj').put(text, actual);
+        tx.oncomplete = () => res(true);
+        tx.onerror = () => res(false);
+      } catch (e) { res(false); }
+    });
+    refreshCasCount();
+  }
+  return actual;
+}
+
+function wsLoadAll() {
+  if (!casDB || !casDB.objectStoreNames.contains('ws')) return Promise.resolve([]);
+  return new Promise(res => {
+    try {
+      const r = casDB.transaction('ws', 'readonly').objectStore('ws').getAll();
+      r.onsuccess = () => res(r.result || []);
+      r.onerror = () => res([]);
+    } catch (e) { res([]); }
+  });
+}
+
+function wsPutRecord(rec) {
+  workspace.set(rec.path, rec);
+  if (!casDB || !casDB.objectStoreNames.contains('ws')) return Promise.resolve();
+  return new Promise(res => {
+    try {
+      const tx = casDB.transaction('ws', 'readwrite');
+      tx.objectStore('ws').put(rec);
+      tx.oncomplete = () => res();
+      tx.onerror = () => res();
+    } catch (e) { res(); }
+  });
+}
+
+function refreshCasCount() {
+  if (!casDB) return;
+  try {
+    const r = casDB.transaction('obj', 'readonly').objectStore('obj').count();
+    r.onsuccess = () => {
+      document.getElementById('casCountBadge').textContent = (r.result || 0) + ' objs';
+    };
+  } catch (e) {}
+}
+
+// ---------------- Flat 64-Bit Kademlia Identity, Bloom Summary & Multi-Hop Mesh ----------------
+const publicHashAllowlist = new Set();
+
+const myPeerId = (() => {
+  const a = new Uint8Array(8);
+  crypto.getRandomValues(a);
+  return 'p_' + toHex(a); // flat 64-bit hex prefix matching SHA-256[0..16]
+})();
+document.getElementById('myNodeBadge').textContent = myPeerId.slice(0, 10);
+
+function keyWord64(idOrHash) {
+  const clean = String(idOrHash || '').replace(/^p_/, '').replace(/[^0-9a-fA-F]/g, '').toLowerCase();
+  const hex16 = (clean + '0000000000000000').slice(0, 16);
+  try { return BigInt('0x' + hex16); } catch (e) { return 0n; }
+}
+function xorDist64(a, b) { return keyWord64(a) ^ keyWord64(b); }
+
+// 256-bit (32-byte = 64-hex) 2-hash Bloom filter over published/verified SHA-256 keys (lib/dht.hypercubical)
+function bloomIndices(sha256) {
+  if (!sha256 || sha256.length < 4) return [0, 0];
+  return [parseInt(sha256.slice(0, 2), 16) & 255, parseInt(sha256.slice(2, 4), 16) & 255];
+}
+function computeBloomHex(hashes) {
+  const bits = new Uint8Array(32);
+  for (const h of hashes) {
+    if (!h || h.length < 4) continue;
+    const [i1, i2] = bloomIndices(h);
+    bits[i1 >> 3] |= (1 << (i1 & 7));
+    bits[i2 >> 3] |= (1 << (i2 & 7));
+  }
+  return toHex(bits);
+}
+function bloomMayContain(bloomHex, sha256) {
+  if (!bloomHex || bloomHex.length !== 64 || !sha256 || sha256.length < 4) return false;
+  const [i1, i2] = bloomIndices(sha256);
+  const b1 = parseInt(bloomHex.slice((i1 >> 3) * 2, (i1 >> 3) * 2 + 2), 16);
+  const b2 = parseInt(bloomHex.slice((i2 >> 3) * 2, (i2 >> 3) * 2 + 2), 16);
+  return ((b1 & (1 << (i1 & 7))) !== 0) && ((b2 & (1 << (i2 & 7))) !== 0);
+}
+
+const peers = new Map(); // peerId -> { id, transport, pc, dc, manifest, lastSeen }
+const myOffers = {};     // targetPeerId -> RTCSessionDescriptionInit (with gathered ICE)
+const myAnswers = {};    // offererPeerId -> RTCSessionDescriptionInit (with gathered ICE)
+const pendingWants = new Map(); // sha256 -> [resolve...]
+const pendingCuts = new Map();  // reqId -> { resolve, reject, timer }
+const seenWantIds = new Set();  // loop-free deduplication of multi-hop WANT reqIds
+const pitTable = new Map();     // reqId -> { prevHop, h, ts } (Pending Interest Table)
+const rtcPending = new Map();   // peerId -> { pc, role }
+
+const federatedSeeds = new Set();
+try {
+  JSON.parse(localStorage.getItem('hx-p2p-seeds') || '[]').forEach(u => {
+    if (typeof u === 'string' && /^https?:\/\//.test(u)) federatedSeeds.add(u.replace(/\/+$/, ''));
+  });
+} catch (e) {}
+
+function renderSeedsUI() {
+  const el = document.getElementById('seedList');
+  if (!el) return;
+  if (!federatedSeeds.size) {
+    el.textContent = 'Seeds: origin + in-band DataChannel PEX';
+    return;
+  }
+  el.innerHTML = '';
+  federatedSeeds.forEach(u => {
+    const sp = document.createElement('span');
+    sp.style.cssText = 'display:inline-block;margin-right:6px;cursor:pointer;text-decoration:underline';
+    sp.textContent = u.replace(/^https?:\/\//, '') + ' ×';
+    sp.title = 'Click to remove federated seed';
+    sp.onclick = () => {
+      federatedSeeds.delete(u);
+      try { localStorage.setItem('hx-p2p-seeds', JSON.stringify([...federatedSeeds])); } catch (e) {}
+      renderSeedsUI();
+    };
+    el.appendChild(sp);
+  });
+}
+renderSeedsUI();
+
+document.getElementById('addSeedBtn').addEventListener('click', () => {
+  const inp = document.getElementById('seedInput');
+  const u = inp.value.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\/[^\s"'<>]+$/.test(u)) return;
+  federatedSeeds.add(u);
+  inp.value = '';
+  try { localStorage.setItem('hx-p2p-seeds', JSON.stringify([...federatedSeeds])); } catch (e) {}
+  renderSeedsUI();
+  pollWebRTCSignal();
+});
+
+const bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('hx-p2p-v1') : null;
+
+async function buildMyManifest() {
+  const pubMods = [];
+  const allServable = new Set(publicHashAllowlist);
+  workspace.forEach(rec => {
+    if (rec.visibility === 'public') {
+      pubMods.push({ path: rec.path, sha256: rec.sha256, bytes: rec.text.length });
+      allServable.add(rec.sha256);
+    }
+  });
+  pubMods.sort((a, b) => a.path.localeCompare(b.path));
+  const rootSeed = pubMods.map(m => m.path + ':' + m.sha256).join('\n');
+  const root = await sha256Text(rootSeed);
+  const bloom = computeBloomHex(allServable);
+  return { peerId: myPeerId, root: root.slice(0, 16), bloom, published: pubMods };
+}
+
+function sendToPeer(peerId, pkt) {
+  const p = peers.get(peerId);
+  const raw = JSON.stringify({ ...pkt, from: myPeerId, to: peerId });
+  if (p && p.dc && p.dc.readyState === 'open') {
+    try { p.dc.send(raw); return true; } catch (e) {}
+  }
+  if (bc && p && p.transport === 'LOCAL') {
+    bc.postMessage(raw);
+    return true;
+  }
+  return false;
+}
+
+function broadcastMesh(pkt) {
+  const raw = JSON.stringify({ ...pkt, from: myPeerId });
+  if (bc) bc.postMessage(raw);
+  peers.forEach(p => {
+    if (p.dc && p.dc.readyState === 'open') {
+      try { p.dc.send(raw); } catch (e) {}
+    }
+  });
+}
+
+async function announceManifest() {
+  const man = await buildMyManifest();
+  broadcastMesh({ t: 'MANIFEST', manifest: man });
+}
+
+function livePeerIds() {
+  const out = [];
+  const now = Date.now();
+  peers.forEach((p, id) => {
+    const dcOpen = p.dc && p.dc.readyState === 'open';
+    const locAlive = p.transport === 'LOCAL' && (now - p.lastSeen < 18000);
+    if (dcOpen || locAlive) out.push(id);
+  });
+  return out;
+}
+
+// Select next-hop peers for multi-hop WANT: Bloom-filter hits first, then Kademlia XOR-closest!
+function selectNextHops(sha256, excludeSet, kMax) {
+  const cands = livePeerIds().filter(id => !excludeSet.has(id));
+  cands.sort((a, b) => {
+    const pa = peers.get(a), pb = peers.get(b);
+    const ba = (pa && pa.manifest && bloomMayContain(pa.manifest.bloom, sha256)) ? 0 : 1;
+    const bb = (pb && pb.manifest && bloomMayContain(pb.manifest.bloom, sha256)) ? 0 : 1;
+    if (ba !== bb) return ba - bb;
+    const da = xorDist64(a, sha256), db = xorDist64(b, sha256);
+    return da < db ? -1 : da > db ? 1 : 0;
+  });
+  return cands.slice(0, kMax);
+}
+
+function rememberWantId(reqId) {
+  seenWantIds.add(reqId);
+  if (seenWantIds.size > 512) {
+    const first = seenWantIds.values().next().value;
+    seenWantIds.delete(first);
+  }
+}
+
+function renderPeersUI() {
+  const ids = livePeerIds();
+  document.getElementById('peerCountBadge').textContent = ids.length + (ids.length === 1 ? ' peer' : ' peers');
+  document.getElementById('meshBadge').textContent = '⚡ P2P: ' + ids.length + ' live';
+  const box = document.getElementById('peerList');
+  if (!ids.length) {
+    box.innerHTML = '<div style="font:400 11px/1.45 var(--mono);color:var(--muted)">0 peers connected right now. Open <code>/kernel</code> in another tab or device to form a live Kademlia + interaction-net mesh.</div>';
+    return;
+  }
+  box.innerHTML = '';
+  ids.forEach(id => {
+    const p = peers.get(id);
+    const d = document.createElement('div');
+    d.className = 'peer-item';
+    const root = (p.manifest && p.manifest.root) ? p.manifest.root : 'empty';
+    const pub = (p.manifest && Array.isArray(p.manifest.published)) ? p.manifest.published : [];
+    const head = document.createElement('div');
+    head.innerHTML = '<b>' + id.slice(0, 10) + '</b> <span style="opacity:.65">[' + p.transport + ' · root ' + root.slice(0, 8) + ']</span>';
+    d.appendChild(head);
+    if (!pub.length) {
+      const sub = document.createElement('div');
+      sub.style.cssText = 'opacity:.6;font-size:10.5px;margin-top:2px';
+      sub.textContent = 'Bloom summary active · compute worker ready';
+      d.appendChild(sub);
+    } else {
+      pub.forEach(m => {
+        const mr = document.createElement('div');
+        mr.className = 'peer-mod';
+        const sp = document.createElement('span');
+        sp.textContent = m.path + ' (' + m.sha256.slice(0, 8) + ')';
+        const btn = document.createElement('button');
+        btn.className = 'mini-btn';
+        btn.textContent = 'Pull & Check';
+        btn.onclick = () => pullPublishedFromPeer(id, m.path, m.sha256);
+        mr.appendChild(sp);
+        mr.appendChild(btn);
+        d.appendChild(mr);
+      });
+    }
+    box.appendChild(d);
+  });
+}
+
+// Initiate serverless WebRTC offer relayed in-band over an already-open mutual peer's DataChannel (PEX)!
+async function initiateInBandOffer(targetId, relayPeerId) {
+  if (typeof RTCPeerConnection === 'undefined') return;
+  if (targetId === myPeerId || rtcPending.has(targetId) || rtcPending.size >= 8) return;
+  const ex = peers.get(targetId);
+  if (ex && ex.dc && ex.dc.readyState === 'open') return;
+  try {
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    const dc = pc.createDataChannel('hx-p2p-v1');
+    rtcPending.set(targetId, { pc, role: 'offerer' });
+    bindDataChannel(targetId, pc, dc);
+    const off = await pc.createOffer();
+    await pc.setLocalDescription(off);
+    await waitIceComplete(pc);
+    sendToPeer(relayPeerId, {
+      t: 'RELAY_SDP',
+      origin: myPeerId,
+      target: targetId,
+      kind: 'offer',
+      sdp: pc.localDescription
+    });
+  } catch (e) {}
+}
+
+async function onMeshPacket(pkt, viaTransport, rtcChannel) {
+  if (!pkt || !pkt.from || pkt.from === myPeerId) return;
+  if (pkt.to && pkt.to !== myPeerId) return;
+  let p = peers.get(pkt.from);
+  if (!p) {
+    p = { id: pkt.from, transport: viaTransport, pc: null, dc: rtcChannel || null, manifest: null, lastSeen: Date.now() };
+    peers.set(pkt.from, p);
+  } else {
+    p.lastSeen = Date.now();
+    if (rtcChannel) { p.dc = rtcChannel; p.transport = 'WEBRTC'; }
+  }
+
+  if (pkt.t === 'HELLO') {
+    const man = await buildMyManifest();
+    sendToPeer(pkt.from, { t: 'MANIFEST', manifest: man });
+    renderPeersUI();
+  } else if (pkt.t === 'MANIFEST') {
+    p.manifest = pkt.manifest;
+    renderPeersUI();
+  } else if (pkt.t === 'PEX' && Array.isArray(pkt.peers)) {
+    // Federated Peer Exchange over DataChannel: punch direct WebRTC links to newly discovered transitive peers!
+    for (const cand of pkt.peers) {
+      if (!cand || cand === myPeerId) continue;
+      if (myPeerId < cand && !peers.has(cand) && !rtcPending.has(cand)) {
+        initiateInBandOffer(cand, pkt.from);
+      }
+    }
+  } else if (pkt.t === 'RELAY_SDP' && pkt.target && pkt.origin && pkt.sdp) {
+    if (pkt.target !== myPeerId) {
+      // Act as zero-storage signaling relay between two connected neighbors
+      sendToPeer(pkt.target, {
+        t: 'RELAY_SDP',
+        origin: pkt.origin,
+        target: pkt.target,
+        kind: pkt.kind,
+        sdp: pkt.sdp
+      });
+    } else if (pkt.kind === 'offer' && !rtcPending.has(pkt.origin)) {
+      try {
+        const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+        rtcPending.set(pkt.origin, { pc, role: 'answerer' });
+        pc.ondatachannel = ev => bindDataChannel(pkt.origin, pc, ev.channel);
+        await pc.setRemoteDescription(pkt.sdp);
+        const ans = await pc.createAnswer();
+        await pc.setLocalDescription(ans);
+        await waitIceComplete(pc);
+        sendToPeer(pkt.from, {
+          t: 'RELAY_SDP',
+          origin: myPeerId,
+          target: pkt.origin,
+          kind: 'answer',
+          sdp: pc.localDescription
+        });
+      } catch (e) {}
+    } else if (pkt.kind === 'answer' && rtcPending.has(pkt.origin)) {
+      const st = rtcPending.get(pkt.origin);
+      if (st.role === 'offerer' && st.pc.signalingState === 'have-local-offer') {
+        try { await st.pc.setRemoteDescription(pkt.sdp); } catch (e) {}
+      }
+    }
+  } else if (pkt.t === 'WANT' && pkt.h) {
+    const reqId = pkt.reqId || ('w_' + pkt.h.slice(0, 12) + '_' + pkt.from);
+    if (seenWantIds.has(reqId)) return;
+    rememberWantId(reqId);
+
+    // 1. Check local sovereign curation allowlist (curated-private-withheld)
+    let allowed = publicHashAllowlist.has(pkt.h);
+    workspace.forEach(rec => {
+      if (rec.sha256 === pkt.h && rec.visibility === 'public') allowed = true;
+    });
+    if (allowed) {
+      const txt = await casGet(pkt.h);
+      if (txt !== null) {
+        sendToPeer(pkt.from, { t: 'OBJ', reqId, h: pkt.h, s: txt });
+        return;
+      }
+    }
+
+    // 2. Multi-hop Kademlia XOR + Bloom forwarding (TTL <= 6) when not held locally
+    const ttl = typeof pkt.ttl === 'number' ? pkt.ttl : 1;
+    if (ttl > 1) {
+      const trail = Array.isArray(pkt.path) ? pkt.path : [pkt.from];
+      const excl = new Set([...trail, pkt.from, myPeerId]);
+      const nextHops = selectNextHops(pkt.h, excl, 3);
+      if (nextHops.length > 0) {
+        pitTable.set(reqId, { prevHop: pkt.from, h: pkt.h, ts: Date.now() });
+        nextHops.forEach(nh => {
+          sendToPeer(nh, { t: 'WANT', reqId, h: pkt.h, ttl: ttl - 1, path: [...trail, myPeerId] });
+        });
+      }
+    }
+  } else if (pkt.t === 'OBJ' && pkt.h && typeof pkt.s === 'string') {
+    try {
+      // Verify SHA-256 at every hop (dht-routing-sound / dht-forged-hop-rejected): forged objects drop immediately!
+      await casPutVerified(pkt.h, pkt.s);
+      publicHashAllowlist.add(pkt.h);
+      const ws = pendingWants.get(pkt.h);
+      if (ws) { pendingWants.delete(pkt.h); ws.forEach(fn => fn(pkt.s)); }
+      if (pkt.reqId && pitTable.has(pkt.reqId)) {
+        const pit = pitTable.get(pkt.reqId);
+        pitTable.delete(pkt.reqId);
+        if (pit.prevHop && pit.prevHop !== myPeerId) {
+          sendToPeer(pit.prevHop, { t: 'OBJ', reqId: pkt.reqId, h: pkt.h, s: pkt.s });
+        }
+      }
+    } catch (err) {
+      outEl.textContent += '\n[SECURITY] ' + err.message + ' from ' + pkt.from;
+    }
+  } else if (pkt.t === 'CUT_REQ' && pkt.reqId && pkt.code) {
+    if (Array.isArray(pkt.deps)) {
+      for (const dep of pkt.deps) {
+        if (dep.path && dep.sha256) {
+          let txt = await casGet(dep.sha256);
+          if (txt === null) txt = await p2pWantHash(dep.sha256);
+          if (txt !== null) worker.postMessage({ type: 'put_mod', rel: dep.path, txt, sha256: dep.sha256 });
+        }
+      }
+    }
+    runWorkerCut(pkt.code).then(res => {
+      sendToPeer(pkt.from, {
+        t: 'CUT_RES',
+        reqId: pkt.reqId,
+        ok: res.ok,
+        output: res.output,
+        steps: res.steps,
+        ms: res.ms
+      });
+    });
+  } else if (pkt.t === 'CUT_RES' && pkt.reqId) {
+    const waiter = pendingCuts.get(pkt.reqId);
+    if (waiter) {
+      clearTimeout(waiter.timer);
+      pendingCuts.delete(pkt.reqId);
+      waiter.resolve({ ...pkt, peerId: pkt.from });
+    }
+  }
+}
+
+if (bc) {
+  bc.onmessage = ev => {
+    try { onMeshPacket(JSON.parse(ev.data), 'LOCAL', null); } catch (e) {}
+  };
+}
+
+function p2pWantHash(sha256) {
+  const hops = selectNextHops(sha256, new Set([myPeerId]), 4);
+  if (!hops.length) return Promise.resolve(null);
+  const reqId = 'w_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+  rememberWantId(reqId);
+  return new Promise(res => {
+    const timer = setTimeout(() => { pendingWants.delete(sha256); res(null); }, 2400);
+    const arr = pendingWants.get(sha256) || [];
+    arr.push(txt => { clearTimeout(timer); res(txt); });
+    pendingWants.set(sha256, arr);
+    hops.forEach(id => sendToPeer(id, { t: 'WANT', reqId, h: sha256, ttl: 6, path: [myPeerId] }));
+  });
+}
+
+function waitIceComplete(pc) {
+  if (pc.iceGatheringState === 'complete') return Promise.resolve();
+  return new Promise(res => {
+    const t = setTimeout(res, 1600);
+    pc.addEventListener('icegatheringstatechange', () => {
+      if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); }
+    });
+  });
+}
+
+function bindDataChannel(peerId, pc, dc) {
+  dc.onopen = async () => {
+    let p = peers.get(peerId);
+    if (!p) { p = { id: peerId, transport: 'WEBRTC', pc, dc, manifest: null, lastSeen: Date.now() }; peers.set(peerId, p); }
+    else { p.pc = pc; p.dc = dc; p.transport = 'WEBRTC'; p.lastSeen = Date.now(); }
+    delete myOffers[peerId];
+    const man = await buildMyManifest();
+    sendToPeer(peerId, { t: 'MANIFEST', manifest: man });
+    sendToPeer(peerId, { t: 'PEX', peers: livePeerIds() });
+    renderPeersUI();
+  };
+  dc.onclose = () => renderPeersUI();
+  dc.onmessage = ev => {
+    try { onMeshPacket(JSON.parse(ev.data), 'WEBRTC', dc); } catch (e) {}
+  };
+}
+
+async function pollOneSignalSeed(baseUrl, envelope) {
+  try {
+    const res = await fetch(baseUrl + '/api/p2p/signal?id=' + encodeURIComponent(myPeerId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: envelope
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data || !Array.isArray(data.peers)) return;
+    const now = Date.now();
+
+    for (const [pid, raw] of data.peers) {
+      if (!pid || pid === myPeerId) continue;
+      let env = null;
+      try { env = JSON.parse(raw); } catch (e) { continue; }
+      if (!env || (env.ts && now - env.ts > 45000)) continue;
+
+      const existing = peers.get(pid);
+      if (existing && existing.dc && existing.dc.readyState === 'open') continue;
+
+      if (env.answers && env.answers[myPeerId] && rtcPending.has(pid)) {
+        const st = rtcPending.get(pid);
+        if (st.role === 'offerer' && st.pc.signalingState === 'have-local-offer') {
+          await st.pc.setRemoteDescription(env.answers[myPeerId]);
+        }
+      }
+
+      if (env.offers && env.offers[myPeerId] && !rtcPending.has(pid)) {
+        const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+        rtcPending.set(pid, { pc, role: 'answerer' });
+        pc.ondatachannel = ev => bindDataChannel(pid, pc, ev.channel);
+        await pc.setRemoteDescription(env.offers[myPeerId]);
+        const ans = await pc.createAnswer();
+        await pc.setLocalDescription(ans);
+        await waitIceComplete(pc);
+        myAnswers[pid] = pc.localDescription;
+      }
+
+      if (myPeerId < pid && !rtcPending.has(pid) && rtcPending.size < 8) {
+        const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+        const dc = pc.createDataChannel('hx-p2p-v1');
+        rtcPending.set(pid, { pc, role: 'offerer' });
+        bindDataChannel(pid, pc, dc);
+        const off = await pc.createOffer();
+        await pc.setLocalDescription(off);
+        await waitIceComplete(pc);
+        myOffers[pid] = pc.localDescription;
+      }
+    }
+  } catch (e) {}
+}
+
+async function pollWebRTCSignal() {
+  if (typeof RTCPeerConnection === 'undefined') return;
+  const envelope = JSON.stringify({
+    ts: Date.now(),
+    offers: myOffers,
+    answers: myAnswers
+  });
+  const seeds = new Set(['', ...federatedSeeds]);
+  for (const s of seeds) await pollOneSignalSeed(s, envelope);
+  // Also discover federated daemon peers via /dht/peers on origin
+  try {
+    const dr = await fetch('/dht/peers');
+    if (dr.ok) {
+      const dj = await dr.json();
+      if (dj && Array.isArray(dj.peers)) {
+        dj.peers.slice(0, 6).forEach(([, u]) => {
+          if (typeof u === 'string' && /^https?:\/\//.test(u) && u !== location.origin) federatedSeeds.add(u.replace(/\/+$/, ''));
+        });
+      }
+    }
+  } catch (e) {}
+}
+
+// ---------------- WASM Cubical + Interaction-Net Worker ----------------
+
+const codeEl = document.getElementById('code');
+const outEl = document.getElementById('out');
+const runBtn = document.getElementById('runBtn');
+const distBtn = document.getElementById('distBtn');
+const saveWsBtn = document.getElementById('saveWsBtn');
+const loadModBtn = document.getElementById('loadModBtn');
+const modInput = document.getElementById('modInput');
+const dotEl = document.getElementById('dot');
+const statusEl = document.getElementById('statusText');
+const stepBadge = document.getElementById('stepBadge');
+const timeBadge = document.getElementById('timeBadge');
+const hashesEl = document.getElementById('hashes');
+const presetsEl = document.getElementById('presets');
+
+PRESETS.forEach((p, idx) => {
+  const b = document.createElement('button');
+  b.className = 'preset-btn' + (idx === 0 ? ' active' : '');
+  b.innerHTML = p.title + '<span class="preset-sub"></span>';
+  b.querySelector('.preset-sub').textContent = p.sub;
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.preset-btn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    codeEl.value = p.code;
+    if (!runBtn.disabled) triggerEval();
+  });
+  presetsEl.appendChild(b);
+});
+codeEl.value = PRESETS[0].code;
+
+const workerSrc = `
+let ex = null;
+let memory = null;
+let outBuf = '';
+let errBuf = '';
+const dec = new TextDecoder();
+const enc = new TextEncoder();
+const loadedFiles = new Map(); // rel -> sha256
+const verifiedHashes = [];
+
+function toHex(u8) {
+  let s = '';
+  for (let i = 0; i < u8.length; i++) s += u8[i].toString(16).padStart(2, '0');
+  return s;
+}
+async function sha256Hex(bytes) {
+  const d = await crypto.subtle.digest('SHA-256', bytes);
+  return toHex(new Uint8Array(d));
+}
+function pathHex(rel) { return toHex(enc.encode(rel)); }
+
+function withCStr(str, fn) {
+  const bytes = enc.encode(str);
+  const p = ex.wasm_alloc(bytes.length + 1);
+  new Uint8Array(memory.buffer).set(bytes, p);
+  new Uint8Array(memory.buffer)[p + bytes.length] = 0;
+  try { return fn(p); } finally { ex.wasm_free(p); }
+}
+
+function altExt(rel) {
+  if (rel.endsWith('.hypercubical')) return rel.slice(0, -13) + '.cub';
+  if (rel.endsWith('.cub')) return rel.slice(0, -4) + '.hypercubical';
+  return '';
+}
+
+function putFile(rel, text, sha256) {
+  withCStr(rel, rp => withCStr(text, tp => ex.wasm_put_file(rp, tp)));
+  loadedFiles.set(rel, sha256 || '');
+  const alt = altExt(rel);
+  if (alt) {
+    withCStr(alt, rp => withCStr(text, tp => ex.wasm_put_file(rp, tp)));
+    loadedFiles.set(alt, sha256 || '');
+  }
+}
+
+function dirOf(rel) {
+  const i = rel.lastIndexOf('/');
+  return i >= 0 ? rel.slice(0, i + 1) : '';
+}
+
+function normRel(baseDir, imp) {
+  const raw = imp.startsWith('/') ? imp.slice(1) : (baseDir + imp);
+  const parts = [];
+  for (const seg of raw.split('/')) {
+    if (!seg || seg === '.') continue;
+    if (seg === '..') parts.pop();
+    else parts.push(seg);
+  }
+  return parts.join('/');
+}
+
+function parseImports(rel, txt) {
+  const d = dirOf(rel);
+  const out = [];
+  for (const line of txt.split('\\n')) {
+    const m = line.match(/^\\s*import\\s+"([^"]+)"/);
+    if (m) out.push(normRel(d, m[1]));
+  }
+  return out;
+}
+
+function recordVerified(name, fullSha, bytesLen) {
+  const disp = name.endsWith('.cub') ? altExt(name) : name;
+  if (!verifiedHashes.some(x => x.name === disp && x.fullSha === fullSha)) {
+    verifiedHashes.push({ name: disp, sha256: fullSha.slice(0, 12), fullSha, bytes: bytesLen });
+  }
+}
+
+async function fetchModuleTree(origin, rel) {
+  if (loadedFiles.has(rel)) return;
+  loadedFiles.set(rel, 'pending');
+  const alt = altExt(rel);
+  let res = await fetch(origin + '/source/text?path=' + pathHex(rel));
+  if (!res.ok && alt) res = await fetch(origin + '/source/text?path=' + pathHex(alt));
+  if (!res.ok) res = await fetch(origin + '/api/kg/module?path=' + encodeURIComponent(rel));
+  if (!res.ok) {
+    loadedFiles.delete(rel);
+    throw new Error('Module not found in pool: ' + rel + ' (' + res.status + ')');
+  }
+  const buf = new Uint8Array(await res.arrayBuffer());
+  const h = await sha256Hex(buf);
+  const txt = dec.decode(buf);
+  const imps = parseImports(rel, txt);
+  for (const ch of imps) await fetchModuleTree(origin, ch);
+  putFile(rel, txt, h);
+  recordVerified(rel, h, buf.length);
+  self.postMessage({ type: 'cas_store', rel, sha256: h, txt });
+}
+
+self.onmessage = async (ev) => {
+  const msg = ev.data;
+  try {
+    if (msg.type === 'boot') {
+      const origin = msg.origin;
+      self.postMessage({ type: 'status', text: 'Fetching /cubical.wasm…' });
+      const wres = await fetch(origin + '/cubical.wasm');
+      if (!wres.ok) throw new Error('Failed to fetch /cubical.wasm: ' + wres.status);
+      const wbytes = new Uint8Array(await wres.arrayBuffer());
+      const whash = await sha256Hex(wbytes);
+      recordVerified('cubical.wasm', whash, wbytes.length);
+
+      const wasi = {
+        environ_sizes_get(c, s) { const dv = new DataView(memory.buffer); dv.setUint32(c, 0, true); dv.setUint32(s, 0, true); return 0; },
+        environ_get: () => 0,
+        clock_time_get(_i, _p, out) { new DataView(memory.buffer).setBigUint64(out, BigInt(Math.round(performance.now() * 1e6)), true); return 0; },
+        fd_write(fd, iovs, len, nw) {
+          const dv = new DataView(memory.buffer);
+          const u8 = new Uint8Array(memory.buffer);
+          let tot = 0;
+          for (let i = 0; i < len; i++) {
+            const p = dv.getUint32(iovs + i * 8, true);
+            const l = dv.getUint32(iovs + i * 8 + 4, true);
+            const s = dec.decode(u8.subarray(p, p + l));
+            if (fd === 1) outBuf += s; else errBuf += s;
+            tot += l;
+          }
+          dv.setUint32(nw, tot, true);
+          return 0;
+        },
+        fd_close: () => 0, fd_fdstat_get: () => 8, fd_filestat_get: () => 8,
+        fd_prestat_get: () => 8, fd_prestat_dir_name: () => 8, fd_read: () => 8,
+        fd_readdir: () => 8, fd_seek: () => 8, path_create_directory: () => 8,
+        path_filestat_get: () => 8, path_open: () => 8, path_remove_directory: () => 8,
+        path_rename: () => 8, path_unlink_file: () => 8, poll_oneoff: () => 8,
+        proc_exit: (c) => { throw new Error('proc_exit(' + c + ')'); },
+        sched_yield: () => 0
+      };
+
+      const { instance } = await WebAssembly.instantiate(wbytes, { wasi_snapshot_preview1: wasi });
+      ex = instance.exports;
+      memory = ex.memory;
+
+      if (Array.isArray(msg.preloaded)) {
+        for (const item of msg.preloaded) {
+          putFile(item.path, item.text, item.sha256);
+          recordVerified(item.path, item.sha256, item.text.length);
+        }
+      }
+
+      self.postMessage({ type: 'status', text: 'Verifying lib/core.hypercubical closure…', hashes: verifiedHashes });
+      for (const rel of ${JSON.stringify(CORE_IMPORTS)}) {
+        if (!loadedFiles.has(rel)) await fetchModuleTree(origin, rel);
+      }
+
+      self.postMessage({ type: 'status', text: 'Elaborating self-hosted kernel (lib/check.hypercubical)…', hashes: verifiedHashes });
+      outBuf = ''; errBuf = '';
+      const t0 = performance.now();
+      const rc = withCStr('lib/core.hypercubical', p => ex.wasm_load_module(p));
+      const ms = (performance.now() - t0).toFixed(0);
+      if (rc !== 0) throw new Error('lib/core.hypercubical boot failed:\\n' + outBuf + errBuf);
+      self.postMessage({ type: 'ready', ms, totalSteps: ex.wasm_steps(), hashes: verifiedHashes });
+
+    } else if (msg.type === 'put_mod') {
+      putFile(msg.rel, msg.txt, msg.sha256);
+      recordVerified(msg.rel, msg.sha256, msg.txt.length);
+      self.postMessage({ type: 'hashes', hashes: verifiedHashes });
+
+    } else if (msg.type === 'eval' || msg.type === 'cut_eval') {
+      outBuf = ''; errBuf = '';
+      const t0 = performance.now();
+      const imps = parseImports('browser.hypercubical', msg.code);
+      for (const imp of imps) {
+        if (!loadedFiles.has(imp)) await fetchModuleTree(msg.origin, imp);
+      }
+      const steps = withCStr(msg.code, p => ex.wasm_eval(p));
+      const ms = (performance.now() - t0).toFixed(1);
+      self.postMessage({
+        type: msg.type === 'cut_eval' ? 'cut_done' : 'result',
+        callId: msg.callId || null,
+        ok: steps >= 0,
+        steps: steps >= 0 ? steps : (-steps - 1),
+        totalSteps: ex.wasm_steps(),
+        ms,
+        output: (outBuf + (errBuf ? '\\n' + errBuf : '')).trim(),
+        hashes: verifiedHashes
+      });
+
+    } else if (msg.type === 'load_mod') {
+      outBuf = ''; errBuf = '';
+      const t0 = performance.now();
+      if (!loadedFiles.has(msg.rel)) await fetchModuleTree(msg.origin, msg.rel);
+      const s0 = ex.wasm_steps();
+      const rc = withCStr(msg.rel, p => ex.wasm_load_module(p));
+      const steps = ex.wasm_steps() - s0;
+      const ms = (performance.now() - t0).toFixed(1);
+      self.postMessage({
+        type: 'mod_loaded',
+        callId: msg.callId || null,
+        ok: rc === 0,
+        rel: msg.rel,
+        steps,
+        totalSteps: ex.wasm_steps(),
+        ms,
+        output: (outBuf + (errBuf ? '\\n' + errBuf : '')).trim(),
+        hashes: verifiedHashes
+      });
+    }
+  } catch (e) {
+    self.postMessage({ type: 'error', callId: msg.callId || null, error: String(e && e.message ? e.message : e) });
+  }
+};
+`;
+
+const worker = new Worker(URL.createObjectURL(new Blob([workerSrc], { type: 'application/javascript' })));
+const workerCalls = new Map();
+let callSeq = 1;
+
+function runWorkerCut(code) {
+  const callId = 'c' + (callSeq++);
+  return new Promise((resolve) => {
+    workerCalls.set(callId, resolve);
+    worker.postMessage({ type: 'cut_eval', callId, origin: location.origin, code });
+  });
+}
+
+function renderHashes(list) {
+  if (!list || !list.length) return;
+  hashesEl.innerHTML = '';
+  list.slice(-36).reverse().forEach(item => {
+    const r = document.createElement('div');
+    r.className = 'hash-row';
+    const l = document.createElement('span');
+    l.textContent = item.name;
+    const h = document.createElement('span');
+    h.className = 'h-ok';
+    h.textContent = '✓ ' + item.sha256;
+    r.appendChild(l);
+    r.appendChild(h);
+    hashesEl.appendChild(r);
+  });
+}
+
+function renderWorkspaceUI() {
+  const el = document.getElementById('wsList');
+  el.innerHTML = '';
+  workspace.forEach(rec => {
+    const row = document.createElement('div');
+    row.className = 'ws-row';
+    const left = document.createElement('span');
+    left.style.cssText = 'cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    left.textContent = rec.path;
+    left.title = 'Load into editor (' + rec.sha256.slice(0, 12) + ')';
+    left.onclick = () => {
+      codeEl.value = rec.text;
+      document.getElementById('savePathInput').value = rec.path;
+      document.getElementById('saveVisSelect').value = rec.visibility;
+    };
+    const badge = document.createElement('span');
+    badge.className = rec.visibility === 'public' ? 'tag-pub' : 'tag-priv';
+    badge.textContent = rec.visibility === 'public' ? 'PUBLISHED' : 'PRIVATE';
+    badge.title = 'Click to toggle curation visibility';
+    badge.onclick = async () => {
+      rec.visibility = rec.visibility === 'public' ? 'private' : 'public';
+      await wsPutRecord(rec);
+      renderWorkspaceUI();
+      await announceManifest();
+    };
+    row.appendChild(left);
+    row.appendChild(badge);
+    el.appendChild(row);
+  });
+}
+
+async function pullPublishedFromPeer(peerId, path, sha256) {
+  statusEl.textContent = 'Pulling ' + path + ' (' + sha256.slice(0, 10) + ') from ' + peerId + '…';
+  let txt = await casGet(sha256);
+  if (txt === null) txt = await p2pWantHash(sha256);
+  if (txt === null) {
+    outEl.textContent = 'Peer ' + peerId + ' did not return object ' + sha256.slice(0, 12) + ' (offline or withheld).';
+    return;
+  }
+  await casPutVerified(sha256, txt);
+  worker.postMessage({ type: 'put_mod', rel: path, txt, sha256 });
+  codeEl.value = txt;
+  document.getElementById('savePathInput').value = path;
+  document.getElementById('saveVisSelect').value = 'private';
+  worker.postMessage({ type: 'load_mod', origin: location.origin, rel: path });
+}
+
+saveWsBtn.addEventListener('click', async () => {
+  const path = document.getElementById('savePathInput').value.trim();
+  const vis = document.getElementById('saveVisSelect').value;
+  const text = codeEl.value;
+  if (!path || (!path.endsWith('.hypercubical') && !path.endsWith('.cub'))) {
+    outEl.textContent = 'Module path must end in .hypercubical';
+    return;
+  }
+  saveWsBtn.disabled = true;
+  statusEl.textContent = 'Checking ' + path + ' before recording…';
+  const res = await runWorkerCut(text);
+  saveWsBtn.disabled = false;
+  if (!res.ok) {
+    dotEl.className = 'dot err';
+    statusEl.textContent = 'Refused: ill-typed module not recorded';
+    outEl.textContent = res.output || 'Failed kernel check.';
+    return;
+  }
+  const sha = await casPutVerified(null, text);
+  if (vis === 'public') publicHashAllowlist.add(sha);
+  worker.postMessage({ type: 'put_mod', rel: path, txt: text, sha256: sha });
+  await wsPutRecord({ path, sha256: sha, visibility: vis, text, updatedAt: Date.now() });
+  renderWorkspaceUI();
+  await announceManifest();
+  dotEl.className = 'dot ready';
+  statusEl.textContent = (vis === 'public' ? 'Published ' : 'Saved privately ') + path;
+  outEl.textContent = '✓ Checked & recorded ' + path + '\n  sha256: ' + sha + '\n  port visibility: ' + vis.toUpperCase() +
+    (vis === 'public' ? ' (serving live to connected peers)' : ' (withheld from peer port by curated-private-withheld)') +
+    (res.output ? '\n\n' + res.output : '');
+});
+
+// ---------------- Distributed Interaction-Net Cut Dispatcher ----------------
+distBtn.addEventListener('click', async () => {
+  const src = codeEl.value;
+  const lines = src.split('\n');
+  const preambleLines = [];
+  const cuts = [];
+  for (const ln of lines) {
+    if (/^\s*#(show|type)\b/.test(ln)) cuts.push(ln.trim());
+    else preambleLines.push(ln);
+  }
+  if (!cuts.length) {
+    triggerEval();
+    return;
+  }
+  runBtn.disabled = true;
+  distBtn.disabled = true;
+  dotEl.className = 'dot';
+  const peerIds = livePeerIds();
+  const workers = ['LOCAL', ...peerIds];
+  statusEl.textContent = 'Partitioning ' + cuts.length + ' interaction-net cuts across ' + workers.length + ' node(s)…';
+
+  const deps = [];
+  workspace.forEach(rec => {
+    if (rec.visibility === 'public') deps.push({ path: rec.path, sha256: rec.sha256 });
+  });
+  const preamble = preambleLines.join('\n');
+  const t0 = performance.now();
+
+  const tasks = cuts.map((directive, idx) => {
+    const target = workers[idx % workers.length];
+    const unitCode = preamble + '\n' + directive + '\n';
+    if (target === 'LOCAL') {
+      return runWorkerCut(unitCode).then(r => ({
+        idx, directive, worker: myPeerId + ' (local)', ok: r.ok, output: r.output, steps: r.steps, ms: r.ms, verified: r.ok
+      }));
+    }
+    const reqId = 'cut_' + Date.now() + '_' + idx + '_' + Math.random().toString(36).slice(2, 6);
+    return new Promise(resolve => {
+      const timer = setTimeout(async () => {
+        pendingCuts.delete(reqId);
+        // Seamless confluent fallback to local worker if remote peer drops mid-cut
+        const fb = await runWorkerCut(unitCode);
+        resolve({ idx, directive, worker: myPeerId + ' (fallback)', ok: fb.ok, output: fb.output, steps: fb.steps, ms: fb.ms, verified: fb.ok });
+      }, 6000);
+      pendingCuts.set(reqId, {
+        timer,
+        resolve: async (pkt) => {
+          let verified = pkt.ok;
+          let witnessNote = '';
+          // Zero-trust local cubical witness check for #show cuts!
+          const m = directive.match(/^#show\s+(.+)$/);
+          if (pkt.ok && m && pkt.output && !pkt.output.includes('\n')) {
+            const lhs = m[1].trim();
+            const rhs = pkt.output.trim();
+            const witCode = preamble + '\nhx_wit_' + idx + ' : (' + lhs + ') ≡ (' + rhs + ')\nhx_wit_' + idx + ' = refl\n';
+            const chk = await runWorkerCut(witCode);
+            verified = chk.ok;
+            witnessNote = chk.ok ? ' [witness refl ✓]' : ' [FORGED NORMAL FORM REJECTED]';
+          }
+          resolve({
+            idx,
+            directive,
+            worker: pkt.peerId + ' (remote P2P)' + witnessNote,
+            ok: pkt.ok && verified,
+            output: pkt.output,
+            steps: pkt.steps || 0,
+            ms: pkt.ms || '?',
+            verified
+          });
+        }
+      });
+      sendToPeer(target, { t: 'CUT_REQ', reqId, code: unitCode, deps });
+    });
+  });
+
+  const results = await Promise.all(tasks);
+  const wallMs = (performance.now() - t0).toFixed(1);
+  const totalSteps = results.reduce((s, r) => s + Number(r.steps || 0), 0);
+  const allOk = results.every(r => r.ok);
+
+  runBtn.disabled = false;
+  distBtn.disabled = false;
+  dotEl.className = allOk ? 'dot ready' : 'dot err';
+  statusEl.textContent = allOk
+    ? ('Distributed ' + cuts.length + ' cuts across ' + workers.length + ' peer(s)')
+    : 'Cut verification failure';
+  timeBadge.textContent = totalSteps.toLocaleString() + ' net steps · ' + wallMs + ' ms wall';
+
+  outEl.textContent =
+    '⚡ Distributed Interaction-Net Execution (' + workers.length + ' active node' + (workers.length === 1 ? '' : 's') + ', ' + wallMs + ' ms wall):\n' +
+    results.map(r =>
+      '  [' + (r.idx + 1) + '] ' + r.directive + '\n' +
+      '      ↳ ' + (r.output || '(unit)') + '   (' + Number(r.steps).toLocaleString() + ' steps on ' + r.worker + ')'
+    ).join('\n');
+});
+
+function triggerEval() {
+  runBtn.disabled = true;
+  distBtn.disabled = true;
+  dotEl.className = 'dot';
+  statusEl.textContent = 'Elaborating & normalizing…';
+  worker.postMessage({ type: 'eval', origin: location.origin, code: codeEl.value });
+}
+
+runBtn.addEventListener('click', triggerEval);
+codeEl.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    if (!runBtn.disabled) triggerEval();
+  }
+});
+
+loadModBtn.addEventListener('click', async () => {
+  const rel = modInput.value.trim();
+  if (!rel) return;
+  loadModBtn.disabled = true;
+  runBtn.disabled = true;
+  dotEl.className = 'dot';
+  if (/^[0-9a-f]{64}$/i.test(rel)) {
+    const h = rel.toLowerCase();
+    statusEl.textContent = 'Routing multi-hop Kademlia WANT for ' + h.slice(0, 12) + '…';
+    let txt = await casGet(h);
+    if (txt === null) txt = await p2pWantHash(h);
+    if (txt === null) {
+      try {
+        const dr = await fetch('/dht/find/' + h);
+        if (dr.ok) {
+          const dj = await dr.json();
+          outEl.textContent = 'DHT lookup ' + h + ':\n' + JSON.stringify(dj, null, 2);
+        } else {
+          outEl.textContent = 'Object ' + h.slice(0, 16) + '… not found in local CAS or reachable mesh.';
+        }
+      } catch (e) {
+        outEl.textContent = 'Object ' + h.slice(0, 16) + '… not found in local CAS or reachable mesh.';
+      }
+      loadModBtn.disabled = false;
+      runBtn.disabled = false;
+      dotEl.className = 'dot ready';
+      statusEl.textContent = 'DHT lookup complete';
+      return;
+    }
+    const synPath = 'dht/' + h.slice(0, 12) + '.hypercubical';
+    worker.postMessage({ type: 'put_mod', rel: synPath, txt, sha256: h });
+    codeEl.value = txt;
+    worker.postMessage({ type: 'load_mod', origin: location.origin, rel: synPath });
+    return;
+  }
+  statusEl.textContent = 'Pulling & checking ' + rel + '…';
+  worker.postMessage({ type: 'load_mod', origin: location.origin, rel });
+});
+
+worker.onmessage = async (ev) => {
+  const m = ev.data;
+  if (m.hashes) renderHashes(m.hashes);
+  if (m.type === 'cas_store') {
+    publicHashAllowlist.add(m.sha256);
+    await casPutVerified(m.sha256, m.txt);
+    return;
+  }
+  if (m.type === 'hashes') return;
+  if (m.type === 'cut_done' && m.callId && workerCalls.has(m.callId)) {
+    const fn = workerCalls.get(m.callId);
+    workerCalls.delete(m.callId);
+    fn(m);
+    return;
+  }
+  if (m.type === 'error' && m.callId && workerCalls.has(m.callId)) {
+    const fn = workerCalls.get(m.callId);
+    workerCalls.delete(m.callId);
+    fn({ ok: false, steps: 0, ms: '0', output: m.error });
+    return;
+  }
+
+  if (m.type === 'status') {
+    statusEl.textContent = m.text;
+  } else if (m.type === 'ready') {
+    dotEl.className = 'dot ready';
+    statusEl.textContent = 'Kernel ready · lib/core.hypercubical (' + m.ms + ' ms)';
+    stepBadge.textContent = Number(m.totalSteps).toLocaleString() + ' net steps';
+    runBtn.disabled = false;
+    distBtn.disabled = false;
+    saveWsBtn.disabled = false;
+    loadModBtn.disabled = false;
+    announceManifest();
+    triggerEval();
+  } else if (m.type === 'result') {
+    runBtn.disabled = false;
+    distBtn.disabled = false;
+    loadModBtn.disabled = false;
+    dotEl.className = m.ok ? 'dot ready' : 'dot err';
+    statusEl.textContent = m.ok ? '0 failures' : 'Rejected by lib/check.hypercubical';
+    stepBadge.textContent = Number(m.totalSteps).toLocaleString() + ' total steps';
+    timeBadge.textContent = Number(m.steps).toLocaleString() + ' steps · ' + m.ms + ' ms';
+    outEl.textContent = m.output || (m.ok ? '✓ All definitions elaborated (0 failures, ' + Number(m.steps).toLocaleString() + ' interaction-net steps).' : 'Failed.');
+  } else if (m.type === 'mod_loaded') {
+    runBtn.disabled = false;
+    distBtn.disabled = false;
+    loadModBtn.disabled = false;
+    dotEl.className = m.ok ? 'dot ready' : 'dot err';
+    statusEl.textContent = m.ok ? ('Loaded ' + m.rel) : ('Failed loading ' + m.rel);
+    stepBadge.textContent = Number(m.totalSteps).toLocaleString() + ' total steps';
+    timeBadge.textContent = Number(m.steps).toLocaleString() + ' steps · ' + m.ms + ' ms';
+    outEl.textContent = (m.ok ? ('✓ Pulled, SHA-256 verified & elaborated ' + m.rel + ' (' + Number(m.steps).toLocaleString() + ' steps in ' + m.ms + ' ms).\n') : '') + (m.output || '');
+  } else if (m.type === 'error') {
+    runBtn.disabled = false;
+    distBtn.disabled = false;
+    loadModBtn.disabled = false;
+    dotEl.className = 'dot err';
+    statusEl.textContent = 'Kernel error';
+    outEl.textContent = m.error;
+  }
+};
+
+// Boot sequence: open IndexedDB CAStore, rehydrate sovereign workspace, boot WASM, join P2P mesh
+(async () => {
+  await openLocalPool();
+  refreshCasCount();
+  const saved = await wsLoadAll();
+  saved.forEach(rec => {
+    workspace.set(rec.path, rec);
+    if (rec.visibility === 'public') publicHashAllowlist.add(rec.sha256);
+  });
+  renderWorkspaceUI();
+  worker.postMessage({ type: 'boot', origin: location.origin, preloaded: saved });
+
+  broadcastMesh({ t: 'HELLO' });
+  setInterval(() => {
+    broadcastMesh({ t: 'HELLO' });
+    const ids = livePeerIds();
+    if (ids.length > 1) broadcastMesh({ t: 'PEX', peers: ids });
+    renderPeersUI();
+  }, 5000);
+  setTimeout(pollWebRTCSignal, 600);
+  setInterval(pollWebRTCSignal, 6000);
+})();
+</script>
+</body>
+</html>

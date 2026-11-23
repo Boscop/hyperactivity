@@ -1,0 +1,12 @@
+-- `hyperactive dht-provide KEY_SHA256 MY_PUBLIC_URL [TARGET_PEER_URL]`: announce provider record
+hy-dht-provide : List Word → List (List Word) → Proc W Unit
+hy-dht-provide st (cons key (cons rawMy rest)) =
+  let myu = hy-dht-url rawMy in
+  let payload = list-append key (cons #32 myu) in
+  let explicitTarget = hy-dht-url (hy-head rest) in
+  if hy-is-url explicitTarget
+  then hy-dht-post-provide payload (cons explicitTarget nil)
+  else bind (h-read (list-append st "/dht/peers")) (λ prs →
+    let targets = list-map hy-row-url (hy-dht-dedup (h-lines (hy-or nil prs))) in
+    hy-dht-post-provide payload targets)
+hy-dht-provide st l = h-fail "hyperactive dht-provide KEY_SHA256 MY_PUBLIC_URL [TARGET_PEER_URL]"
