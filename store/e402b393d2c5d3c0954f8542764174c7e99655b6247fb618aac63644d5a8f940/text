@@ -1,0 +1,1013 @@
+-- the page: the reader's path and who else is here, the scene, what readers wrote here, and the gesture
+hi-page : List Word → List Word → Bool → List (List Word) → List (List Word) → List Word → List Word → List Word
+hi-page rd f far path os ab sc = s-chrome-html (list-append f " · Workflow") (h-concat (cons "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>" (cons (s-esc f) (cons "</title>" (cons hi-style (cons "</head><body><!--HX:NAV--><main><div class='bar'>" (cons (s-esc rd) (cons ": " (cons (h-concat (list-map (λ p → list-append (hi-a rd p p) " → ") (hi-recent path))) (cons "<span id='hi-present'>" (cons (hi-present os) (cons "</span> · <a href='/graph'>DAG (/graph)</a> · <a href='" (cons (s-esc (list-append (hi-href rd f) (if far then nil else "&radius=2"))) (cons (if far then "'>radius 1</a>" else "'>radius 2</a>") (cons "</div><form method='get' action='/hi'><input type='hidden' name='reader' value='" (cons (s-esc rd) (cons "'><input name='focus' placeholder='any name, node or document path' size='34'> <button>go</button></form>" (cons sc (cons "<div id='hi-written'>" (cons (hi-written ab) (cons "</div>" (cons "<form method='post' action='/hi/write'><input type='hidden' name='reader' value='" (cons (s-esc rd) (cons "'><input type='hidden' name='focus' value='" (cons (s-esc f) (cons "'><select name='kind'>" (cons hi-options (cons "</select><textarea name='text' rows='3' placeholder='a question, an asserted equivalence, a warrant or a witness, at this focus'></textarea><button>write</button></form></main>" (cons hi-script (cons "</body></html>" nil)))))))))))))))))))))))))))))))
+-- GET /hi/events: the focus's presence and what is written there, as server-sent events; the server
+-- holds no connection, so it tells the page to ask again in two seconds (retry), and each answer is
+-- the state at that moment
+hi-events : List Word → List Word → Proc W (List Word)
+hi-events st q = bind (hi-others st (hi-reader q) (hi-focus q)) (λ os → bind (hi-about (hi-focus q)) (λ ab →
+  ret (s-respond "200 OK" "text/event-stream" (h-concat (cons "retry: 30000" (cons (cons #10 (cons #10 nil)) (cons (hi-event "presence" (hi-present os)) (cons (hi-event "written" (hi-written ab)) nil))))))))
+-- read up to n active entries from dir/<id> into JSON [id,val] pairs
+s-live-read : Nat → List Word → List (List Word) → Proc W (List (List Word))
+s-live-read zero dir xs = ret {lzero} {W} nil
+s-live-read (suc n) dir nil = ret {lzero} {W} nil
+s-live-read (suc n) dir (cons id rest) =
+  bind (h-read (list-append dir (list-append "/" id))) (λ v →
+  bind (s-live-read n dir rest) (λ more →
+    if h-null (s-or nil v) then ret {lzero} {W} more
+    else ret {lzero} {W} (cons (h-concat (cons "[" (cons (s-cj-str id) (cons "," (cons (s-cj-str (s-or nil v)) (cons "]" nil)))))) more)))
+-- GET /api/live/pulse?id=<anon>&node=<path> : stateless O(1) presence beacon (zero open sockets)
+s-live-pulse : List Word → List Word → Proc W (List Word)
+s-live-pulse st q =
+  bind (h-mkdir (list-append st "/live")) (λ mk →
+  bind (if h-null (hi-clean (s-param "id" q)) then ret {lzero} {W} false
+        else h-write (list-append st (list-append "/live/" (hi-clean (s-param "id" q)))) (s-unescape (s-param "node" q))) (λ wr →
+  bind (h-list (list-append st "/live")) (λ ids →
+  bind (s-live-read 48 (list-append st "/live") ids) (λ items →
+    ret {lzero} {W} (s-response "application/json" (h-concat (cons "{" (cons (s-cj-str "live") (cons ":[" (cons (s-commas items) (cons "]}" nil)))))))))))
+-- GET /api/p2p/signal?id=<peer>&msg=<sdp> : stateless WebRTC rendezvous mailbox (zero media/compute on server)
+s-p2p-signal : List Word → List Word → Proc W (List Word)
+s-p2p-signal st q =
+  bind (h-mkdir (list-append st "/p2p")) (λ mk →
+  bind (if h-null (hi-clean (s-param "id" q)) then ret {lzero} {W} false
+        else if h-null (s-param "msg" q) then ret {lzero} {W} false
+        else h-write (list-append st (list-append "/p2p/" (hi-clean (s-param "id" q)))) (s-unescape (s-param "msg" q))) (λ wr →
+  bind (h-list (list-append st "/p2p")) (λ ids →
+  bind (s-live-read 24 (list-append st "/p2p") ids) (λ items →
+    ret {lzero} {W} (s-response "application/json" (h-concat (cons "{" (cons (s-cj-str "peers") (cons ":[" (cons (s-commas items) (cons "]}" nil)))))))))))
+-- the text of one version: a piece's text, or a module's (a document's) pieces joined
+hi-or-module : List Word → Sum Unit (List Word) → Proc W (Sum Unit (List Word))
+hi-or-module h (inr t) = ret (inr t)
+hi-or-module h (inl u) = h-source-module (inr h)
+hi-version-text : List Word → Proc W (Sum Unit (List Word))
+hi-version-text h = bind (h-read (list-append h-source (cons #47 (list-append h "/text")))) (hi-or-module h)
+-- a line of the versions record names the version's object, then its time
+hi-ver-hash : h-before " " "a4852f 1794951994" ≡ "a4852f"
+hi-ver-hash = refl
+hi-ver : List Word → Proc W (List Word)
+hi-ver l = bind (hi-version-text (h-before " " l)) (λ t → ret (h-concat (cons "<pre class='ver' data-t='" (cons (s-esc (h-after " " l)) (cons "'>" (cons (s-esc (s-or nil t)) (cons "</pre>" nil)))))))
+hi-scrub : List Word
+hi-scrub = "<script>(function(){var vs=[].slice.call(document.querySelectorAll('#hi-versions .ver')),r=document.getElementById('hi-t'),w=document.getElementById('hi-when');if(!vs.length)return;r.max=vs.length-1;r.value=vs.length-1;function show(i){vs.forEach(function(v,j){v.style.display=(j==i)?'':'none'});w.textContent='version '+(+i+1)+' of '+vs.length+', '+new Date(vs[i].dataset.t*1000).toISOString().replace('T',' ').slice(0,19)+' UTC'}r.oninput=function(){if(document.startViewTransition)document.startViewTransition(function(){show(r.value)});else show(r.value)};show(r.value)})()</script>"
+-- the focus through time: its last eight versions from the store's versions record, scrubbed by a slider
+hi-history : List Word → Proc W (List Word)
+hi-history f = bind (h-read (list-append h-source (list-append "/versions/" (h-hex f)))) (λ v →
+  bind (hi-each (hi-recent (h-lines (s-or nil v))) hi-ver) (λ vs →
+  ret (if h-null vs then nil else hi-sect "through time" (h-concat (cons "<div style='width:100%'><input type='range' id='hi-t' min='0' value='0' style='width:100%'><div class='who' id='hi-when'></div><div id='hi-versions'>" (cons vs (cons "</div></div>" (cons hi-scrub nil))))))))
+hi-hd : List Nat → Nat
+hi-hd nil = zero
+hi-hd (cons x r) = x
+hi-tl : List Nat → List Nat
+hi-tl nil = nil
+hi-tl (cons x r) = r
+hi-hd-row : List (List Nat) → List Nat
+hi-hd-row nil = nil
+hi-hd-row (cons x r) = x
+hi-tl-rows : List (List Nat) → List (List Nat)
+hi-tl-rows nil = nil
+hi-tl-rows (cons x r) = r
+hi-max : Nat → Nat → Nat
+hi-max a b = if wlt (fromNat a) (fromNat b) then b else a
+hi-zeros : List (List Word) → List Nat
+hi-zeros nil = cons zero nil
+hi-zeros (cons x r) = cons zero (hi-zeros r)
+hi-cell : List Word → List Word → List Nat → List Nat → List Nat
+hi-cell ai bj next rest = cons (if h-eq ai bj then suc (hi-hd (hi-tl next)) else hi-max (hi-hd next) (hi-hd rest)) rest
+-- one row of the longest-common-subsequence table: the lengths for word ai's suffix against each suffix of b
+hi-row : List Word → List (List Word) → List Nat → List Nat
+hi-row ai nil next = cons zero nil
+hi-row ai (cons bj bs) next = hi-cell ai bj next (hi-row ai bs (hi-tl next))
+hi-table-on : List Word → List (List Word) → List (List Nat) → List (List Nat)
+hi-table-on ai b rows = cons (hi-row ai b (hi-hd-row rows)) rows
+-- the table: for every suffix of a and of b, the length of their longest common subsequence
+hi-table : List (List Word) → List (List Word) → List (List Nat)
+hi-table nil b = cons (hi-zeros b) nil
+hi-table (cons ai as) b = hi-table-on ai b (hi-table as b)
+-- the alignment of two texts along their longest common subsequence: each word kept (=), only in the
+-- first (-) or only in the second (+); each step uses up one word, so the steps are counted by the two
+-- lengths together
+hi-align : Nat → List (List Word) → List (List Word) → List (List Nat) → List (List Word × List Word)
+hi-align zero a b t = nil
+hi-align (suc n) nil b t = list-map (λ w → ("+" , w)) b
+hi-align (suc n) (cons x as) nil t = list-map (λ w → ("-" , w)) (cons x as)
+hi-align (suc n) (cons x as) (cons y bs) t = if h-eq x y then cons ("=" , x) (hi-align n as bs (list-map hi-tl (hi-tl-rows t)))
+  else if wlt (fromNat (hi-hd (hi-hd-row (hi-tl-rows t)))) (fromNat (hi-hd (hi-tl (hi-hd-row t)))) then cons ("+" , y) (hi-align n (cons x as) bs (list-map hi-tl t))
+  else cons ("-" , x) (hi-align n as (cons y bs) (hi-tl-rows t))
+hi-aligned : List Word → List Word → List (List Word × List Word)
+hi-aligned a b = hi-align (suc (list-length (list-append (h-split #32 a) (h-split #32 b)))) (h-split #32 a) (h-split #32 b) (hi-table (h-split #32 a) (h-split #32 b))
+hi-align-example : hi-aligned "a b c" "a x c" ≡ cons ("=" , "a") (cons ("-" , "b") (cons ("+" , "x") (cons ("=" , "c") nil)))
+hi-align-example = refl
+-- a side of the alignment: the words the first text (not +) or the second (not -) keeps
+hi-side : List Word → List (List Word × List Word) → List (List Word)
+hi-side x nil = nil
+hi-side x (cons e r) = if h-eq (fst e) x then hi-side x r else cons (snd e) (hi-side x r)
+-- the alignment loses neither text: each side, read off it, is that text's words
+hi-align-whole : hi-side "+" (hi-aligned "the many sided doctrine" "the doctrine of many sides") ≡ h-split #32 "the many sided doctrine"
+hi-align-whole = refl
+hi-align-whole-b : hi-side "-" (hi-aligned "the many sided doctrine" "the doctrine of many sides") ≡ h-split #32 "the doctrine of many sides"
+hi-align-whole-b = refl
+-- one side drawn: each kept word carries the name it shares with its place in the other side, so the
+-- change between them is one interpolation in which the kept words move and the others fade
+hi-mside : List Word → List Word → Nat → List (List Word × List Word) → List Word
+hi-mside x p k nil = nil
+hi-mside x p k (cons e r) = list-append (if h-eq (fst e) x then nil else h-concat (cons "<span class='w" (cons (if h-eq (fst e) "=" then "' style='view-transition-name:" else "' style='opacity:.75;color:#ffd479'>") (cons (if h-eq (fst e) "=" then list-append p (list-append (h-decimal (fromNat k)) "'>") else nil) (cons (s-esc (snd e)) (cons "</span> " nil)))))) (hi-mside x p (suc k) r)
+hi-morph-js : List Word
+hi-morph-js = "<script>[].forEach.call(document.querySelectorAll('.morph'),function(m){var a=m.querySelector('.ma'),c=m.querySelector('.mb');m.querySelector('.mt').onclick=function(){var f=function(){var s=a.style.display=='none';a.style.display=s?'':'none';c.style.display=s?'none':''};if(document.startViewTransition)document.startViewTransition(f);else f()}})</script>"
+-- what each statement says: a node's sentence, else the text itself
+hi-says : List Word → List Word → Proc W (List Word)
+hi-says st x = bind (hi-show st x) (λ s → ret (if h-null (hi-sentence s) then x else hi-sentence s))
+hi-morph : List Word → List Word → List Word → List Word → Proc W (List Word)
+hi-morph st rd f o = bind (hi-says st f) (λ a → bind (hi-says st o) (λ b → bind (hi-link rd o) (λ ol →
+  ret (h-concat (cons "<div class='morph card' style='max-width:none;width:100%'><div class='who'>asserted equivalent: " (cons ol (cons "</div><div class='ma'>" (cons (hi-mside "+" (list-append "m" (h-hex o)) zero (hi-aligned a b)) (cons "</div><div class='mb' style='display:none'>" (cons (hi-mside "-" (list-append "m" (h-hex o)) zero (hi-aligned a b)) (cons "</div><button class='mt'>morph</button></div>" nil)))))))))))
+-- the statements asserted equivalent to the focus: every equivalence any reader has written at it
+hi-eq-texts : List Word → List (List Word) → List (List Word)
+hi-eq-texts f nil = nil
+hi-eq-texts f (cons l r) = if h-prefix (h-concat (cons "- equivalence at " (cons f (cons ": " nil)))) l then cons (h-drop (h-concat (cons "- equivalence at " (cons f (cons ": " nil)))) l) (hi-eq-texts f r) else hi-eq-texts f r
+hi-gather : List (List Word) → List Word → Proc W (List (List Word))
+hi-gather nil f = ret nil
+hi-gather (cons p r) f = bind (h-document p) (λ d → bind (hi-gather r f) (λ rest → ret (list-append (hi-eq-texts f (h-lines (s-or nil d))) rest)))
+hi-equivalents : List Word → Proc W (List (List Word))
+hi-equivalents f = bind hi-reader-paths (λ ps → hi-gather ps f)
+-- the focus beside each statement asserted equivalent to it, each one morph away
+hi-morphs : List Word → List Word → List Word → Proc W (List Word)
+hi-morphs st rd f = bind (hi-equivalents f) (λ es → bind (hi-each (h-dedupe es) (hi-morph st rd f)) (λ ms →
+  ret (if h-null ms then nil else list-append (hi-sect "equivalent" ms) hi-morph-js)))
+-- the same focus as the field and as the room
+hi-lens : List Word → List Word → List Word
+hi-lens rd f = h-concat (cons "<p class='lens'><a href='/hi/field?reader=" (cons (hi-url rd) (cons "&amp;focus=" (cons (hi-url f) (cons "'>the field</a> · <a href='/hi/room?reader=" (cons (hi-url rd) (cons "&amp;focus=" (cons (hi-url f) (cons "'>the room</a></p>" nil)))))))))
+-- GET /hi: the focus added to the reader's path walked when writable (or read without writing on public GET), then the page
+hi-view-as : Bool → List Word → List Word → Proc W (List Word)
+hi-view-as wr st q = bind (h-read (list-append st "/views/nodes")) (λ nv →
+  bind (hi-walk-as wr st (hi-reader q) (hi-focus q)) (λ path →
+  bind (hi-others st (hi-reader q) (hi-focus q)) (λ os →
+  bind (hi-about (hi-focus q)) (λ ab →
+  bind (hi-scene st (hi-reader q) (hi-focus q) (h-eq (s-param "radius" q) "2") (hi-rows (s-or nil nv))) (λ sc →
+  bind (hi-history (hi-focus q)) (λ hs → bind (hi-morphs st (hi-reader q) (hi-focus q)) (λ ms →
+  ret (s-response s-html (hi-page (hi-reader q) (hi-focus q) (h-eq (s-param "radius" q) "2") path os ab (h-concat (cons (hi-lens (hi-reader q) (hi-focus q)) (cons sc (cons ms (cons hs nil))))))))))))))
+hi-view : List Word → List Word → Proc W (List Word)
+hi-view st q = hi-view-as true st q
+-- the field (human-interface, item 4): the scene as data, computed in hyperactive on the server ("neighbourhood,
+-- layout, field and interpolation targets computed in hyperactive on the server; the browser a thin WebGPU renderer
+-- that draws and sends gestures"). 32 points of the circle, each coordinate scaled by 1000 and shifted by 1000 (so
+-- in [0, 2000]), from the top, clockwise on the screen
+hi-circle : List (Word × Word)
+hi-circle = (cons (#1000 , #0) (cons (#1195 , #19) (cons (#1383 , #76) (cons (#1556 , #169) (cons (#1707 , #293) (cons (#1831 , #444) (cons (#1924 , #617) (cons (#1981 , #805) (cons (#2000 , #1000) (cons (#1981 , #1195) (cons (#1924 , #1383) (cons (#1831 , #1556) (cons (#1707 , #1707) (cons (#1556 , #1831) (cons (#1383 , #1924) (cons (#1195 , #1981) (cons (#1000 , #2000) (cons (#805 , #1981) (cons (#617 , #1924) (cons (#444 , #1831) (cons (#293 , #1707) (cons (#169 , #1556) (cons (#76 , #1383) (cons (#19 , #1195) (cons (#0 , #1000) (cons (#19 , #805) (cons (#76 , #617) (cons (#169 , #444) (cons (#293 , #293) (cons (#444 , #169) (cons (#617 , #76) (cons (#805 , #19) nil))))))))))))))))))))))))))))))))
+hi-at-slot : List (Word × Word) → Word → Word × Word
+hi-at-slot nil k = (#1000 , #1000)
+hi-at-slot (cons p r) k = if weq k #0 then p else hi-at-slot r (wsub k #1)
+-- a coordinate of the circle drawn at radius R (R at most 1000) about the centre 1000: no step goes below zero
+hi-scale : Word → Word → Word
+hi-scale rr c = wquot (wsub (wadd #1000000 (wmul rr c)) (wmul rr #1000)) #1000
+hi-place : Word → Word → Word × Word
+hi-place rr k = (hi-scale rr (fst (hi-at-slot hi-circle k)) , hi-scale rr (snd (hi-at-slot hi-circle k)))
+hi-count : List (List Word) → Word
+hi-count nil = #0
+hi-count (cons x r) = wadd #1 (hi-count r)
+-- the slot of the i-th of n nodes on a ring (i below n, so the slot below 32), the n spread evenly over the 32 points
+hi-slot : Word → Word → Word
+hi-slot n i = wquot (wmul i #32) (if weq n #0 then #1 else n)
+-- every point of the circle lies in the square [0, 2000]
+hi-in-box : List (Word × Word) → Bool
+hi-in-box nil = true
+hi-in-box (cons p r) = andB (wlt (fst p) #2001) (andB (wlt (snd p) #2001) (hi-in-box r))
+hi-circle-in-box : hi-in-box hi-circle ≡ true
+hi-circle-in-box = refl
+-- a ring of radius R stays within [1000 - R, 1000 + R] on both axes, for every slot
+hi-within : Word → Word → Word → Bool
+hi-within rr c i = andB (h-not (wlt (fst (hi-place rr i)) (wsub #1000 rr))) (andB (wlt (fst (hi-place rr i)) (wadd #1001 rr))
+  (andB (h-not (wlt (snd (hi-place rr i)) (wsub #1000 rr))) (wlt (snd (hi-place rr i)) (wadd #1001 rr))))
+-- the words 0 to 32
+hi-upto-32 : List Word
+hi-upto-32 = (cons #0 (cons #1 (cons #2 (cons #3 (cons #4 (cons #5 (cons #6 (cons #7 (cons #8 (cons #9 (cons #10 (cons #11 (cons #12 (cons #13 (cons #14 (cons #15 (cons #16 (cons #17 (cons #18 (cons #19 (cons #20 (cons #21 (cons #22 (cons #23 (cons #24 (cons #25 (cons #26 (cons #27 (cons #28 (cons #29 (cons #30 (cons #31 (cons #32 nil)))))))))))))))))))))))))))))))))
+hi-ring-within : Word → List Word → Bool
+hi-ring-within rr nil = true
+hi-ring-within rr (cons i r) = andB (orB (weq i #32) (hi-within rr #0 i)) (hi-ring-within rr r)
+hi-near-ring-within : hi-ring-within #380 hi-upto-32 ≡ true
+hi-near-ring-within = refl
+hi-far-ring-within : hi-ring-within #760 hi-upto-32 ≡ true
+hi-far-ring-within = refl
+-- n nodes (n at most 32) take n distinct slots: no two nodes of a ring are drawn at one point
+hi-slots : Word → List Word → List Word
+hi-slots n nil = nil
+hi-slots n (cons i r) = if wlt i n then cons (hi-slot n i) (hi-slots n r) else hi-slots n r
+hi-has-w : Word → List Word → Bool
+hi-has-w x nil = false
+hi-has-w x (cons y r) = orB (weq x y) (hi-has-w x r)
+hi-distinct : List Word → Bool
+hi-distinct nil = true
+hi-distinct (cons x r) = andB (h-not (hi-has-w x r)) (hi-distinct r)
+hi-all-distinct : List Word → Bool
+hi-all-distinct nil = true
+hi-all-distinct (cons n r) = andB (hi-distinct (hi-slots n hi-upto-32)) (hi-all-distinct r)
+hi-slots-distinct : hi-all-distinct hi-upto-32 ≡ true
+hi-slots-distinct = refl
+-- which side of the focus a node of the first ring stands on: what the focus is part of above, what serves it below
+hi-h : List (List (List Word)) → List Word → List Word → List Word
+hi-h rows f m = if h-has m (hi-parents rows f) then "1" else "-1"
+-- a node of the second ring stands on the side of the first node of the first ring it neighbours
+hi-h2 : List (List (List Word)) → List Word → List (List Word) → List Word → List Word
+hi-h2 rows f nil n = "0"
+hi-h2 rows f (cons m r) n = if h-has n (hi-around rows m) then hi-h rows f m else hi-h2 rows f r n
+hi-ring1 : List (List (List Word)) → List Word → List (List Word)
+hi-ring1 rows f = hi-outside (cons f nil) (h-dedupe (hi-around rows f))
+hi-ring2 : List (List (List Word)) → List Word → List (List Word) → List (List Word)
+hi-ring2 rows f r1 = hi-outside (cons f r1) (h-dedupe (h-concat-lists (list-map (hi-around rows) r1)))
+-- how many of the list are n
+hi-occ : List (List Word) → List Word → Word
+hi-occ nil n = #0
+hi-occ (cons x r) n = if h-eq x n then wadd #1 (hi-occ r n) else hi-occ r n
+hi-q : List Word
+hi-q = cons #34 nil
+hi-key : List Word → List Word
+hi-key k = h-concat (cons hi-q (cons k (cons hi-q (cons ":" nil))))
+hi-commas : List (List Word) → List Word
+hi-commas nil = nil
+hi-commas (cons x nil) = x
+hi-commas (cons x (cons y r)) = list-append x (list-append "," (hi-commas (cons y r)))
+-- one node of the scene: its place, its side (h), its ring, and the field over it (readers here, open or resolved)
+hi-jnode : List Word → Word × Word → List Word → Word → Word → Bool → List Word
+hi-jnode n p h ring rd op = h-concat (cons "{" (cons (hi-key "id") (cons (s-json-str n) (cons "," (cons (hi-key "x") (cons (h-decimal (fst p))
+  (cons "," (cons (hi-key "y") (cons (h-decimal (snd p)) (cons "," (cons (hi-key "h") (cons h (cons "," (cons (hi-key "ring") (cons (h-decimal ring)
+  (cons "," (cons (hi-key "readers") (cons (h-decimal rd) (cons "," (cons (hi-key "open") (cons (if op then "1" else "0") (cons "}" nil))))))))))))))))))))))
+hi-jring : List (List (List Word)) → List Word → List (List Word) → List (List Word) → List (List Word) → Word → Word → Word → Word → List (List Word) → List (List Word)
+hi-jring rows f r1 la op rr ring n i nil = nil
+hi-jring rows f r1 la op rr ring n i (cons x r) = cons (hi-jnode x (hi-place rr (hi-slot n i)) (if weq ring #1 then hi-h rows f x else hi-h2 rows f r1 x) ring (hi-occ la x) (h-has x op))
+  (hi-jring rows f r1 la op rr ring n (wadd i #1) r)
+hi-jedges-of : List (List Word) → List Word → List (List Word) → List (List Word)
+hi-jedges-of sc n nil = nil
+hi-jedges-of sc n (cons p r) = if h-has p sc then cons (h-concat (cons "[" (cons (s-json-str n) (cons "," (cons (s-json-str p) (cons "]" nil)))))) (hi-jedges-of sc n r) else hi-jedges-of sc n r
+-- the edges among the scene's nodes: each node to what it is part of
+hi-jedges : List (List Word) → List (List (List Word)) → List (List Word)
+hi-jedges sc nil = nil
+hi-jedges sc (cons row r) = if h-has (hi-first row) sc then list-append (hi-jedges-of sc (hi-first row) (h-tail-lists row)) (hi-jedges sc r) else hi-jedges sc r
+-- the scene's nodes: the focus, the first ring and the second
+hi-names : List Word → List (List Word) → List (List Word) → List (List Word)
+hi-names f r1 r2 = cons f (list-append r1 r2)
+hi-scene-of : List (List (List Word)) → List Word → List (List Word) → List (List Word) → List (List Word) → List (List Word) → List Word
+hi-scene-of rows f la op r1 r2 = h-concat (cons "{" (cons (hi-key "focus") (cons (s-json-str f) (cons "," (cons (hi-key "nodes") (cons "["
+  (cons (hi-commas (cons (hi-jnode f (#1000 , #1000) "0" #0 (hi-occ la f) (h-has f op)) (list-append (hi-jring rows f r1 la op #380 #1 (hi-count r1) #0 r1) (hi-jring rows f r1 la op #760 #2 (hi-count r2) #0 r2))))
+  (cons "]," (cons (hi-key "edges") (cons "[" (cons (hi-commas (hi-jedges (hi-names f r1 r2) rows)) (cons "]}" nil))))))))))))
+hi-scene-json : List (List (List Word)) → List Word → Bool → List (List Word) → List (List Word) → List Word
+hi-scene-json rows f far la op = hi-scene-of rows f la op (hi-ring1 rows f) (if far then hi-ring2 rows f (hi-ring1 rows f) else nil)
+-- the scene of a, on the example rows (b and c part of a, c part of b): b and c on the first ring, nothing further
+hi-scene-names-example : hi-names "a" (hi-ring1 hi-rows-example "a") (hi-ring2 hi-rows-example "a" (hi-ring1 hi-rows-example "a")) ≡ cons "a" (cons "b" (cons "c" nil))
+hi-scene-names-example = refl
+hi-scene-edges-example : hi-jedges (cons "a" (cons "b" (cons "c" nil))) hi-rows-example ≡ cons (h-concat (cons "[" (cons (s-json-str "b") (cons "," (cons (s-json-str "a") (cons "]" nil)))))) (cons (h-concat (cons "[" (cons (s-json-str "c") (cons "," (cons (s-json-str "a") (cons "]" nil)))))) (cons (h-concat (cons "[" (cons (s-json-str "c") (cons "," (cons (s-json-str "b") (cons "]" nil)))))) nil))
+hi-scene-edges-example = refl
+-- the readers' last focuses, the reader's own left out
+hi-lasts : List Word → List Word → List (List Word) → Proc W (List (List Word))
+hi-lasts st rd nil = ret nil
+hi-lasts st rd (cons e r) = bind (h-read (list-append st (list-append "/hi/" e))) (λ w → bind (hi-lasts st rd r) (λ rest →
+  ret (if andB (h-prefix "walk-" e) (h-not (h-eq (h-unhex (h-drop "walk-" e)) rd)) then cons (hi-last (h-lines (s-or nil w))) rest else rest)))
+-- the focus walked to only when asked
+hi-walk-if : Bool → List Word → List Word → List Word → Proc W (List (List Word))
+hi-walk-if true st rd f = hi-walk st rd f
+hi-walk-if false st rd f = ret nil
+-- GET /hi/scene: the scene of the focus as data; with walk=1 and write permission the focus is also walked to
+hi-scene-get-as : Bool → List Word → List Word → Proc W (List Word)
+hi-scene-get-as wr st q = bind (h-read (list-append st "/views/nodes")) (λ nv → bind (h-read (list-append st "/views/open")) (λ ov →
+  bind (hi-walk-if (andB wr (h-eq (s-param "walk" q) "1")) st (hi-reader q) (hi-focus q)) (λ path → bind (h-list (list-append st "/hi")) (λ es → bind (hi-lasts st (hi-reader q) es) (λ la →
+  ret (s-response "application/json" (hi-scene-json (hi-rows (s-or nil nv)) (hi-focus q) (h-not (h-eq (s-param "radius" q) "1")) la (list-map hi-first (hi-rows (s-or nil ov))))))))))
+hi-scene-get : List Word → List Word → Proc W (List Word)
+hi-scene-get st q = hi-scene-get-as true st q
+-- GET /hi/field: the scene drawn by one shader (human-interface: "every highlight (resolution, repetition
+-- counts, other readers, what one does not yet hold) is one field over the nodes computed from the state, drawn by
+-- one shader"; "the browser a thin WebGPU renderer that draws and sends gestures"). The page draws what /hi/scene
+-- computes: a tap refocuses, a pinch or the wheel sets the radius, and every change is one interpolation of every
+-- node from its place in the old scene to its place in the new; the field (open or resolved, readers here, ring,
+-- focus) is one fragment shader; presence arriving (/hi/events) refreshes the field in place. Without WebGPU the
+-- same field is drawn on a 2D canvas.
+hi-field-page : List Word
+hi-field-page = h-concat (cons (h-line "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>field</title><style>html,body{margin:0;height:100%;background:#07070a;color:#e8e6e3;font:13px ui-sans-serif,-apple-system,system-ui,sans-serif;overflow:hidden}canvas{position:fixed;inset:0;width:100%;height:100%}#labels{position:fixed;inset:0;pointer-events:none}#labels a{position:absolute;transform:translate(-50%,16px);white-space:nowrap;color:#cfcac0;pointer-events:auto;text-decoration:none;text-shadow:0 0 8px #000,0 0 2px #000}#labels a.f{font-size:18px;color:#fff;font-weight:600;transform:translate(-50%,24px)}#labels a.r2{font-size:11px;color:#8d887e}#bar{position:fixed;left:14px;top:12px;z-index:2;display:flex;gap:14px;align-items:center}#bar a{color:#9ecbff;text-decoration:none}#bar span{color:#6f6a62}</style></head><body><canvas id='c'></canvas><div id='labels'></div><div id='bar'><a href='/'>home</a><a id='src' href='/hi'>read here</a><a id='room' href='/hi/room'>room</a><span id='r'></span><span id='mode'></span></div><script>") (cons (h-line "(function(){") (cons (h-line "var P=new URLSearchParams(location.search),focus=P.get('focus')||'healing-societies',reader=P.get('reader')||'guest',radius=P.get('radius')||'2';") (cons (h-line "var cv=document.getElementById('c'),lab=document.getElementById('labels'),cur={},from={},t0=0,scene=null,gpu=null,ctx2=null;") (cons (h-line "function size(){var d=window.devicePixelRatio||1;cv.width=Math.floor(innerWidth*d);cv.height=Math.floor(innerHeight*d);if(gpu)gpu.ctx.configure({device:gpu.dev,format:gpu.fmt,alphaMode:'premultiplied'})}") (cons (h-line "addEventListener('resize',size);") (cons (h-line "function sc(){return Math.min(innerWidth,innerHeight)/2100}") (cons (h-line "function proj(x,y){var s=sc();return [innerWidth/2+(x-1000)*s,innerHeight/2+(y-1000)*s]}") (cons (h-line "function q(f){return '?reader='+encodeURIComponent(reader)+'&focus='+encodeURIComponent(f)+'&radius='+radius}") (cons (h-line "function links(){document.getElementById('src').href='/hi'+q(focus);document.getElementById('room').href='/hi/room'+q(focus);document.getElementById('r').textContent=radius==='1'?'radius 1':'radius 2'}") (cons (h-line "async function fetchScene(f,walk){var r=await fetch('/hi/scene'+q(f)+(walk?'&walk=1':''));return r.json()}") (cons (h-line "async function go(f,push){var s=await fetchScene(f,true);from={};for(var k in cur)from[k]=cur[k];var c=cur[f]||{x:1000,y:1000};s.nodes.forEach(function(n){if(!from[n.id])from[n.id]={x:c.x,y:c.y}});scene=s;focus=f;t0=performance.now();if(push)history.pushState(null,'',q(f));links();labels()}") (cons (h-line "async function refresh(){if(!scene)return;var s=await fetchScene(focus,false);var by={};s.nodes.forEach(function(n){by[n.id]=n});scene.nodes.forEach(function(n){var m=by[n.id];if(m){n.readers=m.readers;n.open=m.open}})}") (cons (h-line "function labels(){lab.innerHTML='';scene.nodes.forEach(function(n){var a=document.createElement('a');a.textContent=n.id;a.href='/hi'+q(n.id);a.className=n.ring===0?'f':(n.ring===2?'r2':'');a.onclick=function(e){e.preventDefault();go(n.id,true)};n.el=a;lab.appendChild(a)})}") (cons (h-line "function ease(u){return u<0?0:(u>1?1:u*u*(3-2*u))}") (cons (h-line "function inst(now){var W=innerWidth,H=innerHeight,s=sc(),a=new Float32Array(scene.nodes.length*8);scene.nodes.forEach(function(n,i){var p=cur[n.id],pp=proj(p.x,p.y),r=(n.ring===0?40:(n.ring===1?26:16));a.set([pp[0]/W*2-1,1-pp[1]/H*2,r/W*2,0,n.ring===0?1:0,n.ring,Math.min(n.readers,4),n.open],i*8)});return a}") (cons (h-line "function lines(){var W=innerWidth,H=innerHeight,idx={},out=[];scene.nodes.forEach(function(n){idx[n.id]=n});scene.edges.forEach(function(e){var a=idx[e[0]],b=idx[e[1]];if(!a||!b)return;var p=proj(cur[a.id].x,cur[a.id].y),r=proj(cur[b.id].x,cur[b.id].y);out.push(p[0]/W*2-1,1-p[1]/H*2,r[0]/W*2-1,1-r[1]/H*2)});return new Float32Array(out)}") (cons (h-line "var WGSL=`struct U{t:f32,aspect:f32,p0:f32,p1:f32};") (cons (h-line "@group(0) @binding(0) var<uniform> u:U;") (cons (h-line "struct V{@builtin(position) p:vec4f,@location(0) q:vec2f,@location(1) f:vec4f};") (cons (h-line "@vertex fn vs(@builtin(vertex_index) vi:u32,@location(0) c:vec4f,@location(1) f:vec4f)->V{var k=array<vec2f,6>(vec2f(-1.0,-1.0),vec2f(1.0,-1.0),vec2f(-1.0,1.0),vec2f(-1.0,1.0),vec2f(1.0,-1.0),vec2f(1.0,1.0));var o:V;let q=k[vi];o.p=vec4f(c.xy+q*c.z*vec2f(1.0,u.aspect),0.0,1.0);o.q=q;o.f=f;return o;}") (cons (h-line "@fragment fn fs(i:V)->@location(0) vec4f{let d=length(i.q);let core=smoothstep(0.42,0.34,d);let glow=exp(-d*d*5.0)*(0.30+0.25*i.f.z);let pulse=0.5+0.5*sin(u.t*2.6+i.f.y*1.7);var col=mix(vec3f(0.42,0.78,1.0),vec3f(1.0,0.70,0.32),i.f.w);col=mix(col,vec3f(1.0,1.0,1.0),i.f.x*0.4);let a=clamp((core+glow*(1.0+0.7*i.f.z*pulse))*(1.0-0.25*i.f.y),0.0,1.0);return vec4f(col*a,a);}") (cons (h-line "@vertex fn ve(@location(0) p:vec2f)->@builtin(position) vec4f{return vec4f(p,0.0,1.0);}") (cons (h-line "@fragment fn fe()->@location(0) vec4f{return vec4f(0.16,0.18,0.24,0.5);}`;") (cons (h-line "async function initGPU(){if(!navigator.gpu)return null;var ad=await navigator.gpu.requestAdapter();if(!ad)return null;var dev=await ad.requestDevice(),ctx=cv.getContext('webgpu'),fmt=navigator.gpu.getPreferredCanvasFormat();ctx.configure({device:dev,format:fmt,alphaMode:'premultiplied'});var mod=dev.createShaderModule({code:WGSL});var info=await mod.getCompilationInfo();var bad=info.messages.filter(function(m){return m.type==='error'});if(bad.length){console.error('field shader: '+bad.map(function(m){return m.lineNum+':'+m.linePos+' '+m.message}).join(' | '));return null}console.error('field shader compiled');var add={color:{srcFactor:'one',dstFactor:'one',operation:'add'},alpha:{srcFactor:'one',dstFactor:'one',operation:'add'}};") (cons (h-line "var nodes=dev.createRenderPipeline({layout:'auto',vertex:{module:mod,entryPoint:'vs',buffers:[{arrayStride:32,stepMode:'instance',attributes:[{shaderLocation:0,offset:0,format:'float32x4'},{shaderLocation:1,offset:16,format:'float32x4'}]}]},fragment:{module:mod,entryPoint:'fs',targets:[{format:fmt,blend:add}]},primitive:{topology:'triangle-list'}});") (cons (h-line "var edges=dev.createRenderPipeline({layout:'auto',vertex:{module:mod,entryPoint:'ve',buffers:[{arrayStride:8,attributes:[{shaderLocation:0,offset:0,format:'float32x2'}]}]},fragment:{module:mod,entryPoint:'fe',targets:[{format:fmt,blend:add}]},primitive:{topology:'line-list'}});") (cons (h-line "var ub=dev.createBuffer({size:16,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});var bg=dev.createBindGroup({layout:nodes.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:ub}}]});return {dev:dev,ctx:ctx,fmt:fmt,nodes:nodes,edges:edges,ub:ub,bg:bg}}") (cons (h-line "function buf(dev,data,usage){var b=dev.createBuffer({size:Math.max(16,data.byteLength),usage:usage|GPUBufferUsage.COPY_DST});dev.queue.writeBuffer(b,0,data);return b}") (cons (h-line "function drawGPU(now){var g=gpu,dev=g.dev;dev.queue.writeBuffer(g.ub,0,new Float32Array([now/1000,innerWidth/innerHeight,0,0]));var ni=inst(now),el=lines();var nb=buf(dev,ni,GPUBufferUsage.VERTEX),eb=buf(dev,el,GPUBufferUsage.VERTEX);var enc=dev.createCommandEncoder();var pass=enc.beginRenderPass({colorAttachments:[{view:g.ctx.getCurrentTexture().createView(),clearValue:{r:0.027,g:0.027,b:0.04,a:1},loadOp:'clear',storeOp:'store'}]});if(el.length){pass.setPipeline(g.edges);pass.setVertexBuffer(0,eb);pass.draw(el.length/2)}pass.setPipeline(g.nodes);pass.setBindGroup(0,g.bg);pass.setVertexBuffer(0,nb);pass.draw(6,scene.nodes.length);pass.end();dev.queue.submit([enc.finish()]);nb.destroy();eb.destroy()}") (cons (h-line "function draw2D(now){var c=ctx2,d=window.devicePixelRatio||1,W=cv.width,H=cv.height;c.setTransform(1,0,0,1,0,0);c.globalCompositeOperation='source-over';c.fillStyle='#07070a';c.fillRect(0,0,W,H);c.setTransform(d,0,0,d,0,0);c.globalCompositeOperation='lighter';var el=lines();c.strokeStyle='rgba(41,46,61,0.5)';c.beginPath();for(var i=0;i<el.length;i+=4){c.moveTo((el[i]+1)/2*innerWidth,(1-el[i+1])/2*innerHeight);c.lineTo((el[i+2]+1)/2*innerWidth,(1-el[i+3])/2*innerHeight)}c.stroke();scene.nodes.forEach(function(n){var p=proj(cur[n.id].x,cur[n.id].y),r=(n.ring===0?40:(n.ring===1?26:16)),pulse=0.5+0.5*Math.sin(now/1000*2.6+n.ring*1.7),rd=Math.min(n.readers,4),k=(1-0.25*n.ring)*(1+0.7*rd*pulse),col=n.open?[255,179,82]:[107,199,255];if(n.ring===0)col=[col[0]+(255-col[0])*0.4,col[1]+(255-col[1])*0.4,col[2]+(255-col[2])*0.4];var g=c.createRadialGradient(p[0],p[1],0,p[0],p[1],r);g.addColorStop(0,'rgba('+col.map(Math.round).join(',')+','+Math.min(1,0.95*k)+')');g.addColorStop(0.38,'rgba('+col.map(Math.round).join(',')+','+Math.min(1,0.85*k)+')');g.addColorStop(0.45,'rgba('+col.map(Math.round).join(',')+','+Math.min(1,(0.3+0.25*rd)*k)+')');g.addColorStop(1,'rgba(0,0,0,0)');c.fillStyle=g;c.beginPath();c.arc(p[0],p[1],r,0,6.2832);c.fill()})}") (cons (h-line "function frame(now){if(scene){try{var u=ease((now-t0)/650);scene.nodes.forEach(function(n){var a=from[n.id]||{x:n.x,y:n.y};cur[n.id]={x:a.x+(n.x-a.x)*u,y:a.y+(n.y-a.y)*u};var p=proj(cur[n.id].x,cur[n.id].y);n.el.style.left=p[0]+'px';n.el.style.top=p[1]+'px';n.el.style.transform=n.ring===0?'translate(-50%,24px)':(cur[n.id].x>=1000?'translate(14px,-50%)':'translate(calc(-100% - 14px),-50%)')});if(gpu)drawGPU(now);else draw2D(now)}catch(e){console.error('field: '+e);fallback()}}requestAnimationFrame(frame)}") (cons (h-line "addEventListener('wheel',function(e){var r=e.deltaY<0?'1':'2';if(r!==radius){radius=r;go(focus,true)}},{passive:true});") (cons (h-line "var pinch0=0;addEventListener('touchmove',function(e){if(e.touches.length!==2)return;var d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);if(!pinch0){pinch0=d;return}var r=d>pinch0*1.25?'1':(d<pinch0*0.8?'2':radius);if(r!==radius){radius=r;pinch0=d;go(focus,true)}},{passive:true});addEventListener('touchend',function(){pinch0=0});") (cons (h-line "addEventListener('popstate',function(){var p=new URLSearchParams(location.search);radius=p.get('radius')||'2';go(p.get('focus')||'healing-societies',false)});") (cons (h-line "function fallback(){if(!gpu)return;gpu=null;var n=cv.cloneNode(false);cv.parentNode.replaceChild(n,cv);cv=n;ctx2=cv.getContext('2d');size();document.getElementById('mode').textContent='canvas'}") (cons (h-line "(async function(){try{gpu=P.get('draw')==='canvas'?null:await initGPU()}catch(e){console.error('field: '+e);gpu=null}if(gpu){gpu.dev.onuncapturederror=function(e){console.error('field: '+e.error.message);fallback()};gpu.dev.lost.then(fallback)}if(!gpu)ctx2=cv.getContext('2d');document.getElementById('mode').textContent=gpu?'WebGPU':'canvas';size();await go(focus,false);try{var es=new EventSource('/hi/events'+q(focus));es.addEventListener('presence',refresh)}catch(e){}requestAnimationFrame(frame)})();") (cons (h-line "})();") (cons (h-line "</script></body></html>") nil)))))))))))))))))))))))))))))))))))))))
+-- GET /hi/room: the scene through another camera (human-interface: "XR is the same scene through another camera";
+-- "one room in WebXR with each lineage standing at its place"). The page draws what /hi/scene computes, each node
+-- standing where the field puts it, laid on the floor of a room around the reader: the focus ahead at eye
+-- height, what it is part of raised above and what serves it below, the second ring standing farther and higher or
+-- lower; the same field (open or resolved, readers here, ring, focus) in one fragment shader (WebGL2, the
+-- language WebXR draws with), each name on a card at its node. With a headset (immersive-vr) the reader stands
+-- in it and points to refocus; without one, the same room drawn flat: drag to look, wheel to step, tap to
+-- refocus. Every refocus is the one interpolation of every node to its new place.
+hi-room-page : List Word
+hi-room-page = h-concat (cons (h-line "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>room</title><style>html,body{margin:0;height:100%;background:#07070a;color:#e8e6e3;font:13px ui-sans-serif,-apple-system,system-ui,sans-serif;overflow:hidden}canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none}#bar{position:fixed;left:14px;top:12px;z-index:2;display:flex;gap:14px;align-items:center}#bar a{color:#9ecbff;text-decoration:none}#bar span{color:#6f6a62}#enter{display:none;background:#1c2433;color:#e8e6e3;border:1px solid #33405a;border-radius:8px;padding:6px 12px;font:inherit}</style></head><body><canvas id='c'></canvas><div id='bar'><a href='/'>home</a><a id='read' href='/hi'>read here</a><a id='flat' href='/hi/field'>field</a><button id='enter'>enter the room</button><span id='info'></span></div><script>") (cons (h-line "(function(){") (cons (h-line "var P=new URLSearchParams(location.search),focus=P.get('focus')||'healing-societies',reader=P.get('reader')||'guest',radius=P.get('radius')||'2';") (cons (h-line "var cv=document.getElementById('c'),gl=cv.getContext('webgl2',{xrCompatible:true,antialias:true}),scene=null,cur={},from={},t0=0,tex={},xr=null,ref=null,yaw=0,pitch=0.12,dist=-1.4,info=document.getElementById('info');") (cons (h-line "if(!gl){info.textContent='this browser has no WebGL2';return}") (cons (h-line "function q(f){return '?reader='+encodeURIComponent(reader)+'&focus='+encodeURIComponent(f)+'&radius='+radius}") (cons (h-line "function place(n,x,y){var h=n.ring===0?0:n.h;return [(x-1000)/1000*3.2,1.45+h*(n.ring===2?0.75:0.42),(y-1000)/1000*3.2-1.6]}") (cons (h-line "function size(){var d=window.devicePixelRatio||1;cv.width=Math.floor(innerWidth*d);cv.height=Math.floor(innerHeight*d)}addEventListener('resize',size);size();") (cons (h-line "function sh(t,s){var o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))console.error('room shader: '+gl.getShaderInfoLog(o));return o}") (cons (h-line "function prog(v,f){var p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,v));gl.attachShader(p,sh(gl.FRAGMENT_SHADER,f));gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS))console.error('room link: '+gl.getProgramInfoLog(p));return p}") (cons (h-line "var NV=`#version 300 es") (cons (h-line "in vec2 corner;in vec4 inst;in vec4 field;uniform mat4 Pm;uniform mat4 Vm;out vec2 q;out vec4 f;") (cons (h-line "void main(){vec4 c=Vm*vec4(inst.xyz,1.0);c.xy+=corner*inst.w;gl_Position=c.z>-0.05?vec4(2.0,2.0,2.0,1.0):Pm*c;q=corner;f=field;}`;") (cons (h-line "var NF=`#version 300 es") (cons (h-line "precision highp float;in vec2 q;in vec4 f;uniform float t;out vec4 o;") (cons (h-line "void main(){float d=length(q);float core=smoothstep(0.42,0.34,d);float glow=exp(-d*d*5.0)*(0.30+0.25*f.z);float pulse=0.5+0.5*sin(t*2.6+f.y*1.7);vec3 col=mix(vec3(0.42,0.78,1.0),vec3(1.0,0.70,0.32),f.w);col=mix(col,vec3(1.0),f.x*0.4);float a=clamp((core+glow*(1.0+0.7*f.z*pulse))*(1.0-0.25*f.y),0.0,1.0);o=vec4(col*a,a);}`;") (cons (h-line "var LV=`#version 300 es") (cons (h-line "in vec2 corner;uniform mat4 Pm;uniform mat4 Vm;uniform vec3 at;uniform vec2 sz;out vec2 uv;") (cons (h-line "void main(){vec4 c=Vm*vec4(at,1.0);c.xy+=corner*sz;gl_Position=c.z>-0.05?vec4(2.0,2.0,2.0,1.0):Pm*c;uv=vec2(corner.x*0.5+0.5,0.5-corner.y*0.5);}`;") (cons (h-line "var LF=`#version 300 es") (cons (h-line "precision highp float;in vec2 uv;uniform sampler2D tx;out vec4 o;void main(){o=texture(tx,uv);}`;") (cons (h-line "var EV=`#version 300 es") (cons (h-line "in vec3 p;uniform mat4 Pm;uniform mat4 Vm;void main(){gl_Position=Pm*Vm*vec4(p,1.0);}`;") (cons (h-line "var EF=`#version 300 es") (cons (h-line "precision highp float;out vec4 o;void main(){o=vec4(0.16,0.18,0.24,0.5);}`;") (cons (h-line "var pn=prog(NV,NF),pl=prog(LV,LF),pe=prog(EV,EF);") (cons (h-line "var quad=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,quad);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);") (cons (h-line "var ib=gl.createBuffer(),eb=gl.createBuffer();") (cons (h-line "var vn=gl.createVertexArray();gl.bindVertexArray(vn);gl.bindBuffer(gl.ARRAY_BUFFER,quad);var a=gl.getAttribLocation(pn,'corner');gl.enableVertexAttribArray(a);gl.vertexAttribPointer(a,2,gl.FLOAT,false,0,0);gl.bindBuffer(gl.ARRAY_BUFFER,ib);var b=gl.getAttribLocation(pn,'inst');gl.enableVertexAttribArray(b);gl.vertexAttribPointer(b,4,gl.FLOAT,false,32,0);gl.vertexAttribDivisor(b,1);var c=gl.getAttribLocation(pn,'field');gl.enableVertexAttribArray(c);gl.vertexAttribPointer(c,4,gl.FLOAT,false,32,16);gl.vertexAttribDivisor(c,1);") (cons (h-line "var vl=gl.createVertexArray();gl.bindVertexArray(vl);gl.bindBuffer(gl.ARRAY_BUFFER,quad);var la=gl.getAttribLocation(pl,'corner');gl.enableVertexAttribArray(la);gl.vertexAttribPointer(la,2,gl.FLOAT,false,0,0);") (cons (h-line "var ve=gl.createVertexArray();gl.bindVertexArray(ve);gl.bindBuffer(gl.ARRAY_BUFFER,eb);var ea=gl.getAttribLocation(pe,'p');gl.enableVertexAttribArray(ea);gl.vertexAttribPointer(ea,3,gl.FLOAT,false,0,0);gl.bindVertexArray(null);") (cons (h-line "function label(n){if(tex[n.id])return tex[n.id];var k=document.createElement('canvas'),x=k.getContext('2d'),fs=n.ring===0?44:(n.ring===1?30:22);x.font=(n.ring===0?'600 ':'')+fs+'px system-ui,sans-serif';var w=Math.ceil(x.measureText(n.id).width)+16;k.width=w;k.height=fs+16;x.font=(n.ring===0?'600 ':'')+fs+'px system-ui,sans-serif';x.fillStyle=n.ring===2?'#a9a397':'#f1ede4';x.textBaseline='middle';x.shadowColor='#000';x.shadowBlur=6;x.fillText(n.id,8,k.height/2);var t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,k);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);tex[n.id]={t:t,w:k.width,h:k.height};return tex[n.id]}") (cons (h-line "async function go(f,walk){var r=await fetch('/hi/scene'+q(f)+(walk?'&walk=1':''));var s=await r.json();from={};for(var k in cur)from[k]=cur[k];var c=cur[f]||{x:1000,y:1000};s.nodes.forEach(function(n){if(!from[n.id])from[n.id]={x:c.x,y:c.y}});scene=s;focus=f;t0=performance.now();if(walk)history.replaceState(null,'',q(f));document.getElementById('flat').href='/hi/field'+q(f);document.getElementById('read').href='/hi'+q(f)}") (cons (h-line "function ease(u){return u<0?0:(u>1?1:u*u*(3-2*u))}") (cons (h-line "function step(now){var u=ease((now-t0)/650);scene.nodes.forEach(function(n){var a=from[n.id]||{x:n.x,y:n.y};cur[n.id]={x:a.x+(n.x-a.x)*u,y:a.y+(n.y-a.y)*u};n.p=place(n,cur[n.id].x,cur[n.id].y)})}") (cons (h-line "function persp(fy,as,nr,fr){var f=1/Math.tan(fy/2),nf=1/(nr-fr);return [f/as,0,0,0,0,f,0,0,0,0,(fr+nr)*nf,-1,0,0,2*fr*nr*nf,0]}") (cons (h-line "function mul(a,b){var o=new Array(16);for(var i=0;i<4;i++)for(var j=0;j<4;j++){var s=0;for(var k=0;k<4;k++)s+=a[k*4+j]*b[i*4+k];o[i*4+j]=s}return o}") (cons (h-line "function view(){var cy=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);var ry=[cy,0,sy,0,0,1,0,0,-sy,0,cy,0,0,0,0,1],rx=[1,0,0,0,0,cp,-sp,0,0,sp,cp,0,0,0,0,1],tr=[1,0,0,0,0,1,0,0,0,0,1,0,0,-1.6,dist,1];return mul(rx,mul(ry,tr))}") (cons (h-line "function draw(Pm,Vm,now){var ni=new Float32Array(scene.nodes.length*8);scene.nodes.forEach(function(n,i){ni.set([n.p[0],n.p[1],n.p[2],n.ring===0?0.16:(n.ring===1?0.10:0.065),n.ring===0?1:0,n.ring,Math.min(n.readers,4),n.open],i*8)});var idx={},el=[];scene.nodes.forEach(function(n){idx[n.id]=n});scene.edges.forEach(function(e){var a=idx[e[0]],b=idx[e[1]];if(a&&b)el.push(a.p[0],a.p[1],a.p[2],b.p[0],b.p[1],b.p[2])});") (cons (h-line "gl.disable(gl.DEPTH_TEST);gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE);") (cons (h-line "gl.useProgram(pe);gl.uniformMatrix4fv(gl.getUniformLocation(pe,'Pm'),false,Pm);gl.uniformMatrix4fv(gl.getUniformLocation(pe,'Vm'),false,Vm);gl.bindVertexArray(ve);gl.bindBuffer(gl.ARRAY_BUFFER,eb);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(el),gl.DYNAMIC_DRAW);gl.drawArrays(gl.LINES,0,el.length/3);") (cons (h-line "gl.useProgram(pn);gl.uniformMatrix4fv(gl.getUniformLocation(pn,'Pm'),false,Pm);gl.uniformMatrix4fv(gl.getUniformLocation(pn,'Vm'),false,Vm);gl.uniform1f(gl.getUniformLocation(pn,'t'),now/1000);gl.bindVertexArray(vn);gl.bindBuffer(gl.ARRAY_BUFFER,ib);gl.bufferData(gl.ARRAY_BUFFER,ni,gl.DYNAMIC_DRAW);gl.drawArraysInstanced(gl.TRIANGLES,0,6,scene.nodes.length);") (cons (h-line "gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.useProgram(pl);gl.uniformMatrix4fv(gl.getUniformLocation(pl,'Pm'),false,Pm);gl.uniformMatrix4fv(gl.getUniformLocation(pl,'Vm'),false,Vm);gl.bindVertexArray(vl);scene.nodes.forEach(function(n){var L=label(n),s=n.ring===0?0.0016:0.0013;gl.bindTexture(gl.TEXTURE_2D,L.t);gl.uniform3f(gl.getUniformLocation(pl,'at'),n.p[0],n.p[1]-(n.ring===0?0.24:0.15),n.p[2]);gl.uniform2f(gl.getUniformLocation(pl,'sz'),L.w*s/2,L.h*s/2);gl.drawArrays(gl.TRIANGLES,0,6)});gl.bindVertexArray(null)}") (cons (h-line "function flat(now){if(xr)return;if(scene){step(now);gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,cv.width,cv.height);gl.clearColor(0.027,0.027,0.04,1);gl.clear(gl.COLOR_BUFFER_BIT);draw(persp(1.1,cv.width/cv.height,0.05,50),view(),now)}requestAnimationFrame(flat)}") (cons (h-line "function onXR(now,frame){var s=frame.session;s.requestAnimationFrame(onXR);var pose=frame.getViewerPose(ref);if(!pose||!scene)return;step(now);var L=s.renderState.baseLayer;gl.bindFramebuffer(gl.FRAMEBUFFER,L.framebuffer);gl.clearColor(0.027,0.027,0.04,1);gl.clear(gl.COLOR_BUFFER_BIT);pose.views.forEach(function(v){var vp=L.getViewport(v);gl.viewport(vp.x,vp.y,vp.width,vp.height);draw(v.projectionMatrix,v.transform.inverse.matrix,now)})}") (cons (h-line "function pick(o,d){var best=null,bc=Math.cos(0.08);scene.nodes.forEach(function(n){var x=n.p[0]-o[0],y=n.p[1]-o[1],z=n.p[2]-o[2],l=Math.hypot(x,y,z),c=(x*d[0]+y*d[1]+z*d[2])/l;if(c>bc){bc=c;best=n}});return best}") (cons (h-line "function screenPick(ev){var r=cv.getBoundingClientRect(),nx=(ev.clientX-r.left)/r.width*2-1,ny=1-(ev.clientY-r.top)/r.height*2,f=1/Math.tan(0.55),as=r.width/r.height;var dx=nx*as/f,dy=ny/f,dz=-1;var cyw=Math.cos(yaw),syw=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);var y1=dy*cp-dz*sp,z1=dy*sp+dz*cp;var x2=dx*cyw+z1*syw,z2=-dx*syw+z1*cyw;var l=Math.hypot(x2,y1,z2);return pick([0,1.6,-dist],[x2/l,y1/l,z2/l])}") (cons (h-line "var drag=null;cv.addEventListener('pointerdown',function(e){drag={x:e.clientX,y:e.clientY,m:0}});addEventListener('pointermove',function(e){if(!drag)return;var dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.m+=Math.abs(dx)+Math.abs(dy);yaw+=dx*0.005;pitch=Math.max(-1.2,Math.min(1.2,pitch+dy*0.005));drag.x=e.clientX;drag.y=e.clientY});addEventListener('pointerup',function(e){if(drag&&drag.m<6&&scene){var n=screenPick(e);if(n)go(n.id,true)}drag=null});addEventListener('wheel',function(e){dist=Math.max(-2.5,Math.min(2.5,dist+(e.deltaY>0?-0.25:0.25)))},{passive:true});") (cons (h-line "async function enter(){var s=await navigator.xr.requestSession('immersive-vr',{optionalFeatures:['local-floor']});xr=s;await gl.makeXRCompatible();s.updateRenderState({baseLayer:new XRWebGLLayer(s,gl)});try{ref=await s.requestReferenceSpace('local-floor')}catch(e){ref=await s.requestReferenceSpace('local')}s.addEventListener('select',function(ev){var p=ev.frame.getPose(ev.inputSource.targetRaySpace,ref);if(!p)return;var m=p.transform.matrix,n=pick([m[12],m[13],m[14]],[-m[8],-m[9],-m[10]]);if(n)go(n.id,true)});s.addEventListener('end',function(){xr=null;requestAnimationFrame(flat)});s.requestAnimationFrame(onXR)}") (cons (h-line "(async function(){await go(focus,true);requestAnimationFrame(flat);var btn=document.getElementById('enter');if(navigator.xr&&await navigator.xr.isSessionSupported('immersive-vr').catch(function(){return false})){btn.style.display='inline';btn.onclick=enter;info.textContent='headset ready'}else info.textContent='no headset: drag to look, wheel to step, tap to refocus';try{var es=new EventSource('/hi/events'+q(focus));es.addEventListener('presence',async function(){var r=await fetch('/hi/scene'+q(focus));var s=await r.json();var by={};s.nodes.forEach(function(n){by[n.id]=n});if(scene)scene.nodes.forEach(function(n){var m=by[n.id];if(m){n.readers=m.readers;n.open=m.open}})})}catch(e){}})();") (cons (h-line "})();") (cons (h-line "</script></body></html>") nil))))))))))))))))))))))))))))))))))))))))))))))))))))
+-- HTTP header lookup (case-insensitive for HTTP/2 and reverse proxies such as Cloudflare and Render)
+um-header-in : List Word → List (List Word) → List Word
+um-header-in name nil = nil
+um-header-in name (cons line r) =
+  if h-null (h-before (cons #13 nil) line) then nil
+  else if h-eq (sx-lower (h-before ":" (h-before (cons #13 nil) line))) name
+  then h-trim (h-after ":" (h-before (cons #13 nil) line))
+  else um-header-in name r
+
+um-header : List Word → List Word → List Word
+um-header name req = um-header-in name (h-tail-lists (h-split #10 (h-before (list-append h-crlf h-crlf) req)))
+
+s-bearer-tok : List Word → List Word
+s-bearer-tok auth =
+  if h-eq (sx-lower (h-take (toNat #7) auth)) "bearer "
+  then h-trim (h-drop-n (toNat #7) auth)
+  else nil
+
+-- may this request change the source: with a token, only a request carrying it via X-Token or
+-- Authorization: Bearer (case-insensitive header names); with none, only when the server is not public
+s-allowed : Bool → Sum Unit (List Word) → List Word → Bool
+s-allowed pub (inl u) req = h-not pub
+s-allowed pub (inr tok) req =
+  andB (h-not (h-null tok))
+    (orB (h-eq (um-header "x-token" req) tok)
+         (h-eq (s-bearer-tok (um-header "authorization" req)) tok))
+
+-- a public server with no token is read-only: no request changes the source (part of product-implementation)
+s-public-read-only : (req : List Word) → Path Bool (s-allowed true (inl unit) req) false
+s-public-read-only req = refl
+
+-- lowercase x-token (as rewritten by HTTP/2 proxies) is accepted (part of product-implementation)
+s-allowed-lower-xtoken : Path Bool (s-allowed true (inr "sec") (list-append "POST / HTTP/1.1" (list-append h-crlf (list-append "x-token: sec" (list-append h-crlf h-crlf))))) true
+s-allowed-lower-xtoken = refl
+
+-- Authorization: Bearer is accepted (part of product-implementation)
+s-allowed-bearer : Path Bool (s-allowed true (inr "sec") (list-append "PUT /roots/x HTTP/1.1" (list-append h-crlf (list-append "Authorization: bearer sec" (list-append h-crlf h-crlf))))) true
+s-allowed-bearer = refl
+
+-- wrong tokens are rejected (part of product-implementation)
+s-allowed-wrong : Path Bool (s-allowed true (inr "sec") (list-append "POST / HTTP/1.1" (list-append h-crlf (list-append "x-token: wrong" (list-append h-crlf h-crlf))))) false
+s-allowed-wrong = refl
+
+-- 64-character lowercase hex SHA-256 validator: prevents path traversal on /packs/<H> and /roots/<R>
+s-is-hex : Word → Bool
+s-is-hex c = orB (andB (wlt #47 c) (wlt c #58)) (andB (wlt #96 c) (wlt c #103))
+
+s-all-hex : List Word → Bool
+s-all-hex nil = true
+s-all-hex (cons c r) = andB (s-is-hex c) (s-all-hex r)
+
+s-hex64 : List Word → Bool
+s-hex64 s = andB (weq (fromNat (list-length s)) #64) (s-all-hex s)
+
+-- path traversal strings are rejected by s-hex64 (part of product-implementation)
+s-hex64-traversal-rejected : Path Bool (s-hex64 "../etc/passwd") false
+s-hex64-traversal-rejected = refl
+
+-- valid 64-hex SHA-256 digest is accepted by s-hex64 (part of product-implementation)
+s-hex64-valid : Path Bool (s-hex64 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef") true
+s-hex64-valid = refl
+
+s-post : List Word → List Word → List Word → List Word → Proc W (List Word)
+s-post st m path req =
+  if h-prefix "/source/record?" path then s-change st m true (s-query path) (h-after (list-append h-crlf h-crlf) req) else
+  if h-eq path "/hi/write" then hi-write st m (h-after (list-append h-crlf h-crlf) req) else
+  if h-prefix "/source/unrecord?" path then s-change st m false (s-query path) nil else
+  if h-prefix "/source/object" path then s-take m (s-query path) (h-after (list-append h-crlf h-crlf) req) else
+  ret (s-respond "404 Not Found" "text/plain" "")
+
+-- First-party ad-blocker-proof Umami Cloud proxy (2026-11-22)
+um-hdr-clean-go : Nat → List Word → List Word
+um-hdr-clean-go zero xs = nil
+um-hdr-clean-go (suc k) nil = nil
+um-hdr-clean-go (suc k) (cons b r) = if andB (wlt #31 b) (wlt b #127) then cons b (um-hdr-clean-go k r) else um-hdr-clean-go k r
+
+um-hdr-clean : List Word → List Word
+um-hdr-clean s = um-hdr-clean-go (toNat #512) s
+
+um-ip-of : List Word → List Word → List Word
+um-ip-of xff xri =
+  if h-not (h-null xff) then h-trim (h-before "," xff) else
+  if h-not (h-null xri) then h-trim xri else nil
+
+um-ip : List Word → List Word
+um-ip req = um-ip-of (um-header "x-forwarded-for" req) (um-header "x-real-ip" req)
+
+um-replace-go : Nat → List Word → List Word → List Word → List Word
+um-replace-go zero pat rep s = s
+um-replace-go (suc k) pat rep nil = nil
+um-replace-go (suc k) pat rep (cons x r) =
+  if h-prefix pat (cons x r)
+  then list-append rep (um-replace-go k pat rep (h-drop pat (cons x r)))
+  else cons x (um-replace-go k pat rep r)
+
+um-replace : List Word → List Word → List Word → List Word
+um-replace pat rep s = um-replace-go (toNat #65536) pat rep s
+
+um-js-resp : List Word → List Word
+um-js-resp body = list-append (h-concat (cons "HTTP/1.1 200 OK" (cons h-crlf (cons "Content-Type: application/javascript; charset=utf-8" (cons h-crlf (cons "Content-Length: " (cons (h-decimal (fromNat (list-length body))) (cons h-crlf (cons "Cache-Control: public, max-age=86400" (cons h-crlf (cons s-sec-headers (cons "Connection: close" (cons h-crlf (cons h-crlf nil)))))))))))))) body
+
+um-script-fetch : Proc W (List Word)
+um-script-fetch =
+  bind (h-capture (cons "/usr/bin/env" (cons "curl" (cons "-fs" (cons "--max-time" (cons "8" (cons "https://cloud.umami.is/script.js" nil))))))) (λ r →
+  if andB (weq (fst r) #0) (h-not (h-null (snd r)))
+  then bind (h-write "/tmp/hx-umami.js" (um-replace "/api/send" "/ev" (snd r))) (λ w → ret {lzero} {W} (um-js-resp (um-replace "/api/send" "/ev" (snd r))))
+  else ret {lzero} {W} (s-respond "200 OK" "application/javascript; charset=utf-8" "/* umami unavailable */"))
+
+um-script-or : Sum Unit (List Word) → Proc W (List Word)
+um-script-or (inl u) = um-script-fetch
+um-script-or (inr js) = if h-null js then um-script-fetch else ret {lzero} {W} (um-js-resp js)
+
+um-script : Proc W (List Word)
+um-script = bind (h-read "/tmp/hx-umami.js") um-script-or
+
+um-send-path : List Word → Bool
+um-send-path p =
+  orB (h-eq (h-before "?" p) "/hx/ev") (
+  orB (h-eq (h-before "?" p) "/hx/api/send")
+      (h-eq (h-before "?" p) "/api/send"))
+
+um-body-clean-go : Nat → List Word → List Word
+um-body-clean-go zero xs = nil
+um-body-clean-go (suc k) nil = nil
+um-body-clean-go (suc k) (cons b r) = if weq b #0 then um-body-clean-go k r else cons b (um-body-clean-go k r)
+
+um-body-clean : List Word → List Word
+um-body-clean s = um-body-clean-go (toNat #16384) s
+
+um-opt-hdr : List Word → List Word → List (List Word) → List (List Word)
+um-opt-hdr name val rest = if h-null val then rest else cons "-H" (cons (list-append name (list-append ": " val)) rest)
+
+um-send-args : List Word → List Word → List Word → List Word → List (List Word)
+um-send-args ua ip cache body =
+  cons "/usr/bin/env" (cons "curl" (cons "-s" (cons "--max-time" (cons "5" (cons "-X" (cons "POST" (cons "-H" (cons "Content-Type: application/json"
+    (um-opt-hdr "User-Agent" ua (um-opt-hdr "X-Forwarded-For" ip (um-opt-hdr "x-umami-cache" cache
+      (cons "--data-raw" (cons body (cons "https://gateway.umami.is/api/send" nil))))))))))))))
+
+um-send-go : List Word → List Word → Proc W (List Word)
+um-send-go req body =
+  if orB (h-prefix "{" body) (h-prefix "[" body)
+  then bind (h-capture (um-send-args (um-hdr-clean (um-header "user-agent" req)) (um-hdr-clean (um-ip req)) (um-hdr-clean (um-header "x-umami-cache" req)) body)) (λ r →
+    if andB (weq (fst r) #0) (h-not (h-null (snd r)))
+    then ret {lzero} {W} (s-response "application/json" (snd r))
+    else ret {lzero} {W} (s-response "application/json" "{}"))
+  else ret {lzero} {W} (s-respond "400 Bad Request" "application/json" "{}")
+
+um-send : List Word → Proc W (List Word)
+um-send req = um-send-go req (um-body-clean (h-after (list-append h-crlf h-crlf) req))
+
+-- canonical public domain (e.g. "hyperactivity.ai")
+s-canonical-host : List Word
+s-canonical-host = "hyperactivity.ai"
+
+s-req-path-any : List Word → List Word
+s-req-path-any req =
+  if h-prefix "GET " req then s-request-path req else
+  if h-prefix "HEAD " req then h-before " " (h-drop "HEAD " (h-before (cons #13 nil) req)) else "/"
+
+s-canon-path : List Word → List Word
+s-canon-path p = if h-null p then "/" else if h-prefix "/" p then um-hdr-clean p else cons #47 (um-hdr-clean p)
+
+s-redirect-onrender : Bool → List Word → Bool
+s-redirect-onrender pub req =
+  andB pub (
+  andB (h-not (h-null s-canonical-host)) (
+  andB (orB (h-prefix "GET " req) (h-prefix "HEAD " req)) (
+  andB (h-not (h-eq (h-before "?" (s-req-path-any req)) "/graph"))
+       (h-eq (sx-lower (h-before ":" (um-header "host" req))) "hyperactivity.onrender.com"))))
+
+s-to-canonical : List Word → List Word
+s-to-canonical req =
+  h-concat (cons "HTTP/1.1 301 Moved Permanently" (cons h-crlf (cons "Location: https://" (cons s-canonical-host (cons (s-canon-path (s-req-path-any req)) (cons h-crlf (cons "Content-Length: 0" (cons h-crlf (cons "Cache-Control: no-cache" (cons h-crlf (cons "Connection: close" (cons h-crlf (cons h-crlf nil)))))))))))))
+-- /privacy : short, honest privacy statement for Hyperactive Labs, Inc.
+s-privacy-md : List Word
+s-privacy-md = h-concat (list-map h-line (cons "# Privacy" (cons "" (cons "**Hyperactive Labs, Inc.** operates hyperactivity.ai with minimal, cookieless analytics." (cons "" (cons "## What we collect" (cons "" (cons "- Aggregate page views, referrers, device/browser category, country/region/city, and basic interaction events (`outbound` link clicks, synesthesia toggle, site search) via Umami Cloud." (cons "- No cookies are set for analytics, no cross-site tracking is performed, and raw IP addresses are not stored." (cons "- Theme preference (`hxTheme`) and an optional analytics opt-out flag (`umami.disabled`) are stored locally in your browser only." (cons "" (cons "## What we never do" (cons "" (cons "- We do not sell, rent, or share visitor data with advertisers or data brokers." (cons "- We do not build personal profiles or track you across other websites." (cons "" (cons "## Contact" (cons "" (cons "Questions or requests: [avikj@berkeley.edu](mailto:avikj@berkeley.edu) or [(408) 614-6825](tel:+14086146825)." nil)))))))))))))))))))
+
+s-privacy-page : List Word
+s-privacy-page = s-page-at true "/privacy" "privacy" s-privacy-md
+
+-- /robots.txt
+s-robots-txt : List Word
+s-robots-txt = h-concat (list-map h-line (cons "User-agent: *" (cons "Allow: /" (cons "" (cons "Sitemap: https://hyperactivity.ai/sitemap.xml" nil)))))
+
+-- /sitemap.xml : core routes + all listed works from s-published (excluding unlisted works)
+s-sitemap-work : Work → List Word
+s-sitemap-work (work n k p) = h-concat (cons "<url><loc>https://hyperactivity.ai/" (cons n (cons "</loc></url>" (cons (cons #10 nil) nil))))
+
+s-sitemap-works : List Work → List Word
+s-sitemap-works nil = nil
+s-sitemap-works (cons w r) = list-append (s-sitemap-work w) (s-sitemap-works r)
+
+s-sitemap-xml : List Word
+s-sitemap-xml = h-concat (cons "<?xml version='1.0' encoding='UTF-8'?>" (cons (cons #10 nil) (cons "<urlset xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>" (cons (cons #10 nil) (cons "<url><loc>https://hyperactivity.ai/</loc></url>" (cons (cons #10 nil) (cons "<url><loc>https://hyperactivity.ai/paper</loc></url>" (cons (cons #10 nil) (cons "<url><loc>https://hyperactivity.ai/pdf</loc></url>" (cons (cons #10 nil) (cons "<url><loc>https://hyperactivity.ai/kernel</loc></url>" (cons (cons #10 nil) (cons "<url><loc>https://hyperactivity.ai/kg</loc></url>" (cons (cons #10 nil) (cons "<url><loc>https://hyperactivity.ai/hi/field</loc></url>" (cons (cons #10 nil) (cons "<url><loc>https://hyperactivity.ai/nets</loc></url>" (cons (cons #10 nil) (cons "<url><loc>https://hyperactivity.ai/ai</loc></url>" (cons (cons #10 nil) (cons "<url><loc>https://hyperactivity.ai/neuro</loc></url>" (cons (cons #10 nil) (cons "<url><loc>https://hyperactivity.ai/physics</loc></url>" (cons (cons #10 nil) (cons "<url><loc>https://hyperactivity.ai/music</loc></url>" (cons (cons #10 nil) (cons "<url><loc>https://hyperactivity.ai/synesthesia</loc></url>" (cons (cons #10 nil) (cons "<url><loc>https://hyperactivity.ai/privacy</loc></url>" (cons (cons #10 nil) (cons (s-sitemap-works (s-listed s-published)) (cons "</urlset>" (cons (cons #10 nil) nil)))))))))))))))))))))))))))))))))
+
+-- /llms.txt : plain-text index of Hyperactive Labs, Inc. for AI assistants and crawlers
+s-llms-item : Work → Proc W (List Word)
+s-llms-item (work n k p) = bind (s-work-text (work n k p)) (λ t → ret {lzero} {W} (h-concat (cons "- [" (cons (s-title-or n t) (cons "](https://hyperactivity.ai/" (cons n (cons "): " (cons (s-excerpt t) (cons (cons #10 nil) nil)))))))))
+
+s-llms-works : List Work → Proc W (List Word)
+s-llms-works nil = ret {lzero} {W} nil
+s-llms-works (cons w r) = bind (s-llms-item w) (λ a → bind (s-llms-works r) (λ b → ret {lzero} {W} (list-append a b)))
+
+s-llms-txt : Proc W (List Word)
+s-llms-txt = bind (s-llms-works (s-listed s-published)) (λ ws →
+  ret {lzero} {W} (s-response "text/plain; charset=utf-8" (h-concat (cons (h-concat (list-map h-line (cons "# Hyperactive Labs, Inc." (cons "" (cons "> Hyperactivity: a decentralized operating system language for collective superintelligence." (cons "" (cons "Founded by Avik Jain. Direct contact: avikj@berkeley.edu · (408) 614-6825." (cons "Source: https://github.com/avikj/hyperactivity" (cons "" (cons "## Core Paper & Interactive Labs" (cons "" (cons "- [hyperactivity (Main Paper)](https://hyperactivity.ai/paper): Complete specification and formalization of Hyperactivity." (cons "- [Paper PDF](https://hyperactivity.ai/pdf): In-browser PDF viewer and downloadable formal paper (/paper.pdf)." (cons "- [Cubical Kernel (WASM)](https://hyperactivity.ai/kernel): Self-hosted cubical kernel and interaction-net normalizer in WebAssembly." (cons "- [Web Knowledge Graph](https://hyperactivity.ai/kg): Interactive dependency graph and source explorer with P2P sync." (cons "- [Workflow Field & WebXR Room](https://hyperactivity.ai/hi/field): Live neighborhood explorer, WebGPU shader field, and WebXR room." (cons "- [Interaction Net Lab](https://hyperactivity.ai/nets): Live cubical interaction net compiler and evaluator." (cons "- [AI & Alignment](https://hyperactivity.ai/ai): Interactive fiber safety, active querying, and standpoint alignment lab." (cons "- [Neuroscience & Co-Processors](https://hyperactivity.ai/neuro): Machine-checked neuroscience modules with interactive manifold, CBF, and FHN labs." (cons "- [Physics & Quantum Geometry](https://hyperactivity.ai/physics): Machine-checked physics and chemistry modules." (cons "- [Music of the Spheres](https://hyperactivity.ai/music): Harmony, melody, and rhythm compiled from Hyperactivity ratios." (cons "- [Synthetic Synesthesia](https://hyperactivity.ai/synesthesia): Grapheme-color text renderer." (cons "" (cons "## Published Works" (cons "" nil))))))))))))))))))))))))) (cons ws nil)))))
+
+-- /feed.xml : RSS 2.0 feed of published works
+s-feed-item : Work → Proc W (List Word)
+s-feed-item (work n k p) = bind (s-work-text (work n k p)) (λ t → ret {lzero} {W} (h-concat (cons "<item><title>" (cons (s-esc (s-title-or n t)) (cons "</title><link>https://hyperactivity.ai/" (cons n (cons "</link><guid>https://hyperactivity.ai/" (cons n (cons "</guid><description>" (cons (s-esc (s-excerpt t)) (cons "</description></item>" (cons (cons #10 nil) nil))))))))))))
+
+s-feed-works : List Work → Proc W (List Word)
+s-feed-works nil = ret {lzero} {W} nil
+s-feed-works (cons w r) = bind (s-feed-item w) (λ a → bind (s-feed-works r) (λ b → ret {lzero} {W} (list-append a b)))
+
+s-feed-xml : Proc W (List Word)
+s-feed-xml = bind (s-feed-works (s-listed s-published)) (λ ws →
+  ret {lzero} {W} (s-response "application/rss+xml; charset=utf-8" (h-concat (cons "<?xml version='1.0' encoding='UTF-8'?>" (cons (cons #10 nil) (cons "<rss version='2.0'><channel><title>Hyperactive Labs</title><link>https://hyperactivity.ai/</link><description>A decentralized operating system language for collective superintelligence.</description>" (cons (cons #10 nil) (cons "<item><title>hyperactivity</title><link>https://hyperactivity.ai/paper</link><guid>https://hyperactivity.ai/paper</guid><description>A decentralized operating system language for collective superintelligence.</description></item>" (cons (cons #10 nil) (cons ws (cons "</channel></rss>" (cons (cons #10 nil) nil))))))))))))
+
+-- ---------------------------------------------------------------- decentralized pool place (/packs, /roots, /root, /bootstrap.tgz)
+s-open-ro : List Word → Proc W Word
+s-open-ro path =
+  with-bytes {Word} (wadd (fromNat (list-length path)) #1) (λ p → bind (h-poke p path) (λ u →
+  sys-call #257 #18446744073709551516 p #0 #0 #0 #0))
+
+s-open-wr : List Word → Proc W Word
+s-open-wr path =
+  with-bytes {Word} (wadd (fromNat (list-length path)) #1) (λ p → bind (h-poke p path) (λ u →
+  sys-call #257 #18446744073709551516 p #577 #420 #0 #0))
+
+s-rename : List Word → List Word → Proc W Bool
+s-rename old nw =
+  with-bytes {Bool} (wadd (fromNat (list-length old)) #1) (λ p1 → bind (h-poke p1 old) (λ u1 →
+  with-bytes {Bool} (wadd (fromNat (list-length nw)) #1) (λ p2 → bind (h-poke p2 nw) (λ u2 →
+  bind (sys-call #82 p1 p2 #0 #0 #0 #0) (λ r → ret (weq r #0))))))
+
+s-chdir : List Word → Proc W Bool
+s-chdir dir =
+  with-bytes {Bool} (wadd (fromNat (list-length dir)) #1) (λ p → bind (h-poke p dir) (λ u →
+  bind (sys-call #80 p #0 #0 #0 #0 #0) (λ r → ret (weq r #0))))
+
+s-load64 : Word → Proc W Word
+s-load64 a =
+  bind (load8-at a) (λ b0 → bind (load8-at (wadd a #1)) (λ b1 →
+  bind (load8-at (wadd a #2)) (λ b2 → bind (load8-at (wadd a #3)) (λ b3 →
+  bind (load8-at (wadd a #4)) (λ b4 → bind (load8-at (wadd a #5)) (λ b5 →
+  bind (load8-at (wadd a #6)) (λ b6 → bind (load8-at (wadd a #7)) (λ b7 →
+  ret (wadd b0 (wadd (wshl b1 #8) (wadd (wshl b2 #16) (wadd (wshl b3 #24)
+    (wadd (wshl b4 #32) (wadd (wshl b5 #40) (wadd (wshl b6 #48) (wshl b7 #56))))))))))))))))
+
+s-fd-size : Word → Proc W Word
+s-fd-size fd = with-bytes {Word} #160 (λ stbuf →
+  bind (sys-call #5 fd stbuf #0 #0 #0 #0) (λ r →
+  if weq r #0 then s-load64 (wadd stbuf #48) else ret {lzero} {W} #0))
+
+s-write-all-buf : Nat → Word → Word → Word → Proc W Bool
+s-write-all-buf zero fd ptr rem = ret (weq rem #0)
+s-write-all-buf (suc k) fd ptr rem =
+  if weq rem #0 then ret {lzero} {W} true
+  else bind (sys-call #1 fd ptr rem #0 #0 #0) (λ w →
+    if orB (weq w #0) (wlt #9223372036854775807 w) then ret {lzero} {W} false
+    else s-write-all-buf k fd (wadd ptr w) (wsub rem w))
+
+s-pump-all : Nat → Word → Word → Word → Proc W Bool
+s-pump-all zero src dst buf = ret true
+s-pump-all (suc k) src dst buf =
+  bind (sys-call #0 src buf #65536 #0 #0 #0) (λ n →
+  if weq n #0 then ret {lzero} {W} true
+  else if wlt #9223372036854775807 n then ret {lzero} {W} false
+  else bind (s-write-all-buf (toNat #64) dst buf n) (λ ok →
+    if ok then s-pump-all k src dst buf else ret {lzero} {W} false))
+
+s-pump-exact : Nat → Word → Word → Word → Word → Proc W Bool
+s-pump-exact zero src dst buf rem = ret (weq rem #0)
+s-pump-exact (suc k) src dst buf rem =
+  if weq rem #0 then ret {lzero} {W} true
+  else let want = if wlt rem #65536 then rem else #65536 in
+  bind (sys-call #0 src buf want #0 #0 #0) (λ n →
+  if orB (weq n #0) (wlt #9223372036854775807 n) then ret {lzero} {W} false
+  else bind (s-write-all-buf (toNat #64) dst buf n) (λ ok →
+    if ok then s-pump-exact k src dst buf (wsub rem n) else ret {lzero} {W} false))
+
+s-head : List Word → List (List Word) → List Word
+s-head d nil = d
+s-head d (cons x r) = x
+
+s-disp-hdr : List Word → List Word
+s-disp-hdr disp = if h-null disp then nil else list-append "Content-Disposition: " (list-append disp h-crlf)
+
+-- stream a binary file on disk to socket c using one 64 KiB buffer (zero cons cells)
+s-stream-file : Word → List Word → List Word → List Word → Proc W Unit
+s-stream-file c path ctype disp =
+  bind (s-open-ro path) (λ ffd →
+  if wlt #9223372036854775807 ffd
+  then bind (fd-write c (s-respond "404 Not Found" "text/plain" "not found")) (λ w → ret {lzero} {W} unit)
+  else bind (s-fd-size ffd) (λ sz →
+    let dhdr = s-disp-hdr disp in
+    let hdr = h-concat (cons "HTTP/1.1 200 OK" (cons h-crlf (cons "Content-Type: " (cons ctype (cons h-crlf (cons dhdr (cons "Content-Length: " (cons (h-decimal sz) (cons h-crlf (cons "Cache-Control: public, max-age=3600" (cons h-crlf (cons "Connection: close" (cons h-crlf (cons h-crlf nil)))))))))))))) in
+    bind (fd-write c hdr) (λ w0 →
+    bind (with-bytes {Bool} #65536 (λ buf → s-pump-all (toNat #1048576) ffd c buf)) (λ ok →
+    bind (sys-call #3 ffd #0 #0 #0 #0 #0) (λ cl → ret {lzero} {W} unit)))))
+
+-- stream PUT /packs/<SHA256> directly to disk in a 64 KiB buffer, verify SHA-256 == <SHA256> (ca-check), then atomic rename
+s-put-pack : Bool → Sum Unit (List Word) → Word → List Word → List Word → Proc W Unit
+s-put-pack pub tok c h hdr =
+  if h-not (s-allowed pub tok hdr)
+  then bind (fd-write c (s-respond "403 Forbidden" "text/plain" "this server is read-only")) (λ w → ret {lzero} {W} unit)
+  else if h-not (s-hex64 h)
+  then bind (fd-write c (s-respond "400 Bad Request" "text/plain" "invalid pack sha256")) (λ w → ret {lzero} {W} unit)
+  else bind (h-mkdir "packs") (λ md →
+    bind (if h-infix "100-continue" (sx-lower (um-header "expect" hdr))
+          then fd-write c (list-append "HTTP/1.1 100 Continue" (list-append h-crlf h-crlf))
+          else ret {lzero} {W} #0) (λ cont →
+    bind (sys-call #39 #0 #0 #0 #0 #0 #0) (λ pid →
+    let tmp = list-append "packs/.tmp-" (list-append (h-decimal pid) (cons #45 h)) in
+    let dst = list-append "packs/" h in
+    let clen = h-number (um-header "content-length" hdr) in
+    bind (s-open-wr tmp) (λ ffd →
+    if wlt #9223372036854775807 ffd
+    then bind (fd-write c (s-respond "500 Internal Server Error" "text/plain" "cannot write pack")) (λ w → ret {lzero} {W} unit)
+    else bind (with-bytes {Bool} #65536 (λ buf → s-pump-exact (toNat #1048576) c ffd buf clen)) (λ pumped →
+      bind (sys-call #3 ffd #0 #0 #0 #0 #0) (λ cl →
+      if h-not pumped
+      then bind (h-unlink tmp) (λ u → bind (fd-write c (s-respond "400 Bad Request" "text/plain" "incomplete pack body")) (λ w → ret {lzero} {W} unit))
+      else bind (h-capture (cons "/usr/bin/env" (cons "sha256sum" (cons tmp nil)))) (λ sh →
+        let got = s-head nil (h-split #32 (snd sh)) in
+        if andB (weq (fst sh) #0) (h-eq got h)
+        then bind (s-rename tmp dst) (λ rn →
+          bind (fd-write c (if rn then s-response "text/plain" (h-line h) else s-respond "500 Internal Server Error" "text/plain" "rename failed")) (λ w → ret {lzero} {W} unit))
+        else bind (h-unlink tmp) (λ u →
+          bind (fd-write c (s-respond "400 Bad Request" "text/plain" "pack sha256 mismatch")) (λ w → ret {lzero} {W} unit)))))))))
+
+s-root-get : List Word → Proc W (List Word)
+s-root-get m = bind (h-read "root") (λ r → case r of
+  inr t → ret {lzero} {W} (s-response "text/plain" (h-line (h-trim (h-before (cons #10 nil) t))))
+  inl u → bind (h-capture (cons m (cons "--root" nil))) (λ cr →
+    ret {lzero} {W} (s-response "text/plain" (h-line (s-head nil (h-lines (snd cr)))))))
+
+s-roots-get : List Word → Proc W (List Word)
+s-roots-get name =
+  if orB (h-eq name "latest") (s-hex64 name)
+  then bind (h-read (list-append "roots/" name)) (λ r → case r of
+    inr t → ret {lzero} {W} (s-response "text/plain" t)
+    inl u → ret {lzero} {W} (s-respond "404 Not Found" "text/plain" "no such root"))
+  else ret {lzero} {W} (s-respond "400 Bad Request" "text/plain" "invalid root name")
+
+s-packs-valid : List (List Word) → Proc W Bool
+s-packs-valid nil = ret true
+s-packs-valid (cons ph r) =
+  if h-null ph then s-packs-valid r
+  else if h-not (s-hex64 ph) then ret {lzero} {W} false
+  else bind (h-file-time (list-append "packs/" ph)) (λ ft →
+    if wlt #0 ft then s-packs-valid r else ret {lzero} {W} false)
+
+s-record-pack : List Word → Proc W Unit
+s-record-pack ph = bind (h-read ".cubical-store/packs") (λ ps →
+  if h-has ph (h-lines (s-or nil ps)) then ret {lzero} {W} unit
+  else bind (h-write ".cubical-store/packs" (list-append (s-or nil ps) (h-line ph))) (λ w → ret {lzero} {W} unit))
+
+s-unpack-missing : List (List Word) → List (List Word) → Proc W Bool
+s-unpack-missing have nil = ret true
+s-unpack-missing have (cons ph r) =
+  if orB (h-null ph) (h-has ph have) then s-unpack-missing have r
+  else bind (h-run (cons "/usr/bin/env" (cons "tar" (cons "-xzf" (cons (list-append "packs/" ph) (cons "--skip-old-files" (cons "store" nil))))))) (λ rc →
+    if weq rc #0 then bind (s-record-pack ph) (λ u → s-unpack-missing (cons ph have) r)
+    else ret {lzero} {W} false)
+
+-- ensure views/ and hi/context-<stamp> match workflow/hyperactivity.cub's current pointer
+s-ensure-views : List Word → List Word → Proc W Unit
+s-ensure-views st m =
+  bind (h-pointer "workflow/hyperactivity.cub") (λ wp →
+  bind (h-read (list-append st "/views/wf-stamp")) (λ old →
+  bind (h-file-time (list-append st "/views/graph.json")) (λ gt →
+  if andB (wlt #0 gt) (h-eq wp (h-trim (s-or nil old)))
+  then ret {lzero} {W} unit
+  else bind (s-isolated (bind (h-run (cons m (cons "lib/views.cub" nil))) (λ rc →
+    if weq rc #0 then bind (h-write (list-append st "/views/wf-stamp") wp) (λ w → ret {lzero} {W} unit)
+    else ret {lzero} {W} unit))) (λ okv →
+    bind (s-isolated (bind (h-read (list-append st "/views/nodes")) (λ nv →
+      bind (hi-ctx-index st (list-map hi-first (hi-rows (s-or nil nv)))) (λ ix → ret {lzero} {W} unit)))) (λ okc →
+      ret {lzero} {W} unit)))))
+
+-- incremental site refresh: skips all unchanged per-module pages in O(1), rebuilds changed works + front + llms.txt + feed.xml + site-stamp
+s-refresh-site : List Word → List Word → Proc W Bool
+s-refresh-site st m =
+  bind (s-isolated (bind (s-paper st m) (λ p → ret {lzero} {W} unit))) (λ okp →
+  bind (s-ensure-mod st "bin" "docs/hyperactivity.pdf.hex" s-paper-pdf) (λ okpdf →
+  bind (s-ensure-mod st "doc" "docs/pdf-viewer.html" s-pdf-view) (λ okpv →
+  bind (s-ensure-mod st "doc" "docs/kg.html" s-kg) (λ okkg →
+  bind (s-ensure-mod st "json" "docs/kg-index.json" s-kg-index) (λ okkgi →
+  bind (s-ensure-mod st "doc" "docs/nets.html" s-nets) (λ okn →
+  bind (s-ensure-mod st "doc" "docs/neuro.html" s-neuro) (λ oknr →
+  bind (s-ensure-mod st "doc" "docs/physics.html" s-physics) (λ okph →
+  bind (s-ensure-mod st "doc" "docs/ai.html" s-ai) (λ okai →
+  bind (s-ensure-mod st "doc" "docs/kernel.html" s-kernel) (λ okk →
+  bind (s-ensure-mod st "bin" "docs/cubical.wasm.hex" s-cubical-wasm) (λ okw →
+  bind (s-ensure-mod st "music" "lib/server.cub" s-music) (λ okm →
+  bind (s-isolated (bind (s-site-kept st "llms-txt" s-llms-txt) (λ lm → ret {lzero} {W} unit))) (λ oklm →
+  bind (s-isolated (bind (s-site-kept st "feed-xml" s-feed-xml) (λ fd → ret {lzero} {W} unit))) (λ okfd →
+  bind (s-site-all st s-published) (λ u →
+  bind (s-isolated (bind (s-corpus-kept-one st "/paper") (λ c → ret {lzero} {W} unit))) (λ okc →
+  bind (s-ensure-mod st "syn" "docs/synesthesia.cub" (ret {lzero} {W} (sy-answer nil))) (λ oky →
+  bind (h-read (list-append h-index "/meta/root")) (λ s →
+  h-write (list-append st "/site-stamp") (s-or nil s)))))))))))))))))))
+
+-- spawn at most one detached background refresh so PUT /roots/<R> returns immediately while keeping RAM bounded
+s-spawn-refresh : List Word → List Word → Proc W Unit
+s-spawn-refresh st m =
+  bind (sys-call #57 #0 #0 #0 #0 #0 #0) (λ pid →
+  if weq pid #0
+  then bind (h-run (cons "/usr/bin/env" (cons "flock" (cons "-n" (cons (list-append st "/refresh.lock") (cons m (cons "lib/server.cub" (cons "refresh" nil)))))))) (λ rc →
+    bind (sys-call #231 #0 #0 #0 #0 #0 #0) (λ x → ret {lzero} {W} unit))
+  else ret {lzero} {W} unit)
+
+s-put-root : List Word → List Word → List Word → List Word → Proc W (List Word)
+s-put-root st m root body =
+  if h-not (s-hex64 root)
+  then ret {lzero} {W} (s-respond "400 Bad Request" "text/plain" "invalid root sha256")
+  else let ps = h-nonempty (h-lines body) in
+  bind (s-packs-valid ps) (λ pok →
+  if h-not pok
+  then ret {lzero} {W} (s-respond "400 Bad Request" "text/plain" "unknown or missing pack in root list")
+  else bind (h-mkdir "roots") (λ mr →
+    bind (h-mkdir ".cubical-store") (λ mc →
+    bind (h-read ".cubical-store/packs") (λ have →
+    bind (s-unpack-missing (h-lines (s-or nil have)) ps) (λ uok →
+    if h-not uok
+    then ret {lzero} {W} (s-respond "500 Internal Server Error" "text/plain" "failed unpacking pack")
+    else bind (h-capture (cons m (cons "--take" (cons root nil)))) (λ tk →
+      if h-not (weq (fst tk) #0)
+      then ret {lzero} {W} (s-respond "400 Bad Request" "text/plain" (snd tk))
+      else bind (h-write (list-append "roots/" root) body) (λ w1 →
+        bind (h-write "roots/latest" body) (λ w2 →
+        bind (h-write "root" (h-line root)) (λ w3 →
+        bind (s-spawn-refresh st m) (λ sr →
+        ret {lzero} {W} (s-response "text/plain" (h-line root))))))))))))
+
+s-answer : List Word → List Word → List Word → Proc W (List Word)
+s-answer st m path =
+  if orB (h-eq (h-before "?" path) "/") (h-null path) then s-site-kept st "front" s-front else
+  if h-eq (h-before "?" path) "/og.png" then bind (h-document "docs/og.png.hex") (λ t → ret (s-response "image/png" (h-unhex (s-or nil t)))) else
+  if h-eq (h-before "?" path) "/favicon.svg" then bind (h-document "docs/favicon.svg") (λ t → ret (s-response "image/svg+xml" (s-or nil t))) else
+  if h-eq (h-before "?" path) "/favicon.ico" then ret {lzero} {W} (s-response "image/x-icon" (h-unhex s-favicon-ico-hex)) else
+  if h-eq (h-before "?" path) "/apple-touch-icon.png" then ret {lzero} {W} (s-response "image/png" (h-unhex s-apple-icon-hex)) else
+  if h-eq (h-before "?" path) "/robots.txt" then ret {lzero} {W} (s-response "text/plain; charset=utf-8" s-robots-txt) else
+  if h-eq (h-before "?" path) "/sitemap.xml" then ret {lzero} {W} (s-response "application/xml; charset=utf-8" s-sitemap-xml) else
+  if h-eq (h-before "?" path) "/llms.txt" then s-site-kept st "llms-txt" s-llms-txt else
+  if h-eq (h-before "?" path) "/feed.xml" then s-site-kept st "feed-xml" s-feed-xml else
+  if h-eq (h-before "?" path) "/privacy" then ret {lzero} {W} (s-response s-html s-privacy-page) else
+  if h-eq (h-before "?" path) "/logo.svg" then bind (h-document "docs/logo.svg") (λ t → ret (s-response "image/svg+xml" (s-or nil t))) else
+  if h-eq (h-before "?" path) "/logo-wormhole.svg" then bind (h-document "docs/logo-wormhole.svg") (λ t → ret (s-response "image/svg+xml" (s-or nil t))) else
+  if h-eq (h-before "?" path) "/root" then s-root-get m else
+  if h-prefix "/roots/" path then s-roots-get (h-drop "/roots/" (h-before "?" path)) else
+  if h-eq (h-before "?" path) "/paper" then s-paper st m else
+  if h-eq (h-before "?" path) "/paper.pdf" then s-mod-kept st "bin" "docs/hyperactivity.pdf.hex" s-paper-pdf else
+  if h-eq (h-before "?" path) "/pdf" then s-mod-kept st "doc" "docs/pdf-viewer.html" s-pdf-view else
+  if h-eq (h-before "?" path) "/kg" then s-mod-kept st "doc" "docs/kg.html" s-kg else
+  if h-eq (h-before "?" path) "/api/kg/index" then s-mod-kept st "json" "docs/kg-index.json" s-kg-index else
+  if h-prefix "/api/kg/module" path then s-kg-module (s-query path) else
+  if h-prefix "/api/live/pulse" path then s-live-pulse st (s-query path) else
+  if h-prefix "/api/p2p/signal" path then s-p2p-signal st (s-query path) else
+  if h-eq (h-before "?" path) "/nets" then s-mod-kept st "doc" "docs/nets.html" s-nets else
+  if h-eq (h-before "?" path) "/neuro" then s-mod-kept st "doc" "docs/neuro.html" s-neuro else
+  if h-eq (h-before "?" path) "/physics" then s-mod-kept st "doc" "docs/physics.html" s-physics else
+  if h-eq (h-before "?" path) "/ai" then s-mod-kept st "doc" "docs/ai.html" s-ai else
+  if h-eq (h-before "?" path) "/kernel" then s-mod-kept st "doc" "docs/kernel.html" s-kernel else
+  if h-eq (h-before "?" path) "/cubical.wasm" then s-mod-kept st "bin" "docs/cubical.wasm.hex" s-cubical-wasm else
+  if h-eq (h-before "?" path) "/music" then s-mod-kept st "music" "lib/server.cub" s-music else
+  if h-eq (h-before "?" path) "/search" then sx-answer st (s-unescape (s-param "q" (s-query path))) else
+  if h-eq (h-before "?" path) "/corpus" then ret {lzero} {W} (s-response "application/json" s-corpus-list) else
+  if h-prefix "/corpus/" path then s-corpus-kept-one st (h-drop "/corpus" (h-before "?" path)) else
+  if h-eq (h-before "?" path) "/graph" then s-workflow-graph else
+  if h-prefix "/source/changes" path then s-changes st (s-query path) else
+  if h-prefix "/source/text" path then s-text (s-query path) else
+  if h-prefix "/source/object" path then s-object (s-query path) else
+  if h-prefix "/source/entries" path then s-entries else
+  if h-prefix "/api/graph" path then s-graph st m else
+  if h-prefix "/api/history" path then s-history st (s-param "name" (s-query path)) else
+  if h-eq (h-before "?" path) "/history" then s-file s-html "tools/history-view.html" else
+  if h-eq (h-before "?" path) "/hi/events" then hi-events st (s-query path) else
+  if h-eq (h-before "?" path) "/hi/scene" then hi-scene-get st (s-query path) else
+  if h-eq (h-before "?" path) "/hi/field" then ret (s-response s-html hi-field-page) else
+  if h-eq (h-before "?" path) "/hi/room" then ret (s-response s-html hi-room-page) else
+  if h-eq (h-before "?" path) "/hi" then hi-view st (s-query path) else
+  if h-eq (h-before "?" path) "/api/meaning" then ch-api (s-param "q" (s-query path)) else
+  if h-eq (h-before "?" path) "/chat" then ch-answer m (s-param "q" (s-query path)) else
+  if h-eq (h-before "?" path) "/synesthesia" then ret {lzero} {W} (sy-answer (s-query path)) else
+  if h-eq (h-before "?" path) "/hx/x.js" then um-script else
+  if h-prefix "/doc?" path then (if andB (h-prefix "docs/" (s-param "path" (s-query path))) (h-ends ".cub" (s-param "path" (s-query path))) then s-essay (s-param "path" (s-query path)) else s-doc (s-param "path" (s-query path))) else
+  s-public st (s-at-name (h-before "?" path) s-published)
+
+s-public-answer : List Word → List Word → List Word → Proc W (List Word)
+s-public-answer st m path =
+  if orB (h-eq (h-before "?" path) "/") (h-null path) then s-kept-public st "front" else
+  if h-eq (h-before "?" path) "/llms.txt" then s-kept-public st "llms-txt" else
+  if h-eq (h-before "?" path) "/feed.xml" then s-kept-public st "feed-xml" else
+  if h-eq (h-before "?" path) "/paper" then s-paper st m else
+  if h-eq (h-before "?" path) "/paper.pdf" then s-kept-mod-public st "bin" "docs/hyperactivity.pdf.hex" else
+  if h-eq (h-before "?" path) "/pdf" then s-kept-mod-public st "doc" "docs/pdf-viewer.html" else
+  if h-eq (h-before "?" path) "/kg" then s-kept-mod-public st "doc" "docs/kg.html" else
+  if h-eq (h-before "?" path) "/api/kg/index" then s-kept-mod-public st "json" "docs/kg-index.json" else
+  if h-prefix "/api/kg/module" path then s-kg-module (s-query path) else
+  if h-prefix "/api/live/pulse" path then s-live-pulse st (s-query path) else
+  if h-prefix "/api/p2p/signal" path then s-p2p-signal st (s-query path) else
+  if h-eq (h-before "?" path) "/nets" then s-kept-mod-public st "doc" "docs/nets.html" else
+  if h-eq (h-before "?" path) "/neuro" then s-kept-mod-public st "doc" "docs/neuro.html" else
+  if h-eq (h-before "?" path) "/physics" then s-kept-mod-public st "doc" "docs/physics.html" else
+  if h-eq (h-before "?" path) "/ai" then s-kept-mod-public st "doc" "docs/ai.html" else
+  if h-eq (h-before "?" path) "/kernel" then s-kept-mod-public st "doc" "docs/kernel.html" else
+  if h-eq (h-before "?" path) "/cubical.wasm" then s-kept-mod-public st "bin" "docs/cubical.wasm.hex" else
+  if h-eq (h-before "?" path) "/music" then s-kept-mod-public st "music" "lib/server.cub" else
+  if h-eq (h-before "?" path) "/corpus/paper" then s-kept-public st "corpus-paper" else
+  if andB (h-prefix "/corpus/" path) (s-known (s-at-name (h-drop "/corpus" (h-before "?" path)) s-published))
+  then s-kept-mod-public st "corpus" (s-corpus-work-path (s-at-name (h-drop "/corpus" (h-before "?" path)) s-published)) else
+  if s-known (s-at-name (h-before "?" path) s-published)
+  then s-kept-mod-public st "page" (s-corpus-work-path (s-at-name (h-before "?" path) s-published)) else
+  s-answer st m path
+
+s-request : Bool → List Word → List Word → Sum Unit (List Word) → List Word → Proc W (List Word)
+s-request pub st m tok req =
+  if h-prefix "PUT " req then (
+    let p = h-before " " (h-drop "PUT " (h-before (cons #13 nil) req)) in
+    if s-allowed pub tok req then (
+      if h-prefix "/roots/" p then s-put-root st m (h-drop "/roots/" (h-before "?" p)) (h-after (list-append h-crlf h-crlf) req)
+      else ret {lzero} {W} (s-respond "404 Not Found" "text/plain" "not found"))
+    else ret {lzero} {W} (s-respond "403 Forbidden" "text/plain" "this server is read-only"))
+  else if h-prefix "POST " req then (if um-send-path (h-before " " (h-drop "POST " req)) then um-send req
+    else if s-allowed pub tok req then s-post st m (h-before " " (h-drop "POST " req)) req
+    else ret {lzero} {W} (s-respond "403 Forbidden" "text/plain" "this server is read-only"))
+  else if s-redirect-onrender pub req then ret {lzero} {W} (s-to-canonical req)
+  else if andB pub (andB (s-views-path (s-request-path req)) (h-not (s-allowed pub tok req))) then ret {lzero} {W} s-to-front
+  else if andB pub (andB (s-withheld (s-request-path req)) (h-not (s-allowed pub tok req))) then ret {lzero} {W} (s-respond "404 Not Found" s-html s-not-found)
+  else if andB pub (h-not (s-allowed pub tok req)) then s-public-answer st m (s-request-path req)
+  else s-answer st m (s-request-path req)
+
+-- the socket: port, listening on 127.0.0.1, or on every address when HYPERACTIVE_PUBLIC is set
+s-addr-bytes : Bool → Word → List Word
+s-addr-bytes pub port = cons #2 (cons #0 (cons (wshr port #8) (cons (wand port #255) (if pub then cons #0 (cons #0 (cons #0 (cons #0 nil))) else cons #127 (cons #0 (cons #0 (cons #1 nil)))))))
+s-addr : Bool → Word → Proc W Word
+s-addr pub port = bind (alloc-bytes #16) (λ a → bind (h-poke a (s-addr-bytes pub port)) (λ u → ret a))
+s-listen : Bool → Word → Proc W Word
+s-listen pub port = bind (sys-call #41 #2 #1 #0 #0 #0 #0) (λ fd → bind (alloc-bytes #4) (λ one → bind (store8-at one #1) (λ u →
+  bind (sys-call #54 fd #1 #2 one #4 #0) (λ o → bind (s-addr pub port) (λ a → bind (sys-call #49 fd a #16 #0 #0 #0) (λ b →
+  bind (sys-call #50 fd #16 #0 #0 #0 #0) (λ l → ret {lzero} {W} (if orB (wlt #9223372036854775807 b) (wlt #9223372036854775807 l) then #18446744073709551615 else fd))))))))
+
+-- exact HTTP header boundary finder (MSG_PEEK = 2 on recvfrom sys-call #45) so PUT /packs/<SHA256> leaves 100% of binary body in socket for 64 KiB streaming
+s-hdr-end : Word → List Word → Word
+s-hdr-end k nil = #0
+s-hdr-end k (cons x r) =
+  if h-prefix (list-append h-crlf h-crlf) (cons x r)
+  then wadd k #4
+  else s-hdr-end (wadd k #1) r
+
+-- HTTP header boundary ends right after CRLFCRLF leaving binary body intact (part of product-implementation)
+s-hdr-end-example : Path Word (s-hdr-end #0 (list-append "PUT /x" (list-append h-crlf (list-append h-crlf "BODY")))) #10
+s-hdr-end-example = refl
+
+s-read-head : Nat → Word → List Word → Proc W (List Word)
+s-read-head zero c acc = ret acc
+s-read-head (suc k) c acc =
+  if wlt #16384 (fromNat (list-length acc)) then ret {lzero} {W} acc
+  else bind (with-bytes {Sum Unit (Word × List Word)} #8192 (λ buf →
+    bind (sys-call #45 c buf #8192 #2 #0 #0) (λ n →
+    if orB (weq n #0) (wlt #9223372036854775807 n) then ret {lzero} {W} (inl unit)
+    else bind (h-peek buf (toNat n)) (λ pk →
+      let comb = list-append acc pk in
+      let he = s-hdr-end #0 comb in
+      let eat = if weq he #0 then n else wsub he (fromNat (list-length acc)) in
+      bind (sys-call #0 c buf eat #0 #0 #0) (λ r →
+      ret {lzero} {W} (inr (he , (if weq he #0 then comb else h-take (toNat he) comb)))))))) (λ res →
+    case res of
+      inl u → ret {lzero} {W} acc
+      inr hw → if weq (fst hw) #0 then s-read-head k c (snd hw) else ret {lzero} {W} (snd hw))
+
+s-read-body : Nat → Word → Word → List Word → Proc W (List Word)
+s-read-body zero c want acc = ret acc
+s-read-body (suc k) c want acc =
+  if h-not (wlt (fromNat (list-length acc)) want) then ret {lzero} {W} acc
+  else let rem = wsub want (fromNat (list-length acc)) in
+  let ask = if wlt rem #65536 then rem else #65536 in
+  bind (with-bytes {Sum Unit (List Word)} #65536 (λ buf →
+    bind (sys-call #0 c buf ask #0 #0 #0) (λ n →
+    if orB (weq n #0) (wlt #9223372036854775807 n) then ret {lzero} {W} (inl unit)
+    else bind (h-peek buf (toNat n)) (λ b → ret {lzero} {W} (inr b))))) (λ r →
+    case r of
+      inl u → ret {lzero} {W} acc
+      inr b → s-read-body k c want (list-append acc b))
+
+-- one connection answered: binary /packs and /bootstrap.tgz stream in a 64 KiB buffer; text requests read bounded body
+s-handle : Bool → List Word → List Word → Sum Unit (List Word) → Word → Proc W Unit
+s-handle pub st m tok c =
+  bind (s-read-head (toNat #32) c nil) (λ hdr →
+  let line1 = h-before (cons #13 nil) hdr in
+  if h-prefix "PUT /packs/" line1
+  then let ph = h-before "?" (h-before " " (h-drop "PUT /packs/" line1)) in
+    bind (s-put-pack pub tok c ph hdr) (λ u → bind (sys-call #3 c #0 #0 #0 #0 #0) (λ cl → ret unit))
+  else if andB (h-prefix "GET /packs/" line1) (h-not (s-redirect-onrender pub hdr))
+  then let ph = h-before "?" (h-before " " (h-drop "GET /packs/" line1)) in
+    bind (if s-hex64 ph then s-stream-file c (list-append "packs/" ph) "application/gzip" nil
+          else bind (fd-write c (s-respond "404 Not Found" "text/plain" "not found")) (λ w → ret {lzero} {W} unit)) (λ u →
+    bind (sys-call #3 c #0 #0 #0 #0 #0) (λ cl → ret unit))
+  else if andB (orB (h-eq (h-before "?" (s-request-path hdr)) "/bootstrap.tgz") (h-eq (h-before "?" (s-request-path hdr)) "/bootstrap")) (h-not (s-redirect-onrender pub hdr))
+  then bind (s-stream-file c "bootstrap.tgz" "application/gzip" "attachment; filename=hyperactivity-bootstrap.tgz") (λ u →
+    bind (sys-call #3 c #0 #0 #0 #0 #0) (λ cl → ret unit))
+  else let clen = h-number (um-header "content-length" hdr) in
+    let cap = if s-allowed pub tok hdr then #16777216 else #65536 in
+    if wlt cap clen
+    then bind (fd-write c (s-respond "413 Payload Too Large" "text/plain" "payload too large")) (λ w → bind (sys-call #3 c #0 #0 #0 #0 #0) (λ cl → ret unit))
+    else bind (if andB (wlt #0 clen) (h-infix "100-continue" (sx-lower (um-header "expect" hdr)))
+               then fd-write c (list-append "HTTP/1.1 100 Continue" (list-append h-crlf h-crlf))
+               else ret {lzero} {W} #0) (λ cont →
+      bind (s-read-body (toNat #4096) c clen nil) (λ body →
+      bind (s-request pub st m tok (list-append hdr body)) (λ resp →
+      bind (fd-write c resp) (λ w → bind (sys-call #3 c #0 #0 #0 #0 #0) (λ cl → ret unit))))))
+
+s-room : Word → Proc W Word
+s-room n = if wlt n #16 then ret {lzero} {W} n else bind (sys-call #61 #18446744073709551615 #0 #0 #0 #0 #0) (λ r → ret {lzero} {W} (if wlt r #9223372036854775808 then wsub n #1 else #0))
+
+s-reap : Nat → Word → Proc W Word
+s-reap zero n = ret n
+s-reap (suc k) n = bind (sys-call #61 #18446744073709551615 #0 #1 #0 #0 #0) (λ r → if andB (wlt #0 r) (wlt r #9223372036854775808) then s-reap k (wsub n #1) else ret {lzero} {W} n)
+
+s-serve : Nat → Word → Bool → List Word → List Word → Sum Unit (List Word) → Word → Proc W Unit
+s-serve zero n pub st m tok fd = ret unit
+s-serve (suc k) n pub st m tok fd = bind (s-room n) (λ n1 → bind (sys-call #43 fd #0 #0 #0 #0 #0) (λ c →
+  bind (sys-call #57 #0 #0 #0 #0 #0 #0) (λ pid →
+  if weq pid #0 then bind (s-handle pub st m tok c) (λ u → bind (sys-call #231 #0 #0 #0 #0 #0 #0) (λ x → ret {lzero} {W} unit))
+  else if wlt pid #9223372036854775808 then bind (sys-call #3 c #0 #0 #0 #0 #0) (λ cl → bind (s-reap (toNat #64) (wadd n1 #1)) (λ n2 → s-serve k n2 pub st m tok fd))
+  else bind (s-handle pub st m tok c) (λ u → s-serve k n1 pub st m tok fd))))
+
+s-port : List (List Word) → Word
+s-port nil = #8080
+s-port (cons p r) = if h-null p then #8080 else h-number p
+s-set : Sum Unit (List Word) → Bool
+s-set (inl u) = false
+s-set (inr v) = h-not (h-null v)
+
+-- build bootstrap.tgz (~95 KB: Makefile, src/*, hyperactive, README.md) so any bare peer machine can bootstrap without git
+s-make-bootstrap : List Word → Proc W Unit
+s-make-bootstrap dst =
+  bind (h-file-time dst) (λ bt →
+  bind (h-file-time "Makefile") (λ mt →
+  if andB (weq bt #0) (wlt #0 mt)
+  then bind (h-run (cons "/usr/bin/env" (cons "tar" (cons "-czf" (cons dst (cons "Makefile" (cons "src" (cons "hyperactive" (cons "README.md" nil))))))))) (λ r → ret {lzero} {W} unit)
+  else ret {lzero} {W} unit))
+
+-- seed initial pack + roots/latest + root when absent so `hyperactive take latest` works out of the box immediately on deploy
+s-seed-place : List Word → Proc W Unit
+s-seed-place m =
+  bind (h-mkdir "packs") (λ u0 →
+  bind (h-mkdir "roots") (λ u1 →
+  bind (h-mkdir ".cubical-store") (λ u2 →
+  bind (h-file-time "roots/latest") (λ lt →
+  if wlt #0 lt then ret {lzero} {W} unit
+  else bind (h-capture (cons m (cons "--root" nil))) (λ rr →
+    let rt = s-head nil (h-nonempty (h-lines (snd rr))) in
+    if h-null rt then ret {lzero} {W} unit
+    else let tmp = the (List Word) "packs/.seed.tgz" in
+      bind (h-run (cons "/usr/bin/env" (cons "tar" (cons "-czf" (cons tmp (cons "store" nil)))))) (λ tc →
+      if h-not (weq tc #0) then bind (h-unlink tmp) (λ u → ret {lzero} {W} unit)
+      else bind (h-capture (cons "/usr/bin/env" (cons "sha256sum" (cons tmp nil)))) (λ sh →
+        let ph = s-head nil (h-split #32 (snd sh)) in
+        bind (s-rename tmp (list-append "packs/" ph)) (λ rn →
+        bind (h-write ".cubical-store/packs" (h-line ph)) (λ w0 →
+        bind (h-write ".cubical-store/sent-marker" nil) (λ w1 →
+        bind (h-write (list-append "roots/" rt) (h-line ph)) (λ w2 →
+        bind (h-write "roots/latest" (h-line ph)) (λ w3 →
+        bind (h-write "root" (h-line rt)) (λ w4 → ret {lzero} {W} unit)))))))))))))
+
+-- optional HYPERACTIVE_DATA persistent directory (e.g. /var/data on Render Persistent Disk): union-merges boot store/ + .cubical-store/ and chdirs into it
+s-boot-data : List Word → Proc W (List Word)
+s-boot-data m =
+  bind h-cwd (λ cwd →
+  let abs-m = if h-prefix "/" m then m else list-append cwd (cons #47 m) in
+  bind (h-env "HYPERACTIVE_DATA") (λ ed →
+  case ed of
+    inl u → bind (s-make-bootstrap "bootstrap.tgz") (λ mb → bind (s-seed-place abs-m) (λ sp → ret {lzero} {W} abs-m))
+    inr ddir →
+      if h-null ddir then bind (s-make-bootstrap "bootstrap.tgz") (λ mb → bind (s-seed-place abs-m) (λ sp → ret {lzero} {W} abs-m))
+      else bind (h-mkdir ddir) (λ d0 →
+        bind (h-mkdir (list-append ddir "/store")) (λ d1 →
+        bind (h-mkdir (list-append ddir "/.cubical-store")) (λ d2 →
+        bind (s-make-bootstrap (list-append ddir "/bootstrap.tgz")) (λ mb →
+        bind (h-file-time "store") (λ st0 →
+        bind (if wlt #0 st0 then h-run (cons "/usr/bin/env" (cons "cp" (cons "-rn" (cons "store/." (cons (list-append ddir "/store/") nil))))) else ret {lzero} {W} #0) (λ cp1 →
+        bind (h-file-time ".cubical-store") (λ cs0 →
+        bind (if wlt #0 cs0 then h-run (cons "/usr/bin/env" (cons "cp" (cons "-rn" (cons ".cubical-store/." (cons (list-append ddir "/.cubical-store/") nil))))) else ret {lzero} {W} #0) (λ cp2 →
+        bind (s-chdir ddir) (λ cd →
+        bind (h-read "root") (λ lr →
+        bind (case lr of
+          inr rtxt → h-run (cons abs-m (cons "--take" (cons (h-trim (h-before (cons #10 nil) rtxt)) nil)))
+          inl u2 → h-run (cons abs-m (cons "--index" nil))) (λ ix →
+        bind (s-seed-place abs-m) (λ sp →
+        ret {lzero} {W} abs-m))))))))))))))
+
+s-start : List Word → List Word → Word → Proc W Unit
+s-start st m0 port =
+  bind (s-boot-data m0) (λ m →
+  bind (h-env "HYPERACTIVE_PUBLIC") (λ pub →
+  bind (h-env "HYPERACTIVE_TOKEN") (λ tok →
+  bind (s-site-kept st "front" s-front) (λ f0 →
+  bind (s-listen (s-set pub) port) (λ fd →
+  if wlt fd #9223372036854775807 then bind (h-out (h-line (list-append "http://localhost:" (list-append (h-decimal port) "/")))) (λ u →
+    bind (sys-call #57 #0 #0 #0 #0 #0 #0) (λ pid →
+    if weq pid #0 then bind (s-paper st m) (λ r → bind (sys-call #231 #0 #0 #0 #0 #0 #0) (λ x → ret {lzero} {W} unit))
+    else s-serve (toNat #18446744073709551615) (if wlt pid #9223372036854775808 then #1 else #0) (s-set pub) st m tok fd))
+  else h-fail (list-append "server: the port cannot be listened on: " (h-decimal port)))))))
+
+s-make-site : List Word → List Word → Proc W Unit
+s-make-site st m =
+  bind (s-make-bootstrap "bootstrap.tgz") (λ mb →
+  bind (s-refresh-site st m) (λ w → if w then exit #0 else exit #1))
+s-main : Proc W Unit
+s-main = bind (h-env "CUBICAL_STORE") (λ e → bind h-args (λ a →
+  let cmd = s-head nil (h-drop-n (suc (suc zero)) a) in
+  if orB (h-eq cmd "site") (h-eq cmd "refresh") then s-make-site (h-store-of e) (s-head "build/cubical" a)
+  else if h-eq cmd "search" then bind (sx-make-all (h-store-of e) s-published) (λ u → exit #0)
+  else s-start (h-store-of e) (s-head "build/cubical" a) (s-port (h-drop-n (suc (suc zero)) a))))
+
+-- s-run: serves the workflow, its history, the WASM kernel, and the content-addressed pool place over HTTP (part of product-implementation)
+s-run : Step W Unit
+s-run = to-step s-main
+#run s-run
