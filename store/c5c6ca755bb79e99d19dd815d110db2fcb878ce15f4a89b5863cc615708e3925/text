@@ -1,0 +1,27 @@
+-- Fixed 32-bit ISA instruction encoding for `HartInst`:
+--   [31:28] opcode (0=NOP, 1=ALU, 2=LOAD, 3=STORE, 4=BNEZ)
+--   [27:24] alu_op (0=ADD, 1=MUL, 2=MAX, 3=MIN)
+--   [23:20] rd / rsAddr / rsCond
+--   [19:16] rs1 / rsVal
+--   [15:12] rs2
+--   [11:0]  targetPc (for BNEZ)
+encode-hart-inst : HartInst → Word
+encode-hart-inst h-nop = #0
+encode-hart-inst (h-alu op rd rs1 rs2) =
+  %wor (%wshl #1 #28)
+    (%wor (%wshl (sv-alu-code op) #24)
+      (%wor (%wshl (%wand rd #15) #20)
+        (%wor (%wshl (%wand rs1 #15) #16)
+              (%wshl (%wand rs2 #15) #12))))
+encode-hart-inst (h-load rd rsAddr) =
+  %wor (%wshl #2 #28)
+    (%wor (%wshl (%wand rd #15) #20)
+          (%wshl (%wand rsAddr #15) #16))
+encode-hart-inst (h-store rsAddr rsVal) =
+  %wor (%wshl #3 #28)
+    (%wor (%wshl (%wand rsAddr #15) #20)
+          (%wshl (%wand rsVal #15) #16))
+encode-hart-inst (h-bnez rsCond targetPc) =
+  %wor (%wshl #4 #28)
+    (%wor (%wshl (%wand rsCond #15) #20)
+          (%wand targetPc #4095))

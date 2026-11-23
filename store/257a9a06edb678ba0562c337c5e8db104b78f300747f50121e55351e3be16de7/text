@@ -1,0 +1,25 @@
+-- Concrete Turing-complete SoC program exercising ALU (ADD/MUL/MAX), RAM STORE/LOAD,
+-- MMIO Tensor-Core dispatch (addr >= 16 triggers systolic_mac_2x2 while isolating RAM),
+-- and speculative branch-redirect squash (BNEZ):
+--   Initial regs (reset): r1=2, r2=3, r3=0, r4=16 (MMIO_BASE), r5=1 (RAM addr)
+--   PC 0: r6 = r1 + r2  (= 5)
+--   PC 1: r7 = r6 * r2  (= 15)
+--   PC 2: dmem[r5=1] = r7  (RAM write 15 -> dmem[1], tensor isolated)
+--   PC 3: r3 = dmem[r5=1]  (RAM load -> r3 = 15)
+--   PC 4: mmio[r4=16] = r7 (MMIO tensor kick! wave=((2,3),(5,15)) -> C += [[10,30],[15,45]], RAM isolated)
+--   PC 5: bnez r1 -> PC 7  (taken branch! squashes speculative PC 6 NOP!)
+--   PC 6: h-nop            (wrong-path instruction — must be squashed!)
+--   PC 7: r6 = max(r7, r6) (= 15)
+--   PC 8: mmio[r4=16] = r6 (2nd tensor kick! wave=((2,3),(15,15)) -> C += [[30,30],[45,45]] = [[40,60],[60,90]])
+soc-demo-prog : List HartInst
+soc-demo-prog =
+  cons (h-alu alu-add #6 #1 #2)
+  (cons (h-alu alu-mul #7 #6 #2)
+  (cons (h-store #5 #7)
+  (cons (h-load #3 #5)
+  (cons (h-store #4 #7)
+  (cons (h-bnez #1 #7)
+  (cons h-nop
+  (cons (h-alu alu-max #6 #7 #6)
+  (cons (h-store #4 #6)
+  (cons h-nop nil)))))))))
