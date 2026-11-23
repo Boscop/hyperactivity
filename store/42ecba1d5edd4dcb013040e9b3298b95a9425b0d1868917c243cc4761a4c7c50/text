@@ -1,0 +1,37 @@
+-- Universal rANS single-step bijection theorem (pure discrete arithmetic, zero probability!)
+rans-step-ok : (tbl : FTbl) → (s x C f : Word) →
+               ftbl-find #0 x tbl ≡ some (C , f) → wlt #0 f ≡ true →
+               rans-dec-step tbl (rans-enc-step tbl s x) ≡ (x , s)
+rans-step-ok tbl s x C f hfind hf =
+  let M = ftbl-total tbl
+      r0 = wrem s f
+      hr0 : wlt r0 f ≡ true
+      hr0 = wrem-lt s f hf
+      hbound : wlt M (wadd C f) ≡ false
+      hbound = cm-catb (cm-congb (λ z → wlt z (wadd C f)) (symw (cm-wadd-zero-l M))) (ftbl-find-bound tbl #0 x C f hfind)
+      hr : wlt (wadd C r0) M ≡ true
+      hr = cm-lt-le-trans (wadd C r0) (wadd C f) M (cm-lt-shift C r0 f hr0) hbound
+      s' = wadd (wmul (wquot s f) M) (wadd C r0)
+      es : rans-enc-step tbl s x ≡ s'
+      es = λ i → case hfind i of none → s; some cf → wadd (wmul (wquot s (snd cf)) M) (wadd (fst cf) (wrem s (snd cf)))
+      eq : wquot s' M ≡ wquot s f
+      eq = wdiv-unique (wquot s f) (wadd C r0) M hr
+      er : wrem s' M ≡ wadd C r0
+      er = wmod-unique (wquot s f) (wadd C r0) M hr
+      elook : ftbl-lookup #0 (wrem s' M) tbl ≡ (x , (C , f))
+      elook = concat {lzero} {Word × (Word × Word)}
+                {ftbl-lookup #0 (wrem s' M) tbl} {ftbl-lookup #0 (wadd C r0) tbl} {(x , (C , f))}
+                (cong {lzero} {lzero} {Word} {Word × (Word × Word)} (λ z → ftbl-lookup #0 z tbl) er)
+                (ftbl-lookup-find tbl #0 x C f r0 hfind hr0)
+      srec : wadd (wmul (wquot s' M) f) (wsub (wrem s' M) C) ≡ s
+      srec = catw (cong2w (λ a b → wadd (wmul a f) (wsub b C)) eq er)
+               (catw (congw (λ z → wadd (wmul (wquot s f) f) z) (cm-wsub-add C r0))
+                 (symw (wdiv-mod s f)))
+  in concat {lzero} {Word × Word}
+       {rans-dec-step tbl (rans-enc-step tbl s x)} {rans-dec-step tbl s'} {(x , s)}
+       (cong {lzero} {lzero} {Word} {Word × Word} (rans-dec-step tbl) es)
+       (concat {lzero} {Word × Word}
+          {rans-dec-step tbl s'}
+          {(x , wadd (wmul (wquot s' M) f) (wsub (wrem s' M) C))} {(x , s)}
+          (λ i → let e = elook i in (fst e , wadd (wmul (wquot s' M) (snd (snd e))) (wsub (wrem s' M) (fst (snd e)))))
+          (λ i → (x , srec i)))

@@ -1,0 +1,19 @@
+factor-motifs-auto-ok : (k : Nat) → (ts : List MTerm) → expand-motifs-auto (factor-motifs-auto k ts) ≡ ts
+factor-motifs-auto-ok k =
+  case k return (λ n → (ts : List MTerm) → expand-motifs-auto (factor-motifs-auto n ts) ≡ ts) of
+    zero → λ ts i → ts
+    suc n → λ ts →
+      case best-motif ts return
+        (λ b → expand-motifs-auto
+                 (case b of
+                    nil → (nil , ts)
+                    cons p ps → let res = factor-motifs-auto n (factor-motif (cons p ps) ts)
+                                in (cons (cons p ps) (fst res) , snd res)) ≡ ts) of
+        nil → λ i → ts
+        cons p ps →
+          let pat = cons p ps
+          in concat {lzero} {List MTerm}
+               {expand-motif-list pat (expand-motifs-auto (factor-motifs-auto n (factor-motif pat ts)))}
+               {expand-motif-list pat (factor-motif pat ts)} {ts}
+               (cong {lzero} {lzero} {List MTerm} {List MTerm} (expand-motif-list pat) (rec n (factor-motif pat ts)))
+               (factor-motif-ok pat ts)

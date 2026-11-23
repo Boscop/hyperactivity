@@ -1,0 +1,21 @@
+pf2-ok : {A B : Type} → (ea : A → List Word) → (da : List Word → A × List Word) →
+         ((a : A) → (t : List Word) → da (list-append (ea a) t) ≡ (a , t)) →
+         (eb : B → List Word) → (db : List Word → B × List Word) →
+         ((b : B) → (t : List Word) → db (list-append (eb b) t) ≡ (b , t)) →
+         (p : A × B) → (tail : List Word) →
+         pf2-dec da db (list-append (pf2-enc ea eb p) tail) ≡ (p , tail)
+pf2-ok {A} {B} ea da oka eb db okb p tail =
+  let s1 = cm-append-assoc (ea (fst p)) (eb (snd p)) tail
+      d1 = oka (fst p) (list-append (eb (snd p)) tail)
+      d2 = okb (snd p) tail
+  in concat {lzero} {(A × B) × List Word}
+       {pf2-dec da db (list-append (list-append (ea (fst p)) (eb (snd p))) tail)}
+       {pf2-dec da db (list-append (ea (fst p)) (list-append (eb (snd p)) tail))}
+       {(p , tail)}
+       (cong {lzero} {lzero} {List Word} {(A × B) × List Word} (pf2-dec da db) s1)
+       (concat {lzero} {(A × B) × List Word}
+          {pf2-dec da db (list-append (ea (fst p)) (list-append (eb (snd p)) tail))}
+          {let r2 = db (list-append (eb (snd p)) tail) in ((fst p , fst r2) , snd r2)}
+          {(p , tail)}
+          (λ i → let r2 = db (snd (d1 i)) in ((fst (d1 i) , fst r2) , snd r2))
+          (λ i → ((fst p , fst (d2 i)) , snd (d2 i))))

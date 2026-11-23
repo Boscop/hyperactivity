@@ -1,0 +1,22 @@
+-- ftbl-find is equivariant under shifting the cumulative accumulator acc
+ftbl-find-shift : (tbl : FTbl) → (acc d y C f : Word) → ftbl-find acc y tbl ≡ some (C , f) →
+                  ftbl-find (wadd acc d) y tbl ≡ some (wadd C d , f)
+ftbl-find-shift tbl =
+  case tbl return (λ t → (acc d y C f : Word) → ftbl-find acc y t ≡ some (C , f) → ftbl-find (wadd acc d) y t ≡ some (wadd C d , f)) of
+    nil → λ acc d y C f h → cm-none-some-absurd h
+    cons e rest → λ acc d y C f →
+      ifP {λ b → (if b then some (acc , snd e) else ftbl-find (wadd acc (snd e)) y rest) ≡ some (C , f) →
+                 (if b then some (wadd acc d , snd e) else ftbl-find (wadd (wadd acc d) (snd e)) y rest) ≡ some (wadd C d , f)} {weq y (fst e)}
+        (λ eq h →
+           let pe = cm-some-inj h
+           in λ i → some (wadd (fst (pe i)) d , snd (pe i)))
+        (λ eq h →
+           let sw : wadd (wadd acc d) (snd e) ≡ wadd (wadd acc (snd e)) d
+               sw = catw (cm-wadd-assoc acc d (snd e))
+                      (catw (congw (λ z → wadd acc z) (cm-wadd-comm d (snd e))) (symw (cm-wadd-assoc acc (snd e) d)))
+           in concat {lzero} {Opt (Word × Word)}
+                {ftbl-find (wadd (wadd acc d) (snd e)) y rest}
+                {ftbl-find (wadd (wadd acc (snd e)) d) y rest}
+                {some (wadd C d , f)}
+                (cong {lzero} {lzero} {Word} {Opt (Word × Word)} (λ z → ftbl-find z y rest) sw)
+                (rec rest (wadd acc (snd e)) d y C f h))

@@ -1,0 +1,26 @@
+find-idx-ok : (x : Word) → (ms : List Word) → (idx : Word) → find-idx x ms ≡ some idx → nth-word idx ms ≡ some x
+find-idx-ok x ms =
+  case ms return (λ u → (idx : Word) → find-idx x u ≡ some idx → nth-word idx u ≡ some x) of
+    nil → λ idx h → cm-none-some-absurd h
+    cons y ys → λ idx →
+      ifP {λ b → (if b then some #0 else (case find-idx x ys of some k → some (%wsucc k); none → none)) ≡ some idx →
+                 nth-word idx (cons y ys) ≡ some x} {weq x y}
+        (λ e h →
+           let idx0 : #0 ≡ idx
+               idx0 = cm-some-inj h
+           in concat {lzero} {Opt Word} {nth-word idx (cons y ys)} {some y} {some x}
+                (cong {lzero} {lzero} {Word} {Opt Word} (λ w → nth-word w (cons y ys)) (symw idx0))
+                (cong {lzero} {lzero} {Word} {Opt Word} some (symw (cm-weq-sound x y e))))
+        (λ e →
+           (case find-idx x ys return
+              (λ o → find-idx x ys ≡ o →
+                     (case o of some k → some (%wsucc k); none → none) ≡ some idx →
+                     nth-word idx (cons y ys) ≡ some x) of
+              some k → λ hk h →
+                let idxs : %wsucc k ≡ idx
+                    idxs = cm-some-inj h
+                in concat {lzero} {Opt Word} {nth-word idx (cons y ys)} {nth-word k ys} {some x}
+                     (cong {lzero} {lzero} {Word} {Opt Word} (λ w → nth-word w (cons y ys)) (symw idxs))
+                     (rec ys k hk)
+              none → λ hk h → cm-none-some-absurd h)
+             (λ i → find-idx x ys))

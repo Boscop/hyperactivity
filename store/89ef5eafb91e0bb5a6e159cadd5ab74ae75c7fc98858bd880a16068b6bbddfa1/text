@@ -1,0 +1,21 @@
+-- interval [C, C + f) fits within acc + ftbl-total tbl
+ftbl-find-bound : (tbl : FTbl) → (acc x C f : Word) → ftbl-find acc x tbl ≡ some (C , f) →
+                  wlt (wadd acc (ftbl-total tbl)) (wadd C f) ≡ false
+ftbl-find-bound tbl =
+  case tbl return (λ t → (acc x C f : Word) → ftbl-find acc x t ≡ some (C , f) → wlt (wadd acc (ftbl-total t)) (wadd C f) ≡ false) of
+    nil → λ acc x C f h → cm-none-some-absurd h
+    cons e rest → λ acc x C f →
+      ifP {λ b → (if b then some (acc , snd e) else ftbl-find (wadd acc (snd e)) x rest) ≡ some (C , f) →
+                 wlt (wadd acc (wadd (snd e) (ftbl-total rest))) (wadd C f) ≡ false} {weq x (fst e)}
+        (λ eq h →
+           let pe = cm-some-inj h
+               ca : acc ≡ C
+               ca = λ i → fst (pe i)
+               ef : snd e ≡ f
+               ef = λ i → snd (pe i)
+           in cm-catb (cm-congb (λ z → wlt z (wadd C f)) (symw (cm-wadd-assoc acc (snd e) (ftbl-total rest))))
+                (cm-catb (cm-congb (λ z → wlt (wadd (wadd acc (snd e)) (ftbl-total rest)) z) (λ i → wadd (ca (~ i)) (ef (~ i))))
+                  (cm-le-add-l (wadd acc (snd e)) (ftbl-total rest))))
+        (λ eq h →
+           cm-catb (cm-congb (λ z → wlt z (wadd C f)) (symw (cm-wadd-assoc acc (snd e) (ftbl-total rest))))
+             (rec rest (wadd acc (snd e)) x C f h))

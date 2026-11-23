@@ -1,0 +1,33 @@
+-- Any symbol already in tbl with positive frequency remains in (ftbl-inc x tbl) with positive frequency
+ftbl-inc-keep : (tbl : FTbl) → (acc x y C f : Word) →
+                ftbl-find acc y tbl ≡ some (C , f) → wlt #0 f ≡ true →
+                (C2 : Word) × (f2 : Word) × (ftbl-find acc y (ftbl-inc x tbl) ≡ some (C2 , f2)) × (wlt #0 f2 ≡ true)
+ftbl-inc-keep tbl =
+  case tbl return (λ t → (acc x y C f : Word) → ftbl-find acc y t ≡ some (C , f) → wlt #0 f ≡ true →
+                         (C2 : Word) × (f2 : Word) × (ftbl-find acc y (ftbl-inc x t) ≡ some (C2 , f2)) × (wlt #0 f2 ≡ true)) of
+    nil → λ acc x y C f h hf → cm-none-some-absurd h
+    cons e rest → λ acc x y C f →
+      ifP {λ bx → ftbl-find acc y (cons e rest) ≡ some (C , f) → wlt #0 f ≡ true →
+                  (C2 : Word) × (f2 : Word) ×
+                  (ftbl-find acc y (if bx then cons (fst e , %wsucc (snd e)) rest else cons e (ftbl-inc x rest)) ≡ some (C2 , f2)) ×
+                  (wlt #0 f2 ≡ true)} {weq x (fst e)}
+        (λ ex →
+           ifP {λ eyb → (if eyb then some (acc , snd e) else ftbl-find (wadd acc (snd e)) y rest) ≡ some (C , f) → wlt #0 f ≡ true →
+                       (C2 : Word) × (f2 : Word) ×
+                       ((if eyb then some (acc , %wsucc (snd e)) else ftbl-find (wadd acc (%wsucc (snd e))) y rest) ≡ some (C2 , f2)) ×
+                       (wlt #0 f2 ≡ true)} {weq y (fst e)}
+             (λ ey h hf →
+                (acc , (%wsucc (snd e) , (refl , cm-catb (cm-symb (ltw≡wlt #0 (%wsucc (snd e)))) (λ i → true)))))
+             (λ ey h hf →
+                (wadd C #1 , (f , (ftbl-find-shift rest (wadd acc (snd e)) #1 y C f h , hf)))))
+        (λ ex →
+           ifP {λ eyb → (if eyb then some (acc , snd e) else ftbl-find (wadd acc (snd e)) y rest) ≡ some (C , f) → wlt #0 f ≡ true →
+                       (C2 : Word) × (f2 : Word) ×
+                       ((if eyb then some (acc , snd e) else ftbl-find (wadd acc (snd e)) y (ftbl-inc x rest)) ≡ some (C2 , f2)) ×
+                       (wlt #0 f2 ≡ true)} {weq y (fst e)}
+             (λ ey h hf →
+                let pe = cm-some-inj h
+                    ef : snd e ≡ f
+                    ef = λ i → snd (pe i)
+                in (acc , (snd e , (refl , cm-catb (cm-congb (λ z → wlt #0 z) ef) hf))))
+             (λ ey h hf → rec rest (wadd acc (snd e)) x y C f h hf))

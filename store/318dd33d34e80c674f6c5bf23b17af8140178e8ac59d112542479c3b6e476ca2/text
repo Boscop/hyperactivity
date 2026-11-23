@@ -1,0 +1,30 @@
+dec-enc-word-go : (k : Nat) → (w : Word) → (tail : List Word) →
+                  dec-word-go k (list-append (enc-word-go k w) tail) ≡ (w , tail)
+dec-enc-word-go k =
+  case k return (λ n → (w : Word) → (tail : List Word) → dec-word-go n (list-append (enc-word-go n w) tail) ≡ (w , tail)) of
+    zero → λ w tail i → (w , tail)
+    suc n → λ w tail →
+      ifP {λ b → dec-word-go (suc n) (list-append (if b then cons w nil else cons (wadd #128 (wrem w #128)) (enc-word-go n (wquot w #128))) tail) ≡ (w , tail)} {wlt w #128}
+        (λ e →
+           λ i → if e i then (w , tail)
+                 else let p = dec-word-go n tail in (wadd (wmul (fst p) #128) (wsub w #128) , snd p))
+        (λ e →
+           let b = wadd #128 (wrem w #128)
+               ef : wlt b #128 ≡ false
+               ef = cm-le-add-l #128 (wrem w #128)
+               ih : dec-word-go n (list-append (enc-word-go n (wquot w #128)) tail) ≡ (wquot w #128 , tail)
+               ih = rec n (wquot w #128) tail
+               pw : wadd (wmul (wquot w #128) #128) (wsub b #128) ≡ w
+               pw = catw (congw (λ z → wadd (wmul (wquot w #128) #128) z) (cm-wsub-add #128 (wrem w #128))) (symw (wdiv-mod w #128))
+           in concat {lzero} {Word × List Word}
+                {if wlt b #128 then (b , list-append (enc-word-go n (wquot w #128)) tail)
+                 else let p = dec-word-go n (list-append (enc-word-go n (wquot w #128)) tail) in (wadd (wmul (fst p) #128) (wsub b #128) , snd p)}
+                {let p = dec-word-go n (list-append (enc-word-go n (wquot w #128)) tail) in (wadd (wmul (fst p) #128) (wsub b #128) , snd p)}
+                {(w , tail)}
+                (λ i → if ef i then (b , list-append (enc-word-go n (wquot w #128)) tail)
+                       else let p = dec-word-go n (list-append (enc-word-go n (wquot w #128)) tail) in (wadd (wmul (fst p) #128) (wsub b #128) , snd p))
+                (concat {lzero} {Word × List Word}
+                   {let p = dec-word-go n (list-append (enc-word-go n (wquot w #128)) tail) in (wadd (wmul (fst p) #128) (wsub b #128) , snd p)}
+                   {(wadd (wmul (wquot w #128) #128) (wsub b #128) , tail)} {(w , tail)}
+                   (λ i → (wadd (wmul (fst (ih i)) #128) (wsub b #128) , snd (ih i)))
+                   (λ i → (pw i , tail))))

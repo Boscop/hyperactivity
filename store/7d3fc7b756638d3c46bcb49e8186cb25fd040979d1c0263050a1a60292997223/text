@@ -1,0 +1,16 @@
+pf-list-ok : {A : Type} → (ca : PFCodec A) → (xs : List A) → (tail : List Word) →
+             pf-list-dec ca (list-append (list-append (pf-enc pf-nat (list-length xs)) (pf-list-enc-body ca xs)) tail) ≡ (xs , tail)
+pf-list-ok {A} ca xs tail =
+  let s1 = cm-append-assoc (pf-enc pf-nat (list-length xs)) (pf-list-enc-body ca xs) tail
+      d1 = pf-ok pf-nat (list-length xs) (list-append (pf-list-enc-body ca xs) tail)
+  in concat {lzero} {List A × List Word}
+       {pf-list-dec ca (list-append (list-append (pf-enc pf-nat (list-length xs)) (pf-list-enc-body ca xs)) tail)}
+       {pf-list-dec ca (list-append (pf-enc pf-nat (list-length xs)) (list-append (pf-list-enc-body ca xs) tail))}
+       {(xs , tail)}
+       (cong {lzero} {lzero} {List Word} {List A × List Word} (pf-list-dec ca) s1)
+       (concat {lzero} {List A × List Word}
+          {pf-list-dec ca (list-append (pf-enc pf-nat (list-length xs)) (list-append (pf-list-enc-body ca xs) tail))}
+          {pf-list-dec-body ca (list-length xs) (list-append (pf-list-enc-body ca xs) tail)}
+          {(xs , tail)}
+          (λ i → pf-list-dec-body ca (fst (d1 i)) (snd (d1 i)))
+          (pf-list-body-ok ca xs tail))

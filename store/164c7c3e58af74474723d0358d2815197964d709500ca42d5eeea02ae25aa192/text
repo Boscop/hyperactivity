@@ -1,0 +1,23 @@
+mterm-list-dec-enc : (ts : List MTerm) → (fuel : Nat) → le (mterm-list-nodes ts) fuel → (tail : List Word) →
+                     mterm-list-dec-sym (list-length ts) fuel (list-append (mterm-list-enc-sym ts) tail) ≡ (ts , tail)
+mterm-list-dec-enc ts =
+  case ts return (λ u → (fuel : Nat) → le (mterm-list-nodes u) fuel → (tail : List Word) →
+                        mterm-list-dec-sym (list-length u) fuel (list-append (mterm-list-enc-sym u) tail) ≡ (u , tail)) of
+    nil → λ fuel _ tail i → (nil , tail)
+    cons t r → λ fuel h tail →
+      let ht = cm-le-add-l-nat (mterm-nodes t) (mterm-list-nodes r) fuel h
+          hr = cm-le-add-r-nat (mterm-nodes t) (mterm-list-nodes r) fuel h
+          sa = cm-append-assoc (mterm-enc-sym t) (mterm-list-enc-sym r) tail
+          ih1 = mterm-dec-enc-sym t fuel ht (list-append (mterm-list-enc-sym r) tail)
+          ih2 = rec r fuel hr tail
+      in concat {lzero} {List MTerm × List Word}
+           {let p1 = mterm-dec-sym fuel (list-append (list-append (mterm-enc-sym t) (mterm-list-enc-sym r)) tail) in let p2 = mterm-list-dec-sym (list-length r) fuel (snd p1) in (cons (fst p1) (fst p2) , snd p2)}
+           {let p1 = mterm-dec-sym fuel (list-append (mterm-enc-sym t) (list-append (mterm-list-enc-sym r) tail)) in let p2 = mterm-list-dec-sym (list-length r) fuel (snd p1) in (cons (fst p1) (fst p2) , snd p2)}
+           {(cons t r , tail)}
+           (λ i → let p1 = mterm-dec-sym fuel (sa i) in let p2 = mterm-list-dec-sym (list-length r) fuel (snd p1) in (cons (fst p1) (fst p2) , snd p2))
+           (concat {lzero} {List MTerm × List Word}
+              {let p1 = mterm-dec-sym fuel (list-append (mterm-enc-sym t) (list-append (mterm-list-enc-sym r) tail)) in let p2 = mterm-list-dec-sym (list-length r) fuel (snd p1) in (cons (fst p1) (fst p2) , snd p2)}
+              {let p2 = mterm-list-dec-sym (list-length r) fuel (list-append (mterm-list-enc-sym r) tail) in (cons t (fst p2) , snd p2)}
+              {(cons t r , tail)}
+              (λ i → let p2 = mterm-list-dec-sym (list-length r) fuel (snd (ih1 i)) in (cons (fst (ih1 i)) (fst p2) , snd p2))
+              (λ i → (cons t (fst (ih2 i)) , snd (ih2 i))))

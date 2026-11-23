@@ -1,0 +1,24 @@
+factor-motif-go-ok : (fuel : Nat) → (pat xs : List MTerm) → expand-motif-list pat (factor-motif-go fuel pat xs) ≡ xs
+factor-motif-go-ok fuel =
+  case fuel return (λ f → (pat xs : List MTerm) → expand-motif-list pat (factor-motif-go f pat xs) ≡ xs) of
+    zero → λ pat xs → expand-motif-map-shift pat xs
+    suc f → λ pat xs →
+      case xs return (λ u → expand-motif-list pat (factor-motif-go (suc f) pat u) ≡ u) of
+        nil → λ i → nil
+        cons x xs1 →
+          (case split-prefix mterm-eq pat (cons x xs1) return
+             (λ o → split-prefix mterm-eq pat (cons x xs1) ≡ o →
+                    expand-motif-list pat (case o of some rest → cons (mref #0) (factor-motif-go f pat rest); none → cons (mterm-shift-ref x) (factor-motif-go f pat xs1)) ≡ cons x xs1) of
+             some rest → λ h →
+               concat {lzero} {List MTerm}
+                 {list-append pat (expand-motif-list pat (factor-motif-go f pat rest))}
+                 {list-append pat rest} {cons x xs1}
+                 (λ i → list-append pat (rec f pat rest i))
+                 (split-prefix-ok mterm-eq mterm-eq-sound pat (cons x xs1) rest h)
+             none → λ h →
+               concat {lzero} {List MTerm}
+                 {list-append (expand-motif-cell pat (mterm-shift-ref x)) (expand-motif-list pat (factor-motif-go f pat xs1))}
+                 {list-append (cons x nil) xs1} {cons x xs1}
+                 (λ i → list-append (expand-motif-cell-shift pat x i) (rec f pat xs1 i))
+                 (λ i → cons x xs1))
+            (λ i → split-prefix mterm-eq pat (cons x xs1))

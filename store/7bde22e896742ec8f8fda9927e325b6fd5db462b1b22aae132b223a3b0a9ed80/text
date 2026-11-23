@@ -1,0 +1,18 @@
+rans-list-ok : (tbl : FTbl) → (xs : List Word) → AllInFTbl tbl xs →
+               rans-dec-list tbl (list-length xs) (rans-enc-list tbl xs) ≡ xs
+rans-list-ok tbl xs =
+  case xs return (λ u → AllInFTbl tbl u → rans-dec-list tbl (list-length u) (rans-enc-list tbl u) ≡ u) of
+    nil → λ _ i → nil
+    cons x r → λ h →
+      let hx = fst h
+          C = fst hx
+          f = fst (snd hx)
+          hfind = fst (snd (snd hx))
+          hpos = snd (snd (snd hx))
+          pstep : rans-dec-step tbl (rans-enc-step tbl (rans-enc-list tbl r) x) ≡ (x , rans-enc-list tbl r)
+          pstep = rans-step-ok tbl (rans-enc-list tbl r) x C f hfind hpos
+      in concat {lzero} {List Word}
+           {let p = rans-dec-step tbl (rans-enc-step tbl (rans-enc-list tbl r) x) in cons (fst p) (rans-dec-list tbl (list-length r) (snd p))}
+           {cons x (rans-dec-list tbl (list-length r) (rans-enc-list tbl r))} {cons x r}
+           (λ i → cons (fst (pstep i)) (rans-dec-list tbl (list-length r) (snd (pstep i))))
+           (λ i → cons x (rec r (snd h) i))

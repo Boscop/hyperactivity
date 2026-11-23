@@ -1,0 +1,12 @@
+split-prefix-ok : {A : Type} → (eq : A → A → Bool) → ((a b : A) → eq a b ≡ true → a ≡ b) →
+                  (pat xs rest : List A) → split-prefix eq pat xs ≡ some rest → list-append pat rest ≡ xs
+split-prefix-ok {A} eq eqs pat =
+  case pat return (λ p → (xs rest : List A) → split-prefix eq p xs ≡ some rest → list-append p rest ≡ xs) of
+    nil → λ xs rest h → sym (cm-some-inj h)
+    cons p ps → λ xs →
+      case xs return (λ u → (rest : List A) → split-prefix eq (cons p ps) u ≡ some rest → cons p (list-append ps rest) ≡ u) of
+        nil → λ rest h → cm-none-some-absurd h
+        cons x xs1 → λ rest →
+          ifP {λ b → (if b then split-prefix eq ps xs1 else none) ≡ some rest → cons p (list-append ps rest) ≡ cons x xs1} {eq p x}
+            (λ e h i → cons (eqs p x e i) (rec ps xs1 rest h i))
+            (λ e h → cm-none-some-absurd h)

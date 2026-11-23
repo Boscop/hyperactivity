@@ -1,0 +1,23 @@
+untok-tok-exact : (bs : List Word) → untok-exact (tok-exact bs) ≡ bs
+untok-tok-exact bs =
+  case bs return (λ u → untok-exact (tok-exact u) ≡ u) of
+    nil → λ i → nil
+    cons b r →
+      ifP {λ c → untok-exact (if c then cons (cons b nil) (tok-exact r)
+                              else (case tok-exact r of nil → cons (cons b nil) nil; cons t ts → cons (cons b t) ts)) ≡ cons b r} {is-delim-byte b}
+        (λ e i → cons b (rec r i))
+        (λ e →
+           (case tok-exact r return
+              (λ ts → tok-exact r ≡ ts →
+                      untok-exact (case ts of nil → cons (cons b nil) nil; cons t tr → cons (cons b t) tr) ≡ cons b r) of
+              nil → λ h →
+                let er : nil ≡ r
+                    er = concat {lzero} {List Word} {nil} {untok-exact (tok-exact r)} {r}
+                           (cong {lzero} {lzero} {List (List Word)} {List Word} untok-exact (sym h)) (rec r)
+                in λ i → cons b (er i)
+              cons t tr → λ h →
+                let er : list-append t (untok-exact tr) ≡ r
+                    er = concat {lzero} {List Word} {list-append t (untok-exact tr)} {untok-exact (tok-exact r)} {r}
+                           (cong {lzero} {lzero} {List (List Word)} {List Word} untok-exact (sym h)) (rec r)
+                in λ i → cons b (er i))
+             (λ i → tok-exact r))

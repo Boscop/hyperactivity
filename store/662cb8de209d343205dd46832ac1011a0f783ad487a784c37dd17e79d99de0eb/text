@@ -1,0 +1,74 @@
+mterm-dec-enc-sym : (t : MTerm) → (fuel : Nat) → le (mterm-nodes t) fuel → (tail : List Word) →
+                    mterm-dec-sym fuel (list-append (mterm-enc-sym t) tail) ≡ (t , tail)
+mterm-dec-enc-sym t =
+  case t return (λ u → (fuel : Nat) → le (mterm-nodes u) fuel → (tail : List Word) →
+                       mterm-dec-sym fuel (list-append (mterm-enc-sym u) tail) ≡ (u , tail)) of
+    mempty → λ fuel →
+      case fuel return (λ f → le (suc zero) f → (tail : List Word) → mterm-dec-sym f (cons #6 tail) ≡ (mempty , tail)) of
+        zero → λ h _ → Empty-rec (le-suc-zero zero h)
+        suc f → λ _ tail i → (mempty , tail)
+    mlit w → λ fuel →
+      case fuel return (λ f → le (suc zero) f → (tail : List Word) → mterm-dec-sym f (cons (wadd #8 w) tail) ≡ (mlit w , tail)) of
+        zero → λ h _ → Empty-rec (le-suc-zero zero h)
+        suc f → λ _ tail →
+          let z = wadd #8 w
+              e1 : wlt z #4 ≡ false
+              e1 = cm-lt8-false #4 w refl
+              e2 : weq z #4 ≡ false
+              e2 = cm-eq8-false #4 w refl
+              e3 : weq z #5 ≡ false
+              e3 = cm-eq8-false #5 w refl
+              e4 : weq z #6 ≡ false
+              e4 = cm-eq8-false #6 w refl
+              e5 : weq z #7 ≡ false
+              e5 = cm-eq8-false #7 w refl
+          in concat {lzero} {MTerm × List Word}
+               {mterm-dec-sym (suc f) (cons z tail)}
+               {(mlit (wsub z #8) , tail)} {(mlit w , tail)}
+               (λ i → if e1 i then (mref z , tail)
+                      else if e2 i then (case tail of nil → (mref #0 , nil); cons k r → (mref k , r))
+                      else if e3 i then (case tail of nil → (mempty , nil); cons tid r → let p = mterm-dec-sym f r in (mapp tid (fst p) , snd p))
+                      else if e4 i then (mempty , tail)
+                      else if e5 i then (let p1 = mterm-dec-sym f tail in let p2 = mterm-dec-sym f (snd p1) in (mcat (fst p1) (fst p2) , snd p2))
+                      else (mlit (wsub z #8) , tail))
+               (λ i → (mlit (cm-wsub-add #8 w i) , tail))
+    mref k → λ fuel →
+      case fuel return (λ f → le (suc zero) f → (tail : List Word) → mterm-dec-sym f (list-append (if wlt k #4 then cons k nil else cons #4 (cons k nil)) tail) ≡ (mref k , tail)) of
+        zero → λ h _ → Empty-rec (le-suc-zero zero h)
+        suc f → λ _ tail →
+          ifP {λ b → mterm-dec-sym (suc f) (list-append (if b then cons k nil else cons #4 (cons k nil)) tail) ≡ (mref k , tail)} {wlt k #4}
+            (λ e → λ i → if e i then (mref k , tail)
+                         else if weq k #4 then (case tail of nil → (mref #0 , nil); cons j r → (mref j , r))
+                         else if weq k #5 then (case tail of nil → (mempty , nil); cons tid r → let p = mterm-dec-sym f r in (mapp tid (fst p) , snd p))
+                         else if weq k #6 then (mempty , tail)
+                         else if weq k #7 then (let p1 = mterm-dec-sym f tail in let p2 = mterm-dec-sym f (snd p1) in (mcat (fst p1) (fst p2) , snd p2))
+                         else (mlit (wsub k #8) , tail))
+            (λ e i → (mref k , tail))
+    mapp tid arg → λ fuel →
+      case fuel return (λ f → le (suc (mterm-nodes arg)) f → (tail : List Word) → mterm-dec-sym f (cons #5 (cons tid (list-append (mterm-enc-sym arg) tail))) ≡ (mapp tid arg , tail)) of
+        zero → λ h _ → Empty-rec (le-suc-zero (mterm-nodes arg) h)
+        suc f → λ h tail →
+          let ih = rec arg f (cm-le-suc-inv (mterm-nodes arg) f h) tail
+          in λ i → (mapp tid (fst (ih i)) , snd (ih i))
+    mcat l r → λ fuel →
+      case fuel return (λ f → le (suc (plus (mterm-nodes l) (mterm-nodes r))) f → (tail : List Word) →
+                              mterm-dec-sym f (cons #7 (list-append (list-append (mterm-enc-sym l) (mterm-enc-sym r)) tail)) ≡ (mcat l r , tail)) of
+        zero → λ h _ → Empty-rec (le-suc-zero (plus (mterm-nodes l) (mterm-nodes r)) h)
+        suc f → λ h tail →
+          let hf = cm-le-suc-inv (plus (mterm-nodes l) (mterm-nodes r)) f h
+              hl = cm-le-add-l-nat (mterm-nodes l) (mterm-nodes r) f hf
+              hr = cm-le-add-r-nat (mterm-nodes l) (mterm-nodes r) f hf
+              sa = cm-append-assoc (mterm-enc-sym l) (mterm-enc-sym r) tail
+              ih1 = rec l f hl (list-append (mterm-enc-sym r) tail)
+              ih2 = rec r f hr tail
+          in concat {lzero} {MTerm × List Word}
+               {let p1 = mterm-dec-sym f (list-append (list-append (mterm-enc-sym l) (mterm-enc-sym r)) tail) in let p2 = mterm-dec-sym f (snd p1) in (mcat (fst p1) (fst p2) , snd p2)}
+               {let p1 = mterm-dec-sym f (list-append (mterm-enc-sym l) (list-append (mterm-enc-sym r) tail)) in let p2 = mterm-dec-sym f (snd p1) in (mcat (fst p1) (fst p2) , snd p2)}
+               {(mcat l r , tail)}
+               (λ i → let p1 = mterm-dec-sym f (sa i) in let p2 = mterm-dec-sym f (snd p1) in (mcat (fst p1) (fst p2) , snd p2))
+               (concat {lzero} {MTerm × List Word}
+                  {let p1 = mterm-dec-sym f (list-append (mterm-enc-sym l) (list-append (mterm-enc-sym r) tail)) in let p2 = mterm-dec-sym f (snd p1) in (mcat (fst p1) (fst p2) , snd p2)}
+                  {let p2 = mterm-dec-sym f (list-append (mterm-enc-sym r) tail) in (mcat l (fst p2) , snd p2)}
+                  {(mcat l r , tail)}
+                  (λ i → let p2 = mterm-dec-sym f (snd (ih1 i)) in (mcat (fst (ih1 i)) (fst p2) , snd p2))
+                  (λ i → (mcat l (fst (ih2 i)) , snd (ih2 i))))

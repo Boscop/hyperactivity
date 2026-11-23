@@ -1,0 +1,48 @@
+find-in-qmap-ok : (x : Word) → (qmap : List (List Word)) → (cid rk : Word) →
+                  find-in-qmap x qmap ≡ some (cid , rk) →
+                  (nth-class cid rk qmap ≡ some x) × (wlt cid (fromNat (list-length {List Word} qmap)) ≡ true)
+find-in-qmap-ok x qmap =
+  case qmap return (λ q → (cid rk : Word) → Path (Opt (Word × Word)) (find-in-qmap x q) (some (cid , rk)) →
+                          (nth-class cid rk q ≡ some x) × (wlt cid (fromNat (list-length {List Word} q)) ≡ true)) of
+    nil → λ cid rk h → cm-none-some-absurd {Word × Word} {(nth-class cid rk nil ≡ some x) × (wlt cid #0 ≡ true)} h
+    cons ms rest → λ cid rk →
+      (case find-idx x ms return
+         (λ o → find-idx x ms ≡ o →
+                Path (Opt (Word × Word))
+                  (case o of
+                     some r0 → some (#0 , r0)
+                     none → (case find-in-qmap x rest of some p → some (%wsucc (fst p) , snd p); none → none))
+                  (some (cid , rk)) →
+                (nth-class cid rk (cons ms rest) ≡ some x) × (wlt cid (%wsucc (fromNat (list-length rest))) ≡ true)) of
+         some r0 → λ hr h →
+           let pe = cm-some-inj h
+               c0 : #0 ≡ cid
+               c0 = λ i → fst (pe i)
+               r0e : r0 ≡ rk
+               r0e = λ i → snd (pe i)
+           in ( concat {lzero} {Opt Word} {nth-class cid rk (cons ms rest)} {nth-word r0 ms} {some x}
+                  (λ i → nth-class (c0 (~ i)) (r0e (~ i)) (cons ms rest))
+                  (find-idx-ok x ms r0 hr)
+              , cm-catb (cm-congb (λ z → wlt z (%wsucc (fromNat (list-length rest)))) (symw c0))
+                  (cm-catb (cm-symb (ltw≡wlt #0 (%wsucc (fromNat (list-length rest))))) (λ i → true)) )
+         none → λ hr →
+           (case find-in-qmap x rest return
+              (λ o2 → find-in-qmap x rest ≡ o2 →
+                      Path (Opt (Word × Word)) (case o2 of some p → some (%wsucc (fst p) , snd p); none → none) (some (cid , rk)) →
+                      (nth-class cid rk (cons ms rest) ≡ some x) × (wlt cid (%wsucc (fromNat (list-length rest))) ≡ true)) of
+              some p → λ hp h →
+                let pe = cm-some-inj h
+                    cs : %wsucc (fst p) ≡ cid
+                    cs = λ i → fst (pe i)
+                    rs : snd p ≡ rk
+                    rs = λ i → snd (pe i)
+                    ih = rec rest (fst p) (snd p) hp
+                in ( concat {lzero} {Opt Word} {nth-class cid rk (cons ms rest)} {nth-class (fst p) (snd p) rest} {some x}
+                       (λ i → nth-class (cs (~ i)) (rs (~ i)) (cons ms rest))
+                       (fst ih)
+                   , cm-catb (cm-congb (λ z → wlt z (%wsucc (fromNat (list-length rest)))) (symw cs))
+                       (cm-catb (cm-symb (ltw≡wlt (%wsucc (fst p)) (%wsucc (fromNat (list-length rest)))))
+                          (cm-catb (ltw≡wlt (fst p) (fromNat (list-length rest))) (snd ih))) )
+              none → λ hp h → cm-none-some-absurd h)
+             (λ i → find-in-qmap x rest))
+        (λ i → find-idx x ms)

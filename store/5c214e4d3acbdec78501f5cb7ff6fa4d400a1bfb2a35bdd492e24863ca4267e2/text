@@ -1,0 +1,63 @@
+split-until-ok : {A : Type} → (eq : A → A → Bool) → ((a b : A) → eq a b ≡ true → a ≡ b) →
+                 (k : Nat) → (suf xs arg rest : List A) →
+                 split-until eq k suf xs ≡ some (arg , rest) →
+                 list-append arg (list-append suf rest) ≡ xs
+split-until-ok {A} eq eqs k =
+  case k return (λ n → (suf xs arg rest : List A) → Path (Opt (List A × List A)) (split-until eq n suf xs) (some (arg , rest)) → list-append arg (list-append suf rest) ≡ xs) of
+    zero → λ suf xs arg rest →
+      (case split-prefix eq suf xs return
+         (λ o → split-prefix eq suf xs ≡ o →
+                Path (Opt (List A × List A)) (case o of some r → some (nil , r); none → none) (some (arg , rest)) →
+                list-append arg (list-append suf rest) ≡ xs) of
+         some r → λ hs he →
+           let pe = cm-some-inj he
+           in concat {lzero} {List A} {list-append arg (list-append suf rest)} {list-append nil (list-append suf r)} {xs}
+                (λ i → list-append (fst (pe (~ i))) (list-append suf (snd (pe (~ i)))))
+                (split-prefix-ok eq eqs suf xs r hs)
+         none → λ hs he → cm-none-some-absurd he)
+        (λ i → split-prefix eq suf xs)
+    suc n → λ suf xs arg rest →
+      (case split-prefix eq suf xs return
+         (λ o → split-prefix eq suf xs ≡ o →
+                Path (Opt (List A × List A))
+                  (case o of
+                     some r → some (nil , r)
+                     none → (case xs of
+                               nil → none
+                               cons x xs1 → (case split-until eq n suf xs1 of
+                                               some p → some (cons x (fst p) , snd p)
+                                               none → none)))
+                  (some (arg , rest)) →
+                list-append arg (list-append suf rest) ≡ xs) of
+         some r → λ hs he →
+           let pe = cm-some-inj he
+           in concat {lzero} {List A} {list-append arg (list-append suf rest)} {list-append nil (list-append suf r)} {xs}
+                (λ i → list-append (fst (pe (~ i))) (list-append suf (snd (pe (~ i)))))
+                (split-prefix-ok eq eqs suf xs r hs)
+         none → λ hs →
+           case xs return
+             (λ u → Path (Opt (List A × List A))
+                      (case u of
+                         nil → none
+                         cons x xs1 → (case split-until eq n suf xs1 of
+                                         some p → some (cons x (fst p) , snd p)
+                                         none → none))
+                      (some (arg , rest)) →
+                    list-append arg (list-append suf rest) ≡ u) of
+             nil → λ he → cm-none-some-absurd he
+             cons x xs1 →
+               (case split-until eq n suf xs1 return
+                  (λ o2 → split-until eq n suf xs1 ≡ o2 →
+                          Path (Opt (List A × List A)) (case o2 of some p → some (cons x (fst p) , snd p); none → none) (some (arg , rest)) →
+                          list-append arg (list-append suf rest) ≡ cons x xs1) of
+                  some p → λ h2 he →
+                    let pe = cm-some-inj he
+                    in concat {lzero} {List A}
+                         {list-append arg (list-append suf rest)}
+                         {cons x (list-append (fst p) (list-append suf (snd p)))}
+                         {cons x xs1}
+                         (λ i → list-append (fst (pe (~ i))) (list-append suf (snd (pe (~ i)))))
+                         (λ i → cons x (rec n suf xs1 (fst p) (snd p) h2 i))
+                  none → λ h2 he → cm-none-some-absurd he)
+                 (λ i → split-until eq n suf xs1))
+        (λ i → split-prefix eq suf xs)

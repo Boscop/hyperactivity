@@ -1,0 +1,13 @@
+-- cumulative start C returned by ftbl-find is always ≥ acc
+ftbl-find-ge : (tbl : FTbl) → (acc x C f : Word) → ftbl-find acc x tbl ≡ some (C , f) → wlt C acc ≡ false
+ftbl-find-ge tbl =
+  case tbl return (λ t → (acc x C f : Word) → ftbl-find acc x t ≡ some (C , f) → wlt C acc ≡ false) of
+    nil → λ acc x C f h → cm-none-some-absurd h
+    cons e rest → λ acc x C f →
+      ifP {λ b → (if b then some (acc , snd e) else ftbl-find (wadd acc (snd e)) x rest) ≡ some (C , f) → wlt C acc ≡ false} {weq x (fst e)}
+        (λ eq h →
+           let pe = cm-some-inj h
+               ca : acc ≡ C
+               ca = λ i → fst (pe i)
+           in cm-catb (cm-congb (λ z → wlt z acc) (symw ca)) (cm-le-add-l acc #0))
+        (λ eq h → cm-le-trans acc (wadd acc (snd e)) C (cm-le-add-l acc (snd e)) (rec rest (wadd acc (snd e)) x C f h))

@@ -1,0 +1,20 @@
+ok-lam-opt : (o : Opt (List MTerm × List MTerm)) → (tail : List Word) →
+             dec-lam-opt (list-append (enc-lam-opt o) tail) ≡ (o , tail)
+ok-lam-opt o tail =
+  case o return (λ u → dec-lam-opt (list-append (enc-lam-opt u) tail) ≡ (u , tail)) of
+    none → λ i → (none , tail)
+    some p →
+      let s1 = cm-append-assoc (enc-mt-raw (fst p)) (enc-mt-raw (snd p)) tail
+          d1 = ok-mt-raw (fst p) (list-append (enc-mt-raw (snd p)) tail)
+          d2 = ok-mt-raw (snd p) tail
+      in concat {lzero} {Opt (List MTerm × List MTerm) × List Word}
+           {let r1 = dec-mt-raw (list-append (list-append (enc-mt-raw (fst p)) (enc-mt-raw (snd p))) tail) in let r2 = dec-mt-raw (snd r1) in (some (fst r1 , fst r2) , snd r2)}
+           {let r1 = dec-mt-raw (list-append (enc-mt-raw (fst p)) (list-append (enc-mt-raw (snd p)) tail)) in let r2 = dec-mt-raw (snd r1) in (some (fst r1 , fst r2) , snd r2)}
+           {(some p , tail)}
+           (λ i → let r1 = dec-mt-raw (s1 i) in let r2 = dec-mt-raw (snd r1) in (some (fst r1 , fst r2) , snd r2))
+           (concat {lzero} {Opt (List MTerm × List MTerm) × List Word}
+              {let r1 = dec-mt-raw (list-append (enc-mt-raw (fst p)) (list-append (enc-mt-raw (snd p)) tail)) in let r2 = dec-mt-raw (snd r1) in (some (fst r1 , fst r2) , snd r2)}
+              {let r2 = dec-mt-raw (list-append (enc-mt-raw (snd p)) tail) in (some (fst p , fst r2) , snd r2)}
+              {(some p , tail)}
+              (λ i → let r2 = dec-mt-raw (snd (d1 i)) in (some (fst (d1 i) , fst r2) , snd r2))
+              (λ i → (some (fst p , fst (d2 i)) , snd (d2 i))))

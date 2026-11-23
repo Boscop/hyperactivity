@@ -1,0 +1,27 @@
+find-tok-ok : (x : List Word) → (vs : List (List Word)) → (idx : Word) →
+              find-tok x vs ≡ some idx → nth-tok idx vs ≡ some x
+find-tok-ok x vs =
+  case vs return (λ u → (idx : Word) → find-tok x u ≡ some idx → nth-tok idx u ≡ some x) of
+    nil → λ idx h → cm-none-some-absurd h
+    cons t r → λ idx →
+      ifP {λ b → (if b then some #0 else (case find-tok x r of some k → some (%wsucc k); none → none)) ≡ some idx →
+                 nth-tok idx (cons t r) ≡ some x} {wlist-eq x t}
+        (λ e h →
+           let idx0 : #0 ≡ idx
+               idx0 = cm-some-inj h
+           in concat {lzero} {Opt (List Word)} {nth-tok idx (cons t r)} {some t} {some x}
+                (cong {lzero} {lzero} {Word} {Opt (List Word)} (λ w → nth-tok w (cons t r)) (symw idx0))
+                (cong {lzero} {lzero} {List Word} {Opt (List Word)} some (sym (wlist-eq-sound x t e))))
+        (λ e →
+           (case find-tok x r return
+              (λ o → find-tok x r ≡ o →
+                     Path (Opt Word) (case o of some k → some (%wsucc k); none → none) (some idx) →
+                     nth-tok idx (cons t r) ≡ some x) of
+              some k → λ hk h →
+                let idxs : %wsucc k ≡ idx
+                    idxs = cm-some-inj h
+                in concat {lzero} {Opt (List Word)} {nth-tok idx (cons t r)} {nth-tok k r} {some x}
+                     (cong {lzero} {lzero} {Word} {Opt (List Word)} (λ w → nth-tok w (cons t r)) (symw idxs))
+                     (rec r k hk)
+              none → λ hk h → cm-none-some-absurd h)
+             (λ i → find-tok x r))

@@ -1,0 +1,72 @@
+factor-lam-go-ok : (fuel maxa : Nat) → (pre suf xs : List MTerm) →
+                   expand-lam-list pre suf (factor-lam-go fuel maxa pre suf xs) ≡ xs
+factor-lam-go-ok fuel maxa =
+  case fuel return (λ f → (pre suf xs : List MTerm) → expand-lam-list pre suf (factor-lam-go f maxa pre suf xs) ≡ xs) of
+    zero → λ pre suf xs → expand-lam-map-shift pre suf xs
+    suc f → λ pre suf xs →
+      case xs return (λ u → expand-lam-list pre suf (factor-lam-go (suc f) maxa pre suf u) ≡ u) of
+        nil → λ i → nil
+        cons x xs1 →
+          (case split-prefix mterm-eq pre (cons x xs1) return
+             (λ o → split-prefix mterm-eq pre (cons x xs1) ≡ o →
+                    expand-lam-list pre suf
+                      (case o of
+                         some ap → (case split-until mterm-eq maxa suf ap of
+                                      some p → cons (mapp #0 (mterm-shift-app (mterm-pack-list (fst p)))) (factor-lam-go f maxa pre suf (snd p))
+                                      none → cons (mterm-shift-app x) (factor-lam-go f maxa pre suf xs1))
+                         none → cons (mterm-shift-app x) (factor-lam-go f maxa pre suf xs1)) ≡ cons x xs1) of
+             some ap → λ hp →
+               (case split-until mterm-eq maxa suf ap return
+                  (λ o2 → split-until mterm-eq maxa suf ap ≡ o2 →
+                          expand-lam-list pre suf
+                            (case o2 of
+                               some p → cons (mapp #0 (mterm-shift-app (mterm-pack-list (fst p)))) (factor-lam-go f maxa pre suf (snd p))
+                               none → cons (mterm-shift-app x) (factor-lam-go f maxa pre suf xs1)) ≡ cons x xs1) of
+                  some p → λ hu →
+                    let p-arg : mterm-unpack-list (mterm-subst-app (mterm-pack-list pre) (mterm-pack-list suf) (mterm-shift-app (mterm-pack-list (fst p)))) ≡ fst p
+                        p-arg = concat {lzero} {List MTerm}
+                                  {mterm-unpack-list (mterm-subst-app (mterm-pack-list pre) (mterm-pack-list suf) (mterm-shift-app (mterm-pack-list (fst p))))}
+                                  {mterm-unpack-list (mterm-pack-list (fst p))} {fst p}
+                                  (cong {lzero} {lzero} {MTerm} {List MTerm} mterm-unpack-list
+                                    (mterm-subst-shift-app (mterm-pack-list pre) (mterm-pack-list suf) (mterm-pack-list (fst p))))
+                                  (mterm-unpack-pack (fst p))
+                        s1 : list-append (list-append pre (list-append (mterm-unpack-list (mterm-subst-app (mterm-pack-list pre) (mterm-pack-list suf) (mterm-shift-app (mterm-pack-list (fst p))))) suf))
+                                         (expand-lam-list pre suf (factor-lam-go f maxa pre suf (snd p)))
+                             ≡ list-append (list-append pre (list-append (fst p) suf)) (snd p)
+                        s1 = λ i → list-append (list-append pre (list-append (p-arg i) suf)) (rec f pre suf (snd p) i)
+                        s2 : list-append (list-append pre (list-append (fst p) suf)) (snd p)
+                             ≡ list-append pre (list-append (fst p) (list-append suf (snd p)))
+                        s2 = concat {lzero} {List MTerm}
+                               {list-append (list-append pre (list-append (fst p) suf)) (snd p)}
+                               {list-append pre (list-append (list-append (fst p) suf) (snd p))}
+                               {list-append pre (list-append (fst p) (list-append suf (snd p)))}
+                               (cm-append-assoc pre (list-append (fst p) suf) (snd p))
+                               (λ i → list-append pre (cm-append-assoc (fst p) suf (snd p) i))
+                        s3 : list-append pre (list-append (fst p) (list-append suf (snd p))) ≡ cons x xs1
+                        s3 = concat {lzero} {List MTerm}
+                               {list-append pre (list-append (fst p) (list-append suf (snd p)))}
+                               {list-append pre ap} {cons x xs1}
+                               (λ i → list-append pre (split-until-ok mterm-eq mterm-eq-sound maxa suf ap (fst p) (snd p) hu i))
+                               (split-prefix-ok mterm-eq mterm-eq-sound pre (cons x xs1) ap hp)
+                    in concat {lzero} {List MTerm}
+                         {list-append (list-append pre (list-append (mterm-unpack-list (mterm-subst-app (mterm-pack-list pre) (mterm-pack-list suf) (mterm-shift-app (mterm-pack-list (fst p))))) suf))
+                                      (expand-lam-list pre suf (factor-lam-go f maxa pre suf (snd p)))}
+                         {list-append (list-append pre (list-append (fst p) suf)) (snd p)} {cons x xs1}
+                         s1 (concat {lzero} {List MTerm}
+                               {list-append (list-append pre (list-append (fst p) suf)) (snd p)}
+                               {list-append pre (list-append (fst p) (list-append suf (snd p)))} {cons x xs1}
+                               s2 s3)
+                  none → λ hu →
+                    concat {lzero} {List MTerm}
+                      {list-append (expand-lam-cell pre suf (mterm-shift-app x)) (expand-lam-list pre suf (factor-lam-go f maxa pre suf xs1))}
+                      {list-append (cons x nil) xs1} {cons x xs1}
+                      (λ i → list-append (expand-lam-cell-shift pre suf x i) (rec f pre suf xs1 i))
+                      (λ i → cons x xs1))
+                 (λ i → split-until mterm-eq maxa suf ap)
+             none → λ hp →
+               concat {lzero} {List MTerm}
+                 {list-append (expand-lam-cell pre suf (mterm-shift-app x)) (expand-lam-list pre suf (factor-lam-go f maxa pre suf xs1))}
+                 {list-append (cons x nil) xs1} {cons x xs1}
+                 (λ i → list-append (expand-lam-cell-shift pre suf x i) (rec f pre suf xs1 i))
+                 (λ i → cons x xs1))
+            (λ i → split-prefix mterm-eq pre (cons x xs1))

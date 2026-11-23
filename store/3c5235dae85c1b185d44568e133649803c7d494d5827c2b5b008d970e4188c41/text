@@ -1,0 +1,25 @@
+-- After ftbl-inc x tbl, x is present with positive frequency
+ftbl-inc-self : (tbl : FTbl) → (acc x : Word) →
+                (C : Word) × (f : Word) × (ftbl-find acc x (ftbl-inc x tbl) ≡ some (C , f)) × (wlt #0 f ≡ true)
+ftbl-inc-self tbl =
+  case tbl return (λ t → (acc x : Word) → (C : Word) × (f : Word) × (ftbl-find acc x (ftbl-inc x t) ≡ some (C , f)) × (wlt #0 f ≡ true)) of
+    nil → λ acc x →
+      (acc , (#1 , (λ i → if cm-weq-refl x i then some (acc , #1) else none , refl)))
+    cons e rest → λ acc x →
+      ifP {λ b → (C : Word) × (f : Word) ×
+                 (ftbl-find acc x (if b then cons (fst e , %wsucc (snd e)) rest else cons e (ftbl-inc x rest)) ≡ some (C , f)) ×
+                 (wlt #0 f ≡ true)} {weq x (fst e)}
+        (λ eq →
+           (acc , (%wsucc (snd e) ,
+             ( (λ i → if eq i then some (acc , %wsucc (snd e)) else ftbl-find (wadd acc (%wsucc (snd e))) x rest)
+             , cm-catb (cm-symb (ltw≡wlt #0 (%wsucc (snd e)))) (λ i → true) ))))
+        (λ eq →
+           let ih = rec rest (wadd acc (snd e)) x
+           in (fst ih , (fst (snd ih) ,
+                ( concat {lzero} {Opt (Word × Word)}
+                    {if weq x (fst e) then some (acc , snd e) else ftbl-find (wadd acc (snd e)) x (ftbl-inc x rest)}
+                    {ftbl-find (wadd acc (snd e)) x (ftbl-inc x rest)}
+                    {some (fst ih , fst (snd ih))}
+                    (λ i → if eq i then some (acc , snd e) else ftbl-find (wadd acc (snd e)) x (ftbl-inc x rest))
+                    (fst (snd (snd ih)))
+                , snd (snd (snd ih)) ))))

@@ -1,0 +1,16 @@
+pf-opt : {A : Type} → PFCodec A → PFCodec (Opt A)
+pf-opt {A} ca =
+  ( (λ o → case o of none → cons #0 nil; some a → cons #1 (pf-enc ca a))
+  , ( (λ bs → case bs of
+                nil → (none , nil)
+                cons tag rest → if weq tag #0 then (none , rest)
+                                else let p = pf-dec ca rest in (some (fst p) , snd p))
+    , (λ o tail →
+         case o return (λ u → Path (Opt A × List Word)
+                                (case list-append (case u of none → cons #0 nil; some a → cons #1 (pf-enc ca a)) tail of
+                                   nil → (none , nil)
+                                   cons tag rest → if weq tag #0 then (none , rest)
+                                                   else let p = pf-dec ca rest in (some (fst p) , snd p))
+                                (u , tail)) of
+           none → λ i → (none , tail)
+           some a → λ i → let p = pf-ok ca a tail i in (some (fst p) , snd p)) ) )

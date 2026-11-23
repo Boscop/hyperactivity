@@ -1,0 +1,9 @@
+-- fiber factoring: any map f : A → B and any per-fiber codec yields a lossless codec on A
+-- through lib/fiber.cub's total / untotal / fiberEquiv
+fiber-codec : {A B : Type} → {F : B → Type} → (f : A → B) → ((b : B) → Codec (fiber f b) (F b)) → Codec A ((b : B) × F b)
+fiber-codec {A} {B} {F} f cf =
+  ( (λ a → let t = total f a in (fst t , codec-enc (cf (fst t)) (snd t)))
+  , ( (λ p → untotal f (fst p , codec-dec (cf (fst p)) (snd p)))
+    , (λ a → concat {lzero} {A} {untotal f (f a , codec-dec (cf (f a)) (codec-enc (cf (f a)) (a , (λ i → f a))))} {untotal f (total f a)} {a}
+               (cong {lzero} {lzero} {fiber f (f a)} {A} (λ fib → untotal f (f a , fib)) (codec-ok (cf (f a)) (snd (total f a))))
+               (untotal-total f a)) ) )

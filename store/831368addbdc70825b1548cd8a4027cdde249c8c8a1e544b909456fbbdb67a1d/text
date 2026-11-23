@@ -1,0 +1,20 @@
+pf-list-body-ok : {A : Type} → (ca : PFCodec A) → (xs : List A) → (tail : List Word) →
+                  pf-list-dec-body ca (list-length xs) (list-append (pf-list-enc-body ca xs) tail) ≡ (xs , tail)
+pf-list-body-ok {A} ca xs =
+  case xs return (λ u → (tail : List Word) → pf-list-dec-body ca (list-length u) (list-append (pf-list-enc-body ca u) tail) ≡ (u , tail)) of
+    nil → λ tail i → (nil , tail)
+    cons x r → λ tail →
+      let s1 = cm-append-assoc (pf-enc ca x) (pf-list-enc-body ca r) tail
+          d1 = pf-ok ca x (list-append (pf-list-enc-body ca r) tail)
+          d2 = rec r tail
+      in concat {lzero} {List A × List Word}
+           {pf-list-dec-body ca (suc (list-length r)) (list-append (list-append (pf-enc ca x) (pf-list-enc-body ca r)) tail)}
+           {pf-list-dec-body ca (suc (list-length r)) (list-append (pf-enc ca x) (list-append (pf-list-enc-body ca r) tail))}
+           {(cons x r , tail)}
+           (cong {lzero} {lzero} {List Word} {List A × List Word} (pf-list-dec-body ca (suc (list-length r))) s1)
+           (concat {lzero} {List A × List Word}
+              {pf-list-dec-body ca (suc (list-length r)) (list-append (pf-enc ca x) (list-append (pf-list-enc-body ca r) tail))}
+              {let r2 = pf-list-dec-body ca (list-length r) (list-append (pf-list-enc-body ca r) tail) in (cons x (fst r2) , snd r2)}
+              {(cons x r , tail)}
+              (λ i → let r2 = pf-list-dec-body ca (list-length r) (snd (d1 i)) in (cons (fst (d1 i)) (fst r2) , snd r2))
+              (λ i → (cons x (fst (d2 i)) , snd (d2 i))))

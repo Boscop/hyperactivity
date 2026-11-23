@@ -1,0 +1,26 @@
+text-struct-body-ok : (bs : List Word) → text-struct-dec (text-struct-enc-body bs) ≡ bs
+text-struct-body-ok bs =
+  let ts = tok-exact bs
+      vi = intern-enc ts
+      ids = snd vi
+      qmap = induce-ctx-classes ids
+      qr = quotient-split qmap ids
+      p1 : text-pass1-dec (text-pass1-enc (fst qr)) ≡ fst qr
+      p1 = text-pass1-ok (fst qr)
+      p2 : quotient-unsplit qmap (text-pass1-dec (text-pass1-enc (fst qr)) , snd qr) ≡ ids
+      p2 = concat {lzero} {List Word}
+             {quotient-unsplit qmap (text-pass1-dec (text-pass1-enc (fst qr)) , snd qr)}
+             {quotient-unsplit qmap qr} {ids}
+             (λ i → quotient-unsplit qmap (p1 i , snd qr))
+             (quotient-split-ok qmap ids)
+      p3 : intern-dec (fst vi , quotient-unsplit qmap (text-pass1-dec (text-pass1-enc (fst qr)) , snd qr)) ≡ ts
+      p3 = concat {lzero} {List (List Word)}
+             {intern-dec (fst vi , quotient-unsplit qmap (text-pass1-dec (text-pass1-enc (fst qr)) , snd qr))}
+             {intern-dec vi} {ts}
+             (λ i → intern-dec (fst vi , p2 i))
+             (codec-ok intern-codec ts)
+  in concat {lzero} {List Word}
+       {untok-exact (intern-dec (fst vi , quotient-unsplit qmap (text-pass1-dec (text-pass1-enc (fst qr)) , snd qr)))}
+       {untok-exact ts} {bs}
+       (cong {lzero} {lzero} {List (List Word)} {List Word} untok-exact p3)
+       (untok-tok-exact bs)

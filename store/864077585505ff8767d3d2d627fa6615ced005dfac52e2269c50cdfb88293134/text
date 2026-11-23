@@ -1,0 +1,22 @@
+pfl-body-ok : {A : Type} → (e : A → List Word) → (d : List Word → A × List Word) →
+              ((a : A) → (t : List Word) → d (list-append (e a) t) ≡ (a , t)) →
+              (xs : List A) → (tail : List Word) →
+              pfl-dec-body d (list-length xs) (list-append (pfl-enc-body e xs) tail) ≡ (xs , tail)
+pfl-body-ok {A} e d pf xs =
+  case xs return (λ u → (tail : List Word) → pfl-dec-body d (list-length u) (list-append (pfl-enc-body e u) tail) ≡ (u , tail)) of
+    nil → λ tail i → (nil , tail)
+    cons x r → λ tail →
+      let s1 = cm-append-assoc (e x) (pfl-enc-body e r) tail
+          d1 = pf x (list-append (pfl-enc-body e r) tail)
+          d2 = rec r tail
+      in concat {lzero} {List A × List Word}
+           {pfl-dec-body d (suc (list-length r)) (list-append (list-append (e x) (pfl-enc-body e r)) tail)}
+           {pfl-dec-body d (suc (list-length r)) (list-append (e x) (list-append (pfl-enc-body e r) tail))}
+           {(cons x r , tail)}
+           (cong {lzero} {lzero} {List Word} {List A × List Word} (pfl-dec-body d (suc (list-length r))) s1)
+           (concat {lzero} {List A × List Word}
+              {pfl-dec-body d (suc (list-length r)) (list-append (e x) (list-append (pfl-enc-body e r) tail))}
+              {let r2 = pfl-dec-body d (list-length r) (list-append (pfl-enc-body e r) tail) in (cons x (fst r2) , snd r2)}
+              {(cons x r , tail)}
+              (λ i → let r2 = pfl-dec-body d (list-length r) (snd (d1 i)) in (cons (fst (d1 i)) (fst r2) , snd r2))
+              (λ i → (cons x (fst (d2 i)) , snd (d2 i))))

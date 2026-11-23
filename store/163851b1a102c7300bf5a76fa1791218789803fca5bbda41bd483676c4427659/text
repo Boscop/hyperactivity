@@ -1,0 +1,40 @@
+-- Key interval-order theorem: lookup at C + r0 (with r0 < f) finds the exact entry (x, (C, f))
+-- Works unconditionally for ANY table tbl (no nodup invariant needed!)
+ftbl-lookup-find : (tbl : FTbl) → (acc x C f r0 : Word) →
+                   ftbl-find acc x tbl ≡ some (C , f) → wlt r0 f ≡ true →
+                   ftbl-lookup acc (wadd C r0) tbl ≡ (x , (C , f))
+ftbl-lookup-find tbl =
+  case tbl return (λ t → (acc x C f r0 : Word) → ftbl-find acc x t ≡ some (C , f) → wlt r0 f ≡ true →
+                         ftbl-lookup acc (wadd C r0) t ≡ (x , (C , f))) of
+    nil → λ acc x C f r0 h hr → cm-none-some-absurd h
+    cons e rest → λ acc x C f r0 →
+      ifP {λ b → (if b then some (acc , snd e) else ftbl-find (wadd acc (snd e)) x rest) ≡ some (C , f) →
+                 wlt r0 f ≡ true →
+                 (if wlt (wadd C r0) (wadd acc (snd e)) then (fst e , (acc , snd e))
+                  else ftbl-lookup (wadd acc (snd e)) (wadd C r0) rest) ≡ (x , (C , f))} {weq x (fst e)}
+        (λ eq h hr →
+           let pe = cm-some-inj h
+               ca : acc ≡ C
+               ca = λ i → fst (pe i)
+               ef : snd e ≡ f
+               ef = λ i → snd (pe i)
+               ex : x ≡ fst e
+               ex = cm-weq-sound x (fst e) eq
+               hlt : wlt (wadd C r0) (wadd acc (snd e)) ≡ true
+               hlt = cm-catb (cm-congb (λ z → wlt (wadd z r0) (wadd acc (snd e))) (symw ca))
+                       (cm-lt-shift acc r0 (snd e) (cm-catb (cm-congb (λ z → wlt r0 z) ef) hr))
+           in concat {lzero} {Word × (Word × Word)}
+                {if wlt (wadd C r0) (wadd acc (snd e)) then (fst e , (acc , snd e)) else ftbl-lookup (wadd acc (snd e)) (wadd C r0) rest}
+                {(fst e , (acc , snd e))} {(x , (C , f))}
+                (λ i → if hlt i then (fst e , (acc , snd e)) else ftbl-lookup (wadd acc (snd e)) (wadd C r0) rest)
+                (λ i → (ex (~ i) , (ca i , ef i))))
+        (λ eq h hr →
+           let hge1 : wlt C (wadd acc (snd e)) ≡ false
+               hge1 = ftbl-find-ge rest (wadd acc (snd e)) x C f h
+               hge2 : wlt (wadd C r0) (wadd acc (snd e)) ≡ false
+               hge2 = cm-le-trans (wadd acc (snd e)) C (wadd C r0) hge1 (cm-le-add-l C r0)
+           in concat {lzero} {Word × (Word × Word)}
+                {if wlt (wadd C r0) (wadd acc (snd e)) then (fst e , (acc , snd e)) else ftbl-lookup (wadd acc (snd e)) (wadd C r0) rest}
+                {ftbl-lookup (wadd acc (snd e)) (wadd C r0) rest} {(x , (C , f))}
+                (λ i → if hge2 i then (fst e , (acc , snd e)) else ftbl-lookup (wadd acc (snd e)) (wadd C r0) rest)
+                (rec rest (wadd acc (snd e)) x C f r0 h hr))

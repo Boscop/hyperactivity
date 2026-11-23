@@ -1,0 +1,46 @@
+quotient-split-ok : (qmap : List (List Word)) → (xs : List Word) →
+                    quotient-unsplit qmap (quotient-split qmap xs) ≡ xs
+quotient-split-ok qmap xs =
+  let k = fromNat (list-length qmap)
+  in case xs return (λ u → quotient-unsplit qmap (quotient-split qmap u) ≡ u) of
+       nil → λ i → nil
+       cons x r →
+         (case find-in-qmap x qmap return
+            (λ o → find-in-qmap x qmap ≡ o →
+                   quotient-unsplit qmap
+                     (case o of
+                        some cr → (cons (fst cr) (fst (quotient-split qmap r)) , cons (snd cr) (snd (quotient-split qmap r)))
+                        none → (cons (wadd k x) (fst (quotient-split qmap r)) , snd (quotient-split qmap r)))
+                   ≡ cons x r) of
+            some cr → λ h →
+              let ok = find-in-qmap-ok x qmap (fst cr) (snd cr) h
+                  e1 : wlt (fst cr) k ≡ true
+                  e1 = snd ok
+                  e2 : cm-from-some #0 (nth-class (fst cr) (snd cr) qmap) ≡ x
+                  e2 = cong {lzero} {lzero} {Opt Word} {Word} (cm-from-some #0) (fst ok)
+              in concat {lzero} {List Word}
+                   {if wlt (fst cr) k then cons (cm-from-some #0 (nth-class (fst cr) (snd cr) qmap)) (quotient-unsplit qmap (quotient-split qmap r))
+                    else cons (wsub (fst cr) k) (quotient-unsplit qmap (fst (quotient-split qmap r) , cons (snd cr) (snd (quotient-split qmap r))))}
+                   {cons (cm-from-some #0 (nth-class (fst cr) (snd cr) qmap)) (quotient-unsplit qmap (quotient-split qmap r))}
+                   {cons x r}
+                   (λ i → if e1 i then cons (cm-from-some #0 (nth-class (fst cr) (snd cr) qmap)) (quotient-unsplit qmap (quotient-split qmap r))
+                          else cons (wsub (fst cr) k) (quotient-unsplit qmap (fst (quotient-split qmap r) , cons (snd cr) (snd (quotient-split qmap r)))))
+                   (λ i → cons (e2 i) (rec r i))
+            none → λ h →
+              let ef : wlt (wadd k x) k ≡ false
+                  ef = cm-le-add-l k x
+              in concat {lzero} {List Word}
+                   {if wlt (wadd k x) k then
+                      (case snd (quotient-split qmap r) of
+                         nil → cons #0 (quotient-unsplit qmap (fst (quotient-split qmap r) , nil))
+                         cons rk rks1 → cons (cm-from-some #0 (nth-class (wadd k x) rk qmap)) (quotient-unsplit qmap (fst (quotient-split qmap r) , rks1)))
+                    else cons (wsub (wadd k x) k) (quotient-unsplit qmap (quotient-split qmap r))}
+                   {cons (wsub (wadd k x) k) (quotient-unsplit qmap (quotient-split qmap r))}
+                   {cons x r}
+                   (λ i → if ef i then
+                            (case snd (quotient-split qmap r) of
+                               nil → cons #0 (quotient-unsplit qmap (fst (quotient-split qmap r) , nil))
+                               cons rk rks1 → cons (cm-from-some #0 (nth-class (wadd k x) rk qmap)) (quotient-unsplit qmap (fst (quotient-split qmap r) , rks1)))
+                          else cons (wsub (wadd k x) k) (quotient-unsplit qmap (quotient-split qmap r)))
+                   (λ i → cons (cm-wsub-add k x i) (rec r i)))
+           (λ i → find-in-qmap x qmap)

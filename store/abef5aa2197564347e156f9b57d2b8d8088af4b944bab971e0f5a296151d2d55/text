@@ -1,0 +1,17 @@
+pf-pair-ok : {A B : Type} → (ca : PFCodec A) → (cb : PFCodec B) → (p : A × B) → (tail : List Word) →
+             pf-pair-dec ca cb (list-append (list-append (pf-enc ca (fst p)) (pf-enc cb (snd p))) tail) ≡ (p , tail)
+pf-pair-ok {A} {B} ca cb p tail =
+  let s1 = cm-append-assoc (pf-enc ca (fst p)) (pf-enc cb (snd p)) tail
+      d1 = pf-ok ca (fst p) (list-append (pf-enc cb (snd p)) tail)
+      d2 = pf-ok cb (snd p) tail
+  in concat {lzero} {(A × B) × List Word}
+       {pf-pair-dec ca cb (list-append (list-append (pf-enc ca (fst p)) (pf-enc cb (snd p))) tail)}
+       {pf-pair-dec ca cb (list-append (pf-enc ca (fst p)) (list-append (pf-enc cb (snd p)) tail))}
+       {(p , tail)}
+       (cong {lzero} {lzero} {List Word} {(A × B) × List Word} (pf-pair-dec ca cb) s1)
+       (concat {lzero} {(A × B) × List Word}
+          {pf-pair-dec ca cb (list-append (pf-enc ca (fst p)) (list-append (pf-enc cb (snd p)) tail))}
+          {let r2 = pf-dec cb (list-append (pf-enc cb (snd p)) tail) in ((fst p , fst r2) , snd r2)}
+          {(p , tail)}
+          (λ i → let r2 = pf-dec cb (snd (d1 i)) in ((fst (d1 i) , fst r2) , snd r2))
+          (λ i → ((fst p , fst (d2 i)) , snd (d2 i))))
