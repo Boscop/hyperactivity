@@ -1,0 +1,37 @@
+-- Universal single-symbol streaming rANS bijection theorem:
+-- Composes rans-step-ok (lib/compress.cub) directly with sr-renorm-ok.
+sr-step-ok :
+  (tbl : FTbl) → (L : Word) → (fuel : Nat) → (st : SRState) → (x C f : Word) →
+  SRBoundInv L →
+  ftbl-find #0 x tbl ≡ some (C , f) →
+  wlt #0 f ≡ true →
+  wlt (fst st) (wmul sr-base L) ≡ true →
+  wlt (fst st) L ≡ false →
+  sr-dec-step tbl L fuel (sr-enc-step tbl L fuel st x) ≡ (x , st)
+sr-step-ok tbl L fuel st x C f inv hfind hf hs-hi hs-lo =
+  let s = fst st
+      out = snd st
+      M = ftbl-total tbl
+      hi = sr-hi L M f
+      fl = sr-flush-loop fuel hi s out
+      eenc : sr-enc-step tbl L fuel st x ≡ (rans-enc-step tbl (fst fl) x , snd fl)
+      eenc = λ i → case hfind i of
+                     none → st
+                     some cf →
+                       let fli = sr-flush-loop fuel (sr-hi L M (snd cf)) s out
+                       in (rans-enc-step tbl (fst fli) x , snd fli)
+      edec1 : rans-dec-step tbl (rans-enc-step tbl (fst fl) x) ≡ (x , fst fl)
+      edec1 = rans-step-ok tbl (fst fl) x C f hfind hf
+      eren : sr-refill-loop (suc fuel) L (fst fl) (snd fl) ≡ st
+      eren = sr-renorm-ok fuel L hi s out inv hs-hi hs-lo
+  in concat {lzero} {Word × SRState}
+       {sr-dec-step tbl L fuel (sr-enc-step tbl L fuel st x)}
+       {sr-dec-step tbl L fuel (rans-enc-step tbl (fst fl) x , snd fl)}
+       {(x , st)}
+       (cong {lzero} {lzero} {SRState} {Word × SRState} (sr-dec-step tbl L fuel) eenc)
+       (concat {lzero} {Word × SRState}
+          {sr-dec-step tbl L fuel (rans-enc-step tbl (fst fl) x , snd fl)}
+          {(x , sr-refill-loop (suc fuel) L (fst fl) (snd fl))}
+          {(x , st)}
+          (λ i → let d = edec1 i in (fst d , sr-refill-loop (suc fuel) L (snd d) (snd fl)))
+          (λ i → (x , eren i)))

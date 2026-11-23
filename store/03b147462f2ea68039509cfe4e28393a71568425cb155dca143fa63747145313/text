@@ -1,0 +1,54 @@
+-- General inductive unwinding: every byte flushed by sr-flush-loop is popped in exact
+-- reverse LIFO order by sr-refill-loop, terminating at the target state tgt.
+sr-renorm-go :
+  (fuel minf : Nat) → (L hi s : Word) → (out : List Word) → (tgt : SRState) →
+  SRBoundInv L →
+  wlt s (wmul sr-base L) ≡ true →
+  ((k : Nat) → sr-refill-loop (suc (sr-add minf k)) L s out ≡ tgt) →
+  (extra : Nat) →
+  let st' = sr-flush-loop fuel hi s out
+  in sr-refill-loop (suc (sr-add minf (sr-add fuel extra))) L (fst st') (snd st') ≡ tgt
+sr-renorm-go zero minf L hi s out tgt inv hs hdone extra = hdone extra
+sr-renorm-go (suc f) minf L hi s out tgt inv hs hdone extra =
+  ifP {λ b → let st' = the SRState (if b then (s , out)
+                                    else sr-flush-loop f hi (wquot s sr-base) (cons (wrem s sr-base) out))
+             in sr-refill-loop (suc (sr-add minf (suc (sr-add f extra)))) L (fst st') (snd st') ≡ tgt}
+      {wlt s hi}
+    (λ _ → hdone (suc (sr-add f extra)))
+    (λ _ →
+      let s1 = wquot s sr-base
+          b1 = wrem s sr-base
+          hs1-lt : wlt s1 L ≡ true
+          hs1-lt = fst inv s hs
+          hs1-hi : wlt s1 (wmul sr-base L) ≡ true
+          hs1-hi = snd inv s1 hs1-lt
+          hdone1 : (k : Nat) → sr-refill-loop (suc (sr-add (suc minf) k)) L s1 (cons b1 out) ≡ tgt
+          hdone1 k =
+            let step1 : sr-refill-loop (suc (suc (sr-add minf k))) L s1 (cons b1 out) ≡
+                        sr-refill-loop (suc (sr-add minf k)) L (wadd (wmul s1 sr-base) b1) out
+                step1 = λ i → if hs1-lt i then
+                                sr-refill-loop (suc (sr-add minf k)) L (wadd (wmul s1 sr-base) b1) out
+                              else (s1 , cons b1 out)
+                step2 : sr-refill-loop (suc (sr-add minf k)) L (wadd (wmul s1 sr-base) b1) out ≡
+                        sr-refill-loop (suc (sr-add minf k)) L s out
+                step2 = λ i → sr-refill-loop (suc (sr-add minf k)) L (symw (wdiv-mod s sr-base) i) out
+            in concat {lzero} {SRState}
+                 {sr-refill-loop (suc (suc (sr-add minf k))) L s1 (cons b1 out)}
+                 {sr-refill-loop (suc (sr-add minf k)) L (wadd (wmul s1 sr-base) b1) out}
+                 {tgt}
+                 step1
+                 (concat {lzero} {SRState}
+                    {sr-refill-loop (suc (sr-add minf k)) L (wadd (wmul s1 sr-base) b1) out}
+                    {sr-refill-loop (suc (sr-add minf k)) L s out}
+                    {tgt}
+                    step2 (hdone k))
+          ih = sr-renorm-go f (suc minf) L hi s1 (cons b1 out) tgt inv hs1-hi hdone1 extra
+          st1 = sr-flush-loop f hi s1 (cons b1 out)
+          efuel : sr-add minf (suc (sr-add f extra)) ≡ suc (sr-add minf (sr-add f extra))
+          efuel = sr-add-suc-r minf (sr-add f extra)
+      in concat {lzero} {SRState}
+           {sr-refill-loop (suc (sr-add minf (suc (sr-add f extra)))) L (fst st1) (snd st1)}
+           {sr-refill-loop (suc (suc (sr-add minf (sr-add f extra)))) L (fst st1) (snd st1)}
+           {tgt}
+           (λ i → sr-refill-loop (suc (efuel i)) L (fst st1) (snd st1))
+           ih)

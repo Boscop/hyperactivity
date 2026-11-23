@@ -1,0 +1,21 @@
+-- Universal streaming renormalization roundtrip theorem:
+-- For any s ∈ [L, 256·L) and any flush threshold hi, refilling reverses flushing exactly.
+sr-renorm-ok :
+  (fuel : Nat) → (L hi s : Word) → (out : List Word) →
+  SRBoundInv L →
+  wlt s (wmul sr-base L) ≡ true →
+  wlt s L ≡ false →
+  let st' = sr-flush-loop fuel hi s out
+  in sr-refill-loop (suc fuel) L (fst st') (snd st') ≡ (s , out)
+sr-renorm-ok fuel L hi s out inv hs-hi hs-lo =
+  let e0 : sr-add fuel zero ≡ fuel
+      e0 = sr-add-zero-r fuel
+      p = sr-renorm-go fuel zero L hi s out (s , out) inv hs-hi
+            (λ k → sr-refill-ge k L s out hs-lo) zero
+      st' = sr-flush-loop fuel hi s out
+  in concat {lzero} {SRState}
+       {sr-refill-loop (suc fuel) L (fst st') (snd st')}
+       {sr-refill-loop (suc (sr-add fuel zero)) L (fst st') (snd st')}
+       {(s , out)}
+       (λ i → sr-refill-loop (suc (sym e0 i)) L (fst st') (snd st'))
+       p
