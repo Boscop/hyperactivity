@@ -13,7 +13,8 @@
   <a href="https://hyperactivity.ai/kernel">Browser Kernel (<code>/kernel</code>)</a> ·
   <a href="https://hyperactivity.ai/nets">Interaction Net Lab (<code>/nets</code>)</a> ·
   <a href="https://hyperactivity.ai/paper">Paper</a> ·
-  <a href="https://hyperactivity.ai/pdf">PDF</a>
+  <a href="https://hyperactivity.ai/pdf">PDF</a> ·
+  <a href="LICENSE">License</a>
 </p>
 
 ---
@@ -191,4 +192,14 @@ tools/          lifters (clang2cub, mir2cub, sail2cub, agda2cub) & assembly help
 experiments/    Brunerie's number (-2), C++ & Rust lifting suites
 Makefile        native kernel, library, and Brunerie targets
 hyperactive     entrypoint symlink to build/cubical
+LICENSE         Hyperactive Anti-Capitalist Commons & Commercial License v1.0
 ```
+
+---
+
+## 8. License
+
+Copyright © 2026 **Hyperactive Labs, Inc.** and **Avik Jain**. Governed by the [**Hyperactive Anti-Capitalist Commons & Commercial License v1.0 (`LICENSE`)**](LICENSE) — a **Copyfarleft** dual license:
+
+- **Free & Copyfarleft for the Non-Capitalist Commons:** Natural persons acting outside capitalist enterprise, students, educators, independent scientists, non-commercial public/academic research groups, charitable nonprofits, and democratically governed 100% worker-owned cooperatives have full royalty-free rights to read, compile, execute, verify, modify, and share — conditioned on **strong network share-alike copyleft** (every shared or network-served derivative remains under [`LICENSE`](LICENSE) with full corresponding machine-readable source disclosed).
+- **Paid Commercial License Required for Capitalist Entities & Commercial AI:** Zero rights are granted under [`LICENSE`](LICENSE) to any for-profit corporation, venture-backed or investor-owned enterprise, hedge fund or trading firm, commercial cloud host, semiconductor vendor, or commercial AI laboratory — including internal corporate R&D, evaluation, hardware fabrication, and AI/LLM scraping, pre-training, fine-tuning, distillation, or RAG ingestion. Commercial licensing inquiries: [**avikj@berkeley.edu**](mailto:avikj@berkeley.edu).
