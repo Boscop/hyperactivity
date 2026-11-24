@@ -1,0 +1,532 @@
+-- lib/crypto/eth-secp256k1.hypercubical — Pure Hypercubical Ethereum & Base Mainnet (Chain ID 8453)
+-- Cryptographic Stack: Keccak-256, EIP-55 Checksum, Jacobian secp256k1, EIP-2 Low-S ECDSA Signer +
+-- Public-Key Recovery (`ecrecover`), & Canonical RLP / EIP-1559 Transaction Codec.
+--
+-- 100% pure .hypercubical (0 postulates, 0 floats, 0 foreign code strings).
+import "../host.hypercubical"
+
+eth-not : Bool → Bool
+eth-not true  = false
+eth-not false = true
+
+eth-le : Word → Word → Bool
+eth-le a b = eth-not (%wlt b a)
+
+-- ============================================================================
+-- SECTION 1: KECCAK-256 (ETHEREUM 0x01..0x80 PADDING, 1600-BIT SPONGE, 24 ROUNDS)
+-- ============================================================================
+
+kc-rotl64 : UInt64 → Word → UInt64
+kc-rotl64 x s =
+  if %weq s #0 then x
+  else u64or (u64shl x (u64 s)) (u64shr x (u64 (%wsub #64 s)))
+
+kc-not64 : UInt64 → UInt64
+kc-not64 x = u64xor x (u64 #18446744073709551615)
+
+kc-nth64 : Word → List UInt64 → UInt64
+kc-nth64 i nil         = u64 #0
+kc-nth64 i (cons x xs) = if %weq i #0 then x else kc-nth64 (%wsub i #1) xs
+
+kc-set64 : Word → UInt64 → List UInt64 → List UInt64
+kc-set64 i v nil         = nil
+kc-set64 i v (cons x xs) = if %weq i #0 then cons v xs else cons x (kc-set64 (%wsub i #1) v xs)
+
+kc-zeros : Nat → List UInt64
+kc-zeros zero    = nil
+kc-zeros (suc n) = cons (u64 #0) (kc-zeros n)
+
+kc-col-xor : List UInt64 → Word → UInt64
+kc-col-xor st x =
+  u64xor (kc-nth64 x st)
+  (u64xor (kc-nth64 (%wadd x #5) st)
+  (u64xor (kc-nth64 (%wadd x #10) st)
+  (u64xor (kc-nth64 (%wadd x #15) st)
+          (kc-nth64 (%wadd x #20) st))))
+
+kc-theta-loop : Nat → Word → List UInt64 → List UInt64 → List UInt64
+kc-theta-loop zero    idx st ds = nil
+kc-theta-loop (suc n) idx st ds =
+  let x = %wmod idx #5
+      v = u64xor (kc-nth64 idx st) (kc-nth64 x ds)
+  in cons v (kc-theta-loop n (%wadd idx #1) st ds)
+
+kc-theta : List UInt64 → List UInt64
+kc-theta st =
+  let c0 = kc-col-xor st #0
+      c1 = kc-col-xor st #1
+      c2 = kc-col-xor st #2
+      c3 = kc-col-xor st #3
+      c4 = kc-col-xor st #4
+      d0 = u64xor c4 (kc-rotl64 c1 #1)
+      d1 = u64xor c0 (kc-rotl64 c2 #1)
+      d2 = u64xor c1 (kc-rotl64 c3 #1)
+      d3 = u64xor c2 (kc-rotl64 c4 #1)
+      d4 = u64xor c3 (kc-rotl64 c0 #1)
+      ds = cons d0 (cons d1 (cons d2 (cons d3 (cons d4 nil))))
+  in kc-theta-loop (toNat #25) #0 st ds
+
+kc-rhopi-step : Nat → Word → Word → Word → List UInt64 → List UInt64 → List UInt64
+kc-rhopi-step zero    t x y st out = out
+kc-rhopi-step (suc n) t x y st out =
+  let nx   = y
+      ny   = %wmod (%wadd (%wmul #2 x) (%wmul #3 y)) #5
+      rot  = %wmod (%wdiv (%wmul (%wadd t #1) (%wadd t #2)) #2) #64
+      srcI = %wadd x (%wmul #5 y)
+      dstI = %wadd nx (%wmul #5 ny)
+      val  = kc-rotl64 (kc-nth64 srcI st) rot
+  in kc-rhopi-step n (%wadd t #1) nx ny st (kc-set64 dstI val out)
+
+kc-rhopi : List UInt64 → List UInt64
+kc-rhopi st =
+  let init = kc-set64 #0 (kc-nth64 #0 st) (kc-zeros (toNat #25))
+  in kc-rhopi-step (toNat #24) #0 #1 #0 st init
+
+kc-chi-loop : Nat → Word → List UInt64 → List UInt64
+kc-chi-loop zero    idx b = nil
+kc-chi-loop (suc n) idx b =
+  let x   = %wmod idx #5
+      row = %wmul #5 (%wdiv idx #5)
+      b0  = kc-nth64 idx b
+      b1  = kc-nth64 (%wadd row (%wmod (%wadd x #1) #5)) b
+      b2  = kc-nth64 (%wadd row (%wmod (%wadd x #2) #5)) b
+      v   = u64xor b0 (u64and (kc-not64 b1) b2)
+  in cons v (kc-chi-loop n (%wadd idx #1) b)
+
+kc-lfsr-step : Nat → Word → Word
+kc-lfsr-step zero    r = r
+kc-lfsr-step (suc n) r =
+  let r2 = if %weq (%wand r #128) #0 then %wshl r #1 else %wxor (%wshl r #1) #113
+  in kc-lfsr-step n (%wand r2 #255)
+
+kc-rc-bits : Nat → Word → Word → UInt64 → UInt64
+kc-rc-bits zero    j lfsr acc = acc
+kc-rc-bits (suc n) j lfsr acc =
+  let bitOn = %wand lfsr #1
+      nextL = kc-lfsr-step (toNat #1) lfsr
+      pos   = %wsub (%wshl #1 j) #1
+      acc2  = if %weq bitOn #1 then u64or acc (u64shl (u64 #1) (u64 pos)) else acc
+  in kc-rc-bits n (%wadd j #1) nextL acc2
+
+kc-round-loop : Nat → Word → List UInt64 → List UInt64
+kc-round-loop zero    lfsr st = st
+kc-round-loop (suc n) lfsr st =
+  let rc    = kc-rc-bits (toNat #7) #0 lfsr (u64 #0)
+      lfsr2 = kc-lfsr-step (toNat #7) lfsr
+      st1   = kc-theta st
+      st2   = kc-rhopi st1
+      st3   = kc-chi-loop (toNat #25) #0 st2
+      st4   = kc-set64 #0 (u64xor (kc-nth64 #0 st3) rc) st3
+  in kc-round-loop n lfsr2 st4
+
+kc-f1600 : List UInt64 → List UInt64
+kc-f1600 st = kc-round-loop (toNat #24) #1 st
+
+kc-le64 : Nat → Word → List Word → UInt64
+kc-le64 zero    sh bs          = u64 #0
+kc-le64 (suc n) sh nil         = u64 #0
+kc-le64 (suc n) sh (cons b bs) =
+  u64or (u64shl (u64 (%wand b #255)) (u64 sh)) (kc-le64 n (%wadd sh #8) bs)
+
+kc-drop : Nat → List Word → List Word
+kc-drop zero    bs          = bs
+kc-drop (suc n) nil         = nil
+kc-drop (suc n) (cons b bs) = kc-drop n bs
+
+kc-xor-block : Nat → Word → List Word → List UInt64 → List UInt64
+kc-xor-block zero    idx blk st = st
+kc-xor-block (suc n) idx blk st =
+  let lane = kc-le64 (toNat #8) #0 blk
+      st2  = kc-set64 idx (u64xor (kc-nth64 idx st) lane) st
+  in kc-xor-block n (%wadd idx #1) (kc-drop (toNat #8) blk) st2
+
+kc-rep-zero : Nat → List Word
+kc-rep-zero zero    = nil
+kc-rep-zero (suc n) = cons #0 (kc-rep-zero n)
+
+kc-pad136 : List Word → List Word
+kc-pad136 msg =
+  let len = fromNat (list-length msg)
+      rem = %wmod len #136
+  in if %weq rem #135
+     then list-append msg (cons #129 nil)
+     else let zc = %wsub #134 rem
+          in list-append msg (cons #1 (list-append (kc-rep-zero (toNat zc)) (cons #128 nil)))
+
+kc-absorb : Nat → List Word → List UInt64 → List UInt64
+kc-absorb zero    bs  st = st
+kc-absorb (suc n) nil st = st
+kc-absorb (suc n) bs  st =
+  let st2 = kc-f1600 (kc-xor-block (toNat #17) #0 bs st)
+  in kc-absorb n (kc-drop (toNat #136) bs) st2
+
+kc-u64-bytes-le : Nat → UInt64 → List Word
+kc-u64-bytes-le zero    v = nil
+kc-u64-bytes-le (suc n) v =
+  cons (%wand (u64toWord v) #255) (kc-u64-bytes-le n (u64shr v (u64 #8)))
+
+keccak256 : List Word → List Word
+keccak256 msg =
+  let padded = kc-pad136 msg
+      nblks  = %wdiv (fromNat (list-length padded)) #136
+      st     = kc-absorb (toNat nblks) padded (kc-zeros (toNat #25))
+  in list-append (kc-u64-bytes-le (toNat #8) (kc-nth64 #0 st))
+     (list-append (kc-u64-bytes-le (toNat #8) (kc-nth64 #1 st))
+     (list-append (kc-u64-bytes-le (toNat #8) (kc-nth64 #2 st))
+                  (kc-u64-bytes-le (toNat #8) (kc-nth64 #3 st))))
+
+-- ============================================================================
+-- SECTION 2: HEX, BIG-ENDIAN BIGNUM BYTES, & EIP-55 CHECKSUM ADDRESS CODEC
+-- ============================================================================
+
+eth-nib-val : Word → Word
+eth-nib-val c =
+  if andB (eth-le #48 c) (eth-le c #57) then %wsub c #48
+  else if andB (eth-le #97 c) (eth-le c #102) then %wadd #10 (%wsub c #97)
+  else if andB (eth-le #65 c) (eth-le c #70) then %wadd #10 (%wsub c #65)
+  else #0
+
+eth-from-hex : List Word → List Word
+eth-from-hex nil                  = nil
+eth-from-hex (cons a nil)         = nil
+eth-from-hex (cons a (cons b rs)) =
+  cons (%wor (%wshl (eth-nib-val a) #4) (eth-nib-val b)) (eth-from-hex rs)
+
+eth-strip-0x : List Word → List Word
+eth-strip-0x nil                  = nil
+eth-strip-0x (cons a nil)         = cons a nil
+eth-strip-0x (cons a (cons b rs)) =
+  if andB (%weq a #48) (orB (%weq b #120) (%weq b #88))
+  then rs
+  else cons a (cons b rs)
+
+-- Fixed-width `n`-byte big-endian encoding of arbitrary-precision `Word`:
+eth-word-be-fixed : Nat → Word → List Word → List Word
+eth-word-be-fixed zero    w acc = acc
+eth-word-be-fixed (suc n) w acc =
+  eth-word-be-fixed n (%wshr w #8) (cons (%wand w #255) acc)
+
+eth-word-be32 : Word → List Word
+eth-word-be32 w = eth-word-be-fixed (toNat #32) w nil
+
+-- Minimal big-endian bytes of `w > 0` (no leading zero bytes — required by canonical RLP!):
+eth-drop-z : List Word → List Word
+eth-drop-z nil         = nil
+eth-drop-z (cons b bs) = if %weq b #0 then eth-drop-z bs else cons b bs
+
+eth-word-be-min : Word → List Word
+eth-word-be-min w = eth-drop-z (eth-word-be32 w)
+
+-- EIP-55 mixed-case checksum formatting from 20-byte raw address:
+eth-eip55-zip : List Word → List Word → List Word
+eth-eip55-zip nil         hbs          = nil
+eth-eip55-zip (cons c cs) nil          = cons c (eth-eip55-zip cs nil)
+eth-eip55-zip (cons c cs) (cons h hbs) =
+  let up = if andB (eth-le #97 c) (eth-le c #102)
+           then (if eth-le #8 (eth-nib-val h) then %wsub c #32 else c)
+           else c
+  in cons up (eth-eip55-zip cs hbs)
+
+eth-eip55-from-bytes20 : List Word → List Word
+eth-eip55-from-bytes20 addr20 =
+  let hexLower = h-hex addr20
+      hashHex  = h-hex (keccak256 hexLower)
+  in list-append "0x" (eth-eip55-zip hexLower hashHex)
+
+-- ============================================================================
+-- SECTION 3: EXACT JACOBIAN secp256k1 & EIP-2 LOW-S ECDSA + ECRECOVER
+-- ============================================================================
+
+secp-p : Word
+secp-p = #115792089237316195423570985008687907853269984665640564039457584007908834671663
+
+secp-n : Word
+secp-n = #115792089237316195423570985008687907852837564279074904382605163141518161494337
+
+secp-half-n : Word
+secp-half-n = #57896044618658097711785492504343953926418782139537452191302581570759080747168
+
+secp-gx : Word
+secp-gx = #55066263022277343669578718895168534326250603453777594175500187360389116729240
+
+secp-gy : Word
+secp-gy = #32670510020758816978083085130507043184471273380659243275938904335757337482424
+
+fp-add : Word → Word → Word
+fp-add a b = %wmod (%wadd a b) secp-p
+
+fp-sub : Word → Word → Word
+fp-sub a b = %wmod (%wadd a (%wsub secp-p (%wmod b secp-p))) secp-p
+
+fp-mul : Word → Word → Word
+fp-mul a b = %wmod (%wmul a b) secp-p
+
+fp-sqr : Word → Word
+fp-sqr a = fp-mul a a
+
+mod-pow : Nat → Word → Word → Word → Word
+mod-pow zero    base exp m = #1
+mod-pow (suc k) base exp m =
+  if %weq exp #0 then #1
+  else let half = mod-pow k base (%wshr exp #1) m
+           sq   = %wmod (%wmul half half) m
+       in if %weq (%wand exp #1) #1 then %wmod (%wmul sq base) m else sq
+
+mod-inv : Word → Word → Word
+mod-inv a m = mod-pow (toNat #256) (%wmod a m) (%wsub m #2) m
+
+data JPoint : Type where
+  jp-inf : JPoint
+  jp-pt  : (X : Word) → (Y : Word) → (Z : Word) → JPoint
+
+secp-G : JPoint
+secp-G = jp-pt secp-gx secp-gy #1
+
+jp-neg : JPoint → JPoint
+jp-neg jp-inf        = jp-inf
+jp-neg (jp-pt x y z) = if %weq y #0 then jp-inf else jp-pt x (%wsub secp-p (%wmod y secp-p)) z
+
+jp-dbl : JPoint → JPoint
+jp-dbl jp-inf        = jp-inf
+jp-dbl (jp-pt x y z) =
+  if orB (%weq y #0) (%weq z #0) then jp-inf
+  else let a  = fp-sqr x
+           b  = fp-sqr y
+           c  = fp-sqr b
+           d  = fp-mul #2 (fp-sub (fp-sqr (fp-add x b)) (fp-add a c))
+           e  = fp-mul #3 a
+           f  = fp-sqr e
+           x3 = fp-sub f (fp-mul #2 d)
+           y3 = fp-sub (fp-mul e (fp-sub d x3)) (fp-mul #8 c)
+           z3 = fp-mul #2 (fp-mul y z)
+       in jp-pt x3 y3 z3
+
+jp-add : JPoint → JPoint → JPoint
+jp-add jp-inf          q               = q
+jp-add p               jp-inf          = p
+jp-add (jp-pt x1 y1 z1) (jp-pt x2 y2 z2) =
+  let z1s = fp-sqr z1
+      z2s = fp-sqr z2
+      u1  = fp-mul x1 z2s
+      u2  = fp-mul x2 z1s
+      s1  = fp-mul y1 (fp-mul z2 z2s)
+      s2  = fp-mul y2 (fp-mul z1 z1s)
+  in if %weq u1 u2
+     then (if %weq s1 s2 then jp-dbl (jp-pt x1 y1 z1) else jp-inf)
+     else let h  = fp-sub u2 u1
+              i  = fp-sqr (fp-mul #2 h)
+              j  = fp-mul h i
+              rr = fp-mul #2 (fp-sub s2 s1)
+              v  = fp-mul u1 i
+              x3 = fp-sub (fp-sub (fp-sqr rr) j) (fp-mul #2 v)
+              y3 = fp-sub (fp-mul rr (fp-sub v x3)) (fp-mul #2 (fp-mul s1 j))
+              z3 = fp-mul (fp-sub (fp-sqr (fp-add z1 z2)) (fp-add z1s z2s)) h
+          in jp-pt x3 y3 z3
+
+jp-mul : Nat → Word → JPoint → JPoint
+jp-mul zero    k p = jp-inf
+jp-mul (suc n) k p =
+  if %weq k #0 then jp-inf
+  else let half = jp-dbl (jp-mul n (%wshr k #1) p)
+       in if %weq (%wand k #1) #1 then jp-add half p else half
+
+jp-to-affine : JPoint → Word × Word
+jp-to-affine jp-inf        = (#0 , #0)
+jp-to-affine (jp-pt x y z) =
+  if %weq z #0 then (#0 , #0)
+  else let zi  = mod-inv z secp-p
+           zi2 = fp-sqr zi
+           zi3 = fp-mul zi zi2
+       in (fp-mul x zi2 , fp-mul y zi3)
+
+secp-on-curve : Word → Word → Bool
+secp-on-curve x y =
+  %weq (fp-sqr y) (fp-add (fp-mul x (fp-sqr x)) #7)
+
+eth-pubkey-to-addr20 : Word → Word → List Word
+eth-pubkey-to-addr20 px py =
+  let pub64 = list-append (eth-word-be32 px) (eth-word-be32 py)
+      dig32 = keccak256 pub64
+  in kc-drop (toNat #12) dig32
+
+eth-priv-to-addr20 : Word → List Word
+eth-priv-to-addr20 priv =
+  let pub = jp-to-affine (jp-mul (toNat #256) priv secp-G)
+  in eth-pubkey-to-addr20 (fst pub) (snd pub)
+
+eth-priv-to-eip55 : Word → List Word
+eth-priv-to-eip55 priv = eth-eip55-from-bytes20 (eth-priv-to-addr20 priv)
+
+-- Deterministic Keccak-DRBG ECDSA signature `(yParity , (r , s))` with EIP-2 low-S (`s <= n/2`):
+secp-ecdsa-sign-nonce : Word → Word → Word → Word × (Word × Word)
+secp-ecdsa-sign-nonce priv zHash kNonce =
+  let rPt  = jp-to-affine (jp-mul (toNat #256) kNonce secp-G)
+      rx   = fst rPt
+      ry   = snd rPt
+      r    = %wmod rx secp-n
+      kinv = mod-inv kNonce secp-n
+      sRaw = %wmod (%wmul kinv (%wadd zHash (%wmod (%wmul r priv) secp-n))) secp-n
+      yPar = %wand ry #1
+  in if eth-le sRaw secp-half-n
+     then (yPar , (r , sRaw))
+     else (%wxor yPar #1 , (r , %wsub secp-n sRaw))
+
+secp-det-nonce : Word → List Word → Word → Word
+secp-det-nonce priv msgHash32 ctr =
+  let material = list-append (eth-word-be32 priv)
+                 (list-append msgHash32 (cons #69 (cons #84 (cons #72 (cons ctr nil)))))
+      rawK     = h-be (keccak256 material)
+  in %wadd #1 (%wmod rawK (%wsub secp-n #1))
+
+secp-ecdsa-sign : Word → List Word → Word × (Word × Word)
+secp-ecdsa-sign priv msgHash32 =
+  let z    = %wmod (h-be msgHash32) secp-n
+      k    = secp-det-nonce priv msgHash32 #0
+      sig0 = secp-ecdsa-sign-nonce priv z k
+  in if orB (%weq (fst (snd sig0)) #0) (%weq (snd (snd sig0)) #0)
+     then secp-ecdsa-sign-nonce priv z (secp-det-nonce priv msgHash32 #1)
+     else sig0
+
+-- Full Ethereum `ecrecover` (`(yParity, r, s, msgHash32) -> 20-byte sender address`):
+-- Uses p == 3 (mod 4) square root `y = (r^3 + 7)^((p+1)/4) mod p`!
+secp-ecrecover-addr20 : Word → Word → Word → List Word → List Word
+secp-ecrecover-addr20 yParity r s msgHash32 =
+  if orB (%weq r #0) (orB (%weq s #0) (eth-not (eth-le s secp-half-n))) then nil
+  else
+    let rhs  = fp-add (fp-mul r (fp-sqr r)) #7
+        y0   = mod-pow (toNat #256) rhs (%wdiv (%wadd secp-p #1) #4) secp-p
+        ry   = if %weq (%wand y0 #1) yParity then y0 else %wsub secp-p y0
+        rInv = mod-inv r secp-n
+        z    = %wmod (h-be msgHash32) secp-n
+        u1   = %wmod (%wmul rInv s) secp-n
+        u2   = %wmod (%wmul rInv z) secp-n
+        qPt  = jp-to-affine (jp-add (jp-mul (toNat #256) u1 (jp-pt r ry #1))
+                                    (jp-neg (jp-mul (toNat #256) u2 secp-G)))
+    in if secp-on-curve (fst qPt) (snd qPt)
+       then eth-pubkey-to-addr20 (fst qPt) (snd qPt)
+       else nil
+
+-- ============================================================================
+-- SECTION 4: CANONICAL RLP & EIP-1559 (TYPE 0x02, BASE CHAIN ID 8453) CODEC
+-- ============================================================================
+
+rlp-bytes : List Word → List Word
+rlp-bytes nil = cons #128 nil
+rlp-bytes (cons b nil) =
+  if %wlt b #128 then cons b nil else cons #129 (cons b nil)
+rlp-bytes (cons b1 (cons b2 rs)) =
+  let bs  = cons b1 (cons b2 rs)
+      len = fromNat (list-length bs)
+  in if eth-le len #55
+     then cons (%wadd #128 len) bs
+     else let lb = eth-word-be-min len
+              ll = fromNat (list-length lb)
+          in cons (%wadd #183 ll) (list-append lb bs)
+
+rlp-uint : Word → List Word
+rlp-uint w = if %weq w #0 then cons #128 nil else rlp-bytes (eth-word-be-min w)
+
+rlp-list : List (List Word) → List Word
+rlp-list items =
+  let pay = h-concat items
+      len = fromNat (list-length pay)
+  in if eth-le len #55
+     then cons (%wadd #192 len) pay
+     else let lb = eth-word-be-min len
+              ll = fromNat (list-length lb)
+          in cons (%wadd #247 ll) (list-append lb pay)
+
+data Eip1559Tx : Type where
+  mk-tx1559 :
+    (chainId : Word) → (nonce : Word) → (maxPrioFee : Word) → (maxFee : Word) →
+    (gasLimit : Word) → (toAddr20 : List Word) → (valueWei : Word) → (dataBytes : List Word) →
+    Eip1559Tx
+
+eth-tx1559-unsigned : Eip1559Tx → List Word
+eth-tx1559-unsigned (mk-tx1559 cid nc prio mfee gas to20 val dat) =
+  cons #2
+  (rlp-list
+    (cons (rlp-uint cid)
+    (cons (rlp-uint nc)
+    (cons (rlp-uint prio)
+    (cons (rlp-uint mfee)
+    (cons (rlp-uint gas)
+    (cons (rlp-bytes to20)
+    (cons (rlp-uint val)
+    (cons (rlp-bytes dat)
+    (cons (rlp-list nil) nil))))))))))
+
+eth-tx1559-sign-raw : Word → Eip1559Tx → List Word × (Word × (Word × Word))
+eth-tx1559-sign-raw priv tx =
+  case tx of
+    mk-tx1559 cid nc prio mfee gas to20 val dat →
+      let unsig = eth-tx1559-unsigned tx
+          shash = keccak256 unsig
+          sig   = secp-ecdsa-sign priv shash
+          yp    = fst sig
+          r     = fst (snd sig)
+          s     = snd (snd sig)
+          raw   = cons #2
+                  (rlp-list
+                    (cons (rlp-uint cid)
+                    (cons (rlp-uint nc)
+                    (cons (rlp-uint prio)
+                    (cons (rlp-uint mfee)
+                    (cons (rlp-uint gas)
+                    (cons (rlp-bytes to20)
+                    (cons (rlp-uint val)
+                    (cons (rlp-bytes dat)
+                    (cons (rlp-list nil)
+                    (cons (rlp-uint yp)
+                    (cons (rlp-uint r)
+                    (cons (rlp-uint s) nil)))))))))))))
+      in (raw , sig)
+
+-- Verify that `ecrecover` on the signed EIP-1559 transaction recovers the exact signer address!
+eth-tx1559-selfcheck : Word → Eip1559Tx → Bool
+eth-tx1559-selfcheck priv tx =
+  let shash = keccak256 (eth-tx1559-unsigned tx)
+      sr    = eth-tx1559-sign-raw priv tx
+      sig   = snd sr
+      rec20 = secp-ecrecover-addr20 (fst sig) (fst (snd sig)) (snd (snd sig)) shash
+  in h-eq rec20 (eth-priv-to-addr20 priv)
+
+-- ============================================================================
+-- SECTION 5: COLD `refl` VERIFICATION AGAINST OFFICIAL ETHEREUM TEST VECTORS
+-- ============================================================================
+
+-- Founder's verified Coinbase Base receive address (`0x4A50FBF0128E2679C42466A8cC1A9D230b08A26f`):
+eth-founder-coinbase-addr20 : List Word
+eth-founder-coinbase-addr20 = eth-from-hex "4a50fbf0128e2679c42466a8cc1a9d230b08a26f"
+
+-- THEOREM 1: KECCAK-256("") & ERC-20 `transfer(address,uint256)` SELECTOR (`0xa9059cbb`) EXACT BY `refl`!
+eth-thm-keccak-vectors :
+  andB (h-eq (h-hex (keccak256 nil)) "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
+       (h-eq (h-take (toNat #8) (h-hex (keccak256 "transfer(address,uint256)"))) "a9059cbb") ≡ true
+eth-thm-keccak-vectors = refl
+
+-- THEOREM 2: FOUNDER'S COINBASE BASE ADDRESS (`0x4A50FBF0128E2679C42466A8cC1A9D230b08A26f`) PASSES EIP-55 CHECKSUM BY `refl`!
+eth-thm-founder-eip55-exact :
+  eth-eip55-from-bytes20 eth-founder-coinbase-addr20 ≡ "0x4A50FBF0128E2679C42466A8cC1A9D230b08A26f"
+eth-thm-founder-eip55-exact = refl
+
+-- THEOREM 3: OFFICIAL ETHEREUM secp256k1 PRIVATE KEYS #1, #2, #3 & FULL 256-BIT FOUNDRY ACCOUNT #0 EXACT BY `refl`!
+eth-foundry-priv0 : Word
+eth-foundry-priv0 = h-be (eth-from-hex "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+
+eth-thm-secp-vectors-1-2-3 :
+  andB (secp-on-curve secp-gx secp-gy)
+  (andB (h-eq (eth-priv-to-eip55 #1) "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf")
+  (andB (h-eq (eth-priv-to-eip55 #2) "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF")
+  (andB (h-eq (eth-priv-to-eip55 #3) "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69")
+        (h-eq (eth-priv-to-eip55 eth-foundry-priv0) "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")))) ≡ true
+eth-thm-secp-vectors-1-2-3 = refl
+
+-- THEOREM 4: BASE MAINNET (`chainId = #8453`) EIP-1559 SIGN + ECRECOVER ROUND-TRIP BY `refl`!
+eth-sample-base-tx : Eip1559Tx
+eth-sample-base-tx =
+  mk-tx1559 #8453 #0 #1000000 #50000000 #21000 eth-founder-coinbase-addr20 #1000000000000000 nil
+
+eth-thm-base-eip1559-ecrecover :
+  eth-tx1559-selfcheck #3 eth-sample-base-tx ≡ true
+eth-thm-base-eip1559-ecrecover = refl
