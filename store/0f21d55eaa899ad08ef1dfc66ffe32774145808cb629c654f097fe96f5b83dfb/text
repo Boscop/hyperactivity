@@ -1,0 +1,50 @@
+str-host-src : List Word → List Word
+str-host-src mpath =
+  hw-ln "#import <Foundation/Foundation.h>"
+  (hw-ln "#import <Metal/Metal.h>"
+  (hw-ln "#include <stdio.h>"
+  (hw-ln "#include <stdint.h>"
+  (hw-ln "#include <sys/time.h>"
+  (hw-ln "static double now_ms(void){ struct timeval tv; gettimeofday(&tv,NULL); return tv.tv_sec*1000.0 + tv.tv_usec/1000.0; }"
+  (hw-ln "int main(void){"
+  (hw-ln "  @autoreleasepool {"
+  (hw-ln "    id<MTLDevice> dev = MTLCreateSystemDefaultDevice();"
+  (hw-ln (list-append "    if (!dev) { printf(" (list-append hw-q (list-append "No Metal" (list-append hw-esc-n (list-append hw-q "); return 1; }")))))
+  (hw-ln "    NSError* err = nil;"
+  (hw-ln (list-append "    NSString* src = [NSString stringWithContentsOfFile:" (list-append (omni-ns mpath) " encoding:NSUTF8StringEncoding error:&err];"))
+  (hw-ln "    id<MTLLibrary> lib = [dev newLibraryWithSource:src options:nil error:&err];"
+  (hw-ln (list-append "    if (!lib) { printf(" (list-append hw-q (list-append "Metal err: %s" (list-append hw-esc-n (list-append hw-q ", [[err localizedDescription] UTF8String]); return 1; }")))))
+  (hw-ln "    id<MTLCommandQueue> q = [dev newCommandQueue];"
+  (hw-ln (list-append "    id<MTLComputePipelineState> p = [dev newComputePipelineStateWithFunction:[lib newFunctionWithName:" (list-append (omni-ns "strike_5axis_superopt") "] error:&err];"))
+  (hw-ln "    const uint32_t N = 131072u, GENS = 8u;"
+  (hw-ln "    id<MTLBuffer> bSeed = [dev newBufferWithLength:4 options:MTLResourceStorageModeShared];"
+  (hw-ln "    id<MTLBuffer> bSco  = [dev newBufferWithLength:N*4 options:MTLResourceStorageModeShared];"
+  (hw-ln "    id<MTLBuffer> bCfg  = [dev newBufferWithLength:N*4 options:MTLResourceStorageModeShared];"
+  (hw-ln "    uint32_t* seedp = (uint32_t*)[bSeed contents]; *seedp = 0u;"
+  (hw-ln "    uint32_t best_fj = 0xFFFFFFu, best_cfg = 0u, gen0_avg = 0u, mono = 1u;"
+  (hw-ln "    double t0 = now_ms();"
+  (hw-ln "    for (uint32_t g = 0u; g < GENS; g++) {"
+  (hw-ln "      id<MTLCommandBuffer> cb = [q commandBuffer]; id<MTLComputeCommandEncoder> en = [cb computeCommandEncoder];"
+  (hw-ln "      [en setComputePipelineState:p]; [en setBuffer:bSeed offset:0 atIndex:0]; [en setBuffer:bSco offset:0 atIndex:1];"
+  (hw-ln "      [en setBuffer:bCfg offset:0 atIndex:2]; [en setBytes:&g length:4 atIndex:3];"
+  (hw-ln "      [en dispatchThreads:MTLSizeMake(N,1,1) threadsPerThreadgroup:MTLSizeMake(256,1,1)];"
+  (hw-ln "      [en endEncoding]; [cb commit]; [cb waitUntilCompleted];"
+  (hw-ln "      uint32_t* sp = (uint32_t*)[bSco contents]; uint32_t* cp = (uint32_t*)[bCfg contents];"
+  (hw-ln "      uint32_t g_best = 0xFFFFFFu, g_cfg = 0u; uint64_t sum = 0; uint32_t valid = 0;"
+  (hw-ln "      for (uint32_t i = 0; i < N; i++) {"
+  (hw-ln "        if (sp[i] < 0xFFFFFFu) { sum += sp[i]; valid++; }"
+  (hw-ln "        if (sp[i] < g_best) { g_best = sp[i]; g_cfg = cp[i]; }"
+  (hw-ln "      }"
+  (hw-ln "      if (g == 0u && valid > 0u) gen0_avg = (uint32_t)(sum / valid);"
+  (hw-ln "      if (g > 0u && g_best > best_fj) mono = 0u;"
+  (hw-ln "      best_fj = g_best; best_cfg = g_cfg; *seedp = best_cfg;"
+  (hw-ln "    }"
+  (hw-ln "    double dt = now_ms() - t0;"
+  (hw-ln "    double m_per_s = ((double)N * (double)GENS) / (dt * 1e3);"
+  (hw-ln (list-append "    const char* m_nm[4] = {" (list-append (psc-q "Flat2D") (list-append "," (list-append (psc-q "FlexIC-Origami") (list-append "," (list-append (psc-q "3D-SoIC") (list-append "," (list-append (psc-q "3D+Optical-Cortex") "};"))))))))
+  (hw-ln (list-append "    const char* h_nm[6] = {" (list-append (psc-q "A18") (list-append "," (list-append (psc-q "4xM5U-K4") (list-append "," (list-append (psc-q "1xV80") (list-append "," (list-append (psc-q "4xV80") (list-append "," (list-append (psc-q "3nm-ASIC") (list-append "," (list-append (psc-q "3D-SoIC-PCBox") "};"))))))))))))
+  (hw-ln (list-append "    printf(" (list-append hw-q (list-append "[HX-STRIKE GPU %s] 1,048,576 5-axis machines superoptimized in %.2f ms (%.2f M-machines/s) | mono=%u" (list-append hw-esc-n (list-append hw-q ", [[dev name] UTF8String], dt, m_per_s, mono);")))))
+  (hw-ln (list-append "    printf(" (list-append hw-q (list-append "  Global Pareto Optimum: %u fJ/op (vs %u fJ/op Gen0 avg -> %.2fx collapse!) | Manifold=%s | GateTier=%u/7 | BF16-48b=%u | HW=%s | CBF_res=%u | OptHub=%u" (list-append hw-esc-n (list-append hw-q ", best_fj, gen0_avg, (double)gen0_avg/(double)best_fj, m_nm[best_cfg&3u], (best_cfg>>2u)&7u, (best_cfg>>5u)&1u, h_nm[(best_cfg>>6u)&7u], (best_cfg>>9u)&7u, (best_cfg>>12u)&15u);")))))
+  (hw-ln "  }"
+  (hw-ln "  return 0;"
+  (hw-ln "}" nil)))))))))))))))))))))))))))))))))))))))))))))))
