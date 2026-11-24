@@ -1,0 +1,49 @@
+-- Parameterized Apple Metal simdgroup_half8x8 GEMM body driven from TKernelSpec
+tir-metal-gemm-body : Word → Word → Word → Word → Word → Word → List Word → List Word
+tir-metal-gemm-body m n k tm tn tk rest =
+  let sm = ce-dec tm
+      sn = ce-dec tn
+      sk = ce-dec tk
+      smn = ce-dec (%wmul tm tk)
+      hm = ce-dec (%wdiv tm #2)
+      hn = ce-dec (%wdiv tn #2)
+  in tir-line (list-append "// Lowered from verified tk-gemm " (list-append (ce-dec m) (list-append "x" (list-append (ce-dec n) (list-append "x" (list-append (ce-dec k) (list-append " tile=" (list-append sm (list-append "x" (list-append sn (list-append "x" sk)))))))))))
+     (tir-line "kernel void hx_gemm_simd16("
+     (tir-line "    device const half* A [[buffer(0)]],"
+     (tir-line "    device const half* B [[buffer(1)]],"
+     (tir-line "    device float* C [[buffer(2)]],"
+     (tir-line "    constant GemmDims& dm [[buffer(3)]],"
+     (tir-line "    uint2 tgid [[threadgroup_position_in_grid]],"
+     (tir-line "    uint sgid [[simdgroup_index_in_threadgroup]],"
+     (tir-line "    uint tid [[thread_index_in_threadgroup]]) {"
+     (tir-line (list-append "  threadgroup half As[" (list-append sm (list-append "][" (list-append sk "];"))))
+     (tir-line (list-append "  threadgroup half Bs[" (list-append sk (list-append "][" (list-append sn "];"))))
+     (tir-line (list-append "  uint bm = tgid.y * " (list-append sm (list-append ", bn = tgid.x * " (list-append sn ";"))))
+     (tir-line (list-append "  uint sgr = (sgid >> 1) * " (list-append hm (list-append ", sgc = (sgid & 1) * " (list-append hn ";"))))
+     (tir-line "  simdgroup_float8x8 acc00 = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);"
+     (tir-line "  simdgroup_float8x8 acc01 = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);"
+     (tir-line "  simdgroup_float8x8 acc10 = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);"
+     (tir-line "  simdgroup_float8x8 acc11 = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);"
+     (tir-line (list-append "  for (uint bk = 0; bk < dm.K; bk += " (list-append sk ") {"))
+     (tir-line (list-append "    for (uint e = tid; e < " (list-append smn "; e += 128) {"))
+     (tir-line (list-append "      uint r = e / " (list-append sk (list-append ", c = e % " (list-append sk ";"))))
+     (tir-line "      As[r][c] = A[(bm + r) * dm.K + (bk + c)];"
+     (tir-line "      Bs[r][c] = B[(bk + r) * dm.N + (bn + c)];"
+     (tir-line "    }"
+     (tir-line "    threadgroup_barrier(mem_flags::mem_threadgroup);"
+     (tir-line (list-append "    for (uint kk = 0; kk < " (list-append sk "; kk += 8) {"))
+     (tir-line "      simdgroup_half8x8 a0, a1, b0, b1;"
+     (tir-line (list-append "      simdgroup_load(a0, &As[sgr][kk], " (list-append sk (list-append "); simdgroup_load(a1, &As[sgr + 8][kk], " (list-append sk ");"))))
+     (tir-line (list-append "      simdgroup_load(b0, &Bs[kk][sgc], " (list-append sn (list-append "); simdgroup_load(b1, &Bs[kk][sgc + 8], " (list-append sn ");"))))
+     (tir-line "      simdgroup_multiply_accumulate(acc00, a0, b0, acc00);"
+     (tir-line "      simdgroup_multiply_accumulate(acc01, a0, b1, acc01);"
+     (tir-line "      simdgroup_multiply_accumulate(acc10, a1, b0, acc10);"
+     (tir-line "      simdgroup_multiply_accumulate(acc11, a1, b1, acc11);"
+     (tir-line "    }"
+     (tir-line "    threadgroup_barrier(mem_flags::mem_threadgroup);"
+     (tir-line "  }"
+     (tir-line "  simdgroup_store(acc00, &C[(bm + sgr) * dm.N + (bn + sgc)], dm.N);"
+     (tir-line "  simdgroup_store(acc01, &C[(bm + sgr) * dm.N + (bn + sgc + 8)], dm.N);"
+     (tir-line "  simdgroup_store(acc10, &C[(bm + sgr + 8) * dm.N + (bn + sgc)], dm.N);"
+     (tir-line "  simdgroup_store(acc11, &C[(bm + sgr + 8) * dm.N + (bn + sgc + 8)], dm.N);"
+     (tir-line "}" rest)))))))))))))))))))))))))))))))))))))))

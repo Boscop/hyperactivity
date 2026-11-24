@@ -1,0 +1,36 @@
+-- Single-source NVIDIA CUDA Top-15 Palette Bit-Exact Lossless BF16 LLM GEMV driven from the EXACT SAME tk-bf16-gemv
+tir-emit-llmzip-cuda : TKernelSpec → List Word
+tir-emit-llmzip-cuda (tk-bf16-gemv r c pal threads) =
+  let sth = ce-dec threads
+      spal = ce-dec pal
+      swarps = ce-dec (%wdiv threads #32)
+  in tir-line (list-append "// Mechanically lowered from verified tk-bf16-gemv " (list-append (ce-dec r) (list-append "x" (list-append (ce-dec c) (list-append " pal=" (list-append spal (list-append " threads=" sth)))))))
+     (tir-line "#include <cuda_runtime.h>"
+     (tir-line "#include <stdint.h>"
+     (tir-line "__device__ __forceinline__ float bf16_to_f32(uint16_t b) { return __uint_as_float((uint32_t)b << 16); }"
+     (tir-line "__global__ void hx_gemv_bf16_zip_cuda(const uchar4* sm4, const uint16_t* e4, const uint8_t* pal, const uint32_t* esc_off, const uint16_t* esc_col, const uint8_t* esc_exp, const uint8_t* sm_raw, const float4* x4, const float* x, float* y, uint32_t rows, uint32_t cols) {"
+     (tir-line "  uint32_t row = blockIdx.x, tid = threadIdx.x;"
+     (tir-line "  __shared__ uint8_t lp[16]; if (tid < 16) lp[tid] = pal[row * 16 + tid];"
+     (tir-line "  __syncthreads();"
+     (tir-line "  uint32_t cols4 = cols >> 2; const uchar4* sr = sm4 + row * cols4; const uint16_t* er = e4 + row * cols4; float acc = 0.0f;"
+     (tir-line (list-append "  for (uint32_t g = tid; g < cols4; g += " (list-append sth ") {"))
+     (tir-line "    uchar4 s = sr[g]; uint16_t code = er[g]; float4 xv = x4[g];"
+     (tir-line "    uint8_t c0 = code & 15, c1 = (code >> 4) & 15, c2 = (code >> 8) & 15, c3 = (code >> 12) & 15;"
+     (tir-line (list-append "    uint16_t w0 = (c0 < " (list-append spal ") ? (((uint16_t)(s.x & 128) << 8) | ((uint16_t)lp[c0] << 7) | (s.x & 127)) : 0;"))
+     (tir-line (list-append "    uint16_t w1 = (c1 < " (list-append spal ") ? (((uint16_t)(s.y & 128) << 8) | ((uint16_t)lp[c1] << 7) | (s.y & 127)) : 0;"))
+     (tir-line (list-append "    uint16_t w2 = (c2 < " (list-append spal ") ? (((uint16_t)(s.z & 128) << 8) | ((uint16_t)lp[c2] << 7) | (s.z & 127)) : 0;"))
+     (tir-line (list-append "    uint16_t w3 = (c3 < " (list-append spal ") ? (((uint16_t)(s.w & 128) << 8) | ((uint16_t)lp[c3] << 7) | (s.w & 127)) : 0;"))
+     (tir-line "    acc = fmaf(bf16_to_f32(w0), xv.x, acc); acc = fmaf(bf16_to_f32(w1), xv.y, acc);"
+     (tir-line "    acc = fmaf(bf16_to_f32(w2), xv.z, acc); acc = fmaf(bf16_to_f32(w3), xv.w, acc);"
+     (tir-line "  }"
+     (tir-line "  uint32_t eb = esc_off[row], ee = esc_off[row + 1];"
+     (tir-line (list-append "  for (uint32_t k = eb + tid; k < ee; k += " (list-append sth ") {"))
+     (tir-line "    uint32_t c = esc_col[k]; uint8_t s = sm_raw[row * cols + c];"
+     (tir-line "    uint16_t w = ((uint16_t)(s & 128) << 8) | ((uint16_t)esc_exp[k] << 7) | (s & 127);"
+     (tir-line "    acc = fmaf(bf16_to_f32(w), x[c], acc);"
+     (tir-line "  }"
+     (tir-line "  for (int off = 16; off > 0; off >>= 1) acc += __shfl_down_sync(0xffffffffu, acc, off);"
+     (tir-line (list-append "  __shared__ float sh[" (list-append swarps "]; if ((tid & 31) == 0) sh[tid >> 5] = acc; __syncthreads();"))
+     (tir-line "  if (tid == 0) y[row] = sh[0] + sh[1] + sh[2] + sh[3];"
+     (tir-line "}" nil))))))))))))))))))))))))))))
+tir-emit-llmzip-cuda _ = "// invalid TensorIR BF16 spec"

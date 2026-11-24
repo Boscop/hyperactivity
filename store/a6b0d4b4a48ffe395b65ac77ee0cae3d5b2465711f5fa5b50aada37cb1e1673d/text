@@ -1,0 +1,21 @@
+-- Complete 10-Op 32-bit RV32I ALU:
+--   0=ADD, 1=SUB, 2=AND, 3=OR, 4=XOR, 5=SLTU, 6=SLT(signed), 7=SLL, 8=SRL, 9=SRA(arithmetic)
+cir-alu32 : Word → Word → Word → Word
+cir-alu32 op a b =
+  let a32 = %wand a #4294967295
+      b32 = %wand b #4294967295
+      sh  = %wand b32 #31
+  in if %weq op #0 then cir-add32 a32 b32
+     else if %weq op #1 then cir-sub32 a32 b32
+     else if %weq op #2 then %wand a32 b32
+     else if %weq op #3 then %wor a32 b32
+     else if %weq op #4 then %wxor a32 b32
+     else if %weq op #5 then (if %wlt a32 b32 then #1 else #0)
+     else if %weq op #6 then (if %wlt (%wxor a32 #2147483648) (%wxor b32 #2147483648) then #1 else #0)
+     else if %weq op #7 then %wand (%wshl a32 sh) #4294967295
+     else if %weq op #8 then %wshr a32 sh
+     else
+       let raw = %wshr a32 sh
+           neg = %wlt #2147483647 a32
+           mask = if %weq sh #0 then #0 else %wand (%wshl #4294967295 (%wsub #32 sh)) #4294967295
+       in if neg then %wor raw mask else raw

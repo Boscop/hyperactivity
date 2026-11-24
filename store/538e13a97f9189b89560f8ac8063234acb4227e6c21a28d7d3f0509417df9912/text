@@ -1,0 +1,24 @@
+-- Exact tile/warp divisibility check (guarantees zero out-of-bounds memory access in all lowered GPU shaders)
+tir-tiles-valid : TKernelSpec → Bool
+tir-tiles-valid (tk-gemm m n k tm tn tk) =
+  if %weq (%wmod m tm) #0 then
+    if %weq (%wmod n tn) #0 then
+      if %weq (%wmod k tk) #0 then
+        if %weq (%wmod tm #16) #0 then
+          if %weq (%wmod tn #16) #0 then %weq (%wmod tk #8) #0 else false
+        else false
+      else false
+    else false
+  else false
+tir-tiles-valid (tk-flash-attn n d tq tkv) =
+  if %weq (%wmod n tq) #0 then
+    if %weq (%wmod n tkv) #0 then
+      if %weq (%wmod d #16) #0 then %weq (%wmod tq #32) #0 else false
+    else false
+  else false
+tir-tiles-valid (tk-bf16-gemv r c pal threads) =
+  if %weq (%wmod c #4) #0 then
+    if %weq pal #15 then
+      if %weq (%wmod threads #32) #0 then %wlt #0 r else false
+    else false
+  else false

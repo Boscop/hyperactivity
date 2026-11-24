@@ -1,0 +1,49 @@
+-- Single-source Apple Metal Top-15 Palette Bit-Exact Lossless BF16 LLM GEMV driven from tk-bf16-gemv
+tir-emit-llmzip-metal : TKernelSpec → List Word
+tir-emit-llmzip-metal (tk-bf16-gemv r c pal threads) =
+  let sth = ce-dec threads
+      spal = ce-dec pal
+      swarps = ce-dec (%wdiv threads #32)
+  in tir-line (list-append "// Mechanically lowered from verified tk-bf16-gemv " (list-append (ce-dec r) (list-append "x" (list-append (ce-dec c) (list-append " pal=" (list-append spal (list-append " threads=" sth)))))))
+     (tir-line "#include <metal_stdlib>"
+     (tir-line "using namespace metal;"
+     (tir-line "struct LlmDims { uint rows; uint cols; };"
+     (tir-line "inline float bf16_to_f32(ushort b) { return as_type<float>(uint(b) << 16); }"
+     (tir-line "kernel void hx_gemv_bf16_raw(device const ushort4* W4 [[buffer(0)]], device const float4* x4 [[buffer(1)]], device float* y [[buffer(2)]], constant LlmDims& dm [[buffer(3)]], uint row [[threadgroup_position_in_grid]], uint tid [[thread_index_in_threadgroup]]) {"
+     (tir-line "  float acc = 0.0f; uint cols4 = dm.cols >> 2; device const ushort4* wr = W4 + row * cols4;"
+     (tir-line (list-append "  for (uint g = tid; g < cols4; g += " (list-append sth ") {"))
+     (tir-line "    ushort4 w = wr[g]; float4 xv = x4[g];"
+     (tir-line "    acc = fma(bf16_to_f32(w.x), xv.x, acc); acc = fma(bf16_to_f32(w.y), xv.y, acc);"
+     (tir-line "    acc = fma(bf16_to_f32(w.z), xv.z, acc); acc = fma(bf16_to_f32(w.w), xv.w, acc);"
+     (tir-line "  }"
+     (tir-line (list-append "  acc = simd_sum(acc); threadgroup float sh[" (list-append swarps "];"))
+     (tir-line "  if ((tid & 31) == 0) sh[tid >> 5] = acc;"
+     (tir-line "  threadgroup_barrier(mem_flags::mem_threadgroup);"
+     (tir-line "  if (tid == 0) y[row] = sh[0] + sh[1] + sh[2] + sh[3];"
+     (tir-line "}"
+     (tir-line "kernel void hx_gemv_bf16_zip(device const uchar4* sm4 [[buffer(0)]], device const ushort* e4 [[buffer(1)]], device const uchar* pal [[buffer(2)]], device const uint* esc_off [[buffer(3)]], device const ushort* esc_col [[buffer(4)]], device const uchar* esc_exp [[buffer(5)]], device const uchar* sm_raw [[buffer(6)]], device const float4* x4 [[buffer(7)]], device const float* x [[buffer(8)]], device float* y [[buffer(9)]], constant LlmDims& dm [[buffer(10)]], uint row [[threadgroup_position_in_grid]], uint tid [[thread_index_in_threadgroup]]) {"
+     (tir-line "  threadgroup uchar lp[16]; if (tid < 16) lp[tid] = pal[row * 16 + tid];"
+     (tir-line "  threadgroup_barrier(mem_flags::mem_threadgroup);"
+     (tir-line "  uint cols4 = dm.cols >> 2; device const uchar4* sr = sm4 + row * cols4; device const ushort* er = e4 + row * cols4; float acc = 0.0f;"
+     (tir-line (list-append "  for (uint g = tid; g < cols4; g += " (list-append sth ") {"))
+     (tir-line "    uchar4 s = sr[g]; ushort code = er[g]; float4 xv = x4[g];"
+     (tir-line "    uchar c0 = code & 15, c1 = (code >> 4) & 15, c2 = (code >> 8) & 15, c3 = (code >> 12) & 15;"
+     (tir-line (list-append "    ushort w0 = (c0 < " (list-append spal ") ? ((ushort(s.x & 128) << 8) | (ushort(lp[c0]) << 7) | ushort(s.x & 127)) : 0;"))
+     (tir-line (list-append "    ushort w1 = (c1 < " (list-append spal ") ? ((ushort(s.y & 128) << 8) | (ushort(lp[c1]) << 7) | ushort(s.y & 127)) : 0;"))
+     (tir-line (list-append "    ushort w2 = (c2 < " (list-append spal ") ? ((ushort(s.z & 128) << 8) | (ushort(lp[c2]) << 7) | ushort(s.z & 127)) : 0;"))
+     (tir-line (list-append "    ushort w3 = (c3 < " (list-append spal ") ? ((ushort(s.w & 128) << 8) | (ushort(lp[c3]) << 7) | ushort(s.w & 127)) : 0;"))
+     (tir-line "    acc = fma(bf16_to_f32(w0), xv.x, acc); acc = fma(bf16_to_f32(w1), xv.y, acc);"
+     (tir-line "    acc = fma(bf16_to_f32(w2), xv.z, acc); acc = fma(bf16_to_f32(w3), xv.w, acc);"
+     (tir-line "  }"
+     (tir-line "  uint eb = esc_off[row], ee = esc_off[row + 1];"
+     (tir-line (list-append "  for (uint k = eb + tid; k < ee; k += " (list-append sth ") {"))
+     (tir-line "    uint c = esc_col[k]; uchar s = sm_raw[row * dm.cols + c];"
+     (tir-line "    ushort w = (ushort(s & 128) << 8) | (ushort(esc_exp[k]) << 7) | ushort(s & 127);"
+     (tir-line "    acc = fma(bf16_to_f32(w), x[c], acc);"
+     (tir-line "  }"
+     (tir-line (list-append "  acc = simd_sum(acc); threadgroup float sh[" (list-append swarps "];"))
+     (tir-line "  if ((tid & 31) == 0) sh[tid >> 5] = acc;"
+     (tir-line "  threadgroup_barrier(mem_flags::mem_threadgroup);"
+     (tir-line "  if (tid == 0) y[row] = sh[0] + sh[1] + sh[2] + sh[3];"
+     (tir-line "}" nil)))))))))))))))))))))))))))))))))))))))))
+tir-emit-llmzip-metal _ = "// invalid TensorIR BF16 spec"

@@ -1,0 +1,88 @@
+-- Parameterized Apple Metal simdgroup_half8x8 FlashAttention-2 body driven from TKernelSpec
+tir-metal-flash-body : Word → Word → Word → Word → List Word → List Word
+tir-metal-flash-body n d tq tkv rest =
+  let sd = ce-dec d
+      stq = ce-dec tq
+      stkv = ce-dec tkv
+      sqd = ce-dec (%wmul tq d)
+      skvd = ce-dec (%wmul tkv d)
+  in tir-line (list-append "// Lowered from verified tk-flash-attn N=" (list-append (ce-dec n) (list-append " D=" (list-append sd (list-append " tile=" (list-append stq (list-append "x" stkv)))))))
+     (tir-line "kernel void hx_flash_attn_simd16("
+     (tir-line "    device const half* Q [[buffer(0)]],"
+     (tir-line "    device const half* Kt [[buffer(1)]],"
+     (tir-line "    device const half* V [[buffer(2)]],"
+     (tir-line "    device float* O [[buffer(3)]],"
+     (tir-line "    constant AttnDims& ad [[buffer(4)]],"
+     (tir-line "    uint tgid [[threadgroup_position_in_grid]],"
+     (tir-line "    uint sgid [[simdgroup_index_in_threadgroup]],"
+     (tir-line "    uint lane [[thread_index_in_simdgroup]],"
+     (tir-line "    uint tid [[thread_index_in_threadgroup]]) {"
+     (tir-line (list-append "  threadgroup half Qs[" (list-append stq (list-append "][" (list-append sd "];"))))
+     (tir-line (list-append "  threadgroup half Kts[" (list-append sd (list-append "][" (list-append stkv "];"))))
+     (tir-line (list-append "  threadgroup half Vs[" (list-append stkv (list-append "][" (list-append sd "];"))))
+     (tir-line (list-append "  threadgroup float St[" (list-append stq (list-append "][" (list-append stkv "];"))))
+     (tir-line (list-append "  threadgroup half Pt[" (list-append stq (list-append "][" (list-append stkv "];"))))
+     (tir-line (list-append "  threadgroup float Ot[" (list-append stq (list-append "][" (list-append sd "];"))))
+     (tir-line (list-append "  threadgroup float rm[" (list-append stq (list-append "], rl[" (list-append stq (list-append "], ralpha[" (list-append stq "];"))))))
+     (tir-line (list-append "  uint qbase = tgid * " (list-append stq ";"))
+     (tir-line (list-append "  for (uint e = tid; e < " (list-append sqd "; e += 128) {"))
+     (tir-line (list-append "    uint r = e / " (list-append sd (list-append ", c = e % " (list-append sd ";"))))
+     (tir-line (list-append "    Qs[r][c] = Q[(qbase + r) * " (list-append sd " + c];"))
+     (tir-line "    Ot[r][c] = 0.0f;"
+     (tir-line "  }"
+     (tir-line (list-append "  if (tid < " (list-append stq ") { rm[tid] = -1e30f; rl[tid] = 0.0f; }"))
+     (tir-line "  threadgroup_barrier(mem_flags::mem_threadgroup);"
+     (tir-line "  uint qrow = sgid * 8;"
+     (tir-line (list-append "  for (uint kv = 0; kv < ad.N; kv += " (list-append stkv ") {"))
+     (tir-line (list-append "    for (uint e = tid; e < " (list-append skvd "; e += 128) {"))
+     (tir-line (list-append "      uint r = e / " (list-append sd (list-append ", c = e % " (list-append sd ";"))))
+     (tir-line (list-append "      Vs[r][c] = V[(kv + r) * " (list-append sd " + c];"))
+     (tir-line (list-append "      Kts[c][r] = Kt[(kv + r) * " (list-append sd " + c];"))
+     (tir-line "    }"
+     (tir-line "    threadgroup_barrier(mem_flags::mem_threadgroup);"
+     (tir-line "    simdgroup_float8x8 s0 = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);"
+     (tir-line "    simdgroup_float8x8 s1 = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);"
+     (tir-line "    simdgroup_float8x8 s2 = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);"
+     (tir-line "    simdgroup_float8x8 s3 = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);"
+     (tir-line (list-append "    for (uint k = 0; k < " (list-append sd "; k += 8) {"))
+     (tir-line "      simdgroup_half8x8 qm, k0, k1, k2, k3;"
+     (tir-line (list-append "      simdgroup_load(qm, &Qs[qrow][k], " (list-append sd ");"))
+     (tir-line (list-append "      simdgroup_load(k0, &Kts[k][0], " (list-append stkv (list-append "); simdgroup_load(k1, &Kts[k][8], " (list-append stkv ");"))))
+     (tir-line (list-append "      simdgroup_load(k2, &Kts[k][16], " (list-append stkv (list-append "); simdgroup_load(k3, &Kts[k][24], " (list-append stkv ");"))))
+     (tir-line "      simdgroup_multiply_accumulate(s0, qm, k0, s0);"
+     (tir-line "      simdgroup_multiply_accumulate(s1, qm, k1, s1);"
+     (tir-line "      simdgroup_multiply_accumulate(s2, qm, k2, s2);"
+     (tir-line "      simdgroup_multiply_accumulate(s3, qm, k3, s3);"
+     (tir-line "    }"
+     (tir-line (list-append "    simdgroup_store(s0, &St[qrow][0], " (list-append stkv (list-append "); simdgroup_store(s1, &St[qrow][8], " (list-append stkv ");"))))
+     (tir-line (list-append "    simdgroup_store(s2, &St[qrow][16], " (list-append stkv (list-append "); simdgroup_store(s3, &St[qrow][24], " (list-append stkv ");"))))
+     (tir-line "    threadgroup_barrier(mem_flags::mem_threadgroup);"
+     (tir-line (list-append "    if (tid < " (list-append stq ") {"))
+     (tir-line "      float m = rm[tid], l = rl[tid], mx = m;"
+     (tir-line (list-append "      for (uint j = 0; j < " (list-append stkv "; j++) { float v = St[tid][j] * ad.scale; St[tid][j] = v; if (v > mx) mx = v; }"))
+     (tir-line "      float alpha = exp(m - mx), sum = 0.0f;"
+     (tir-line (list-append "      for (uint j = 0; j < " (list-append stkv "; j++) { float p = exp(St[tid][j] - mx); Pt[tid][j] = half(p); sum += p; }"))
+     (tir-line "      rl[tid] = l * alpha + sum; rm[tid] = mx; ralpha[tid] = alpha;"
+     (tir-line "    }"
+     (tir-line "    threadgroup_barrier(mem_flags::mem_threadgroup);"
+     (tir-line (list-append "    for (uint e = tid; e < " (list-append sqd (list-append "; e += 128) { uint r = e / " (list-append sd (list-append ", c = e % " (list-append sd "; Ot[r][c] *= ralpha[r]; }"))))))
+     (tir-line "    threadgroup_barrier(mem_flags::mem_threadgroup);"
+     (tir-line (list-append "    for (uint col = 0; col < " (list-append sd "; col += 16) {"))
+     (tir-line "      simdgroup_float8x8 o0, o1;"
+     (tir-line (list-append "      simdgroup_load(o0, &Ot[qrow][col], " (list-append sd (list-append "); simdgroup_load(o1, &Ot[qrow][col + 8], " (list-append sd ");"))))
+     (tir-line (list-append "      for (uint k = 0; k < " (list-append stkv "; k += 8) {"))
+     (tir-line "        simdgroup_half8x8 pm, v0, v1;"
+     (tir-line (list-append "        simdgroup_load(pm, &Pt[qrow][k], " (list-append stkv ");"))
+     (tir-line (list-append "        simdgroup_load(v0, &Vs[k][col], " (list-append sd (list-append "); simdgroup_load(v1, &Vs[k][col + 8], " (list-append sd ");"))))
+     (tir-line "        simdgroup_multiply_accumulate(o0, pm, v0, o0);"
+     (tir-line "        simdgroup_multiply_accumulate(o1, pm, v1, o1);"
+     (tir-line "      }"
+     (tir-line (list-append "      simdgroup_store(o0, &Ot[qrow][col], " (list-append sd (list-append "); simdgroup_store(o1, &Ot[qrow][col + 8], " (list-append sd ");"))))
+     (tir-line "    }"
+     (tir-line "    threadgroup_barrier(mem_flags::mem_threadgroup);"
+     (tir-line "  }"
+     (tir-line (list-append "  for (uint e = tid; e < " (list-append sqd "; e += 128) {"))
+     (tir-line (list-append "    uint r = e / " (list-append sd (list-append ", c = e % " (list-append sd ";"))))
+     (tir-line (list-append "    O[(qbase + r) * " (list-append sd " + c] = Ot[r][c] / rl[r];"))
+     (tir-line "  }"
+     (tir-line "}" rest)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))

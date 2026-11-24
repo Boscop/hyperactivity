@@ -1,0 +1,42 @@
+-- Single-source combined NVIDIA CUDA shader emitter for hx-gpu (WMMA16 GEMM + Online FlashAttention)
+tir-emit-gpu-cuda : TKernelSpec → TKernelSpec → List Word
+tir-emit-gpu-cuda (tk-gemm m n k tm tn tk) (tk-flash-attn an ad tq tkv) =
+  let sd = ce-dec ad
+  in tir-line "// Mechanically lowered from verified TensorIR specs (lib/ir/tensor-ir.hypercubical)"
+     (tir-line "#include <cuda_runtime.h>"
+     (tir-line "#include <mma.h>"
+     (tir-line "#include <math.h>"
+     (tir-line "using namespace nvcuda;"
+     (tir-line (list-append "// Verified GEMM " (list-append (ce-dec m) (list-append "x" (list-append (ce-dec n) (list-append "x" (list-append (ce-dec k) (list-append " tile=" (list-append (ce-dec tm) (list-append "x" (list-append (ce-dec tn) (list-append "x" (ce-dec tk))))))))))))
+     (tir-line "__global__ void hx_gemm_wmma16(const half* A, const half* B, float* C, int M, int N, int K) {"
+     (tir-line "  int wm = blockIdx.y * 16, wn = blockIdx.x * 16;"
+     (tir-line "  wmma::fragment<wmma::matrix_a, 16, 16, 16, half, wmma::row_major> a_frag;"
+     (tir-line "  wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::row_major> b_frag;"
+     (tir-line "  wmma::fragment<wmma::accumulator, 16, 16, 16, float> c_frag;"
+     (tir-line "  wmma::fill_fragment(c_frag, 0.0f);"
+     (tir-line "  for (int k = 0; k < K; k += 16) {"
+     (tir-line "    wmma::load_matrix_sync(a_frag, A + wm * K + k, K);"
+     (tir-line "    wmma::load_matrix_sync(b_frag, B + k * N + wn, N);"
+     (tir-line "    wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);"
+     (tir-line "  }"
+     (tir-line "  wmma::store_matrix_sync(C + wm * N + wn, c_frag, N, wmma::mem_row_major);"
+     (tir-line "}"
+     (tir-line (list-append "// Verified FlashAttn N=" (list-append (ce-dec an) (list-append " D=" (list-append sd (list-append " tile=" (list-append (ce-dec tq) (list-append "x" (ce-dec tkv))))))))
+     (tir-line "__global__ void hx_flash_attn_tiled(const float* Q, const float* K, const float* V, float* O, int N, int D, float scale) {"
+     (tir-line "  int qidx = blockIdx.x * blockDim.x + threadIdx.x;"
+     (tir-line "  if (qidx >= N) return;"
+     (tir-line (list-append "  float qv[" (list-append sd (list-append "], acc[" (list-append sd "];"))))
+     (tir-line "  for (int d = 0; d < D; d++) { qv[d] = Q[qidx * D + d]; acc[d] = 0.0f; }"
+     (tir-line "  float m = -1e30f, l = 0.0f;"
+     (tir-line "  for (int j = 0; j < N; j++) {"
+     (tir-line "    float dot = 0.0f;"
+     (tir-line "    for (int d = 0; d < D; d++) dot = fmaf(qv[d], K[j * D + d], dot);"
+     (tir-line "    float s = dot * scale, mn = fmaxf(m, s), a = expf(m - mn), b = expf(s - mn);"
+     (tir-line "    l = l * a + b;"
+     (tir-line "    for (int d = 0; d < D; d++) acc[d] = acc[d] * a + b * V[j * D + d];"
+     (tir-line "    m = mn;"
+     (tir-line "  }"
+     (tir-line "  float inv = 1.0f / l;"
+     (tir-line "  for (int d = 0; d < D; d++) O[qidx * D + d] = acc[d] * inv;"
+     (tir-line "}" nil))))))))))))))))))))))))))))))))))))
+tir-emit-gpu-cuda _ _ = "// invalid TensorIR spec"

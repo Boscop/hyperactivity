@@ -1,0 +1,62 @@
+-- REGISTER-PACKED 8-ARG DECODER BIT LOOP (fits 100% in ARM64 x0..x7 -> ZERO stack spills!)
+-- Args: bleft, tab, hist, pkt (0|mbyte<<8|mlen<<16|c0<<24|sh<<36), lohi (lo|hi<<32), code, ipos, k
+-- Reads inb/ilen from tab scratch slots ONLY when renorm triggers!
+hcm-dec-byte : Nat → Word → Word → Word → Word → Word → Word → (Word → Word → Word → Word → Word → Step W Word) → Step W Word
+hcm-dec-byte zero _ _ pkt lohi code ipos k =
+  k (%wand (%wshr pkt #24) #255) lohi code ipos (%wand (%wshr pkt #16) #255)
+hcm-dec-byte (suc bleft) tab hist pkt lohi code ipos k =
+  let mbyte = %wand (%wshr pkt #8) #255
+      mlen  = %wand (%wshr pkt #16) #255
+      c0    = %wand (%wshr pkt #24) #511
+      sh    = %wshr pkt #36
+      mbit  = %wand (%wshr mbyte sh) #1
+      a1    = hcm-addr1 tab hist c0
+      a2    = hcm-addr2 tab hist c0
+      a4    = hcm-addr4 tab hist c0
+      a6    = hcm-addr6 tab hist c0
+      aw    = hcm-addr-w tab c0
+  in scmd (w-load a1) (λ v1 →
+     scmd (w-load a2) (λ v2 →
+     scmd (w-load a4) (λ v4 →
+     scmd (w-load a6) (λ v6 →
+     scmd (w-load aw) (λ vw →
+     let u1  = hcm-stretch (hcm-prob v1)
+         u2  = hcm-stretch (hcm-prob v2)
+         u4  = hcm-stretch (hcm-prob v4)
+         u6  = hcm-stretch (hcm-prob v6)
+         um  = hcm-um mlen mbit
+         wp  = %wxor vw hcm-w-init
+         p   = hcm-mix-pred wp u1 u2 u4 u6 um
+         lo  = %wand lohi #4294967295
+         hi  = %wshr lohi #32
+         mid = %wadd lo (%wmul (%wshr (%wsub hi lo) #12) p)
+         bit = if %wlt mid code then #0 else #1
+         lo2 = if %weq bit #1 then lo else %wsucc mid
+         hi2 = if %weq bit #1 then mid else hi
+         ml2 = if %weq bit mbit then mlen else #0
+         wp2 = hcm-mix-upd wp u1 u2 u4 u6 um bit p
+         pk2 = hcm-pack-pkt #0 mbyte ml2 (%wor (%wshl c0 #1) bit) (%wsub sh #1)
+     in scmd (w-store a1 (hcm-upd-cnt v1 bit)) (λ _ →
+        scmd (w-store a2 (hcm-upd-cnt v2 bit)) (λ _ →
+        scmd (w-store a4 (hcm-upd-cnt v4 bit)) (λ _ →
+        scmd (w-store a6 (hcm-upd-cnt v6 bit)) (λ _ →
+        scmd (w-store aw (%wxor wp2 hcm-w-init)) (λ _ →
+        if %wlt (%wxor lo2 hi2) #16777216 then
+          scmd (w-load (hcm-slot-inb tab)) (λ inb →
+          scmd (w-load (hcm-slot-ilen tab)) (λ ilen →
+          scmd (w-load8 (%wadd inb ipos)) (λ nb1 →
+          let b1  = if %wlt ipos ilen then nb1 else #0
+              lo3 = %wand (%wshl lo2 #8) #4294967295
+              hi3 = %wand (%wor (%wshl hi2 #8) #255) #4294967295
+              c3  = %wand (%wor (%wshl code #8) b1) #4294967295
+              ip3 = if %wlt ipos ilen then %wsucc ipos else ipos
+          in if %wlt (%wxor lo3 hi3) #16777216 then
+               scmd (w-load8 (%wadd inb ip3)) (λ nb2 →
+               let b2  = if %wlt ip3 ilen then nb2 else #0
+                   lo4 = %wand (%wshl lo3 #8) #4294967295
+                   hi4 = %wand (%wor (%wshl hi3 #8) #255) #4294967295
+                   c4  = %wand (%wor (%wshl c3 #8) b2) #4294967295
+                   ip4 = if %wlt ip3 ilen then %wsucc ip3 else ip3
+               in hcm-dec-byte bleft tab hist pk2 (hcm-pack-lohi lo4 hi4) c4 ip4 k)
+             else hcm-dec-byte bleft tab hist pk2 (hcm-pack-lohi lo3 hi3) c3 ip3 k)))
+        else hcm-dec-byte bleft tab hist pk2 (hcm-pack-lohi lo2 hi2) code ipos k))))))))))
