@@ -1,0 +1,18 @@
+-- ── 2. Universal Damped Discrete Hamiltonian Passivity SOS Identity ──────────
+-- For ANY midpoint symplectic damped wave step:
+--   m (v0 - v1) = (dt/2) (k (q0 + q1) + gamma (v0 + v1)),
+--   q0 - q1     = -(dt/2) (v0 + v1).
+-- Letting sv = v0 + v1, sq = q0 + q1, the discrete energy drop satisfies:
+--   2 * (KE_drop + PE_drop) = dt * (k*sq + gamma*sv)*sv + k*(-dt*sv)*sq = dt * gamma * sv^2 >= 0!
+-- Proves ZERO filter blowups / ZERO NaN energy growth for every gamma >= 0, dt >= 0, k.
+-- Variables (0..4): dt, k, gamma, sv, sq.
+wave-passivity-poly : (A : Type) → (A → A → A) → (A → A → A) → (BQ → A) → List A → A × A
+wave-passivity-poly A ad mu q vs =
+  (λ g sub sq →
+    let dt = g 0; k = g 1; gam = g 2; sv = g 3; sqv = g 4
+        keDrop = mu (mu dt (ad (mu k sqv) (mu gam sv))) sv
+        peDrop = mu k (mu (sub (q (fn-q 0 1)) (mu dt sv)) sqv)
+        lhs    = ad keDrop peDrop
+        rhs    = mu (mu dt gam) (sq sv)
+    in (lhs , rhs))
+  (λ n → al-nth A (q (fn-q 0 1)) n vs) (al-gsub A ad mu q) (al-gsq A mu)

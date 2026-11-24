@@ -1,0 +1,26 @@
+-- One symplectic Verlet step on a 4-node graph with neighbor stiffness w, ground k,
+-- damping shift damp (0..65536), nonlinearity alpha, and external excitation f0
+mesh4-step : Word → Word → Word → Word → Word → Mesh4 → Mesh4
+mesh4-step k w damp alpha f0 (mesh4 q0 q1 q2 q3 p0 p1 p2 p3) =
+  let -- Graph Laplacian forces L q on ring/chain/coupled 4-node mesh
+      l0 = w32-add (s32-mul16 w (w32-sub q0 q1)) (s32-mul16 w (w32-sub q0 q3))
+      l1 = w32-add (s32-mul16 w (w32-sub q1 q0)) (s32-mul16 w (w32-sub q1 q2))
+      l2 = w32-add (s32-mul16 w (w32-sub q2 q1)) (s32-mul16 w (w32-sub q2 q3))
+      l3 = w32-add (s32-mul16 w (w32-sub q3 q2)) (s32-mul16 w (w32-sub q3 q0))
+      -- Nonlinear cubic restoring force on node 0 (analog warmth / wavefolding)
+      nl0 = s32-mul16 alpha (s32-mul16 (s32-mul16 q0 q0) q0)
+      -- Total force = k*q + L*q + nl - f_ext
+      ft0 = w32-sub (w32-add (w32-add (s32-mul16 k q0) l0) nl0) f0
+      ft1 = w32-add (s32-mul16 k q1) l1
+      ft2 = w32-add (s32-mul16 k q2) l2
+      ft3 = w32-add (s32-mul16 k q3) l3
+      -- Damped momentum update + position update
+      np0 = s32-mul16 damp (w32-sub p0 ft0)
+      np1 = s32-mul16 damp (w32-sub p1 ft1)
+      np2 = s32-mul16 damp (w32-sub p2 ft2)
+      np3 = s32-mul16 damp (w32-sub p3 ft3)
+      nq0 = w32-add q0 np0
+      nq1 = w32-add q1 np1
+      nq2 = w32-add q2 np2
+      nq3 = w32-add q3 np3
+  in mesh4 nq0 nq1 nq2 nq3 np0 np1 np2 np3

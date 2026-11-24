@@ -1,0 +1,14 @@
+hh-handle : Word → Word → List (List Word × List Word) → (Word → Step W Word) → Step W Word
+hh-handle cfd buf rmap k =
+  scmd (w-sys #0 cfd buf #1024 #0 #0 #0) (λ n →
+  cli-peek buf (if %wlt #1024 n then #0 else n) (λ req →
+    let path = hh-before-sp (hh-after-sp req)
+        doc  = hh-doc-of path
+    in if cli-eq path "/healthz" then
+         scmd (w-fd-write cfd (hh-resp "200 OK" "text/plain; charset=utf-8" "ok")) (λ _ → scmd (w-sys #3 cfd #0 #0 #0 #0 #0) (λ _ → k #1))
+       else if cli-eq path "/api/pouw/live" then
+         scmd (w-fd-write cfd (hh-resp "200 OK" "application/json; charset=utf-8" hh-pouw-json)) (λ _ → scmd (w-sys #3 cfd #0 #0 #0 #0 #0) (λ _ → k #1))
+       else if cli-eq doc nil then
+         scmd (w-fd-write cfd (hh-resp "404 Not Found" "text/plain; charset=utf-8" "Not Found")) (λ _ → scmd (w-sys #3 cfd #0 #0 #0 #0 #0) (λ _ → k #0))
+       else hh-read-doc rmap doc (λ body →
+         scmd (w-fd-write cfd (hh-resp "200 OK" (hh-ctype path) body)) (λ _ → scmd (w-sys #3 cfd #0 #0 #0 #0 #0) (λ _ → k #1)))))

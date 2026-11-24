@@ -1,0 +1,15 @@
+pat-eval-go : Nat → Word → Word → Pat → List GestureEvent
+pat-eval-go zero _ _ _ = nil
+pat-eval-go (suc _) _ _ p-rest = nil
+pat-eval-go (suc _) t _ (p-note freq _ vel) = cons (ge-impulse t #0 freq vel) nil
+pat-eval-go (suc f) t dur (p-seq a b) =
+  let half = %wdiv dur #2
+  in list-append (pat-eval-go f t half a) (pat-eval-go f (%wadd t half) half b)
+pat-eval-go (suc f) t dur (p-par a b) =
+  list-append (pat-eval-go f t dur a) (pat-eval-go f t dur b)
+pat-eval-go (suc f) t dur (p-fast k p) =
+  let sub = if %weq k #0 then dur else %wdiv dur k
+  in pat-eval-go f t sub p
+pat-eval-go (suc _) t dur (p-euclid k n freq vel) =
+  let sd = if %weq n #0 then dur else %wdiv dur n
+  in euclid-gen-go (toNat n) #0 k n sd freq vel

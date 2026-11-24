@@ -1,0 +1,20 @@
+-- Bit-exact Haar wavelet + HXZ roundtrip on real synthesized Port-Hamiltonian PCM
+audio-codec-test : Word → (Bool × (Word × Word))
+audio-codec-test nSamples =
+  let rawBytes = synth-pcm #0 nSamples
+      sams     = pcm-bytes-to-s16 rawBytes
+      lifted   = haar-lift-list sams
+      sBytes   = w32s-to-bytes (fst lifted)
+      dBytes   = w32s-to-bytes (snd lifted)
+      -- Compress low-pass and detail wavelet bands separately with causal rANS (lib/hxz)
+      sEnc     = hxz-enc sBytes
+      dEnc     = hxz-enc dBytes
+      -- Decode and inverse Haar-lift back to bit-exact PCM
+      sDec     = bytes-to-w32s (hxz-dec sEnc)
+      dDec     = bytes-to-w32s (hxz-dec dEnc)
+      recSams  = haar-unlift-list sDec dDec
+      recBytes = s16-to-pcm-bytes recSams
+      ok       = cli-eq rawBytes recBytes
+      rawLen   = cli-len rawBytes
+      compLen  = %wadd (cli-len sEnc) (cli-len dEnc)
+  in (ok , (rawLen , compLen))

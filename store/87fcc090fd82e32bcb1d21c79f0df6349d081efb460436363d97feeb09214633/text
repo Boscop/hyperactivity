@@ -1,0 +1,30 @@
+-- Greedy/banded witnessed DTW aligner producing BOTH the monotone WarpPath witness and exact L1 cost
+dtw-align-go : Nat → List Word → List Word → Word → Word → Word → Word → Word → List WarpStep × Word
+dtw-align-go zero _ _ _ _ _ _ acc = (nil , acc)
+dtw-align-go (suc f) xs ys nx ny i j acc =
+  if andB (%weq i nx) (%weq j ny) then (nil , acc)
+  else if %weq i nx then
+    let d = w-abs-diff (w-nth (%wsub nx #1) xs) (w-nth j ys)
+        res = dtw-align-go f xs ys nx ny i (%wsucc j) (%wadd acc d)
+    in (cons ws-up (fst res) , snd res)
+  else if %weq j ny then
+    let d = w-abs-diff (w-nth i xs) (w-nth (%wsub ny #1) ys)
+        res = dtw-align-go f xs ys nx ny (%wsucc i) j (%wadd acc d)
+    in (cons ws-right (fst res) , snd res)
+  else
+    let d = w-abs-diff (w-nth i xs) (w-nth j ys)
+        ni = %wsucc i
+        nj = %wsucc j
+        -- lookahead next step cost to choose diagonal vs rush (right) vs drag (up)
+        cd = if andB (%wlt ni nx) (%wlt nj ny) then w-abs-diff (w-nth ni xs) (w-nth nj ys) else #0
+        cr = if %wlt ni nx then w-abs-diff (w-nth ni xs) (w-nth j ys) else #999999
+        cu = if %wlt nj ny then w-abs-diff (w-nth i xs) (w-nth nj ys) else #999999
+    in if andB (%wlt cr cd) (%wlt cr cu) then
+         let res = dtw-align-go f xs ys nx ny ni j (%wadd acc d)
+         in (cons ws-right (fst res) , snd res)
+       else if andB (%wlt cu cd) (%wlt cu cr) then
+         let res = dtw-align-go f xs ys nx ny i nj (%wadd acc d)
+         in (cons ws-up (fst res) , snd res)
+       else
+         let res = dtw-align-go f xs ys nx ny ni nj (%wadd acc d)
+         in (cons ws-diag (fst res) , snd res)
