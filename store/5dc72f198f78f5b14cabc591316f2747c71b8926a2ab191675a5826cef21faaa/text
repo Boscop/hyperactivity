@@ -1,0 +1,13 @@
+-- Reusable audit entrypoint returning (rh, entries, dmods, chunks, mbytes, up, rp, fl) via scratch struct st
+hhf-run-audit : (List Word → Word → Step W Word) → Step W Word
+hhf-run-audit k =
+  scmd (w-file-read-named "store/ROOT/root") (λ rr →
+  let rh = hhf-trim (snd rr)
+  in scmd (w-file-read-named (list-append "store/" (list-append rh "/root"))) (λ rt →
+     let rmap = hm-parse (snd rt)
+     in scmd (w-alloc #512) (λ pbuf →
+        scmd (w-alloc #262144) (λ buf →
+        scmd (w-alloc #64) (λ st →
+        let fin = hhf-audit-fin pbuf buf rh st k
+        in scmd (w-sys #900 #0 #0 #0 #0 #0 #0) (λ _ →
+           hhf-scan rmap #0 pbuf buf st fin))))))

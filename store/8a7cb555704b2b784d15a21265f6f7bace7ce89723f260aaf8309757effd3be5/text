@@ -1,0 +1,52 @@
+hcm-enc-byte : Nat → Word → Word → Word → Word → Word → Word → (Word → Word → Word → Step W Word) → Step W Word
+hcm-enc-byte zero _ _ pkt lohi _ opos k = k lohi opos (%wand (%wshr pkt #16) #255)
+hcm-enc-byte (suc bleft) tab hist pkt lohi outb opos k =
+  let x     = %wand pkt #255
+      mbyte = %wand (%wshr pkt #8) #255
+      mlen  = %wand (%wshr pkt #16) #255
+      c0    = %wand (%wshr pkt #24) #511
+      sh    = %wshr pkt #36
+      bit   = %wand (%wshr x sh) #1
+      mbit  = %wand (%wshr mbyte sh) #1
+      a1    = hcm-addr1 tab hist c0
+      a2    = hcm-addr2 tab hist c0
+      a4    = hcm-addr4 tab hist c0
+      a6    = hcm-addr6 tab hist c0
+      aw    = hcm-addr-w tab c0
+  in scmd (w-load a1) (λ v1 →
+     scmd (w-load a2) (λ v2 →
+     scmd (w-load a4) (λ v4 →
+     scmd (w-load a6) (λ v6 →
+     scmd (w-load aw) (λ vw →
+     let u1  = hcm-stretch (hcm-prob v1)
+         u2  = hcm-stretch (hcm-prob v2)
+         u4  = hcm-stretch (hcm-prob v4)
+         u6  = hcm-stretch (hcm-prob v6)
+         um  = hcm-um mlen mbit
+         wp  = %wxor vw hcm-w-init
+         p   = hcm-mix-pred wp u1 u2 u4 u6 um
+         lo  = %wand lohi #4294967295
+         hi  = %wshr lohi #32
+         mid = %wadd lo (%wmul (%wshr (%wsub hi lo) #12) p)
+         lo2 = if %weq bit #1 then lo else %wsucc mid
+         hi2 = if %weq bit #1 then mid else hi
+         ml2 = if %weq bit mbit then mlen else #0
+         wp2 = hcm-mix-upd wp u1 u2 u4 u6 um bit p
+         pk2 = hcm-pack-pkt x mbyte ml2 (%wor (%wshl c0 #1) bit) (%wsub sh #1)
+     in scmd (w-store a1 (hcm-upd-cnt v1 bit)) (λ _ →
+        scmd (w-store a2 (hcm-upd-cnt v2 bit)) (λ _ →
+        scmd (w-store a4 (hcm-upd-cnt v4 bit)) (λ _ →
+        scmd (w-store a6 (hcm-upd-cnt v6 bit)) (λ _ →
+        scmd (w-store aw (%wxor wp2 hcm-w-init)) (λ _ →
+        if %wlt (%wxor lo2 hi2) #16777216 then
+          scmd (w-store8 (%wadd outb opos) (%wshr lo2 #24)) (λ _ →
+          let lo3 = %wand (%wshl lo2 #8) #4294967295
+              hi3 = %wand (%wor (%wshl hi2 #8) #255) #4294967295
+              op3 = %wsucc opos
+          in if %wlt (%wxor lo3 hi3) #16777216 then
+               scmd (w-store8 (%wadd outb op3) (%wshr lo3 #24)) (λ _ →
+               let lo4 = %wand (%wshl lo3 #8) #4294967295
+                   hi4 = %wand (%wor (%wshl hi3 #8) #255) #4294967295
+               in hcm-enc-byte bleft tab hist pk2 (hcm-pack-lohi lo4 hi4) outb (%wsucc op3) k)
+             else hcm-enc-byte bleft tab hist pk2 (hcm-pack-lohi lo3 hi3) outb op3 k)
+        else hcm-enc-byte bleft tab hist pk2 (hcm-pack-lohi lo2 hi2) outb opos k))))))))))

@@ -1,0 +1,34 @@
+-- Store audit state in 8-word scratch header at st (entries, dmods, chunks, mbytes, up, rp, fl)
+hhf-scan : List (List Word × List Word) → Word → Word → Word → Word → (Word → Step W Word) → Step W Word
+hhf-scan nil _ _ _ _ k = k #0
+hhf-scan (cons e r) idx pbuf buf st k =
+  let phex = fst e
+      mh   = snd e
+  in if cli-eq phex "names" then hhf-scan r idx pbuf buf st k
+     else
+       hhf-maybe-rew idx (λ _ →
+         scmd (w-file-read-named (list-append "store/" (list-append mh "/module"))) (λ rm →
+          let mtxt = snd rm
+              chs  = hhf-split-lines mtxt nil
+              nc   = hhf-ll-len chs
+              mb   = cli-len mtxt
+              path = hhf-unhex phex
+              isd  = hhf-is-domain path
+          in scmd (w-load st) (λ entries →
+             scmd (w-load (%wadd st #8)) (λ dmods →
+             scmd (w-load (%wadd st #16)) (λ chunks →
+             scmd (w-load (%wadd st #24)) (λ mbytes →
+             scmd (w-store st (%wsucc entries)) (λ _ →
+             scmd (w-store (%wadd st #8) (if isd then %wsucc dmods else dmods)) (λ _ →
+             scmd (w-store (%wadd st #16) (%wadd chunks nc)) (λ _ →
+             scmd (w-store (%wadd st #24) (%wadd mbytes mb)) (λ _ →
+             if isd then
+               scmd (w-load (%wadd st #32)) (λ up →
+               scmd (w-load (%wadd st #40)) (λ rp →
+               scmd (w-load (%wadd st #48)) (λ fl →
+               hhf-audit-chunks chs pbuf buf up rp fl (λ up2 rp2 fl2 →
+               scmd (w-store (%wadd st #32) up2) (λ _ →
+               scmd (w-store (%wadd st #40) rp2) (λ _ →
+               scmd (w-store (%wadd st #48) fl2) (λ _ →
+               hhf-scan r (%wsucc idx) pbuf buf st k)))))))
+             else hhf-scan r (%wsucc idx) pbuf buf st k))))))))))

@@ -1,0 +1,17 @@
+hcm-rc-enc-pure : List (Word × Word) → Word → Word → List Word → List Word
+hcm-rc-enc-pure nil lo _ acc =
+  cli-rev (cons (%wand lo #255) (cons (%wand (%wshr lo #8) #255) (cons (%wand (%wshr lo #16) #255) (cons (%wand (%wshr lo #24) #255) acc)))) nil
+hcm-rc-enc-pure (cons bp rest) lo hi acc =
+  let bit = fst bp
+      p   = snd bp
+      mid = %wadd lo (%wmul (%wshr (%wsub hi lo) #12) p)
+      lo2 = if %weq bit #1 then lo else %wsucc mid
+      hi2 = if %weq bit #1 then mid else hi
+  in if %wlt (%wxor lo2 hi2) #16777216 then
+       let lo3 = %wand (%wshl lo2 #8) #4294967295
+           hi3 = %wand (%wor (%wshl hi2 #8) #255) #4294967295
+           ac3 = cons (%wshr lo2 #24) acc
+       in if %wlt (%wxor lo3 hi3) #16777216 then
+            hcm-rc-enc-pure rest (%wand (%wshl lo3 #8) #4294967295) (%wand (%wor (%wshl hi3 #8) #255) #4294967295) (cons (%wshr lo3 #24) ac3)
+          else hcm-rc-enc-pure rest lo3 hi3 ac3
+     else hcm-rc-enc-pure rest lo2 hi2 acc

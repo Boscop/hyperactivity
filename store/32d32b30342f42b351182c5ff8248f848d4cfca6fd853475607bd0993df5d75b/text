@@ -1,0 +1,14 @@
+-- Read store/<ch>/text via zero-copy raw syscall #902 into reusable 256KB buffer buf
+hhf-audit-chunks : List (List Word) → Word → Word → Word → Word → Word → (Word → Word → Word → Step W Word) → Step W Word
+hhf-audit-chunks nil _ _ up rp fl k = k up rp fl
+hhf-audit-chunks (cons ch rest) pbuf buf up rp fl k =
+  let ch2 = hhf-trim ch
+  in if %weq (cli-len ch2) #0 then hhf-audit-chunks rest pbuf buf up rp fl k
+     else let path = list-append "store/" (list-append ch2 "/text")
+              plen = cli-len path
+          in cli-poke pbuf path (λ _ →
+             scmd (w-store8 (%wadd pbuf plen) #0) (λ _ →
+             scmd (w-sys #902 pbuf buf #262144 #0 #0 #0) (λ got →
+             let n = if %wlt #262144 got then #0 else got
+             in hhf-scan-chunk (toNat n) buf #0 #0 #0 up rp fl (λ up2 rp2 fl2 →
+                hhf-audit-chunks rest pbuf buf up2 rp2 fl2 k))))

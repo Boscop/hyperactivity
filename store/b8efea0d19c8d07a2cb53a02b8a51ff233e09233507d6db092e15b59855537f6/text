@@ -1,0 +1,27 @@
+-- Scan raw byte buffer of a chunk for:
+--   * arrow (→ = E2 86 92) + eq (≡ = E2 89 A1) on same line -> universal proof!
+--   * "= refl" -> refl proof!
+--   * "#include" -> foreign-code boundary line!
+-- State packed in Word flg: bit0=arrow, bit1=eq, bit2=refl, bit3=foreign; prev3 holds last 3 bytes
+hhf-scan-chunk : Nat → Word → Word → Word → Word → Word → Word → Word → (Word → Word → Word → Step W Word) → Step W Word
+hhf-scan-chunk zero _ _ _ _ up rp fl k = k up rp fl
+hhf-scan-chunk (suc rem) buf pos flg p3 up rp fl k =
+  scmd (w-load8 (%wadd buf pos)) (λ b →
+  let b1 = %wand p3 #255
+      b2 = %wand (%wshr p3 #8) #255
+      b3 = %wand (%wshr p3 #16) #255
+      is_arr = if %weq b2 #226 then (if %weq b1 #134 then %weq b #146 else false) else false
+      is_eq  = if %weq b2 #226 then (if %weq b1 #137 then %weq b #161 else false) else false
+      is_ref = if %weq b3 #114 then (if %weq b2 #101 then (if %weq b1 #102 then %weq b #108 else false) else false) else false
+      is_inc = if %weq b3 #35 then (if %weq b2 #105 then (if %weq b1 #110 then %weq b #99 else false) else false) else false
+      f1 = if is_arr then %wor flg #1 else flg
+      f2 = if is_eq  then %wor f1 #2 else f1
+      f3 = if is_ref then %wor f2 #4 else f2
+      f4 = if is_inc then %wor f3 #8 else f3
+      p3n = %wand (%wor (%wshl p3 #8) b) #16777215
+  in if %weq b #10 then
+       let up2 = if %weq (%wand f4 #3) #3 then %wsucc up else up
+           rp2 = if %weq (%wand f4 #4) #4 then %wsucc rp else rp
+           fl2 = if %weq (%wand f4 #8) #8 then %wsucc fl else fl
+       in hhf-scan-chunk rem buf (%wsucc pos) #0 #0 up2 rp2 fl2 k
+     else hhf-scan-chunk rem buf (%wsucc pos) f4 p3n up rp fl k)
