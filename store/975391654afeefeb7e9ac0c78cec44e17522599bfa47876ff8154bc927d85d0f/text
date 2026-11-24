@@ -1,0 +1,30 @@
+-- THEOREM 5: UNIVERSAL SEMANTIC PRESERVATION OF `ke-opt` OVER ALL `KExpr` AND ALL `env : Word → Word`!
+ke-opt-sound : (env : Word → Word) → (e : KExpr) → keval env e ≡ keval env (ke-opt e)
+ke-opt-sound _   (ke-k _)      = refl
+ke-opt-sound _   (ke-v _)      = refl
+ke-opt-sound env (ke-not a)    =
+  ke-trans-w (λ i → %wxor (ke-opt-sound env a i) #4294967295) (ke-opt-not-sound env (ke-opt a))
+ke-opt-sound env (ke-xor a b)  =
+  ke-trans-w (λ i → ke-xor-op (ke-opt-sound env a i) (ke-opt-sound env b i))
+             (ke-opt-bin-sound env ke-xor-op ke-xor (ke-xor-hc env) (ke-opt a) (ke-opt b))
+ke-opt-sound env (ke-and a b)  =
+  ke-trans-w (λ i → ke-and-op (ke-opt-sound env a i) (ke-opt-sound env b i))
+             (ke-opt-bin-sound env ke-and-op ke-and (ke-and-hc env) (ke-opt a) (ke-opt b))
+ke-opt-sound env (ke-or  a b)  =
+  ke-trans-w (λ i → ke-or-op  (ke-opt-sound env a i) (ke-opt-sound env b i))
+             (ke-opt-bin-sound env ke-or-op  ke-or  (ke-or-hc env)  (ke-opt a) (ke-opt b))
+ke-opt-sound env (ke-add a b)  =
+  ke-trans-w (λ i → ke-add32 (ke-opt-sound env a i) (ke-opt-sound env b i))
+             (ke-opt-bin-sound env ke-add32 ke-add (ke-add-hc env) (ke-opt a) (ke-opt b))
+ke-opt-sound env (ke-sub a b)  =
+  ke-trans-w (λ i → ke-sub32 (ke-opt-sound env a i) (ke-opt-sound env b i))
+             (ke-opt-bin-sound env ke-sub32 ke-sub (ke-sub-hc env) (ke-opt a) (ke-opt b))
+ke-opt-sound env (ke-mul a b)  =
+  ke-trans-w (λ i → ke-mul32 (ke-opt-sound env a i) (ke-opt-sound env b i))
+             (ke-opt-bin-sound env ke-mul32 ke-mul (ke-mul-hc env) (ke-opt a) (ke-opt b))
+ke-opt-sound env (ke-rotr a n) =
+  ke-trans-w (λ i → ke-rotr32 (ke-opt-sound env a i) n) (ke-opt-rotr-sound env (ke-opt a) n)
+ke-opt-sound env (ke-ch e f g) =
+  λ i → %wxor (ke-opt-sound env g i) (%wand (ke-opt-sound env e i) (%wxor (ke-opt-sound env f i) (ke-opt-sound env g i)))
+ke-opt-sound env (ke-maj a b c) =
+  λ i → %wxor (ke-opt-sound env a i) (%wand (%wxor (ke-opt-sound env a i) (ke-opt-sound env b i)) (%wxor (ke-opt-sound env a i) (ke-opt-sound env c i)))

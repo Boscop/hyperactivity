@@ -1,0 +1,35 @@
+hs-u3 : List Word → List Word
+hs-u3 tail =
+  hw-ln "  for (uint32_t r = 0u; r < R; r++) {"
+  (hw-ln "    uint4 wr = (r == 0u) ? w0 : gc_const32(0u);"
+  (hw-ln "    uint4 S1 = gc_xor32(gc_xor32(gc_rotr32(e,6u), gc_rotr32(e,11u)), gc_rotr32(e,25u));"
+  (hw-ln "    uint4 ch = gc_ch32(e, f, g);"
+  (hw-ln "    uint4 t1a, t1b, t1c, T1;"
+  (hw-ln "    gc_add32(h, S1, t1a, contr); gc_add32(t1a, ch, t1b, contr);"
+  (hw-ln "    gc_add32(t1b, gc_const32(0x428a2f98u + r * 0x11111111u), t1c, contr); gc_add32(t1c, wr, T1, contr);"
+  (hw-ln "    uint4 S0 = gc_xor32(gc_xor32(gc_rotr32(a,2u), gc_rotr32(a,13u)), gc_rotr32(a,22u));"
+  (hw-ln "    uint4 maj = gc_maj32(a, b, c);"
+  (hw-ln "    uint4 T2, ne, na;"
+  (hw-ln "    gc_add32(S0, maj, T2, contr); gc_add32(d, T1, ne, contr); gc_add32(T1, T2, na, contr);"
+  (hw-ln "    if (r + 1u == R) { if ((na.x & 9u) == 0u) contr = 1u; }"
+  (hw-ln "    h = g; g = f; f = e; e = ne; d = c; c = b; b = a; a = na;"
+  (hw-ln "  }"
+  (hw-ln "  if (contr) atomicAdd(&stats[0], 1u); else atomicAdd(&stats[1], 1u);"
+  (hw-ln "}"
+  (hw-ln nil
+  (hw-ln "int main(int argc, char** argv) {"
+  (hw-ln "  int ngpus = 0; cudaGetDeviceCount(&ngpus);"
+  (hw-ln (list-append "  printf(" (list-append hw-q (list-append "HX-SOLVE 8xH100 Multi-GPU Engine (%d CUDA GPUs detected)" (list-append hw-esc-n (list-append hw-q ", ngpus);")))))
+  (hw-ln (list-append "  const char* mode = (argc > 1) ? argv[1] : " (list-append hw-q (list-append "all" (list-append hw-q ";"))))
+  (hw-ln (list-append "  if (!strcmp(mode, " (list-append hw-q (list-append "sha256" (list-append hw-q (list-append ") || !strcmp(mode, " (list-append hw-q (list-append "all" (list-append hw-q ")) {"))))))))
+  (hw-ln "    #pragma omp parallel for num_threads(ngpus > 0 ? ngpus : 1)"
+  (hw-ln "    for (int g = 0; g < ngpus; g++) {"
+  (hw-ln "      cudaSetDevice(g); unsigned int* d_st; cudaMalloc(&d_st, 16); cudaMemset(d_st, 0, 16);"
+  (hw-ln "      h100_sha256_diff<<<4096, 256>>>(d_st, 16, 0x12345678ULL + g);"
+  (hw-ln "      cudaDeviceSynchronize(); unsigned int h_st[4]; cudaMemcpy(h_st, d_st, 16, cudaMemcpyDeviceToHost);"
+  (hw-ln (list-append "      printf(" (list-append hw-q (list-append "  GPU %d SHA-256 R=16 full-carry: pruned=%u surviving=%u" (list-append hw-esc-n (list-append hw-q ", g, h_st[0], h_st[1]);")))))
+  (hw-ln "      cudaFree(d_st);"
+  (hw-ln "    }"
+  (hw-ln "  }"
+  (hw-ln "  return 0;"
+  (hw-ln "}" tail))))))))))))))))))))))))))))))))

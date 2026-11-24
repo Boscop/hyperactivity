@@ -1,0 +1,21 @@
+keval : (Word → Word) → KExpr → Word
+keval _   (ke-k c)        = c
+keval env (ke-v i)        = ke-mask32 (env i)
+keval env (ke-not a)      = %wxor (keval env a) #4294967295
+keval env (ke-xor a b)    = %wxor (keval env a) (keval env b)
+keval env (ke-and a b)    = %wand (keval env a) (keval env b)
+keval env (ke-or  a b)    = %wor  (keval env a) (keval env b)
+keval env (ke-add a b)    = ke-mask32 (%wadd (keval env a) (keval env b))
+keval env (ke-sub a b)    = ke-mask32 (%wsub (keval env a) (keval env b))
+keval env (ke-mul a b)    = ke-mask32 (%wmul (keval env a) (keval env b))
+keval env (ke-rotr a n)   = ke-rotr32 (keval env a) n
+keval env (ke-ch e f g)   =
+  let ev = keval env e
+      fv = keval env f
+      gv = keval env g
+  in %wxor gv (%wand ev (%wxor fv gv))
+keval env (ke-maj a b c)  =
+  let av = keval env a
+      bv = keval env b
+      cv = keval env c
+  in %wxor av (%wand (%wxor av bv) (%wxor av cv))
