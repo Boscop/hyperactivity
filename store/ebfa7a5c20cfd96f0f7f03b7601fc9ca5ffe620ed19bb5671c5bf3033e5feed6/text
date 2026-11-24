@@ -1,0 +1,360 @@
+-- lib/ir/kernel-ir.hypercubical — Universal Proof-Carrying KernelIR -> 4-Target Compiler (C11 + Apple Metal + NVIDIA CUDA + SystemVerilog).
+-- Eliminates opaque foreign-string trust gaps: ONE typed AST (`WExpr` from `lib/hx-web.hypercubical`),
+-- ONE verified symbolic superoptimizer (`kir-opt` + universal soundness proof `kir-opt-sound`),
+-- and FOUR mechanical code generators lowering the EXACT SAME superoptimized AST simultaneously to:
+--   1. ISO C11 (`kir-emit-c`)
+--   2. Apple A18 Pro Metal MSL (`kir-emit-metal`)
+--   3. NVIDIA 8xH100 CUDA (`kir-emit-cuda`)
+--   4. Synthesizable SystemVerilog RTL (`kir-emit-sv`)
+import "../native-opt.hypercubical"
+import "../hx-web.hypercubical"
+import "../hx-audit.hypercubical"
+
+-- ============================================================================
+-- SECTION 1: UNIVERSAL VERIFIED SUPEROPTIMIZER (`kir-opt` + `kir-opt-sound`)
+--   Contracts Ch->MC1, Maj->MC1, OR->ANF, NOT->XOR1, constant-folds, AND
+--   cancels self-XOR (`a ^ a -> 0`) and idempotent-AND (`a & a -> a`)!
+-- ============================================================================
+
+kir-beq : Bool → Bool → Bool
+kir-beq true  true  = true
+kir-beq false false = true
+kir-beq _     _     = false
+
+kir-beq-eq : (a b : Bool) → kir-beq a b ≡ true → a ≡ b
+kir-beq-eq true  true  _ = refl
+kir-beq-eq false false _ = refl
+kir-beq-eq true  false h = Empty-rec (true≢false (web-sym-b h))
+kir-beq-eq false true  h = Empty-rec (true≢false (web-sym-b h))
+
+kir-eq : WExpr → WExpr → Bool
+kir-eq (we-k a)       (we-k b)       = kir-beq a b
+kir-eq (we-v i)       (we-v j)       = %weq i j
+kir-eq (we-not a)     (we-not b)     = kir-eq a b
+kir-eq (we-xor a1 b1) (we-xor a2 b2) = web-andB (kir-eq a1 a2) (kir-eq b1 b2)
+kir-eq (we-and a1 b1) (we-and a2 b2) = web-andB (kir-eq a1 a2) (kir-eq b1 b2)
+kir-eq (we-or  a1 b1) (we-or  a2 b2) = web-andB (kir-eq a1 a2) (kir-eq b1 b2)
+kir-eq (we-ch a1 b1 c1) (we-ch a2 b2 c2) = web-andB (kir-eq a1 a2) (web-andB (kir-eq b1 b2) (kir-eq c1 c2))
+kir-eq (we-maj a1 b1 c1) (we-maj a2 b2 c2) = web-andB (kir-eq a1 a2) (web-andB (kir-eq b1 b2) (kir-eq c1 c2))
+kir-eq _ _ = false
+
+-- Universal Reflexivity & Structural Soundness of `kir-eq` over ALL WExpr!
+kir-andB-l : (a b : Bool) → web-andB a b ≡ true → a ≡ true
+kir-andB-l true  _ _ = refl
+kir-andB-l false _ h = Empty-rec (true≢false (web-sym-b h))
+
+kir-andB-r : (a b : Bool) → web-andB a b ≡ true → b ≡ true
+kir-andB-r true  _ h = h
+kir-andB-r false _ h = Empty-rec (true≢false (web-sym-b h))
+
+-- Universal Word equality soundness over ALL Words via `eqw` + `eqw≡weq`!
+kir-eqw-zero : (j : Word) → eqw #0 j ≡ true → #0 ≡ j
+kir-eqw-zero j =
+  %welimP (λ v → eqw #0 v ≡ true → #0 ≡ v) j
+    (λ h → refl)
+    (λ n g h → Empty-rec (true≢false (web-sym-b h)))
+
+kir-eqw-suc : (m : Word) → ((j : Word) → eqw m j ≡ true → m ≡ j) → (j : Word) → eqw (%wsucc m) j ≡ true → %wsucc m ≡ j
+kir-eqw-suc m ih j =
+  %welimP (λ v → eqw (%wsucc m) v ≡ true → %wsucc m ≡ v) j
+    (λ h → Empty-rec (true≢false (web-sym-b h)))
+    (λ n g h → λ k → %wsucc (ih n h k))
+
+kir-eqw-eq : (i j : Word) → eqw i j ≡ true → i ≡ j
+kir-eqw-eq i = %welimP (λ u → (j : Word) → eqw u j ≡ true → u ≡ j) i kir-eqw-zero kir-eqw-suc
+
+kir-weq-eq : (i j : Word) → %weq i j ≡ true → i ≡ j
+kir-weq-eq i j h = kir-eqw-eq i j (web-trans-b (eqw≡weq i j) h)
+
+kir-weq-eval : (env : Word → Bool) → (i j : Word) → %weq i j ≡ true → env i ≡ env j
+kir-weq-eval env i j h = λ k → env (kir-weq-eq i j h k)
+
+kir-eq-sound : (env : Word → Bool) → (a b : WExpr) → kir-eq a b ≡ true → weval env a ≡ weval env b
+kir-eq-sound env (we-k a)       (we-k b)       h = kir-beq-eq a b h
+kir-eq-sound env (we-v i)       (we-v j)       h = kir-weq-eval env i j h
+kir-eq-sound env (we-not a)     (we-not b)     h = λ k → web-notB (kir-eq-sound env a b h k)
+kir-eq-sound env (we-xor a1 b1) (we-xor a2 b2) h =
+  λ k → web-xorB (kir-eq-sound env a1 a2 (kir-andB-l (kir-eq a1 a2) (kir-eq b1 b2) h) k)
+                 (kir-eq-sound env b1 b2 (kir-andB-r (kir-eq a1 a2) (kir-eq b1 b2) h) k)
+kir-eq-sound env (we-and a1 b1) (we-and a2 b2) h =
+  λ k → web-andB (kir-eq-sound env a1 a2 (kir-andB-l (kir-eq a1 a2) (kir-eq b1 b2) h) k)
+                 (kir-eq-sound env b1 b2 (kir-andB-r (kir-eq a1 a2) (kir-eq b1 b2) h) k)
+kir-eq-sound env (we-or  a1 b1) (we-or  a2 b2) h =
+  λ k → web-orB (kir-eq-sound env a1 a2 (kir-andB-l (kir-eq a1 a2) (kir-eq b1 b2) h) k)
+                (kir-eq-sound env b1 b2 (kir-andB-r (kir-eq a1 a2) (kir-eq b1 b2) h) k)
+kir-eq-sound env (we-ch a1 b1 c1) (we-ch a2 b2 c2) h =
+  let hbc = kir-andB-r (kir-eq a1 a2) (web-andB (kir-eq b1 b2) (kir-eq c1 c2)) h
+  in λ k → web-chB (kir-eq-sound env a1 a2 (kir-andB-l (kir-eq a1 a2) (web-andB (kir-eq b1 b2) (kir-eq c1 c2)) h) k)
+                   (kir-eq-sound env b1 b2 (kir-andB-l (kir-eq b1 b2) (kir-eq c1 c2) hbc) k)
+                   (kir-eq-sound env c1 c2 (kir-andB-r (kir-eq b1 b2) (kir-eq c1 c2) hbc) k)
+kir-eq-sound env (we-maj a1 b1 c1) (we-maj a2 b2 c2) h =
+  let hbc = kir-andB-r (kir-eq a1 a2) (web-andB (kir-eq b1 b2) (kir-eq c1 c2)) h
+  in λ k → web-majB (kir-eq-sound env a1 a2 (kir-andB-l (kir-eq a1 a2) (web-andB (kir-eq b1 b2) (kir-eq c1 c2)) h) k)
+                    (kir-eq-sound env b1 b2 (kir-andB-l (kir-eq b1 b2) (kir-eq c1 c2) hbc) k)
+                    (kir-eq-sound env c1 c2 (kir-andB-r (kir-eq b1 b2) (kir-eq c1 c2) hbc) k)
+kir-eq-sound _ (we-k _)       (we-v _)       h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-k _)       (we-not _)     h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-k _)       (we-xor _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-k _)       (we-and _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-k _)       (we-or  _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-k _)       (we-ch _ _ _)  h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-k _)       (we-maj _ _ _) h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-v _)       (we-k _)       h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-v _)       (we-not _)     h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-v _)       (we-xor _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-v _)       (we-and _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-v _)       (we-or  _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-v _)       (we-ch _ _ _)  h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-v _)       (we-maj _ _ _) h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-not _)     (we-k _)       h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-not _)     (we-v _)       h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-not _)     (we-xor _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-not _)     (we-and _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-not _)     (we-or  _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-not _)     (we-ch _ _ _)  h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-not _)     (we-maj _ _ _) h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-xor _ _)   (we-k _)       h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-xor _ _)   (we-v _)       h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-xor _ _)   (we-not _)     h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-xor _ _)   (we-and _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-xor _ _)   (we-or  _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-xor _ _)   (we-ch _ _ _)  h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-xor _ _)   (we-maj _ _ _) h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-and _ _)   (we-k _)       h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-and _ _)   (we-v _)       h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-and _ _)   (we-not _)     h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-and _ _)   (we-xor _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-and _ _)   (we-or  _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-and _ _)   (we-ch _ _ _)  h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-and _ _)   (we-maj _ _ _) h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-or  _ _)   (we-k _)       h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-or  _ _)   (we-v _)       h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-or  _ _)   (we-not _)     h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-or  _ _)   (we-xor _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-or  _ _)   (we-and _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-or  _ _)   (we-ch _ _ _)  h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-or  _ _)   (we-maj _ _ _) h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-ch _ _ _)  (we-k _)       h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-ch _ _ _)  (we-v _)       h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-ch _ _ _)  (we-not _)     h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-ch _ _ _)  (we-xor _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-ch _ _ _)  (we-and _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-ch _ _ _)  (we-or  _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-ch _ _ _)  (we-maj _ _ _) h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-maj _ _ _) (we-k _)       h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-maj _ _ _) (we-v _)       h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-maj _ _ _) (we-not _)     h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-maj _ _ _) (we-xor _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-maj _ _ _) (we-and _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-maj _ _ _) (we-or  _ _)   h = Empty-rec (true≢false (web-sym-b h))
+kir-eq-sound _ (we-maj _ _ _) (we-ch _ _ _)  h = Empty-rec (true≢false (web-sym-b h))
+
+-- Superoptimized XOR/AND smart constructors with self-cancellation (`a ^ a -> 0`, `a & a -> a`)!
+kir-xor-c : Bool → WExpr → WExpr → WExpr
+kir-xor-c true  _ _ = we-k false
+kir-xor-c false a b = ha-mk-xor a b
+
+kir-and-c : Bool → WExpr → WExpr → WExpr
+kir-and-c true  a _ = a
+kir-and-c false a b = ha-mk-and a b
+
+kir-mk-xor : WExpr → WExpr → WExpr
+kir-mk-xor a b = kir-xor-c (kir-eq a b) a b
+
+kir-mk-and : WExpr → WExpr → WExpr
+kir-mk-and a b = kir-and-c (kir-eq a b) a b
+
+kir-lem-xor-c : (env : Word → Bool) → (a b : WExpr) → (eq : Bool) → (kir-eq a b ≡ eq) →
+  web-xorB (weval env a) (weval env b) ≡ weval env (kir-xor-c eq a b)
+kir-lem-xor-c env a b true  h =
+  web-trans-b (λ k → web-xorB (weval env a) (kir-eq-sound env a b h (~ k))) (web-lem-xor-self (weval env a))
+kir-lem-xor-c env a b false _ = ha-lem-mk-xor env a b
+
+kir-lem-and-c : (env : Word → Bool) → (a b : WExpr) → (eq : Bool) → (kir-eq a b ≡ eq) →
+  web-andB (weval env a) (weval env b) ≡ weval env (kir-and-c eq a b)
+kir-lem-and-c env a b true  h =
+  web-trans-b (λ k → web-andB (weval env a) (kir-eq-sound env a b h (~ k))) (web-lem-and-self (weval env a))
+kir-lem-and-c env a b false _ = ha-lem-mk-and env a b
+
+-- THE SUPEROPTIMIZER `kir-opt`: runs MC=1 Ch/Maj + ANF + constant-fold + self-XOR/AND cancellation!
+kir-opt : WExpr → WExpr
+kir-opt (we-k b)       = we-k b
+kir-opt (we-v i)       = we-v i
+kir-opt (we-not a)     = kir-mk-xor (kir-opt a) (we-k true)
+kir-opt (we-xor a b)   = kir-mk-xor (kir-opt a) (kir-opt b)
+kir-opt (we-and a b)   = kir-mk-and (kir-opt a) (kir-opt b)
+kir-opt (we-or  a b)   = let a' = kir-opt a in let b' = kir-opt b in we-xor (we-xor a' b') (we-and a' b')
+kir-opt (we-ch  e f g) = let e' = kir-opt e in let f' = kir-opt f in let g' = kir-opt g in we-xor g' (we-and e' (we-xor f' g'))
+kir-opt (we-maj a b c) = let a' = kir-opt a in let b' = kir-opt b in let c' = kir-opt c in we-xor a' (we-and (we-xor a' b') (we-xor a' c'))
+
+-- UNIVERSAL SUPEROPTIMIZER SOUNDNESS OVER ALL WExpr & ALL ENVIRONMENTS!
+kir-opt-sound : (e : WExpr) → WEdge e (kir-opt e)
+kir-opt-sound (we-k _) env = refl
+kir-opt-sound (we-v _) env = refl
+kir-opt-sound (we-not a) env =
+  web-trans-b
+    (web-trans-b (λ k → web-notB (kir-opt-sound a env k)) (web-lem-not-xor (weval env (kir-opt a))))
+    (kir-lem-xor-c env (kir-opt a) (we-k true) (kir-eq (kir-opt a) (we-k true)) refl)
+kir-opt-sound (we-xor a b) env =
+  web-trans-b
+    (λ k → web-xorB (kir-opt-sound a env k) (kir-opt-sound b env k))
+    (kir-lem-xor-c env (kir-opt a) (kir-opt b) (kir-eq (kir-opt a) (kir-opt b)) refl)
+kir-opt-sound (we-and a b) env =
+  web-trans-b
+    (λ k → web-andB (kir-opt-sound a env k) (kir-opt-sound b env k))
+    (kir-lem-and-c env (kir-opt a) (kir-opt b) (kir-eq (kir-opt a) (kir-opt b)) refl)
+kir-opt-sound (we-or a b) env =
+  web-trans-b (λ k → web-orB (kir-opt-sound a env k) (kir-opt-sound b env k)) (web-lem-or-anf (weval env (kir-opt a)) (weval env (kir-opt b)))
+kir-opt-sound (we-ch e f g) env =
+  web-trans-b (λ k → web-chB (kir-opt-sound e env k) (kir-opt-sound f env k) (kir-opt-sound g env k)) (web-lem-ch-mc1 (weval env (kir-opt e)) (weval env (kir-opt f)) (weval env (kir-opt g)))
+kir-opt-sound (we-maj a b c) env =
+  web-trans-b (λ k → web-majB (kir-opt-sound a env k) (kir-opt-sound b env k) (kir-opt-sound c env k)) (web-lem-maj-mc1 (weval env (kir-opt a)) (weval env (kir-opt b)) (weval env (kir-opt c)))
+
+-- Verified concrete superoptimizations (checked by refl in ./build/cubical!):
+kir-ex-ch : WExpr
+kir-ex-ch = we-ch (we-v #0) (we-v #1) (we-v #2)
+
+kir-ex-maj : WExpr
+kir-ex-maj = we-maj (we-v #0) (we-v #1) (we-v #2)
+
+kir-ex-cancel : WExpr
+kir-ex-cancel = we-xor (we-and (we-v #0) (we-v #0)) (we-v #0)
+
+kir-thm-cancel-zero : kir-opt kir-ex-cancel ≡ we-k false
+kir-thm-cancel-zero = refl
+
+kir-thm-ch-mc1 : wcost-mc (kir-opt kir-ex-ch) ≡ #1
+kir-thm-ch-mc1 = refl
+
+kir-thm-maj-mc1 : wcost-mc (kir-opt kir-ex-maj) ≡ #1
+kir-thm-maj-mc1 = refl
+
+-- ============================================================================
+-- SECTION 2: SINGLE-SOURCE MECHANICAL 4-TARGET LOWERING (ZERO OPAQUE BODIES!)
+--   ONE AST `e : WExpr` lowered mechanically by `kir-emit-expr` to:
+--     * ISO C11         (uint32_t bitwise)
+--     * Apple Metal MSL (uint bitwise)
+--     * NVIDIA CUDA     (uint32_t bitwise)
+--     * SystemVerilog   (logic [31:0] combinational RTL)
+-- ============================================================================
+
+kir-var-name : Word → List Word
+kir-var-name i = list-append "x" (ce-dec i)
+
+-- Single shared mechanical AST expression printer (valid across C11, Metal, CUDA, and SystemVerilog!)
+kir-emit-expr : List Word → List Word → WExpr → List Word
+kir-emit-expr k0 _  (we-k false)   = k0
+kir-emit-expr _  k1 (we-k true)    = k1
+kir-emit-expr _  _  (we-v i)       = kir-var-name i
+kir-emit-expr k0 k1 (we-not a)     = list-append "(~" (list-append (kir-emit-expr k0 k1 a) ")")
+kir-emit-expr k0 k1 (we-xor a b)   = list-append "(" (list-append (kir-emit-expr k0 k1 a) (list-append " ^ " (list-append (kir-emit-expr k0 k1 b) ")")))
+kir-emit-expr k0 k1 (we-and a b)   = list-append "(" (list-append (kir-emit-expr k0 k1 a) (list-append " & " (list-append (kir-emit-expr k0 k1 b) ")")))
+kir-emit-expr k0 k1 (we-or  a b)   = list-append "(" (list-append (kir-emit-expr k0 k1 a) (list-append " | " (list-append (kir-emit-expr k0 k1 b) ")")))
+kir-emit-expr k0 k1 (we-ch  e f g) =
+  let es = kir-emit-expr k0 k1 e
+      fs = kir-emit-expr k0 k1 f
+      gs = kir-emit-expr k0 k1 g
+  in list-append "(" (list-append gs (list-append " ^ (" (list-append es (list-append " & (" (list-append fs (list-append " ^ " (list-append gs ")))")))))))
+kir-emit-expr k0 k1 (we-maj a b c) =
+  let as = kir-emit-expr k0 k1 a
+      bs = kir-emit-expr k0 k1 b
+      cs = kir-emit-expr k0 k1 c
+  in list-append "(" (list-append as (list-append " ^ ((" (list-append as (list-append " ^ " (list-append bs (list-append ") & (" (list-append as (list-append " ^ " (list-append cs ")))")))))))))
+
+-- 1. Mechanical ISO C11 Emitter (from superoptimized `kir-opt` AST!)
+kir-fn-c : List Word → WExpr → List Word → List Word
+kir-fn-c name e tail =
+  hw-ln (list-append "static inline uint32_t " (list-append name (list-append "(uint32_t x0, uint32_t x1, uint32_t x2) { return "
+        (list-append (kir-emit-expr "0u" "0xFFFFFFFFu" (kir-opt e)) "; }")))) tail
+
+kir-emit-c : List Word
+kir-emit-c =
+  hw-ln "/* Generated mechanically from KernelIR (lib/ir/kernel-ir.hypercubical) — verified by kir-opt-sound */"
+  (hw-ln "#include <stdint.h>"
+  (hw-ln "#include <stdio.h>"
+  (kir-fn-c "kir_ch"     kir-ex-ch
+  (kir-fn-c "kir_maj"    kir-ex-maj
+  (kir-fn-c "kir_cancel" kir-ex-cancel
+  (hw-ln "int main(void) {"
+  (hw-ln "  uint32_t a=0x6a09e667u, b=0xbb67ae85u, c=0x3c6ef372u;"
+  (hw-ln "  uint32_t ch = kir_ch(a,b,c), maj = kir_maj(a,b,c), z = kir_cancel(a,b,c);"
+  (hw-ln "  uint32_t ref_ch = (a&b)^((~a)&c), ref_maj = (a&b)^(a&c)^(b&c);"
+  (hw-ln (list-append "  printf(" (list-append hw-q (list-append "KIR-C11 exact=%d ch=0x%08x maj=0x%08x cancel=%u" (list-append hw-esc-n (list-append hw-q ", (ch==ref_ch && maj==ref_maj && z==0u), ch, maj, z);")))))
+  (hw-ln "  return (ch==ref_ch && maj==ref_maj && z==0u) ? 0 : 1;"
+  (hw-ln "}" nil))))))))))))
+
+-- 2. Mechanical Apple Metal MSL Emitter (EXACT SAME superoptimized AST!)
+kir-fn-metal : List Word → WExpr → List Word → List Word
+kir-fn-metal name e tail =
+  hw-ln (list-append "inline uint " (list-append name (list-append "(uint x0, uint x1, uint x2) { return "
+        (list-append (kir-emit-expr "0u" "0xFFFFFFFFu" (kir-opt e)) "; }")))) tail
+
+kir-emit-metal : List Word
+kir-emit-metal =
+  hw-ln "// Generated mechanically from KernelIR (lib/ir/kernel-ir.hypercubical) — verified by kir-opt-sound"
+  (hw-ln "#include <metal_stdlib>"
+  (hw-ln "using namespace metal;"
+  (kir-fn-metal "kir_ch"     kir-ex-ch
+  (kir-fn-metal "kir_maj"    kir-ex-maj
+  (kir-fn-metal "kir_cancel" kir-ex-cancel
+  (hw-ln "kernel void kir_verify(device const uint* in [[buffer(0)]], device uint* out [[buffer(1)]], uint tid [[thread_position_in_grid]]) {"
+  (hw-ln "  uint x0 = in[tid*3u], x1 = in[tid*3u+1u], x2 = in[tid*3u+2u];"
+  (hw-ln "  out[tid*3u] = kir_ch(x0,x1,x2); out[tid*3u+1u] = kir_maj(x0,x1,x2); out[tid*3u+2u] = kir_cancel(x0,x1,x2);"
+  (hw-ln "}" nil)))))))))
+
+-- 3. Mechanical NVIDIA 8xH100 CUDA Emitter (EXACT SAME superoptimized AST!)
+kir-fn-cuda : List Word → WExpr → List Word → List Word
+kir-fn-cuda name e tail =
+  hw-ln (list-append "__device__ __forceinline__ uint32_t " (list-append name (list-append "(uint32_t x0, uint32_t x1, uint32_t x2) { return "
+        (list-append (kir-emit-expr "0u" "0xFFFFFFFFu" (kir-opt e)) "; }")))) tail
+
+kir-emit-cuda : List Word
+kir-emit-cuda =
+  hw-ln "// Generated mechanically from KernelIR (lib/ir/kernel-ir.hypercubical) — verified by kir-opt-sound"
+  (hw-ln "#include <stdint.h>"
+  (kir-fn-cuda "kir_ch"     kir-ex-ch
+  (kir-fn-cuda "kir_maj"    kir-ex-maj
+  (kir-fn-cuda "kir_cancel" kir-ex-cancel
+  (hw-ln "__global__ void kir_verify(const uint32_t* in, uint32_t* out, uint32_t n) {"
+  (hw-ln "  uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x; if (tid >= n) return;"
+  (hw-ln "  uint32_t x0 = in[tid*3u], x1 = in[tid*3u+1u], x2 = in[tid*3u+2u];"
+  (hw-ln "  out[tid*3u] = kir_ch(x0,x1,x2); out[tid*3u+1u] = kir_maj(x0,x1,x2); out[tid*3u+2u] = kir_cancel(x0,x1,x2);"
+  (hw-ln "}" nil)))))))))
+
+-- 4. Mechanical SystemVerilog RTL Emitter (EXACT SAME superoptimized AST!)
+kir-emit-sv : List Word
+kir-emit-sv =
+  hw-ln "// Generated mechanically from KernelIR (lib/ir/kernel-ir.hypercubical) — verified by kir-opt-sound"
+  (hw-ln "module hx_kir_core (input logic [31:0] x0, input logic [31:0] x1, input logic [31:0] x2,"
+  (hw-ln "                    output logic [31:0] y_ch, output logic [31:0] y_maj, output logic [31:0] y_cancel);"
+  (hw-ln (list-append "  assign y_ch     = " (list-append (kir-emit-expr "32'h0" "32'hFFFFFFFF" (kir-opt kir-ex-ch)) ";"))
+  (hw-ln (list-append "  assign y_maj    = " (list-append (kir-emit-expr "32'h0" "32'hFFFFFFFF" (kir-opt kir-ex-maj)) ";"))
+  (hw-ln (list-append "  assign y_cancel = " (list-append (kir-emit-expr "32'h0" "32'hFFFFFFFF" (kir-opt kir-ex-cancel)) ";"))
+  (hw-ln "endmodule" nil))))))
+
+kir-pref : List (List Word) → List Word
+kir-pref nil = "/tmp/hy_out/hx_kir"
+kir-pref (cons a _) = a
+
+kir-main : List (List Word) → Step W Word
+kir-main args =
+  let p  = kir-pref args
+      cf = list-append p ".c"
+      mf = list-append p ".metal"
+      uf = list-append p ".cu"
+      sf = list-append p ".sv"
+  in scmd w-now (λ t0 →
+     scmd (w-file-write-named cf kir-emit-c) (λ bc →
+     scmd (w-file-write-named mf kir-emit-metal) (λ bm →
+     scmd (w-file-write-named uf kir-emit-cuda) (λ bu →
+     scmd (w-file-write-named sf kir-emit-sv) (λ bs →
+     scmd w-now (λ t1 →
+     cli-say (list-append "HX-KIR ONE-AST-4-TARGETS kopt-sound=1 C11=" (list-append (ce-dec bc)
+       (list-append "B Metal=" (list-append (ce-dec bm)
+       (list-append "B CUDA=" (list-append (ce-dec bu)
+       (list-append "B SV=" (list-append (ce-dec bs)
+       (list-append "B (" (list-append (ce-dec (%wdiv (%wsub t1 t0) #1000)) " us)"))))))))))
+       (sdone #0)))))))
+
+kir-c : List Word
+kir-c = emit-c-cli-opt (code kir-main)
