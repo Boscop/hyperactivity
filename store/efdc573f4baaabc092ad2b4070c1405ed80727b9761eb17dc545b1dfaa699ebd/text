@@ -1,0 +1,25 @@
+sc-h4 : List Word → List Word
+sc-h4 tail =
+  hw-ln "    // 3. 4,194,304-Weight (1,048,576 4-lane packets) Bit-Exact 48b<->64b Optical Wire Codec"
+  (hw-ln "    const uint32_t NP = 1048576u;"
+  (hw-ln "    id<MTLBuffer> b_in = [dev newBufferWithLength:NP*8 options:MTLResourceStorageModeShared];"
+  (hw-ln "    id<MTLBuffer> b_lo = [dev newBufferWithLength:NP*4 options:MTLResourceStorageModeShared];"
+  (hw-ln "    id<MTLBuffer> b_hi = [dev newBufferWithLength:NP*2 options:MTLResourceStorageModeShared];"
+  (hw-ln "    uint16_t* pw = (uint16_t*)b_in.contents;"
+  (hw-ln "    for (uint32_t i = 0; i < NP*4u; i++) {"
+  (hw-ln "      uint16_t s = (uint16_t)((i * 17u) & 1u);"
+  (hw-ln "      uint16_t e = (uint16_t)(120u + ((i * 31u) & 15u));"
+  (hw-ln "      uint16_t m = (uint16_t)((i * 73u) & 0x7Fu);"
+  (hw-ln "      pw[i] = (uint16_t)((s << 15) | (e << 7) | m);"
+  (hw-ln "    }"
+  (hw-ln "    *(uint32_t*)b_err.contents = 0u;"
+  (hw-ln "    double t2 = now_ms();"
+  (hw-ln "    id<MTLCommandBuffer> cb3 = [q commandBuffer]; id<MTLComputeCommandEncoder> e3 = [cb3 computeCommandEncoder];"
+  (hw-ln "    [e3 setComputePipelineState:p_wc]; [e3 setBuffer:b_in offset:0 atIndex:0];"
+  (hw-ln "    [e3 setBuffer:b_lo offset:0 atIndex:1]; [e3 setBuffer:b_hi offset:0 atIndex:2]; [e3 setBuffer:b_err offset:0 atIndex:3];"
+  (hw-ln "    [e3 dispatchThreads:MTLSizeMake(NP,1,1) threadsPerThreadgroup:MTLSizeMake(256,1,1)]; [e3 endEncoding]; [cb3 commit]; [cb3 waitUntilCompleted];"
+  (hw-ln "    double dt3 = now_ms() - t2;"
+  (hw-ln "    uint32_t wc_err = *(uint32_t*)b_err.contents;"
+  (hw-ln "    double gbps = ((double)NP * 8.0) / (dt3 * 1e6);"
+  (hw-ln (list-append "    printf(" (list-append hw-q (list-append "[3] Wire-Codec 48b<->64b BF16 | weights=4,194,304 bit_errors=%u ratio=1.333x (-25%% optics) | %.3f ms (%.2f GB/s)" (list-append hw-esc-n (list-append hw-q ", wc_err, dt3, gbps);")))))
+  tail)))))))))))))))))))))

@@ -1,0 +1,25 @@
+sc-h2 : List Word → List Word
+sc-h2 tail =
+  hw-ln "    // 1. 1,048,576-Node (DIM=20) DOR Verification across 65,536 cross-bisection flows"
+  (hw-ln "    const uint32_t NF = 65536u;"
+  (hw-ln "    id<MTLBuffer> b_src = [dev newBufferWithLength:NF*4 options:MTLResourceStorageModeShared];"
+  (hw-ln "    id<MTLBuffer> b_dst = [dev newBufferWithLength:NF*4 options:MTLResourceStorageModeShared];"
+  (hw-ln "    id<MTLBuffer> b_hop = [dev newBufferWithLength:NF*4 options:MTLResourceStorageModeShared];"
+  (hw-ln "    id<MTLBuffer> b_err = [dev newBufferWithLength:4 options:MTLResourceStorageModeShared];"
+  (hw-ln "    uint32_t* ps = (uint32_t*)b_src.contents; uint32_t* pd = (uint32_t*)b_dst.contents;"
+  (hw-ln "    for (uint32_t i = 0; i < NF; i++) {"
+  (hw-ln "      ps[i] = (i * 2654435761u) & 0xFFFFFu;"
+  (hw-ln "      pd[i] = ((i * 2246822519u) ^ 0xFFFFFu) & 0xFFFFFu;"
+  (hw-ln "    }"
+  (hw-ln "    *(uint32_t*)b_err.contents = 0u;"
+  (hw-ln "    double t0 = now_ms();"
+  (hw-ln "    id<MTLCommandBuffer> cb1 = [q commandBuffer]; id<MTLComputeCommandEncoder> e1 = [cb1 computeCommandEncoder];"
+  (hw-ln "    [e1 setComputePipelineState:p_dor]; [e1 setBuffer:b_src offset:0 atIndex:0];"
+  (hw-ln "    [e1 setBuffer:b_dst offset:0 atIndex:1]; [e1 setBuffer:b_hop offset:0 atIndex:2]; [e1 setBuffer:b_err offset:0 atIndex:3];"
+  (hw-ln "    [e1 dispatchThreads:MTLSizeMake(NF,1,1) threadsPerThreadgroup:MTLSizeMake(256,1,1)]; [e1 endEncoding]; [cb1 commit]; [cb1 waitUntilCompleted];"
+  (hw-ln "    double dt1 = now_ms() - t0;"
+  (hw-ln "    uint64_t tot_hops = 0; uint32_t* ph = (uint32_t*)b_hop.contents; uint32_t max_h = 0;"
+  (hw-ln "    for (uint32_t i = 0; i < NF; i++) { tot_hops += ph[i]; if (ph[i] > max_h) max_h = ph[i]; }"
+  (hw-ln "    uint32_t dor_err = *(uint32_t*)b_err.contents;"
+  (hw-ln (list-append "    printf(" (list-append hw-q (list-append "[1] DOR 1,048,576-node (d=20) | flows=%u tot_hops=%llu max_hop=%u deadlocks=%u | %.3f ms (%.2f M-hops/s)" (list-append hw-esc-n (list-append hw-q ", NF, tot_hops, max_h, dor_err, dt1, (double)tot_hops / (dt1 * 1e3));")))))
+  tail)))))))))))))))))))))
