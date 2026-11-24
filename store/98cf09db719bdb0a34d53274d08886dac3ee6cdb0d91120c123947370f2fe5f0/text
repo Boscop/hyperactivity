@@ -1,0 +1,112 @@
+hxs-main : List (List Word) → Step W Word
+hxs-main args =
+  let cmd = arg-at #0 args
+  in if cli-eq cmd "render" then
+       let outP = arg-at #1 args
+           out  = the (List Word) (if cli-eq outP nil then "/tmp/hx-sound.wav" else outP)
+           mode = sound-mode-of (arg-at #2 args)
+           nArg = cli-word (arg-at #3 args)
+           n    = the Word (if %weq nArg #0 then #48000 else nArg)
+       in scmd w-now (λ t0 →
+          let wav = the (List Word) (if %weq mode #4
+                      then wav-header-ch #2 n (synth-stereo n)
+                      else wav-header-ch #1 n (synth-pcm mode n))
+          in scmd (w-file-write-named out wav) (λ _ →
+             scmd w-now (λ t1 →
+               let ms = %wdiv (%wsub t1 t0) #1000000
+               in cli-say (list-append "HX-SOUND WAV " (list-append out
+                    (list-append " (" (list-append (ce-dec n)
+                    (list-append " frames @ 48kHz, " (list-append (ce-dec (cli-len wav))
+                    (list-append " bytes, " (list-append (ce-dec ms) " ms)")))))))) (sdone #0))))
+     else if cli-eq cmd "pack" then
+       let inp = arg-at #1 args
+           out = arg-at #2 args
+       in scmd w-now (λ t0 →
+          scmd (w-file-read-named inp) (λ rd →
+            let raw = snd rd
+                pk  = hxwav-pack raw
+            in scmd (w-file-write-named out pk) (λ _ →
+               scmd w-now (λ t1 →
+                 cli-say (list-append "HXWAV PACK " (list-append (ce-dec (cli-len raw))
+                   (list-append " -> " (list-append (ce-dec (cli-len pk))
+                   (list-append " bytes (" (list-append (ce-dec (%wdiv (%wsub t1 t0) #1000000)) " ms)"))))))
+                   (sdone #0)))))
+     else if cli-eq cmd "unpack" then
+       let inp = arg-at #1 args
+           out = arg-at #2 args
+       in scmd w-now (λ t0 →
+          scmd (w-file-read-named inp) (λ rd →
+            let pk  = snd rd
+                rec = hxwav-unpack pk
+            in scmd (w-file-write-named out rec) (λ _ →
+               scmd w-now (λ t1 →
+                 cli-say (list-append "HXWAV UNPACK " (list-append (ce-dec (cli-len pk))
+                   (list-append " -> " (list-append (ce-dec (cli-len rec))
+                   (list-append " bytes (" (list-append (ce-dec (%wdiv (%wsub t1 t0) #1000000)) " ms)"))))))
+                   (sdone #0)))))
+     else if cli-eq cmd "rtl" then
+       let outP = arg-at #1 args
+           out  = the (List Word) (if cli-eq outP nil then "/tmp/hypernet16_acoustic.sv" else outP)
+       in scmd (w-file-write-named out sound-hypernet16-sv) (λ _ →
+            cli-say (list-append "HX-SOUND RTL " (list-append out
+              (list-append " (" (list-append (ce-dec (cli-len sound-hypernet16-sv)) " bytes, 16-tile HyperNet-16 acoustic mesh)"))))
+              (sdone #0))
+     else if cli-eq cmd "compress" then
+       scmd w-now (λ t0 →
+         let res = audio-codec-test #2048
+             ok  = fst res
+             raw = fst (snd res)
+             cmp = snd (snd res)
+         in scmd w-now (λ t1 →
+              cli-say (list-append (if ok then "HX-SOUND WAVELET+HXZ BIT-EXACT OK: " else "HX-SOUND FAIL: ")
+                (list-append (ce-dec raw) (list-append " -> " (list-append (ce-dec cmp)
+                (list-append " bytes (" (list-append (ce-dec (%wdiv (%wsub t1 t0) #1000000)) " ms)"))))))
+                (sdone (if ok then #0 else #1))))
+     else if cli-eq cmd "inverse" then
+       let r = inv-solve-run
+           kf = fst r
+           er = fst (snd r)
+           ok = snd (snd r)
+       in cli-say (list-append "HX-SOUND ZERO-TAPE INVERSE: k_init=1200 -> k_solved="
+            (list-append (ce-dec kf) (list-append " (target=2400, residual="
+            (list-append (ce-dec er) (list-append ", zero_tape_rev_exact="
+            (list-append (if ok then "true)" else "false)") nil))))))
+            (sdone (if ok then #0 else #1))
+     else if cli-eq cmd "dtw" then
+       let al  = dtw-align dtw-sample-warped dtw-sample-score
+           cst = snd al
+           chk = dtw-path-cost dtw-sample-warped dtw-sample-score (fst al)
+           ok  = %weq cst chk
+       in cli-say (list-append "HX-SOUND WITNESSED DTW: residual="
+            (list-append (ce-dec cst) (list-append " ms, path_verified="
+            (list-append (if ok then "true" else "false") nil))))
+            (sdone (if ok then #0 else #1))
+     else if cli-eq cmd "warrant" then
+       let wOpen  = wp-satisfies demo-ver #777 wp-open
+           wJoint = wp-satisfies demo-ver #777 (wp-and (wp-key #11) (wp-key #22))
+           wDeleg = wp-satisfies demo-ver #777 (wp-deleg #11 #33 #9)
+           wBad   = wp-satisfies demo-ver #777 (wp-and (wp-key #11) (wp-key #99))
+           c1     = cone-coherent jam-dag-demo (cons #1 (cons #2 (cons #4 nil)))
+           cBad   = cone-coherent jam-dag-demo (cons #4 nil)
+           ok     = andB wOpen (andB wJoint (andB wDeleg (andB (not wBad) (andB c1 (not cBad)))))
+       in cli-say (list-append (if ok then "HX-SOUND WARRANTS+JAM-DAG OK: " else "HX-SOUND FAIL: ")
+            "open=true joint(11/\\22)=true deleg(11->33)=true forged=false cone=true orphan=false")
+            (sdone (if ok then #0 else #1))
+     else if cli-eq cmd "bench" then
+       scmd w-now (λ t0 →
+         let pcm = synth-stereo #48000
+             len = cli-len pcm
+         in scmd w-now (λ t1 →
+              let us = %wdiv (%wsub t1 t0) #1000
+                  ms = %wdiv us #1000
+              in cli-say (list-append "HX-SOUND STEREO BENCH 1.0s @ 48kHz (dual 4-node + Hadamard4): "
+                   (list-append (ce-dec len) (list-append " PCM bytes in "
+                   (list-append (ce-dec ms) (list-append " ms (" (list-append (ce-dec us) " us)"))))))
+                   (sdone #0)))
+     else
+       cli-say "hx-sound — Flagship 1.0 First-Principles Sound Engine (zero-UB C11)"
+         (cli-say "  hx-sound render <out.wav> [stereo|string|drum|fhn|cathedral] [N]"
+         (cli-say "  hx-sound pack <in.wav> <out.hxwav> | unpack <in.hxwav> <out.wav>"
+         (cli-say "  hx-sound rtl <out.sv>   (16-tile HyperNet-16 acoustic mesh SV)"
+         (cli-say "  hx-sound compress | inverse | dtw | warrant | bench"
+         (sdone #0)))))

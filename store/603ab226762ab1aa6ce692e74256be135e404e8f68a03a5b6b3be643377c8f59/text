@@ -1,0 +1,23 @@
+stereo-step : Word → StereoSt → StereoSt
+stereo-step i (stereo-st mb mh acc) =
+  let beat   = %wdiv i #12000
+      inBeat = %wmod i #12000
+      subSt  = %wmod i #6000
+      kBass  = if %weq (%wmod beat #4) #2 then #148 else #110
+      kHarm  = sb-note-k beat
+      fBass  = if %wlt inBeat #14 then #180 else #0
+      fHarm  = if %wlt subSt #10 then #140 else #0
+      mb2    = mesh4-step kBass #140 #65504 #18 fBass mb
+      mh2    = mesh4-step kHarm #260 #65514 #8 fHarm mh
+      bL     = case mb2 of mesh4 q0 _ q2 _ _ _ _ _ → w32-asr1 (w32-add q0 q2)
+      bR     = case mb2 of mesh4 _ q1 _ q3 _ _ _ _ → w32-asr1 (w32-add q1 q3)
+      hL     = case mh2 of mesh4 q0 _ q2 _ _ _ _ _ → w32-asr1 (w32-add q0 q2)
+      hR     = case mh2 of mesh4 _ q1 _ q3 _ _ _ _ → w32-asr1 (w32-add q1 q3)
+      -- Exact orthogonal 4x4 Hadamard stereo diffusion (proved norm-preserving!)
+      dm     = hadamard4-mix (quad-w bL hL bR hR)
+      outL   = case dm of quad-w y0 _ y2 _ → q16-to-pcm16 (w32-add y0 (w32-asr1 y2))
+      outR   = case dm of quad-w _ y1 _ y3 → q16-to-pcm16 (w32-add y1 (w32-asr1 y3))
+      -- push R_hi, R_lo, L_hi, L_lo so cli-rev produces [L_lo, L_hi, R_lo, R_hi]
+      acc2   = cons (%wand (%wshr outR #8) #255) (cons (%wand outR #255)
+               (cons (%wand (%wshr outL #8) #255) (cons (%wand outL #255) acc)))
+  in stereo-st mb2 mh2 acc2

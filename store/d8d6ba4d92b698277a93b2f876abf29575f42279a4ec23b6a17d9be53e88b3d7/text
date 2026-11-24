@@ -1,0 +1,19 @@
+-- Emit complete valid WebAssembly 1.0 module exporting step(in, sc, p1, p2, st) -> f32
+dsp-to-wasm : DspExpr → List Word
+dsp-to-wasm expr =
+  let -- Magic \0asm + version 1
+      hdr = cons #0 (cons #97 (cons #115 (cons #109 (cons #1 (cons #0 (cons #0 (cons #0 nil)))))))
+      -- Type section (1): 1 func (f32 x 5) -> f32
+      secType = cons #1 (cons #10 (cons #1 (cons #96 (cons #5
+                  (cons #125 (cons #125 (cons #125 (cons #125 (cons #125 (cons #1 (cons #125 nil)))))))))))
+      -- Function section (3): 1 func of type 0
+      secFunc = cons #3 (cons #2 (cons #1 (cons #0 nil)))
+      -- Export section (7): export "step" (func 0)
+      secExp  = cons #7 (cons #8 (cons #1 (cons #4
+                  (cons #115 (cons #116 (cons #101 (cons #112 (cons #0 (cons #0 nil)))))))))
+      -- Code section (10): 1 body with 0 locals + expr + 0x0b end
+      body    = cons #0 (w-app (dsp-emit-expr expr) (cons #11 nil))
+      bWithL  = w-app (w-uleb (w-len body)) body
+      cPay    = cons #1 bWithL
+      secCode = cons #10 (w-app (w-uleb (w-len cPay)) cPay)
+  in w-app hdr (w-app secType (w-app secFunc (w-app secExp secCode)))

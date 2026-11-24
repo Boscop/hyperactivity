@@ -1,0 +1,11 @@
+synth-step : Word → Word → Word → Word → Word → Word → SynthSt → SynthSt
+synth-step mode kbase w damp alpha i (synth-st m acc) =
+  let noteIdx = %wdiv i #12000
+      inNote  = %wmod i #12000
+      k       = if %weq mode #0 then sb-note-k noteIdx else kbase
+      f0      = if %wlt inNote #12 then #160 else #0
+      m2      = mesh4-step k w damp alpha f0 m
+      out     = case m2 of mesh4 q0 q1 q2 q3 _ _ _ _ → w32-add (w32-asr1 (w32-add q0 q2)) (w32-asr1 (w32-add q1 q3))
+      s16     = q16-to-pcm16 out
+      acc2    = cons (%wand (%wshr s16 #8) #255) (cons (%wand s16 #255) acc)
+  in synth-st m2 acc2
