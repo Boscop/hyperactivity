@@ -1,0 +1,37 @@
+hs-h11 : List Word → List Word
+hs-h11 tail =
+  hw-ln "    [enc dispatchThreads:MTLSizeMake(65536,1,1) threadsPerThreadgroup:MTLSizeMake(256,1,1)];"
+  (hw-ln "    [enc endEncoding]; [cb commit]; [cb waitUntilCompleted];"
+  (hw-ln "    double dt = now_sec() - t0;"
+  (hw-ln "    // Each round runs 7 full-carry 32-bit gc_add + 2 Sigma + Ch + Maj = 352 bit-conditions per thread per round"
+  (hw-ln "    double gbc_s = (65536.0 * (double)R * 352.0) / (dt * 1e9);"
+  (hw-ln (list-append "    printf(" (list-append hw-q (list-append "  R=%2u | pruned_contr=%5u | surviving=%5u | min_diff_bits=%3u/64 | %.2f ms (%.2f G-full-carry-bit-cond/s)" (list-append hw-esc-n (list-append hw-q ",")))))
+  (hw-ln "           R, ds[0], ds[1], ds[2], dt * 1e3, gbc_s);"
+  (hw-ln "  }"
+  (hw-ln nil
+  (hw-ln "  // ========================================================================"
+  (hw-ln "  // BENCH 3: 8-INPUT 256-BIT BIT-SLICED {XOR=0, AND=1} MC SYNTH (GF(2^4) + AES-128 S-BOX)"
+  (hw-ln "  // ========================================================================"
+  (hw-ln (list-append "  printf(" (list-append hw-q (list-append hw-esc-n (list-append "=== 3. 256-BIT BIT-SLICED {XOR=0, AND=1} MC SYNTHESIZER (GF(2^4) CORE + AES-128 S-BOX) ===" (list-append hw-esc-n (list-append hw-q ");"))))))
+  (hw-ln "  id<MTLBuffer> bTT = [dev newBufferWithLength:32 options:MTLResourceStorageModeShared];"
+  (hw-ln "  id<MTLBuffer> bBD = [dev newBufferWithLength:16 options:MTLResourceStorageModeShared];"
+  (hw-ln "  id<MTLBuffer> bBP = [dev newBufferWithLength:64 options:MTLResourceStorageModeShared];"
+  (hw-ln "  // Target A: Boyar-Peralta GF(2^4) inverse bit 0 (4-var embedded in 256-bit slice: exact MC<=3!)"
+  (hw-ln "  static const uint8_t GF16_INV[16] = {0,1,9,14,13,11,7,6,15,2,12,5,10,4,3,8};"
+  (hw-ln "  for (int mode = 0; mode < 2; mode++) {"
+  (hw-ln "    uint32_t* tt = (uint32_t*)bTT.contents; memset(tt, 0, 32);"
+  (hw-ln "    for (uint32_t x = 0; x < 256; x++) {"
+  (hw-ln "      uint32_t bit = (mode == 0) ? (GF16_INV[x & 15u] & 1u) : (AES_SBOX[x] & 1u);"
+  (hw-ln "      if (bit) tt[x >> 5] |= (1u << (x & 31u));"
+  (hw-ln "    }"
+  (hw-ln "    uint32_t* bd = (uint32_t*)bBD.contents; bd[0] = 256u; bd[1] = 99u;"
+  (hw-ln "    uint32_t mg = (mode == 0) ? 10u : 16u, iters = 2000u, nTh = 32768u;"
+  (hw-ln "    double t0 = now_sec();"
+  (hw-ln "    id<MTLCommandBuffer> cb = [q commandBuffer]; id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];"
+  (hw-ln "    [enc setComputePipelineState:pMC]; [enc setBuffer:bTT offset:0 atIndex:0]; [enc setBuffer:bBD offset:0 atIndex:1];"
+  (hw-ln "    [enc setBuffer:bBP offset:0 atIndex:2]; [enc setBytes:&mg length:4 atIndex:3]; [enc setBytes:&iters length:4 atIndex:4];"
+  (hw-ln "    [enc dispatchThreads:MTLSizeMake(nTh,1,1) threadsPerThreadgroup:MTLSizeMake(256,1,1)];"
+  (hw-ln "    [enc endEncoding]; [cb commit]; [cb waitUntilCompleted];"
+  (hw-ln "    double dt = now_sec() - t0;"
+  (hw-ln "    double ggate_s = ((double)nTh * (double)iters * (double)mg) / (dt * 1e9);"
+  (hw-ln (list-append "    printf(" (list-append hw-q (list-append "  %-22s | best_hamming_err=%3u/256 | AND_count=%2u | %.1f ms (%.2f G 256-bit-gates/s = %.2f T bit-ops/s)" (list-append hw-esc-n (list-append hw-q ","))))) tail))))))))))))))))))))))))))))))))))

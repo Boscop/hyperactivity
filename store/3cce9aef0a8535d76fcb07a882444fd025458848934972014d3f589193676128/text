@@ -1,0 +1,21 @@
+-- Exact branchless 4-bit AND backward propagator: maximal valid mask for x given y and output z!
+-- p in {0,1,2,3} is valid iff exists q in y with (p & q) in z:
+--   p=0: (0&q)=0 -> valid iff z0 & (y != 0)
+--   p=1: q in {0,2} -> 0; q in {1,3} -> 1 -> valid iff (z0 & (y0|y2)) | (z1 & (y1|y3))
+--   p=2: q in {0,1} -> 0; q in {2,3} -> 2 -> valid iff (z0 & (y0|y1)) | (z2 & (y2|y3))
+--   p=3: (3&q)=q -> valid iff (y & z) != 0
+hs-fiber-and-bwd : Word → Word → Word
+hs-fiber-and-bwd y z =
+  let y0 = hs-bit y #0
+      y1 = hs-bit y #1
+      y2 = hs-bit y #2
+      y3 = hs-bit y #3
+      z0 = hs-bit z #0
+      z1 = hs-bit z #1
+      z2 = hs-bit z #2
+      yany = if %weq y #0 then #0 else #1
+      r0 = %wand z0 yany
+      r1 = %wor (%wand z0 (%wor y0 y2)) (%wand z1 (%wor y1 y3))
+      r2 = %wor (%wand z0 (%wor y0 y1)) (%wand z2 (%wor y2 y3))
+      r3 = if %weq (%wand y z) #0 then #0 else #1
+  in %wor r0 (%wor (%wshl r1 #1) (%wor (%wshl r2 #2) (%wshl r3 #3)))

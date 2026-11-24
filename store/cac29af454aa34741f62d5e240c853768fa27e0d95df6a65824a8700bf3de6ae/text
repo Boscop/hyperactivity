@@ -1,0 +1,13 @@
+ha-scan-chunks : List (List Word) → Word → Word → Word → Word → Word → (Word → Word → Word → Step W Word) → Step W Word
+ha-scan-chunks nil _ _ dc pc fc k = k dc pc fc
+ha-scan-chunks (cons ch rest) pbuf buf dc pc fc k =
+  let ch2 = hhf-trim ch
+  in if %weq (cli-len ch2) #0 then ha-scan-chunks rest pbuf buf dc pc fc k
+     else let path = list-append "store/" (list-append ch2 "/text")
+              plen = cli-len path
+          in cli-poke pbuf path (λ _ →
+             scmd (w-store8 (%wadd pbuf plen) #0) (λ _ →
+             scmd (w-sys #902 pbuf buf #262144 #0 #0 #0) (λ got →
+             let n = if %wlt #262144 got then #0 else got
+             in ha-scan-bytes (toNat n) buf #0 #0 #0 dc pc fc (λ dc2 pc2 fc2 →
+                ha-scan-chunks rest pbuf buf dc2 pc2 fc2 k))))

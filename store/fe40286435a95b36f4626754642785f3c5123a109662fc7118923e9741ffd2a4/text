@@ -1,0 +1,37 @@
+hs-h10 : List Word → List Word
+hs-h10 tail =
+  hw-ln "    uint32_t chunk = ((1u << nFree) + nThreads - 1u) / nThreads;"
+  (hw-ln "    uint32_t dims[4] = { (uint32_t)nFree, nLm, nQm, chunk };"
+  (hw-ln "    id<MTLCommandBuffer> cb = [q commandBuffer]; id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];"
+  (hw-ln "    [enc setComputePipelineState:pTN]; [enc setBuffer:bLM offset:0 atIndex:0]; [enc setBuffer:bLR offset:0 atIndex:1];"
+  (hw-ln "    [enc setBuffer:bQT offset:0 atIndex:2]; [enc setBuffer:bSC offset:0 atIndex:3]; [enc setBytes:dims length:16 atIndex:4];"
+  (hw-ln "    [enc dispatchThreads:MTLSizeMake(nThreads,1,1) threadsPerThreadgroup:MTLSizeMake(nThreads<64?nThreads:64,1,1)];"
+  (hw-ln "    [enc endEncoding]; [cb commit]; [cb waitUntilCompleted];"
+  (hw-ln "    gpu_sat = ((uint32_t*)bSC.contents)[0];"
+  (hw-ln "  }"
+  (hw-ln "  int decv[HS_MAXV], decb[HS_MAXV];"
+  (hw-ln "  int solved = ok_prop && hg_cdcl_solve(H, decv, decb, 0);"
+  (hw-ln "  double dt_s = (now_sec() - ts0) * 1e3;"
+  (hw-ln "  uint8_t gotA = 0, gotB = 0;"
+  (hw-ln "  for (int i = 0; i < 8; i++) { if (H->D[A[i]]==8u) gotA |= (1u<<i); if (H->D[B[i]]==8u) gotB |= (1u<<i); }"
+  (hw-ln "  int exact = solved && ((uint8_t)(gotA + gotB) == targetS) && ((uint8_t)(gotA ^ gotB) == targetX);"
+  (hw-ln (list-append "  printf(" (list-append hw-q (list-append "  Full-Carry 8-bit (A+B=0x%02x, A^B=0x%02x) | vars=%d L=%d Q=%d | E-graph_dedup=%d Q->L_diss=%d Gauss_units=%d" (list-append hw-esc-n (list-append hw-q ",")))))
+  (hw-ln "         targetS, targetX, H->nV, H->nL, H->nQ, H->q_dedup, H->q_dissolved, H->gauss_units);"
+  (hw-ln (list-append "  printf(" (list-append hw-q (list-append "  Actual Residual Factor Graph -> GPU #SAT Tensor Contraction: free_vars=%d res_L=%u res_Q=%u -> EXACT #SAT=%u" (list-append hw-esc-n (list-append hw-q ",")))))
+  (hw-ln "         nFree, nLm, nQm, gpu_sat);"
+  (hw-ln (list-append "  printf(" (list-append hw-q (list-append "  CDCL+Gauss Solution: A=0x%02x B=0x%02x (A+B=0x%02x, A^B=0x%02x) exact=%d | conflicts=%d learned=%d | %.3f ms" (list-append hw-esc-n (list-append hw-q ",")))))
+  (hw-ln "         gotA, gotB, (uint8_t)(gotA+gotB), (uint8_t)(gotA^gotB), exact, H->conflicts, H->learned, dt_s);"
+  (hw-ln "  free(H);"
+  (hw-ln nil
+  (hw-ln "  // ========================================================================"
+  (hw-ln "  // BENCH 2: REAL FULL-CARRY SIGNED-BIT uint4 SHA-256 DIFFERENTIAL HUNTER"
+  (hw-ln "  // ========================================================================"
+  (hw-ln (list-append "  printf(" (list-append hw-q (list-append hw-esc-n (list-append "=== 2. REAL FULL-CARRY SIGNED-BIT uint4 SHA-256 DIFFERENTIAL HUNTER (Apple A18 Pro GPU) ===" (list-append hw-esc-n (list-append hw-q ");"))))))
+  (hw-ln "  id<MTLBuffer> bDS = [dev newBufferWithLength:16 options:MTLResourceStorageModeShared];"
+  (hw-ln "  uint32_t diff_R[5] = { 1, 2, 4, 8, 16 };"
+  (hw-ln "  for (int ri = 0; ri < 5; ri++) {"
+  (hw-ln "    uint32_t R = diff_R[ri];"
+  (hw-ln "    uint32_t* ds = (uint32_t*)bDS.contents; ds[0]=0; ds[1]=0; ds[2]=999;"
+  (hw-ln "    double t0 = now_sec();"
+  (hw-ln "    id<MTLCommandBuffer> cb = [q commandBuffer]; id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];"
+  (hw-ln "    [enc setComputePipelineState:pDiff]; [enc setBuffer:bDS offset:0 atIndex:0]; [enc setBytes:&R length:4 atIndex:1];" tail))))))))))))))))))))))))))))))))))

@@ -1,0 +1,42 @@
+hw-h10 : List Word → List Word
+hw-h10 tail =
+  hw-ln "    [e2 endEncoding]; [cb commit]; [cb waitUntilCompleted];"
+  (hw-ln "    double dt = now_sec() - t0;"
+  (hw-ln "    uint32_t* st = (uint32_t*)bST.contents;"
+  (hw-ln "    uint32_t* tt = (uint32_t*)bTT.contents;"
+  (hw-ln "    uint32_t max_deg = 0, min_deg = 99; int lin_found = 0;"
+  (hw-ln "    double avg_mon = 0.0, avg_d1 = 0.0, avg_d2 = 0.0;"
+  (hw-ln "    for (int b = 0; b < 32; b++) {"
+  (hw-ln "      uint32_t md = st[b*4 + 1];"
+  (hw-ln "      avg_mon += st[b*4 + 0];"
+  (hw-ln "      if (md > max_deg) max_deg = md;"
+  (hw-ln "      if (md < min_deg) min_deg = md;"
+  (hw-ln "      avg_d1 += st[b*4 + 2]; avg_d2 += st[b*4 + 3];"
+  (hw-ln "      // LIVE WEAVE: extract exact degree<=1 linear identities straight from GPU ANF memory!"
+  (hw-ln "      if (R == 1 && md <= 1 && g_n_anf_lin < 64) {"
+  (hw-ln "        uint32_t mask = 0;"
+  (hw-ln "        uint32_t w0 = tt[b * 2048];"
+  (hw-ln "        uint8_t c0 = (uint8_t)(w0 & 1u);"
+  (hw-ln "        for (int v = 0; v < 16; v++) {"
+  (hw-ln "          uint32_t idx = 1u << v;"
+  (hw-ln "          if ((tt[b * 2048 + (idx >> 5)] >> (idx & 31)) & 1u) mask |= idx;"
+  (hw-ln "        }"
+  (hw-ln "        g_anf_lin[g_n_anf_lin++] = (AnfLinEq){ mask, c0, b };"
+  (hw-ln "        lin_found++;"
+  (hw-ln "      }"
+  (hw-ln "    }"
+  (hw-ln "    avg_mon /= 32.0; avg_d1 /= 32.0; avg_d2 /= 32.0;"
+  (hw-ln "    double gmon_s = (32.0 * 65536.0) / (dt * 1e9);"
+  (hw-ln (list-append "    printf(" (list-append hw-q (list-append "  R=%u | ANF_deg=[%2u..%2u]/16 | avg_mon=%7.1f/65536 (%5.2f%%) | deg1=%4.1f | deg2=%5.1f | lin_woven=%2d | %.2f ms (%.2f G-mon/s)" (list-append hw-esc-n (list-append hw-q ",")))))
+  (hw-ln "           R, min_deg, max_deg, avg_mon, 100.0 * avg_mon / 65536.0, avg_d1, avg_d2, lin_found, dt * 1e3, gmon_s);"
+  (hw-ln "  }"
+  (hw-ln nil
+  (hw-ln "  // WEAVE 3 (FUNCTOR 7): Coupled ANF-Linear + CDCL <-> XOR-Gauss + Nonlinear->Linear Dissolution"
+  (hw-ln "  double residual_free = run_weave_3();"
+  (hw-ln nil
+  (hw-ln "  // WEAVE 4 (FUNCTOR 8): Residual Frontier -> Apple A18 Pro simdgroup_half8x8 Tensor-Network Contraction"
+  (hw-ln (list-append "  printf(" (list-append hw-q (list-append hw-esc-n (list-append "=== WEAVE 4 (FUNCTOR 8): APPLE A18 PRO simdgroup_half8x8 TENSOR-NETWORK CONTRACTION ===" (list-append hw-esc-n (list-append hw-q ");"))))))
+  (hw-ln (list-append "  printf(" (list-append hw-q (list-append "  Contracting residual frontier (%.1f%% free) across 64 batched 256x256 SHA-256 slice tensors:" (list-append hw-esc-n (list-append hw-q ", residual_free * 100.0);")))))
+  (hw-ln "  const uint32_t BATCH = 64, DIM = 256;"
+  (hw-ln "  size_t sz = (size_t)BATCH * DIM * DIM * sizeof(__fp16);"
+  (hw-ln "  id<MTLBuffer> bA = [dev newBufferWithLength:sz options:MTLResourceStorageModeShared];" tail)))))))))))))))))))))))))))))))))))))))

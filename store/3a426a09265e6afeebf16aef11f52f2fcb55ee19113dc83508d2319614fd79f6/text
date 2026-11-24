@@ -1,0 +1,56 @@
+-- Func 1: bf16_mul_fp32(a=0, b=1) -> i32 (locals: 2=sr, 3=ea, 4=eb, 5=prod, 6=norm, 7=rawE)
+pw-f1 : List Word
+pw-f1 =
+  let locHdr = the (List Word) (cons #1 (cons #6 (cons #127 nil)))
+      setSr  = list-append (pw-bin #113 (pw-bin #118 (pw-bin #115 (pw-get #0) (pw-get #1)) (pw-c #15)) (pw-c #1)) (pw-set #2)
+      setEa  = list-append (pw-bin #113 (pw-bin #118 (pw-get #0) (pw-c #7)) (pw-c #255)) (pw-set #3)
+      setEb  = list-append (pw-bin #113 (pw-bin #118 (pw-get #1) (pw-c #7)) (pw-c #255)) (pw-set #4)
+      ea255  = pw-bin #70 (pw-get #3) (pw-c #255)
+      eb255  = pw-bin #70 (pw-get #4) (pw-c #255)
+      ea0    = pw-bin #70 (pw-get #3) (pw-c #0)
+      eb0    = pw-bin #70 (pw-get #4) (pw-c #0)
+      maNe0  = pw-bin #71 (pw-bin #113 (pw-get #0) (pw-c #127)) (pw-c #0)
+      mbNe0  = pw-bin #71 (pw-bin #113 (pw-get #1) (pw-c #127)) (pw-c #0)
+      srShl  = pw-bin #116 (pw-get #2) (pw-c #31)
+      infRes = pw-bin #114 srShl (pw-c #2139095040)
+      -- if (ea==255 || eb==255) { if ((ea==255 && ma!=0) || (eb==255 && mb!=0) || ea==0 || eb==0) return qNaN; return +-Inf; }
+      chkInf = pw-cat
+        (cons (pw-bin #114 ea255 eb255)
+        (cons (cons #4 (cons #64 nil))
+        (cons (pw-or4 (pw-and2 ea255 maNe0) (pw-and2 eb255 mbNe0) ea0 eb0)
+        (cons (cons #4 (cons #64 nil))
+        (cons (pw-c #2143289344)
+        (cons (cons #15 (cons #11 nil))
+        (cons infRes
+        (cons (cons #15 (cons #11 nil)) nil))))))))
+      -- if (ea==0 || eb==0) return sr<<31
+      chkZer = pw-cat
+        (cons (pw-bin #114 ea0 eb0)
+        (cons (cons #4 (cons #64 nil))
+        (cons srShl
+        (cons (cons #15 (cons #11 nil)) nil))))
+      sigA   = pw-bin #114 (pw-bin #113 (pw-get #0) (pw-c #127)) (pw-c #128)
+      sigB   = pw-bin #114 (pw-bin #113 (pw-get #1) (pw-c #127)) (pw-c #128)
+      setPrd = list-append (pw-bin #108 sigA sigB) (pw-set #5)
+      setNrm = list-append (pw-bin #113 (pw-bin #118 (pw-get #5) (pw-c #15)) (pw-c #1)) (pw-set #6)
+      setRe  = list-append (pw-bin #106 (pw-bin #106 (pw-get #3) (pw-get #4)) (pw-get #6)) (pw-set #7)
+      -- if (rawE <= 127) return sr<<31
+      chkUnd = pw-cat
+        (cons (pw-bin #77 (pw-get #7) (pw-c #127))
+        (cons (cons #4 (cons #64 nil))
+        (cons srShl
+        (cons (cons #15 (cons #11 nil)) nil))))
+      -- if (rawE >= 382) return +-Inf
+      chkOvf = pw-cat
+        (cons (pw-bin #79 (pw-get #7) (pw-c #382))
+        (cons (cons #4 (cons #64 nil))
+        (cons infRes
+        (cons (cons #15 (cons #11 nil)) nil))))
+      expOut = pw-bin #116 (pw-bin #107 (pw-get #7) (pw-c #127)) (pw-c #23)
+      mHi    = pw-bin #116 (pw-bin #113 (pw-get #5) (pw-c #32767)) (pw-c #8)
+      mLo    = pw-bin #116 (pw-bin #113 (pw-get #5) (pw-c #16383)) (pw-c #9)
+      mSel   = pw-cat (cons mHi (cons mLo (cons (pw-get #6) (cons (pw-op #27) nil))))
+      finOut = pw-bin #114 (pw-bin #114 srShl expOut) mSel
+  in pw-cat (cons locHdr (cons setSr (cons setEa (cons setEb
+            (cons chkInf (cons chkZer (cons setPrd (cons setNrm (cons setRe
+            (cons chkUnd (cons chkOvf (cons finOut (cons (pw-op #11) nil)))))))))))))

@@ -1,0 +1,37 @@
+hmat-u1 : List Word → List Word
+hmat-u1 tail =
+  hw-ln "// hx_matter_h100.cu — Generated from store/ lib/hx-matter.hypercubical (ZERO hand-written repo CUDA!)"
+  (hw-ln "// Compile on 8xH100: nvcc -O3 -arch=sm_90a -Xcompiler -fopenmp hx_matter_h100.cu -o hx_matter_h100"
+  (hw-ln "#include <cuda_runtime.h>"
+  (hw-ln "#include <stdio.h>"
+  (hw-ln "#include <stdint.h>"
+  (hw-ln "#include <omp.h>"
+  (hw-ln nil
+  (hw-ln "__device__ __forceinline__ float jw_sign(uint32_t mask, uint32_t i, uint32_t j) {"
+  (hw-ln "  uint32_t lo = i < j ? i : j, hi = i < j ? j : i;"
+  (hw-ln "  uint32_t between = mask & (((1u << hi) - 1u) ^ ((1u << (lo + 1u)) - 1u));"
+  (hw-ln "  return (__popc(between) & 1u) ? -1.0f : 1.0f;"
+  (hw-ln "}"
+  (hw-ln nil
+  (hw-ln "// 12-Site (3x4) 2D Fermi-Hubbard Matrix-Free Lanczos MatVec (C(12,6)^2 = 853,776 exact Fock states per GPU!)"
+  (hw-ln "__constant__ uint8_t H12_A[17] = {0,1,2, 4,5,6, 8,9,10, 0,1,2,3, 4,5,6,7};"
+  (hw-ln "__constant__ uint8_t H12_B[17] = {1,2,3, 5,6,7, 9,10,11, 4,5,6,7, 8,9,10,11};"
+  (hw-ln nil
+  (hw-ln "__global__ void h100_hubbard12_matvec(const uint32_t* upS, const uint32_t* dnS, const int* upI, const int* dnI,"
+  (hw-ln "                                      const float* vin, float* vout, uint32_t nUp, uint32_t nDn, float U) {"
+  (hw-ln "  uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;"
+  (hw-ln "  uint32_t N = nUp * nDn; if (tid >= N) return;"
+  (hw-ln "  uint32_t iu = tid / nDn, id = tid % nDn;"
+  (hw-ln "  uint32_t mu = upS[iu], md = dnS[id];"
+  (hw-ln "  float acc = U * (float)__popc(mu & md) * vin[tid];"
+  (hw-ln "  for (int b = 0; b < 17; b++) {"
+  (hw-ln "    uint32_t i = H12_A[b], j = H12_B[b], bi = 1u<<i, bj = 1u<<j;"
+  (hw-ln "    if (((mu & bi)!=0) != ((mu & bj)!=0)) acc -= jw_sign(mu, i, j) * vin[(uint32_t)upI[mu^bi^bj]*nDn + id];"
+  (hw-ln "    if (((md & bi)!=0) != ((md & bj)!=0)) acc -= jw_sign(md, i, j) * vin[iu*nDn + (uint32_t)dnI[md^bi^bj]];"
+  (hw-ln "  }"
+  (hw-ln "  vout[tid] = acc;"
+  (hw-ln "}"
+  (hw-ln nil
+  (hw-ln "int main(void) {"
+  (hw-ln "  int ng = 0; cudaGetDeviceCount(&ng);"
+  (hw-ln (list-append "  printf(" (list-append hw-q (list-append "HX-MATTER 8xH100 Quantum Matter & Inverse-Biology Engine (%d CUDA GPUs)" (list-append hw-esc-n (list-append hw-q ", ng);"))))) tail))))))))))))))))))))))))))))))))))

@@ -1,0 +1,37 @@
+hmat-h3 : List Word → List Word → List Word
+hmat-h3 mpath tail =
+  hw-ln "    alpha[k] = a;"
+  (hw-ln "    double b2 = 0.0; double bp = (k > 0) ? beta[k-1] : 0.0;"
+  (hw-ln "    for (uint32_t i = 0; i < N; i++) { double wi = (double)w[i] - a*(double)vc[i] - bp*(double)vp[i]; vp[i] = (float)wi; b2 += wi*wi; }"
+  (hw-ln "    double b = sqrt(b2); beta[k] = b;"
+  (hw-ln "    if (b < 1e-7) { M = k + 1; break; }"
+  (hw-ln "    float ib = (float)(1.0 / b); for (uint32_t i = 0; i < N; i++) vp[i] *= ib;"
+  (hw-ln "  }"
+  (hw-ln "  *out_ms = (now_sec() - t0) * 1e3;"
+  (hw-ln "  return tridiag_min_eig(M, alpha, beta);"
+  (hw-ln "}"
+  (hw-ln nil
+  (hw-ln "int main(void) { @autoreleasepool {"
+  (hw-ln "  id<MTLDevice> dev = MTLCreateSystemDefaultDevice();"
+  (hw-ln "  id<MTLCommandQueue> q = [dev newCommandQueue];"
+  (hw-ln "  NSError* err = nil;"
+  (hw-ln (list-append "  NSString* src = [NSString stringWithContentsOfFile:@" (list-append hw-q (list-append mpath (list-append hw-q " encoding:NSUTF8StringEncoding error:&err];"))))
+  (hw-ln "  id<MTLLibrary> lib = [dev newLibraryWithSource:src options:nil error:&err];"
+  (hw-ln (list-append "  if (!lib) { fprintf(stderr, " (list-append hw-q (list-append "MSL err: %s" (list-append hw-esc-n (list-append hw-q ", err.localizedDescription.UTF8String); return 1; }")))))
+  (hw-ln (list-append "  id<MTLComputePipelineState> pHub = [dev newComputePipelineStateWithFunction:[lib newFunctionWithName:@" (list-append hw-q (list-append "hm_hubbard_matvec" (list-append hw-q "] error:&err];"))))
+  (hw-ln (list-append "  id<MTLComputePipelineState> pBnB = [dev newComputePipelineStateWithFunction:[lib newFunctionWithName:@" (list-append hw-q (list-append "hm_pocket_bnb" (list-append hw-q "] error:&err];"))))
+  (hw-ln (list-append "  id<MTLComputePipelineState> pFld = [dev newComputePipelineStateWithFunction:[lib newFunctionWithName:@" (list-append hw-q (list-append "hm_fold_trpcage" (list-append hw-q "] error:&err];"))))
+  (hw-ln (list-append "  printf(" (list-append hw-q (list-append "HX-MATTER QUANTUM MATTER + INVERSE-BIOLOGY GPU ENGINE on %s" (list-append hw-esc-n (list-append hw-q ", dev.name.UTF8String);")))))
+  (hw-ln nil
+  (hw-ln "  // 1. EXACT 2D FERMI-HUBBARD LADDER (2x4 = 8 SITES, 4,900 FOCK STATES) + ANALYTICAL U=0 CHECK!"
+  (hw-ln (list-append "  printf(" (list-append hw-q (list-append hw-esc-n (list-append "=== 1. EXACT GPU LANCZOS: 2D FERMI-HUBBARD LADDER (2x4=8 SITES, SUPERCONDUCTIVITY PAIRING) ===" (list-append hw-esc-n (list-append hw-q ");"))))))
+  (hw-ln "  double exact_U0 = -6.0 - 2.0 * sqrt(5.0);"
+  (hw-ln "  float Us[5] = { 0.0f, 2.0f, 4.0f, 8.0f, 12.0f };"
+  (hw-ln "  for (int i = 0; i < 5; i++) {"
+  (hw-ln "    double ms8=0, ms7=0, ms6=0;"
+  (hw-ln "    double e8 = run_hubbard_ed(dev, q, pHub, 4, 4, Us[i], &ms8);"
+  (hw-ln "    double e7 = run_hubbard_ed(dev, q, pHub, 4, 3, Us[i], &ms7);"
+  (hw-ln "    double e6 = run_hubbard_ed(dev, q, pHub, 3, 3, Us[i], &ms6);"
+  (hw-ln "    double dpair = e8 + e6 - 2.0 * e7; // negative => effective electron pairing binding energy!"
+  (hw-ln "    if (i == 0) {"
+  (hw-ln (list-append "      printf(" (list-append hw-q (list-append "  U/t=%4.1f | E0(4u,4d)=%10.6f (exact=%10.6f, err=%.2e) | E_pair=%+.5f | %.2f ms" (list-append hw-esc-n (list-append hw-q ","))))) tail))))))))))))))))))))))))))))))))))

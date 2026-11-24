@@ -1,0 +1,28 @@
+psc-main : List (List Word) → Step W Word
+psc-main args =
+  let p = psc-pref args
+  in scmd w-now (λ t0 →
+     let ok_bf16 = psc-check-bf16-bits psc-nat16 #0
+         ok_fma  = if %weq (psc-bf16-mul-fp32 #16320 #16320) #1074790400
+                   then %weq (psc-bf16-mul-fp32 #49184 #16448) #3236954112
+                   else false
+         ok_fib  = %weq (hs-chk-ab hs-n16 #0) #0
+         ok_alu  = %weq (cir-alu32 #0 #123456789 #987654321) #1111111110
+         all_ok  = if ok_bf16 then if ok_fma then if ok_fib then ok_alu else false else false else false
+     in scmd (w-file-write-named (list-append p "_soc.sv") psc-soc-sv) (λ n_sv →
+        scmd (w-file-write-named (list-append p "_soc.gds") psc-gds6-bytes) (λ n_gds →
+        scmd (w-file-write-named (list-append p ".wasm") psc-wasm-bytes) (λ n_wasm →
+        scmd (w-file-write-named (list-append p "_gpu.metal") psc-metal-src) (λ n_mtl →
+        scmd w-now (λ t1 →
+        cli-say
+          (list-append "PSC-1 4-PLANE PERSONAL SUPERCOMPUTER | bf16_65536="
+          (list-append (if ok_bf16 then "1" else "0")
+          (list-append " fma_ieee=" (list-append (if ok_fma then "1" else "0")
+          (list-append " fiber_4096=" (list-append (if ok_fib then "1" else "0")
+          (list-append " alu_rv32i=" (list-append (if ok_alu then "1" else "0")
+          (list-append " | sv=" (list-append (ce-dec n_sv)
+          (list-append "B gds=" (list-append (ce-dec n_gds)
+          (list-append "B wasm=" (list-append (ce-dec n_wasm)
+          (list-append "B metal=" (list-append (ce-dec n_mtl)
+          (list-append "B (" (list-append (ce-dec (%wdiv (%wsub t1 t0) #1000)) " us)"))))))))))))))))))
+          (sdone (if all_ok then #0 else #1))))))))

@@ -1,0 +1,33 @@
+-- Scratch layout at st (56 bytes = 7 words):
+--   +0: dmods, +8: proven_pure, +16: unproven_exec, +24: foreign_trust_gap,
+--   +32: total_decls, +40: proof_lines, +48: foreign_lines
+ha-scan-root : List (List Word × List Word) → Word → Word → Word → Word → (Word → Step W Word) → Step W Word
+ha-scan-root nil _ _ _ _ k = k #0
+ha-scan-root (cons e r) idx pbuf buf st k =
+  let phex = fst e
+      mh   = snd e
+  in if cli-eq phex "names" then ha-scan-root r idx pbuf buf st k
+     else
+       let path = hhf-unhex phex
+       in if hhf-is-domain path then
+            hhf-maybe-rew idx (λ _ →
+            scmd (w-file-read-named (list-append "store/" (list-append mh "/module"))) (λ rm →
+            let chs = hhf-split-lines (snd rm) nil
+            in ha-scan-chunks chs pbuf buf #0 #0 #0 (λ dc pc fc →
+               let cls = ha-status (%wlt #0 fc) (%wlt #0 pc)
+               in scmd (w-load st) (λ dm →
+                  scmd (w-load (%wadd st #8)) (λ pm →
+                  scmd (w-load (%wadd st #16)) (λ um →
+                  scmd (w-load (%wadd st #24)) (λ fm →
+                  scmd (w-load (%wadd st #32)) (λ td →
+                  scmd (w-load (%wadd st #40)) (λ tp →
+                  scmd (w-load (%wadd st #48)) (λ tf →
+                  scmd (w-store st (%wsucc dm)) (λ _ →
+                  scmd (w-store (%wadd st #8)  (if %weq cls #0 then %wsucc pm else pm)) (λ _ →
+                  scmd (w-store (%wadd st #16) (if %weq cls #1 then %wsucc um else um)) (λ _ →
+                  scmd (w-store (%wadd st #24) (if %weq cls #2 then %wsucc fm else fm)) (λ _ →
+                  scmd (w-store (%wadd st #32) (%wadd td dc)) (λ _ →
+                  scmd (w-store (%wadd st #40) (%wadd tp pc)) (λ _ →
+                  scmd (w-store (%wadd st #48) (%wadd tf fc)) (λ _ →
+                  ha-scan-root r (%wsucc idx) pbuf buf st k)))))))))))))))))
+          else ha-scan-root r idx pbuf buf st k

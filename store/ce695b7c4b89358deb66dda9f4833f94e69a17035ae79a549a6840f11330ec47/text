@@ -1,0 +1,30 @@
+-- Scan raw bytes of a store chunk for:
+--   * typed declaration lines (`name : ...`)
+--   * proof lines (containing `≡` = E2 89 A1)
+--   * opaque foreign-code lines (`#include` or `kernel`)
+ha-scan-bytes : Nat → Word → Word → Word → Word → Word → Word → Word → (Word → Word → Word → Step W Word) → Step W Word
+ha-scan-bytes zero _ _ _ _ dc pc fc k = k dc pc fc
+ha-scan-bytes (suc rem) buf pos flg p3 dc pc fc k =
+  scmd (w-load8 (%wadd buf pos)) (λ b →
+  let b1 = %wand p3 #255
+      b2 = %wand (%wshr p3 #8) #255
+      b3 = %wand (%wshr p3 #16) #255
+      is_start = %weq (%wand flg #1) #0
+      is_bad = if is_start then (if %weq b #32 then true else if %weq b #45 then true else %weq b #9) else false
+      f0 = %wor flg #1
+      f1 = if is_bad then %wor f0 #2 else f0
+      is_col = if %weq b1 #32 then %weq b #58 else false
+      is_eq  = if %weq b2 #226 then (if %weq b1 #137 then %weq b #161 else false) else false
+      is_inc = if %weq b3 #35 then (if %weq b2 #105 then (if %weq b1 #110 then %weq b #99 else false) else false) else false
+      is_krn = if %weq b3 #107 then (if %weq b2 #101 then (if %weq b1 #114 then %weq b #110 else false) else false) else false
+      f2 = if is_col then %wor f1 #4 else f1
+      f3 = if is_eq  then %wor f2 #8 else f2
+      f4 = if is_inc then %wor f3 #16 else if is_krn then %wor f3 #16 else f3
+      p3n = %wand (%wor (%wshl p3 #8) b) #16777215
+  in if %weq b #10 then
+       let is_decl = if %weq (%wand f4 #2) #0 then %weq (%wand f4 #4) #4 else false
+           dc2 = if is_decl then %wsucc dc else dc
+           pc2 = if %weq (%wand f4 #8) #8 then %wsucc pc else pc
+           fc2 = if %weq (%wand f4 #16) #16 then %wsucc fc else fc
+       in ha-scan-bytes rem buf (%wsucc pos) #0 #0 dc2 pc2 fc2 k
+     else ha-scan-bytes rem buf (%wsucc pos) f4 p3n dc pc fc k)

@@ -1,0 +1,43 @@
+-- ============================================================================
+-- PLANE 2: EXACT IEEE-754 BF16 x BF16 -> FP32 HARDWARE MULTIPLIER (0 ROUNDING!)
+-- Because BF16 has 8-bit significand (1+7), 8x8 = 16 bits fits BIT-EXACTLY in FP32's 24-bit significand!
+-- ============================================================================
+psc-bf16-mul-fp32 : Word → Word → Word
+psc-bf16-mul-fp32 a b =
+  let sa = psc-bf16-sign a
+      ea = psc-bf16-exp a
+      ma = psc-bf16-mant a
+      sb = psc-bf16-sign b
+      eb = psc-bf16-exp b
+      mb = psc-bf16-mant b
+      sr = %wxor sa sb
+      infA = %weq ea #255
+      infB = %weq eb #255
+      zerA = %weq ea #0
+      zerB = %weq eb #0
+  in if (if infA then true else infB) then
+       -- NaN if either is NaN, or 0 * Inf
+       let nanA = if infA then (if %weq ma #0 then false else true) else false
+           nanB = if infB then (if %weq mb #0 then false else true) else false
+           zInf = if zerA then true else zerB
+       in if (if nanA then true else if nanB then true else zInf)
+          then #2143289344 -- 0x7FC00000 canonical quiet NaN
+          else %wor (%wshl sr #31) #2139095040 -- +-Inf (0x7F800000)
+     else if (if zerA then true else zerB) then
+       %wshl sr #31 -- exact signed zero +-0.0f
+     else
+       let sigA = %wor #128 ma
+           sigB = %wor #128 mb
+           prod = %wmul sigA sigB
+           norm = %wand (%wshr prod #15) #1
+           rawE = %wadd (%wadd ea eb) norm
+       in if %wlt rawE #128 then
+            %wshl sr #31 -- underflow -> signed zero
+          else if %wlt #381 rawE then
+            %wor (%wshl sr #31) #2139095040 -- overflow -> +-Inf
+          else
+            let er = %wsub rawE #127
+                mr = if %weq norm #1
+                     then %wshl (%wand prod #32767) #8
+                     else %wshl (%wand prod #16383) #9
+            in %wor (%wshl sr #31) (%wor (%wshl er #23) mr)
