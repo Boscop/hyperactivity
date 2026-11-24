@@ -1,0 +1,17 @@
+-- Advance LZ match state and encode stream in flat RAM with hy_rewind() every 256 bytes!
+hcm-enc-loop2 : Nat → Word → Word → Word → Word → Word → Word → Word → Word → Word → Word → (Word → Word → Step W Word) → Step W Word
+hcm-enc-loop2 zero _ _ _ _ _ _ _ lo _ opos k = k lo opos
+hcm-enc-loop2 (suc rem) tab inb outb pos hist mpos mlen lo hi opos k =
+  hcm-maybe-rewind pos
+    (scmd (w-load8 (%wadd inb pos)) (λ x →
+    let am = hcm-addr-m tab (hcm-h4 hist)
+    in scmd (w-load am) (λ prev →
+       let use_mp = if %wlt #0 mlen then mpos else if %wlt #0 prev then %wsub prev #1 else #0
+           use_ml = if %wlt #0 mlen then mlen else if %wlt #0 prev then #4 else #0
+       in scmd (w-load8 (%wadd inb use_mp)) (λ mbyte →
+          hcm-enc-bits (toNat #8) tab hist #1 x use_ml mbyte lo hi outb opos #0 (λ lo2 hi2 op2 ml_ok →
+          scmd (w-store am (%wsucc pos)) (λ _ →
+          let hist2 = %wand (%wor (%wshl hist #8) x) #281474976710655
+              mp2   = if %wlt #0 ml_ok then %wsucc use_mp else #0
+              ml2   = if %wlt #0 ml_ok then (if %wlt ml_ok #32 then %wsucc ml_ok else #32) else #0
+          in hcm-enc-loop2 rem tab inb outb (%wsucc pos) hist2 mp2 ml2 lo2 hi2 op2 k))))))

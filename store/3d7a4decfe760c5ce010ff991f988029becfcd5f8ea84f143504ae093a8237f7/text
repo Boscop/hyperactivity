@@ -1,0 +1,25 @@
+-- Encode 8 bits of byte `x` (MSB first)
+hcm-enc-bits : Nat → Word → Word → Word → Word → Word → Word → Word → Word → Word → Word → Word → (Word → Word → Word → Word → Step W Word) → Step W Word
+hcm-enc-bits zero tab hist c0 x mlen mbyte lo hi outb opos _ k = k lo hi opos mlen
+hcm-enc-bits (suc bleft) tab hist c0 x mlen mbyte lo hi outb opos _ k =
+  let bit  = %wand (%wshr x (fromNat bleft)) #1
+      mbit = %wand (%wshr mbyte (fromNat bleft)) #1
+      a1   = hcm-addr1 tab hist c0
+      a3   = hcm-addr3 tab hist c0
+      a6   = hcm-addr6 tab hist c0
+  in scmd (w-load a1) (λ v1 →
+     scmd (w-load a3) (λ v3 →
+     scmd (w-load a6) (λ v6 →
+     let p1  = %wxor v1 #2048
+         p3  = %wxor v3 #2048
+         p6  = %wxor v6 #2048
+         p   = hcm-blend p1 p3 p6 mlen mbit
+         mid = %wadd lo (%wmul (%wshr (%wsub hi lo) #12) p)
+         lo2 = if %weq bit #1 then lo else %wsucc mid
+         hi2 = if %weq bit #1 then mid else hi
+         ml2 = if %weq bit mbit then mlen else #0
+     in scmd (w-store a1 (%wxor (hcm-upd p1 bit #4) #2048)) (λ _ →
+        scmd (w-store a3 (%wxor (hcm-upd p3 bit #3) #2048)) (λ _ →
+        scmd (w-store a6 (%wxor (hcm-upd p6 bit #2) #2048)) (λ _ →
+        hcm-renorm-enc (toNat #4) lo2 hi2 outb opos (λ lo3 hi3 op3 →
+          hcm-enc-bits bleft tab hist (%wor (%wshl c0 #1) bit) x ml2 mbyte lo3 hi3 outb op3 #0 k)))))))

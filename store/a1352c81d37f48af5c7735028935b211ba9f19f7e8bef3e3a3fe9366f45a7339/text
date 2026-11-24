@@ -1,0 +1,35 @@
+-- Decode 8 bits of a byte (MSB first)
+hcm-dec-bits : Nat → Word → Word → Word → Word → Word → Word → Word → Word → Word → Word → Word → (Word → Word → Word → Word → Word → Word → Step W Word) → Step W Word
+hcm-dec-bits zero _ _ c0 mlen _ lo hi code _ ipos _ k = k (%wand c0 #255) lo hi code ipos mlen
+hcm-dec-bits (suc bleft) tab hist c0 mlen mbyte lo hi code inb ipos ilen k =
+  let mbit = %wand (%wshr mbyte (fromNat bleft)) #1
+      a1   = hcm-addr1 tab hist c0
+      a2   = hcm-addr2 tab hist c0
+      a4   = hcm-addr4 tab hist c0
+      a6   = hcm-addr6 tab hist c0
+      aw   = hcm-addr-w tab c0
+  in scmd (w-load a1) (λ v1 →
+     scmd (w-load a2) (λ v2 →
+     scmd (w-load a4) (λ v4 →
+     scmd (w-load a6) (λ v6 →
+     scmd (w-load aw) (λ vw →
+     let u1  = hcm-stretch (hcm-prob v1)
+         u2  = hcm-stretch (hcm-prob v2)
+         u4  = hcm-stretch (hcm-prob v4)
+         u6  = hcm-stretch (hcm-prob v6)
+         um  = hcm-um mlen mbit
+         wp  = %wxor vw hcm-w-init
+         p   = hcm-mix-pred wp u1 u2 u4 u6 um
+         mid = %wadd lo (%wmul (%wshr (%wsub hi lo) #12) p)
+         bit = if %wlt mid code then #0 else #1
+         lo2 = if %weq bit #1 then lo else %wsucc mid
+         hi2 = if %weq bit #1 then mid else hi
+         ml2 = if %weq bit mbit then mlen else #0
+         wp2 = hcm-mix-upd wp u1 u2 u4 u6 um bit p
+     in scmd (w-store a1 (hcm-upd-cnt v1 bit)) (λ _ →
+        scmd (w-store a2 (hcm-upd-cnt v2 bit)) (λ _ →
+        scmd (w-store a4 (hcm-upd-cnt v4 bit)) (λ _ →
+        scmd (w-store a6 (hcm-upd-cnt v6 bit)) (λ _ →
+        scmd (w-store aw (%wxor wp2 hcm-w-init)) (λ _ →
+        hcm-renorm-dec (toNat #4) lo2 hi2 code inb ipos ilen (λ lo3 hi3 c3 ip3 →
+          hcm-dec-bits bleft tab hist (%wor (%wshl c0 #1) bit) ml2 mbyte lo3 hi3 c3 inb ip3 ilen k)))))))))))

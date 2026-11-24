@@ -1,0 +1,24 @@
+sound-coreaudio-c : List Word
+sound-coreaudio-c = sv-join (
+  cons "/* Generated from sound/graph.hypercubical — Native macOS CoreAudio 48kHz Stereo Host */" (
+  cons "/* Build: clang -O2 -framework AudioToolbox -o /tmp/hx-live /tmp/hx-coreaudio.c /tmp/hx-firmware-isr.o */" (
+  cons "#include <AudioToolbox/AudioToolbox.h>" (
+  cons "#include <stdint.h>" (
+  cons "#include <unistd.h>" (
+  cons "typedef struct { int32_t q[4], p[4]; } HyperMesh4;" (
+  cons "extern void hyper_audio_isr(HyperMesh4 *m, int16_t *out_stereo, int n_frames, int32_t k, int32_t w, int32_t damp, int32_t impL, int32_t impR);" (
+  cons "static HyperMesh4 g_mesh = {{0},{0}};" (
+  cons "static uint64_t g_step = 0;" (
+  cons "static void hx_cb(void *u, AudioQueueRef q, AudioQueueBufferRef b) {" (
+  cons "  (void)u; int16_t *pcm = (int16_t *)b->mAudioData; int n = 512;" (
+  cons "  int32_t ks[4] = {220, 344, 495, 880}; int32_t k = ks[(g_step / 24) & 3];" (
+  cons "  int32_t imp = ((g_step % 24) == 0) ? 180 : 0; g_step++;" (
+  cons "  hyper_audio_isr(&g_mesh, pcm, n, k, 220, 65514, imp, imp >> 1);" (
+  cons "  b->mAudioDataByteSize = (UInt32)(n * 4); AudioQueueEnqueueBuffer(q, b, 0, NULL);" (
+  cons "}" (
+  cons "int main(void) {" (
+  cons "  AudioStreamBasicDescription fmt = { 48000.0, kAudioFormatLinearPCM, kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked, 4, 1, 4, 2, 16, 0 };" (
+  cons "  AudioQueueRef q; AudioQueueNewOutput(&fmt, hx_cb, NULL, NULL, NULL, 0, &q);" (
+  cons "  for (int i = 0; i < 3; i++) { AudioQueueBufferRef b; AudioQueueAllocateBuffer(q, 2048, &b); hx_cb(NULL, q, b); }" (
+  cons "  AudioQueueStart(q, NULL); sleep(8); AudioQueueStop(q, true); return 0;" (
+  cons "}" nil)))))))))))))))))))))))

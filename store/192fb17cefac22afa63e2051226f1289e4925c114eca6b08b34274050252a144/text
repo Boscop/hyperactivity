@@ -1,0 +1,34 @@
+dsp-mem-verlet-wasm : List Word
+dsp-mem-verlet-wasm =
+  let hdr     = the (List Word) (cons #0 (cons #97 (cons #115 (cons #109 (cons #1 (cons #0 (cons #0 (cons #0 nil))))))))
+      -- Type section (1): 1 func (f32 x 4) -> f32
+      secType = the (List Word) (cons #1 (cons #9 (cons #1 (cons #96 (cons #4
+                  (cons #125 (cons #125 (cons #125 (cons #125 (cons #1 (cons #125 nil)))))))))))
+      -- Function section (3): 1 func of type 0
+      secFunc = the (List Word) (cons #3 (cons #2 (cons #1 (cons #0 nil))))
+      -- Memory section (5): 1 memory, min 1 page (64KB)
+      secMem  = the (List Word) (cons #5 (cons #3 (cons #1 (cons #0 (cons #1 nil)))))
+      -- Export section (7): export "step" (func 0)
+      secExp  = the (List Word) (cons #7 (cons #8 (cons #1 (cons #4
+                  (cons #115 (cons #116 (cons #101 (cons #112 (cons #0 (cons #0 nil))))))))))
+      -- Local decls: 1 group of 2 f32 locals (local 4 = q, local 5 = p)
+      bLoc    = the (List Word) (cons #1 (cons #2 (cons #125 nil)))
+      -- Load q = mem[0], p = mem[4]
+      bLoad   = the (List Word) (cons #65 (cons #0 (cons #42 (cons #2 (cons #0 (cons #33 (cons #4
+                  (cons #65 (cons #4 (cons #42 (cons #2 (cons #0 (cons #33 (cons #5 nil))))))))))))))
+      -- p = damp * (p - (k*q + alpha*q^3 - in))
+      bMom1   = the (List Word) (cons #32 (cons #2 (cons #32 (cons #5 (cons #32 (cons #1 (cons #32 (cons #4 (cons #148
+                  (cons #32 (cons #3 (cons #32 (cons #4 (cons #32 (cons #4 (cons #148 (cons #32 (cons #4 (cons #148 (cons #148 nil))))))))))))))))))))
+      bMom2   = the (List Word) (cons #146 (cons #32 (cons #0 (cons #147 (cons #147 (cons #148 (cons #33 (cons #5 nil))))))))
+      -- q = max(-1.5, min(1.5, q + p))  (-1.5f = 0xbfc00000, 1.5f = 0x3fc00000)
+      bPos    = the (List Word) (cons #67 (cons #0 (cons #0 (cons #192 (cons #191
+                  (cons #67 (cons #0 (cons #0 (cons #192 (cons #63
+                  (cons #32 (cons #4 (cons #32 (cons #5 (cons #146 (cons #150 (cons #151 (cons #33 (cons #4 nil)))))))))))))))))))
+      -- Store mem[0]=q, mem[4]=p, return q, end
+      bStore  = the (List Word) (cons #65 (cons #0 (cons #32 (cons #4 (cons #56 (cons #2 (cons #0
+                  (cons #65 (cons #4 (cons #32 (cons #5 (cons #56 (cons #2 (cons #0
+                  (cons #32 (cons #4 (cons #11 nil)))))))))))))))))
+      body    = dw-app bLoc (dw-app bLoad (dw-app bMom1 (dw-app bMom2 (dw-app bPos bStore))))
+      cPay    = cons #1 (dw-app (dw-uleb (dw-len body)) body)
+      secCode = cons #10 (dw-app (dw-uleb (dw-len cPay)) cPay)
+  in dw-app hdr (dw-app secType (dw-app secFunc (dw-app secMem (dw-app secExp secCode))))

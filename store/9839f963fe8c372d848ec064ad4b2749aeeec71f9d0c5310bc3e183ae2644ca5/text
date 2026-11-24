@@ -1,0 +1,33 @@
+-- Exact depth-bounded branch-and-bound NAND2 superoptimizer (up to 6 gates, dead-wire symmetry pruning):
+-- At final gate (d = 1), one input MUST be wire (nw - 1) if nw > 3 (otherwise nw - 1 was dead code -> smaller circuit exists!).
+hs-dfs : Nat → Word → Word → Word → Word → Word → Word × Word
+hs-dfs zero target bank nw shift prog = (#0 , #0)
+hs-dfs (suc zero) target bank nw shift prog =
+  let last = %wsub nw #1
+      wl = hs-get bank last
+  in %welimP (λ _ → Word × Word) nw (#0 , #0) (λ i st1 →
+       if %wlt #0 (fst st1) then st1
+       else
+         let t = hs-nand (hs-get bank i) wl
+             nc = %wsucc (snd st1)
+         in if %weq t target then
+              (%wsucc (%wor prog (%wshl (%wor (%wshl i #3) last) shift)) , nc)
+            else (#0 , nc))
+hs-dfs (suc (suc d)) target bank nw shift prog =
+  %welimP (λ _ → Word × Word) nw (#0 , #0) (λ i st0 →
+    if %wlt #0 (fst st0) then st0
+    else
+      let wi = hs-get bank i
+      in %welimP (λ _ → Word × Word) (%wsub nw i) st0 (λ dj st1 →
+           if %wlt #0 (fst st1) then st1
+           else
+             let j = %wadd i dj
+                 t = hs-nand wi (hs-get bank j)
+                 nc = %wsucc (snd st1)
+             in if %weq t #0 then (#0 , nc)
+                else if %weq t #255 then (#0 , nc)
+                else if %weq (hs-has bank nw t) #1 then (#0 , nc)
+                else
+                  let g = %wor (%wshl i #3) j
+                      sub = hs-dfs (suc d) target (hs-set bank nw t) (%wsucc nw) (%wadd shift #6) (%wor prog (%wshl g shift))
+                  in (fst sub , %wadd nc (snd sub))))
