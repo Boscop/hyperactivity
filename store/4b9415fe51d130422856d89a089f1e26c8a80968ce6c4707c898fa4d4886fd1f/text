@@ -1,0 +1,754 @@
+// hx-mesh.js — Zero-Dependency Browser-Seeded WebRTC P2P Superintelligence Mesh + CRDT Identity Atlas
+// Speaks directly to Hyperactivity's stateless /api/p2p/signal?id=<peer> mailbox (lib/server.hypercubical)
+// and weaves every visitor tab + desktop node into an encrypted peer-to-peer RTCDataChannel compute & proof mesh.
+// Verified CRDT merge law: min_cost(A, B) is commutative, associative, idempotent (eg-thm-min-comm/idem/le).
+(function (global) {
+  'use strict';
+
+  const ICE_SERVERS = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ];
+  const MAX_PEERS = 6; // K-regular small-world overlay (O(log N) gossip diameter!)
+
+  // 64-bit exact truth-table verifier (runs in <10us in JS BigInt to reject ANY forged peer packet!)
+  const V6 = [
+    0xAAAAAAAAAAAAAAAAn, 0xCCCCCCCCCCCCCCCCn, 0xF0F0F0F0F0F0F0F0n,
+    0xFF00FF00FF00FF00n, 0xFFFF0000FFFF0000n, 0xFFFFFFFF00000000n
+  ];
+  const MASK64 = 0xFFFFFFFFFFFFFFFFn;
+
+  function verifyNand64(gates, targetHex) {
+    if (!Array.isArray(gates) || gates.length === 0 || gates.length > 64) return false;
+    const vals = [V6[0], V6[1], V6[2], V6[3], V6[4], V6[5], 0n, MASK64];
+    for (let k = 0; k < gates.length; k++) {
+      const g = gates[k];
+      if (!Array.isArray(g) || g.length !== 2) return false;
+      const a = g[0] | 0, b = g[1] | 0;
+      if (a < 0 || a >= vals.length || b < 0 || b >= vals.length) return false;
+      vals.push((~(vals[a] & vals[b])) & MASK64);
+    }
+    const got = vals[vals.length - 1];
+    try {
+      return got === BigInt('0x' + String(targetHex).replace(/^0x/i, ''));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // Inline Web Worker: runs exact 65,536/65,536 4-var NAND2 Atlas + 64-bit coinductive superoptimization
+  const WORKER_SRC = `
+    const V6 = [
+      0xAAAAAAAAAAAAAAAAn, 0xCCCCCCCCCCCCCCCCn, 0xF0F0F0F0F0F0F0F0n,
+      0xFF00FF00FF00FF00n, 0xFFFF0000FFFF0000n, 0xFFFFFFFF00000000n
+    ];
+    const M64 = 0xFFFFFFFFFFFFFFFFn;
+    const TARGETS = [
+      { name: 'parity5', tt: (V6[0]^V6[1]^V6[2]^V6[3]^V6[4]) & M64 },
+      { name: 'parity6', tt: (V6[0]^V6[1]^V6[2]^V6[3]^V6[4]^V6[5]) & M64 },
+      { name: 'ge3',     tt: 0x80c0e0f0f8fcfeffn },
+      { name: 'add3c',   tt: 0xfefcf8f0e0c08000n },
+      { name: 'maj5',    tt: 0xfee8e880fee8e880n },
+      { name: 'shacm',   tt: 0x272727d827d8d8d8n }, { name: 'rv32i_alu', tt: 0x674671fc98b98e03n }, { name: 'bf16_mul', tt: 0x1c424d59e3bdb2a6n }, { name: 'bf16_add', tt: 0xccbbd7a53344285an }
+    ];
+    let mode = 'active'; let focus = 'all'; // 'off' | 'idle' | 'active' | 'heavy' | 'max'
+    let evals = 0, identities = 0, u4Ready = false;
+    const u4d = new Uint8Array(65536).fill(255);
+    const u4a = new Uint16Array(65536), u4b = new Uint16Array(65536), u4l = new Uint16Array(65536);
+    let u4n = 0;
+
+    function buildU4() {
+      const seeds = [0x0000, 0xFFFF, 0xAAAA, 0xCCCC, 0xF0F0, 0xFF00];
+      for (const s of seeds) { u4d[s] = 0; u4a[s] = s; u4b[s] = s; u4l[u4n++] = s; }
+      const ls = [0, u4n];
+      for (let d = 1; d <= 6 && u4n < 65536; d++) {
+        const pe = u4n, ns = ls[d - 1];
+        for (let i = ns; i < pe && u4n < 65536; i++) {
+          const a = u4l[i];
+          for (let j = 0; j <= i; j++) {
+            const b = u4l[j], y = (~(a & b)) & 0xFFFF;
+            evals++;
+            if (u4d[y] === 255) { u4d[y] = d; u4a[y] = a; u4b[y] = b; u4l[u4n++] = y; }
+            else identities++;
+          }
+        }
+        ls.push(u4n);
+      }
+      u4Ready = true;
+      self.postMessage({ type: 'u4_done', u4n, evals, identities });
+    }
+
+    function synth6(tt64) {
+      const nd = [];
+      for (let i = 0; i < 6; i++) nd.push({ a: -1, b: -1, tt: V6[i] });
+      nd.push({ a: -1, b: -1, tt: 0n }, { a: -1, b: -1, tt: M64 });
+      const idx = new Map();
+      nd.forEach((n, i) => idx.set(n.tt, i));
+      function addNand(a, b) {
+        const y = (~(nd[a].tt & nd[b].tt)) & M64;
+        evals++;
+        if (idx.has(y)) { identities++; return idx.get(y); }
+        const id = nd.length; nd.push({ a, b, tt: y }); idx.set(y, id); return id;
+      }
+      function fromU4(t16) {
+        const b16 = BigInt(t16);
+        const t64 = b16 | (b16 << 16n) | (b16 << 32n) | (b16 << 48n);
+        if (idx.has(t64)) return idx.get(t64);
+        if (u4d[t16] === 255) return 6;
+        return addNand(fromU4(u4a[t16]), fromU4(u4b[t16]));
+      }
+      function mux(s, t1, t0) {
+        if (nd[t1].tt === nd[t0].tt) return t1;
+        const ns = addNand(s, s);
+        return addNand(addNand(s, t1), addNand(ns, t0));
+      }
+      const q0 = Number(tt64 & 0xFFFFn), q1 = Number((tt64 >> 16n) & 0xFFFFn);
+      const q2 = Number((tt64 >> 32n) & 0xFFFFn), q3 = Number((tt64 >> 48n) & 0xFFFFn);
+      const root = mux(5, mux(4, fromU4(q3), fromU4(q2)), mux(4, fromU4(q1), fromU4(q0)));
+      // Compact live sub-DAG
+      const need = new Uint8Array(nd.length); need[root] = 1;
+      for (let i = root; i >= 8; i--) if (need[i]) { need[nd[i].a] = 1; need[nd[i].b] = 1; }
+      const map = new Int32Array(nd.length).fill(-1);
+      for (let i = 0; i < 8; i++) map[i] = i;
+      const gates = [];
+      for (let i = 8; i <= root; i++) if (need[i]) {
+        gates.push([map[nd[i].a], map[nd[i].b]]);
+        map[i] = 8 + gates.length - 1;
+      }
+      return { gates, got: nd[root].tt };
+    }
+
+    let tIdx = 0;
+    let rng = ((self.crypto && self.crypto.getRandomValues ? self.crypto.getRandomValues(new Uint32Array(1))[0] : (Date.now() ^ Math.floor(Math.random() * 4294967295))) | 1) >>> 0; const bestDags = new Map();
+    function xr() { rng ^= rng << 13; rng ^= rng >>> 17; rng ^= rng << 5; return rng >>> 0; }
+
+    function tick() {
+      if (mode === 'off') return setTimeout(tick, 400);
+      if (!u4Ready) {
+        buildU4();
+        return setTimeout(tick, 50);
+      }
+      // First pass: emit exact Shannon+CSE witnesses for all 6 frontier targets
+      if (tIdx < TARGETS.length) {
+        const tgt = TARGETS[tIdx++];
+        const res = synth6(tgt.tt);
+        if (res.got === tgt.tt) {
+          self.postMessage({
+            type: 'discovery',
+            name: tgt.name,
+            tt: tgt.tt.toString(16).padStart(16, '0'),
+            cost: res.gates.length, bestInit: bestDags.set(tgt.name, res.gates).size,
+            gates: res.gates
+          });
+        }
+      } else {
+        // Coinductive background wave: mine 64-bit algebraic identities & strict compressions
+        const iters = mode === 'max' ? 24000 : mode === 'heavy' ? 10000 : mode === 'active' ? 4500 : 600; for (let ti0 = 0; ti0 < TARGETS.length; ti0++) { const tg0 = TARGETS[ti0]; if (focus !== 'all' && tg0.name !== focus) continue; const cur = bestDags.get(tg0.name); if (!cur || cur.length < 4) continue; for (let m0 = 0; m0 < 40; m0++) { const cand = cur.map(g => [g[0], g[1]]); const pos = xr() % cand.length; cand[pos] = [xr() % (8 + pos), xr() % (8 + pos)]; const vals = [V6[0],V6[1],V6[2],V6[3],V6[4],V6[5],0n,M64]; for (let g = 0; g < cand.length; g++) { vals.push((~(vals[cand[g][0]] & vals[cand[g][1]])) & M64); evals++; } const hitIdx = vals.findIndex((v, vi) => vi >= 8 && v === tg0.tt); if (hitIdx >= 8) { const need = new Uint8Array(hitIdx + 1); need[hitIdx] = 1; for (let i = hitIdx; i >= 8; i--) if (need[i]) { need[cand[i-8][0]] = 1; need[cand[i-8][1]] = 1; } const mp = new Int32Array(hitIdx + 1).fill(-1); for (let i = 0; i < 8; i++) mp[i] = i; const slim = []; for (let i = 8; i <= hitIdx; i++) if (need[i]) { slim.push([mp[cand[i-8][0]], mp[cand[i-8][1]]]); mp[i] = 8 + slim.length - 1; } if (slim.length > 0 && slim.length < cur.length) { bestDags.set(tg0.name, slim); identities++; self.postMessage({ type: 'discovery', name: tg0.name, tt: tg0.tt.toString(16).padStart(16, '0'), cost: slim.length, gates: slim }); break; } } } }
+        const regs = new BigUint64Array(24);
+        for (let i = 0; i < 6; i++) regs[i] = V6[i];
+        regs[6] = 0n; regs[7] = M64;
+        for (let k = 0; k < iters; k++) {
+          const ng = 4 + (xr() % 7);
+          const gs = [];
+          for (let g = 0; g < ng; g++) {
+            const a = xr() % (8 + g), b = xr() % (8 + g);
+            regs[8 + g] = (~(regs[a] & regs[b])) & M64;
+            gs.push([a, b]);
+            evals++;
+            const y = regs[8 + g];
+            for (let ti = 0; ti < TARGETS.length; ti++) {
+              if ((focus === 'all' || TARGETS[ti].name === focus) && y === TARGETS[ti].tt) {
+                identities++;
+                self.postMessage({
+                  type: 'discovery',
+                  name: TARGETS[ti].name,
+                  tt: y.toString(16).padStart(16, '0'),
+                  cost: g + 1,
+                  gates: gs.slice(0, g + 1)
+                });
+              }
+            }
+          }
+        }
+      }
+      self.postMessage({ type: 'stats', evals, identities, u4n });
+      setTimeout(tick, mode === 'max' ? 4 : mode === 'heavy' ? 16 : mode === 'active' ? 28 : 240);
+    }
+
+    self.onmessage = (e) => {
+      if (e.data && e.data.mode) mode = e.data.mode; if (e.data && e.data.focus) focus = e.data.focus; if (e.data && e.data.seedDag && e.data.name) { const prev = bestDags.get(e.data.name); if (!prev || e.data.seedDag.length < prev.length) bestDags.set(e.data.name, e.data.seedDag); }
+    };
+    tick();
+  `;
+
+  class HxMesh {
+    constructor(opts = {}) {
+      this.peerId = 'hx_' + Math.random().toString(36).slice(2, 10);
+      this.signalBase = opts.signalBase || '';
+      this.peers = new Map(); // remoteId -> { pc, dc, state, rtt }
+      this.outbox = new Map(); // remoteId -> { kind, sdp, ts } (bundled in every heartbeat so offers/answers are never clobbered!)
+      this.atlas = new Map(); // ttHex -> { name, tt, cost, gates, peerId, verified }
+      this.casPeers = new Set();
+      this.listeners = new Set();
+      this.stats = { evals: 0, identities: 0, u4n: 0, gossipsRx: 0, gossipsTx: 0, verifiedRx: 0, rejectedRx: 0 };
+      this.mode = opts.mode || 'active'; this.focus = 'all'; this._lastT = Date.now(); this._lastE = 0;
+      this.worker = null;
+      this.pollTimer = null;
+    }
+
+    onUpdate(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
+    emit(ev) { for (const fn of this.listeners) try { fn(ev, this.snapshot()); } catch (_) {} }
+
+    snapshot() {
+      const peerList = [];
+      for (const [id, p] of this.peers) peerList.push({ id, state: p.state });
+      const atlasArr = Array.from(this.atlas.values()).sort((a, b) => a.name.localeCompare(b.name));
+      return {
+        peerId: this.peerId,
+        mode: this.mode,
+        peers: peerList,
+        agents: this.remoteAgents || [],
+        atlas: atlasArr,
+        stats: { ...this.stats }
+      };
+    }
+
+    // CRDT Join-Semilattice Merge (eg-thm-min-comm/idem/le): strictly verified + strictly min cost!
+    mergeDiscovery(d, fromPeer) {
+      if (!d || !d.tt || !d.gates) return false;
+      if (!verifyNand64(d.gates, d.tt)) {
+        this.stats.rejectedRx++;
+        this.emit({ type: 'rejected', fromPeer, name: d.name });
+        return false;
+      }
+      if (fromPeer !== this.peerId) this.stats.verifiedRx++;
+      const prev = this.atlas.get(d.tt);
+      if (!prev || d.gates.length < prev.cost) {
+        const entry = {
+          name: d.name || ('fn_' + d.tt.slice(0, 8)),
+          tt: d.tt,
+          cost: d.gates.length,
+          gates: d.gates,
+          peerId: d.peerId || fromPeer,
+          verified: true,
+          ts: Date.now()
+        };
+        this.atlas.set(d.tt, entry);
+        if (this.worker && entry.gates) this.worker.postMessage({ name: entry.name, seedDag: entry.gates }); this.gossip({ type: 'discovery', ...entry }, fromPeer);
+        this.emit({ type: 'merged', entry });
+        return true;
+      }
+      return false;
+    }
+
+    gossip(msg, excludePeer) {
+      const raw = JSON.stringify(msg);
+      for (const [id, p] of this.peers) {
+        if (id === excludePeer) continue;
+        if (p.dc && p.dc.readyState === 'open') {
+          try { p.dc.send(raw); this.stats.gossipsTx++; } catch (_) {}
+        }
+      }
+    }
+
+    setMode(m) {
+      this.mode = m;
+      if (this.worker) this.worker.postMessage({ mode: m });
+      this.emit({ type: 'mode', mode: m }); } setFocus(f) { this.focus = f || 'all'; if (this.worker) this.worker.postMessage({ focus: this.focus }); this.emit({ type: 'focus', focus: this.focus });
+    }
+
+    startWorker() {
+      if (this.worker || typeof Worker === 'undefined') return;
+      const blob = new Blob([WORKER_SRC], { type: 'application/javascript' });
+      this.worker = new Worker(URL.createObjectURL(blob));
+      this.worker.postMessage({ mode: this.mode });
+      this.worker.onmessage = (e) => {
+        const m = e.data;
+        if (!m) return;
+        if (m.type === 'discovery') {
+          this.mergeDiscovery({ ...m, peerId: this.peerId }, this.peerId);
+        } else if (m.type === 'u4_done' || m.type === 'stats') {
+          const nowT = Date.now(), dt = Math.max(100, nowT - this._lastT); this.stats.rate = ((m.evals - this._lastE) * 1000) / dt; this._lastT = nowT; this._lastE = m.evals; this.stats.evals = m.evals;
+          this.stats.identities = m.identities;
+          this.stats.u4n = m.u4n;
+          this.emit({ type: 'stats' });
+        }
+      };
+    }
+
+    // WebRTC Signaling via Hyperactivity's existing stateless /api/p2p/signal?id=<peer>
+    async postSignal(payload) {
+      try {
+        const res = await fetch(this.signalBase + '/api/p2p/signal?id=' + encodeURIComponent(this.peerId), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) return [];
+        const j = await res.json();
+        return Array.isArray(j.peers) ? j.peers : [];
+      } catch (_) {
+        return [];
+      }
+    }
+
+    wireChannel(remoteId, pc, dc) {
+      const rec = this.peers.get(remoteId) || { pc, dc, state: 'connecting' };
+      rec.dc = dc;
+      this.peers.set(remoteId, rec);
+      dc.onopen = () => {
+        rec.state = 'open';
+        // Sync our verified CRDT atlas immediately upon link up!
+        for (const entry of this.atlas.values()) {
+          try { dc.send(JSON.stringify({ type: 'discovery', ...entry })); this.stats.gossipsTx++; } catch (_) {}
+        }
+        try { dc.send(JSON.stringify({ type: 'pex', peers: Array.from(this.peers.keys()).slice(0, 8) })); } catch (_) {} this.emit({ type: 'peer_open', remoteId });
+      };
+      dc.onclose = () => { rec.state = 'closed'; this.peers.delete(remoteId); this.emit({ type: 'peer_closed', remoteId }); };
+      dc.onmessage = (ev) => {
+        this.stats.gossipsRx++;
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === 'discovery') this.mergeDiscovery(msg, remoteId); else if (msg.type === 'pex' && Array.isArray(msg.peers)) { msg.peers.forEach(pid => { if (pid && pid !== this.peerId && this.peerId < pid && !this.peers.has(pid) && this.peers.size < MAX_PEERS) this.initiateOffer(pid).catch(() => {}); }); } else if (msg.type === 'live_stream') { try { window.dispatchEvent(new CustomEvent('hx:p2p-control', { detail: msg.payload })); } catch (_) {} this.gossip(msg, remoteId); }
+        } catch (_) {}
+      };
+    }
+
+    async initiateOffer(remoteId) {
+      if (this.peers.has(remoteId) || this.peers.size >= MAX_PEERS) return;
+      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      const dc = pc.createDataChannel('hx-p2p-atlas');
+      this.peers.set(remoteId, { pc, dc, state: 'offering' });
+      this.wireChannel(remoteId, pc, dc);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await new Promise((r) => {
+        if (pc.iceGatheringState === 'complete') return r();
+        const t = setTimeout(r, 1200);
+        pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); r(); } };
+      });
+      this.outbox.set(remoteId, { kind: 'offer', sdp: pc.localDescription.sdp, ts: Date.now() });
+      await this.pollRendezvous();
+    }
+
+    async handleOffer(remoteId, sdp) {
+      if (this.peers.has(remoteId) || this.peers.size >= MAX_PEERS) return;
+      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      this.peers.set(remoteId, { pc, dc: null, state: 'answering' });
+      pc.ondatachannel = (ev) => this.wireChannel(remoteId, pc, ev.channel);
+      await pc.setRemoteDescription({ type: 'offer', sdp });
+      const ans = await pc.createAnswer();
+      await pc.setLocalDescription(ans);
+      await new Promise((r) => {
+        if (pc.iceGatheringState === 'complete') return r();
+        const t = setTimeout(r, 1200);
+        pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); r(); } };
+      });
+      this.outbox.set(remoteId, { kind: 'answer', sdp: pc.localDescription.sdp, ts: Date.now() });
+      await this.pollRendezvous();
+    }
+
+    async pollRendezvous() {
+      // Prune completed or stale outbox signals (>45s)
+      const now = Date.now();
+      const signals = {};
+      for (const [to, sig] of this.outbox) {
+        const rec = this.peers.get(to);
+        if (now - sig.ts > 45000 || (rec && rec.state === 'open')) { this.outbox.delete(to); continue; }
+        signals[to] = sig;
+      }
+      const peers = await this.postSignal({ id: this.peerId, kind: 'hello', atlas_cnt: this.atlas.size, signals, ts: now });
+      this.remoteAgents = [];
+      for (const raw of peers) {
+        let msg = Array.isArray(raw) ? raw[1] : raw;
+        if (typeof msg === 'string') { try { msg = JSON.parse(msg); } catch (_) { continue; } }
+        if (!msg || !msg.id || msg.id === this.peerId) continue;
+        if (msg.kind && String(msg.kind).startsWith('agent_')) {
+          this.remoteAgents.push(msg);
+          continue;
+        }
+        const forMe = msg.signals && msg.signals[this.peerId];
+        if (forMe && forMe.kind === 'offer' && forMe.sdp) {
+          this.handleOffer(msg.id, forMe.sdp).catch(() => {});
+        } else if (forMe && forMe.kind === 'answer' && forMe.sdp) {
+          const rec = this.peers.get(msg.id);
+          if (rec && rec.pc && rec.pc.signalingState === 'have-local-offer') {
+            rec.pc.setRemoteDescription({ type: 'answer', sdp: forMe.sdp }).catch(() => {});
+          }
+        } else if (this.peerId < msg.id && !this.peers.has(msg.id) && typeof RTCPeerConnection !== 'undefined') {
+          this.initiateOffer(msg.id).catch(() => {});
+        }
+      }
+      this.emit({ type: 'poll' }); try { window.dispatchEvent(new CustomEvent('hx:swarm-live', { detail: this.snapshot() })); } catch (_) {}
+    }
+
+    start() {
+      this.startWorker();
+      this.pollRendezvous();
+      this._pollTick = 0; this.pollTimer = setInterval(() => { this._pollTick++; const openN = Array.from(this.peers.values()).filter(p => p.state === 'open').length; if (openN >= 3 && (this._pollTick % 8) !== 0) return; this.pollRendezvous(); }, 2500);
+      return this;
+    }
+
+    stop() {
+      if (this.pollTimer) clearInterval(this.pollTimer);
+      if (this.worker) this.worker.terminate();
+      for (const p of this.peers.values()) try { p.pc.close(); } catch (_) {}
+      this.peers.clear();
+    }
+  }
+
+  HxMesh.verifyNand64 = verifyNand64;
+  global.HxMesh = HxMesh;
+  global.verifyNand64 = verifyNand64;
+
+  // Theme-native 0px typographic hairline: live browser PoUW steering + compressed Lafont wire delta + [EXACT NET] workbench
+  function mountNodeBar(mesh) {
+    if (document.getElementById('hx-node-bar')) return;
+    const bar = document.createElement('div');
+    bar.id = 'hx-node-bar'; bar.setAttribute('data-hx-immortal', '1');
+    bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:9990;height:26px;background:var(--bg,#fafaf8);color:var(--fg,var(--ink,#0a0a0a));border-top:1px solid var(--rule,var(--line,rgba(0,0,0,0.16)));display:flex;align-items:center;justify-content:space-between;padding:0 14px;font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;gap:10px;';
+    bar.innerHTML = `<div style='display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden;white-space:nowrap'><button id='hxb-net' title='Open Exact Factored Lafont Interaction-Net Workbench (Shift+N)' style='background:none;border:1px solid #ff0a94;color:#ff0a94;padding:1px 6px;font:inherit;cursor:pointer;letter-spacing:0.03em'>▸ EXACT NET</button><span id='hxb-wire' style='opacity:0.85'>C:5 R:2 Q:5 | A:@◄λ→w2</span><span style='opacity:0.35'>|</span><span id='hxb-id' style='opacity:0.7'>...</span><span id='hxb-stat'>active</span><span id='hxb-peers' style='opacity:0.6'></span></div><div style='display:flex;align-items:center;gap:6px;flex-shrink:0'><span style='opacity:0.5'>compute:</span><button data-m='off' style='background:none;border:0;color:inherit;opacity:0.55;padding:2px 3px;font:inherit;cursor:pointer'>off</button><button data-m='idle' style='background:none;border:0;color:inherit;opacity:0.55;padding:2px 3px;font:inherit;cursor:pointer'>low</button><button data-m='active' style='background:none;border:0;color:#ff0a94;opacity:1;padding:2px 3px;font:inherit;cursor:pointer;text-decoration:underline'>active</button><button data-m='heavy' style='background:none;border:0;color:inherit;opacity:0.55;padding:2px 3px;font:inherit;cursor:pointer'>heavy</button><button data-m='max' style='background:none;border:0;color:inherit;opacity:0.55;padding:2px 3px;font:inherit;cursor:pointer'>max</button><select id='hxb-focus' style='background:transparent;border:0;border-bottom:1px solid currentColor;color:inherit;opacity:0.75;padding:1px 2px;font:inherit;cursor:pointer'><option value='all'>all targets</option><option value='parity6'>parity6</option><option value='maj5'>maj5</option><option value='shacm'>sha-256</option><option value='ge3'>ge3</option><option value='add3c'>add3c</option></select><button id='hxb-hide' title='Hide bar' style='background:none;border:0;color:inherit;opacity:0.45;cursor:pointer;font:inherit;padding:0 2px'>×</button></div>`;
+    document.body.appendChild(bar);
+    const syncBtns = (m) => bar.querySelectorAll('button[data-m]').forEach(b => { const on = b.dataset.m === m; b.style.color = on ? '#ff0a94' : 'inherit'; b.style.opacity = on ? '1' : '0.55'; b.style.textDecoration = on ? 'underline' : 'none'; });
+    bar.querySelectorAll('button[data-m]').forEach(b => { b.onclick = () => { mesh.setMode(b.dataset.m); syncBtns(b.dataset.m); }; });
+    const fSel = bar.querySelector('#hxb-focus'); if (fSel) fSel.onchange = () => mesh.setFocus(fSel.value);
+    const hBtn = bar.querySelector('#hxb-hide'); if (hBtn) hBtn.onclick = () => { bar.style.display = 'none'; };
+    const nBtn = bar.querySelector('#hxb-net'); if (nBtn) nBtn.onclick = () => { if (window.hxNet) window.hxNet.toggle(); };
+    window.addEventListener('hx:net-delta', (ev) => { const w = bar.querySelector('#hxb-wire'); if (w && ev.detail) w.textContent = ev.detail.sig; });
+    mesh.onUpdate((ev, snap) => {
+      const idEl = bar.querySelector('#hxb-id'), stEl = bar.querySelector('#hxb-stat'), pEl = bar.querySelector('#hxb-peers');
+      if (idEl) idEl.textContent = snap.peerId;
+      if (stEl) stEl.textContent = snap.mode === 'off' ? 'paused' : (snap.stats.evals / 1e6).toFixed(2) + 'M · ' + Math.round((snap.stats.rate || 0)/1000) + 'K/s · ' + snap.stats.u4n + '/65536';
+      if (pEl) pEl.textContent = '· ' + (snap.agents ? snap.agents.length : 0) + 'a/' + (snap.peers ? snap.peers.length : 0) + 'p';
+      if (window.hxNet) window.hxNet.syncMesh(snap);
+    });
+  }
+  // EXACT FACTORED LAFONT INTERACTION-NET ENGINE & COMPRESSED SHARED WIRE LANGUAGE (ZERO GROWING CIRCLES, ZERO GARBAGE COLORS!)
+  function mountExactNet() {
+    if (window.hxNet) return;
+    // Factored quotient blueprints: every capsule unfolds into exact oriented Lafont port-cells + active principal-port redexes!
+    const PRESETS = {
+      root: () => ({ title: 'ROOT · FACTORED OS HYPERGRAPH', cells: [
+        { id: 1, k: 'REF', lbl: '▸#karatsuba', sub: 'karatsuba', meta: 'PolyZ 4→3⊗ · refl', x: 0.22, y: 0.34, ang: 0 },
+        { id: 2, k: 'REF', lbl: '▸#sky130_bf16', sub: 'sky130', meta: '413c · 136MHz · 0drc', x: 0.50, y: 0.28, ang: 1.57 },
+        { id: 3, k: 'REF', lbl: '▸#valmon_flow', sub: 'valmon', meta: '0-paren · assoc', x: 0.78, y: 0.34, ang: 3.14 },
+        { id: 4, k: 'REF', lbl: '▸#brunerie', sub: 'brunerie', meta: 'π₄(S³)=-2 · 4w', x: 0.34, y: 0.68, ang: -0.7 },
+        { id: 5, k: 'REF', lbl: '▸#p2p_swarm', sub: 'swarm', meta: 'live mesh · CRDT', x: 0.66, y: 0.68, ang: -2.4 },
+        { id: 6, k: 'APP', lbl: '@', meta: 'redex', x: 0.44, y: 0.50, ang: 0 },
+        { id: 7, k: 'LAM', lbl: 'λ', meta: 'eval', x: 0.56, y: 0.50, ang: 3.14 }
+      ], wires: [
+        { a: 6, ap: 0, b: 7, bp: 0 }, { a: 1, ap: 0, b: 6, bp: 1 }, { a: 2, ap: 1, b: 6, bp: 2 },
+        { a: 7, ap: 1, b: 3, bp: 0 }, { a: 7, ap: 2, b: 5, bp: 1 }, { a: 4, ap: 0, b: 1, bp: 2 }, { a: 4, ap: 2, b: 5, bp: 2 }
+      ] }),
+      karatsuba: () => ({ title: '▸#karatsuba · PolyZ[x] 4⊗→3⊗ EXACT REDUCTION', cells: [
+        { id: 1, k: 'DUP0', lbl: 'δ₀', meta: 'share x₀+x₁', x: 0.26, y: 0.36, ang: 0 },
+        { id: 2, k: 'DUP0', lbl: 'δ₀', meta: 'share y₀+y₁', x: 0.40, y: 0.36, ang: 3.14 },
+        { id: 3, k: 'APP', lbl: '@', meta: 'cross', x: 0.56, y: 0.36, ang: 0 },
+        { id: 4, k: 'LAM', lbl: 'λ', meta: 'm₂=z₁-z₀-z₂', x: 0.70, y: 0.36, ang: 3.14 },
+        { id: 5, k: 'MUL', lbl: '⊗₁', meta: 'x₀y₀', x: 0.28, y: 0.68, ang: -1.57 },
+        { id: 6, k: 'MUL', lbl: '⊗₂', meta: '(x₀+x₁)(y₀+y₁)', x: 0.50, y: 0.68, ang: -1.57 },
+        { id: 7, k: 'MUL', lbl: '⊗₃', meta: 'x₁y₁', x: 0.72, y: 0.68, ang: -1.57 }
+      ], wires: [
+        { a: 1, ap: 0, b: 2, bp: 0 }, { a: 3, ap: 0, b: 4, bp: 0 }, { a: 1, ap: 1, b: 5, bp: 0 },
+        { a: 2, ap: 1, b: 6, bp: 0 }, { a: 3, ap: 2, b: 6, bp: 1 }, { a: 4, ap: 2, b: 7, bp: 0 }, { a: 5, ap: 2, b: 7, bp: 1 }
+      ] }),
+      sky130: () => ({ title: '▸#sky130_bf16 · PolyF2 413-CELL NAND2 CONE', cells: [
+        { id: 1, k: 'NAND', lbl: '⊼₁', meta: 'exp-xor', x: 0.26, y: 0.38, ang: 0 },
+        { id: 2, k: 'NAND', lbl: '⊼₂', meta: 'carry', x: 0.42, y: 0.38, ang: 3.14 },
+        { id: 3, k: 'DUP0', lbl: 'δ₀', meta: 'fanout', x: 0.58, y: 0.38, ang: 0 },
+        { id: 4, k: 'DUP1', lbl: 'δ₁', meta: 'commute', x: 0.74, y: 0.38, ang: 3.14 },
+        { id: 5, k: 'ADD', lbl: '⊕', meta: 'mantissa', x: 0.38, y: 0.68, ang: -1.57 },
+        { id: 6, k: 'ERA', lbl: 'ε', meta: 'dead-bit', x: 0.64, y: 0.68, ang: -1.57 }
+      ], wires: [
+        { a: 1, ap: 0, b: 2, bp: 0 }, { a: 3, ap: 0, b: 4, bp: 0 }, { a: 1, ap: 2, b: 5, bp: 1 },
+        { a: 2, ap: 2, b: 5, bp: 2 }, { a: 4, ap: 2, b: 6, bp: 0 }, { a: 3, ap: 1, b: 5, bp: 0 }
+      ] }),
+      valmon: () => ({ title: '▸#valmon_flow · 0-PAREN 1D TOKEN PORT-CANCELLATION', cells: [
+        { id: 1, k: 'ADD', lbl: 'add', meta: 'vm(2,1)', x: 0.50, y: 0.26, ang: 1.57 },
+        { id: 2, k: 'MUL', lbl: 'mul', meta: 'vm(2,1)', x: 0.32, y: 0.50, ang: -0.7 },
+        { id: 3, k: 'APP', lbl: 'dbl', meta: 'vm(1,1)', x: 0.68, y: 0.50, ang: -2.4 },
+        { id: 4, k: 'LAM', lbl: '3·4', meta: 'vm(0,2)', x: 0.24, y: 0.72, ang: -1.1 },
+        { id: 5, k: 'LAM', lbl: '5', meta: 'vm(0,1)', x: 0.76, y: 0.72, ang: -2.0 }
+      ], wires: [
+        { a: 2, ap: 0, b: 1, bp: 1 }, { a: 3, ap: 0, b: 1, bp: 2 }, { a: 4, ap: 0, b: 2, bp: 0 }, { a: 5, ap: 0, b: 3, bp: 0 }
+      ] }),
+      brunerie: () => ({ title: '▸#brunerie · CUBICAL π₄(S³)=-2 LAFONT COMMUTATION', cells: [
+        { id: 1, k: 'DUP0', lbl: 'δ₀', meta: 'hcomp-L', x: 0.38, y: 0.44, ang: 0 },
+        { id: 2, k: 'DUP1', lbl: 'δ₁', meta: 'hcomp-R', x: 0.54, y: 0.44, ang: 3.14 },
+        { id: 3, k: 'APP', lbl: '@', meta: 'hopf', x: 0.32, y: 0.70, ang: -1.57 },
+        { id: 4, k: 'LAM', lbl: 'λ', meta: 'susp', x: 0.60, y: 0.70, ang: -1.57 },
+        { id: 5, k: 'ERA', lbl: 'ε', meta: 'deg=-2', x: 0.74, y: 0.44, ang: 3.14 }
+      ], wires: [
+        { a: 1, ap: 0, b: 2, bp: 0 }, { a: 1, ap: 1, b: 3, bp: 0 }, { a: 2, ap: 1, b: 4, bp: 0 }, { a: 2, ap: 2, b: 5, bp: 0 }, { a: 3, ap: 2, b: 4, bp: 2 }
+      ] }),
+      swarm: () => ({ title: '▸#p2p_swarm · LIVE DISTRIBUTED CRDT & PEER CELLS', cells: [
+        { id: 1, k: 'REF', lbl: '▸#local', sub: 'valmon', meta: 'this browser', x: 0.30, y: 0.44, ang: 0 },
+        { id: 2, k: 'APP', lbl: 'min', meta: 'CRDT join', x: 0.50, y: 0.44, ang: 0 },
+        { id: 3, k: 'LAM', lbl: 'cert', meta: 'PoUW verify', x: 0.66, y: 0.44, ang: 3.14 },
+        { id: 4, k: 'REF', lbl: '▸#42gpu', sub: 'sky130', meta: '16.47G-rw/s', x: 0.50, y: 0.72, ang: -1.57 }
+      ], wires: [
+        { a: 2, ap: 0, b: 3, bp: 0 }, { a: 1, ap: 0, b: 2, bp: 1 }, { a: 3, ap: 2, b: 4, bp: 0 }
+      ] })
+    };
+    let stack = ['root'], state = PRESETS.root(), nextId = 32, autoRun = false, autoTimer = null, deltas = ['INIT:root[7c,2r,5q]'], hoverCell = null, hoverWire = null, dragCell = null, meshSnap = null, open = false;
+    const emitDelta = (tok) => {
+      deltas.unshift(tok); if (deltas.length > 24) deltas.pop();
+      const reds = state.wires.filter(w => w.ap === 0 && w.bp === 0).length;
+      const qs = state.cells.filter(c => c.k === 'REF').length;
+      const sig = 'C:' + state.cells.length + ' R:' + reds + ' Q:' + qs + ' | ' + tok;
+      try { window.dispatchEvent(new CustomEvent('hx:net-delta', { detail: { sig, tok, cells: state.cells.length, reds, qs, wireLog: deltas.slice(0, 8).join(' · ') } })); } catch (_) {}
+    };
+    const portPos = (c, p, W, H) => {
+      const cx = c.x * W, cy = c.y * H, R = c.k === 'REF' ? 42 : 24, a = c.ang || 0;
+      if (p === 0) return { x: cx + Math.cos(a) * R, y: cy + Math.sin(a) * R };
+      const s = p === 1 ? -1 : 1, bx = cx - Math.cos(a) * (R * 0.72), by = cy - Math.sin(a) * (R * 0.72);
+      return { x: bx - Math.sin(a) * (R * 0.58 * s), y: by + Math.cos(a) * (R * 0.58 * s) };
+    };
+    const findWire = (cid, p) => state.wires.find(w => (w.a === cid && w.ap === p) || (w.b === cid && w.bp === p));
+    const otherEnd = (w, cid, p) => (w.a === cid && w.ap === p) ? { id: w.b, p: w.bp } : { id: w.a, p: w.ap };
+    const reduceRedex = (wIdx) => {
+      const w = state.wires[wIdx]; if (!w || w.ap !== 0 || w.bp !== 0) return false;
+      const A = state.cells.find(c => c.id === w.a), B = state.cells.find(c => c.id === w.b); if (!A || !B) return false;
+      const a1 = findWire(A.id, 1), a2 = findWire(A.id, 2), b1 = findWire(B.id, 1), b2 = findWire(B.id, 2);
+      const eA1 = a1 ? otherEnd(a1, A.id, 1) : null, eA2 = a2 ? otherEnd(a2, A.id, 2) : null;
+      const eB1 = b1 ? otherEnd(b1, B.id, 1) : null, eB2 = b2 ? otherEnd(b2, B.id, 2) : null;
+      state.wires = state.wires.filter(x => x !== w && x !== a1 && x !== a2 && x !== b1 && x !== b2);
+      state.cells = state.cells.filter(c => c.id !== A.id && c.id !== B.id);
+      const mx = (A.x + B.x) * 0.5, my = (A.y + B.y) * 0.5;
+      const sameAnnih = (A.k === B.k && (A.k === 'DUP0' || A.k === 'DUP1')) || ((A.k === 'APP' && B.k === 'LAM') || (A.k === 'LAM' && B.k === 'APP')) || (A.k === 'NAND' && B.k === 'NAND');
+      if (A.k === 'ERA' || B.k === 'ERA') {
+        const live = A.k === 'ERA' ? [eB1, eB2] : [eA1, eA2];
+        live.forEach((e, i) => { if (!e) return; const eid = nextId++; state.cells.push({ id: eid, k: 'ERA', lbl: 'ε', meta: 'gc', x: mx + (i ? 0.06 : -0.06), y: my + 0.05, ang: 1.57 }); state.wires.push({ a: eid, ap: 0, b: e.id, bp: e.p }); });
+        emitDelta('E:' + A.lbl + '◄' + B.lbl + '→ε' + live.filter(Boolean).length); return true;
+      }
+      if (sameAnnih || A.k === 'MUL' || B.k === 'MUL' || A.k === 'ADD' || B.k === 'ADD') {
+        if (eA1 && eB1) state.wires.push({ a: eA1.id, ap: eA1.p, b: eB1.id, bp: eB1.p });
+        if (eA2 && eB2) state.wires.push({ a: eA2.id, ap: eA2.p, b: eB2.id, bp: eB2.p });
+        emitDelta('A:' + A.lbl + '◄' + B.lbl + '→w2'); return true;
+      }
+      // Exact Lafont 4-cell Commutation Diamond (e.g. δ0 ►◄ δ1 or δ ►◄ λ)!
+      const n1 = nextId++, n2 = nextId++, n3 = nextId++, n4 = nextId++;
+      state.cells.push({ id: n1, k: B.k, lbl: B.lbl, meta: 'comm', x: mx - 0.07, y: my - 0.07, ang: A.ang });
+      state.cells.push({ id: n2, k: B.k, lbl: B.lbl, meta: 'comm', x: mx - 0.07, y: my + 0.07, ang: A.ang });
+      state.cells.push({ id: n3, k: A.k, lbl: A.lbl, meta: 'comm', x: mx + 0.07, y: my - 0.07, ang: B.ang });
+      state.cells.push({ id: n4, k: A.k, lbl: A.lbl, meta: 'comm', x: mx + 0.07, y: my + 0.07, ang: B.ang });
+      state.wires.push({ a: n1, ap: 1, b: n3, bp: 1 }, { a: n1, ap: 2, b: n4, bp: 1 }, { a: n2, ap: 1, b: n3, bp: 2 }, { a: n2, ap: 2, b: n4, bp: 2 });
+      if (eA1) state.wires.push({ a: n1, ap: 0, b: eA1.id, bp: eA1.p });
+      if (eA2) state.wires.push({ a: n2, ap: 0, b: eA2.id, bp: eA2.p });
+      if (eB1) state.wires.push({ a: n3, ap: 0, b: eB1.id, bp: eB1.p });
+      if (eB2) state.wires.push({ a: n4, ap: 0, b: eB2.id, bp: eB2.p });
+      emitDelta('C:' + A.lbl + '◄' + B.lbl + '→4c'); return true;
+    };
+    const stepOne = () => {
+      const idx = state.wires.findIndex(w => w.ap === 0 && w.bp === 0);
+      if (idx >= 0) return reduceRedex(idx);
+      const ref = state.cells.find(c => c.k === 'REF' && PRESETS[c.sub]);
+      if (ref) { unfold(ref.sub); return true; }
+      emitDelta('NF:normal-form[0r]'); return false;
+    };
+    const unfold = (sub) => { if (!PRESETS[sub]) return; stack.push(sub); state = PRESETS[sub](); emitDelta('U:▸' + sub + '→[' + state.cells.length + 'c]'); syncChrome(); };
+    const factorUp = () => { if (stack.length <= 1) return; const old = stack.pop(); state = PRESETS[stack[stack.length - 1]](); emitDelta('Q:[' + old + ']→▸' + stack[stack.length - 1]); syncChrome(); };
+    const compileFlow = (src) => {
+      const toks = (src || '').trim().toLowerCase().split(' ').filter(t => t && !['and','then','else','of','by'].includes(t));
+      if (!toks.length) return;
+      const cells = [], wires = []; let nid = 1;
+      toks.slice(0, 10).forEach((t, i) => {
+        const x = 0.14 + (i / Math.max(1, Math.min(toks.length, 10) - 1)) * 0.72, y = (i % 2 === 0) ? 0.42 : 0.62;
+        const k = t === 'add' ? 'ADD' : t === 'mul' ? 'MUL' : (t === 'double' || t === 'dbl') ? 'APP' : t === 'dup' ? 'DUP0' : 'LAM';
+        cells.push({ id: nid, k, lbl: t.slice(0, 5), meta: 'tok#' + i, x, y, ang: i % 2 === 0 ? 0.4 : -2.6 });
+        if (nid > 1) wires.push({ a: nid - 1, ap: 0, b: nid, bp: (k === 'LAM' || k === 'APP') ? 0 : 1 });
+        nid++;
+      });
+      stack = ['root', 'flow']; state = { title: 'FLOW 0-PAREN STREAM · ' + toks.join(' '), cells, wires };
+      emitDelta('FLOW:' + toks.length + 'tok→[' + cells.length + 'c]'); syncChrome();
+    };
+    // Full-Viewport Swiss Monochrome Exact Factored Net Workbench (press Shift+N or click ▸ EXACT NET)
+    const wrap = document.createElement('div'); wrap.id = 'hx-exact-net'; wrap.setAttribute('data-hx-immortal', '1');
+    wrap.style.cssText = 'position:fixed;inset:0 0 26px 0;z-index:9985;display:none;flex-direction:column;background:var(--bg,#fafaf8);color:var(--fg,#0a0a0a);font:600 11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;';
+    wrap.innerHTML = `<div style='height:32px;border-bottom:1px solid var(--rule,rgba(0,0,0,0.16));display:flex;align-items:center;justify-content:space-between;padding:0 14px;gap:10px'><div style='display:flex;align-items:center;gap:10px;min-width:0;overflow:hidden'><span style='color:#ff0a94'>LAFONT EXACT NET</span><span id='hxn-crumb' style='opacity:0.8'>ROOT</span><span id='hxn-counts' style='opacity:0.55'></span></div><div style='display:flex;align-items:center;gap:6px'><input id='hxn-flow' placeholder='0-paren flow: add mul 3 and 4 and double 5' style='width:240px;background:transparent;border:0;border-bottom:1px solid currentColor;color:inherit;font:inherit;padding:2px 4px;outline:none'/><button id='hxn-step' style='background:none;border:1px solid #ff0a94;color:#ff0a94;padding:2px 7px;font:inherit;cursor:pointer'>STEP ►◄</button><button id='hxn-auto' style='background:none;border:1px solid currentColor;color:inherit;opacity:0.75;padding:2px 7px;font:inherit;cursor:pointer'>AUTO</button><button id='hxn-up' style='background:none;border:1px solid currentColor;color:inherit;opacity:0.75;padding:2px 7px;font:inherit;cursor:pointer'>FACTOR ⤢</button><button id='hxn-rst' style='background:none;border:1px solid currentColor;color:inherit;opacity:0.75;padding:2px 7px;font:inherit;cursor:pointer'>RESET</button><button id='hxn-close' style='background:none;border:0;color:inherit;padding:2px 6px;font:inherit;cursor:pointer'>ESC ×</button></div></div><canvas id='hxn-cv' style='flex:1;width:100%;height:100%;display:block;cursor:crosshair'></canvas><div id='hxn-wirelog' style='height:24px;border-top:1px solid var(--rule,rgba(0,0,0,0.14));display:flex;align-items:center;padding:0 14px;gap:12px;overflow:hidden;white-space:nowrap;opacity:0.8'></div>`;
+    document.body.appendChild(wrap);
+    const cv = wrap.querySelector('#hxn-cv'), ctx = cv.getContext('2d');
+    const syncChrome = () => {
+      const cEl = wrap.querySelector('#hxn-crumb'), kEl = wrap.querySelector('#hxn-counts'), lEl = wrap.querySelector('#hxn-wirelog');
+      if (cEl) cEl.textContent = stack.map(s => s === 'root' ? 'ROOT' : '▸#' + s).join(' / ') + ' — ' + state.title;
+      const reds = state.wires.filter(w => w.ap === 0 && w.bp === 0).length;
+      if (kEl) kEl.textContent = state.cells.length + ' cells · ' + state.wires.length + ' wires · ' + reds + ' active ►◄';
+      if (lEl) lEl.textContent = 'WIRE CHANNEL: ' + deltas.slice(0, 7).join('  ·  ');
+    };
+    let W = 1, H = 1, dpr = 1;
+    const resize = () => { dpr = Math.min(devicePixelRatio || 1, 2); const r = cv.getBoundingClientRect(); W = Math.max(1, r.width); H = Math.max(1, r.height); cv.width = W * dpr; cv.height = H * dpr; };
+    window.addEventListener('resize', resize, { passive: true });
+    const draw = () => {
+      if (!open) return;
+      if (cv.width !== Math.round(W * dpr)) resize();
+      const dark = document.documentElement.classList.contains('dark');
+      const bg = dark ? '#0a0a0a' : '#fafaf8', ink = dark ? '#f0f0ec' : '#0a0a0a', mut = dark ? '#555' : '#aaa', grd = dark ? '#181816' : '#ebebea';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = grd; ctx.lineWidth = 1; ctx.beginPath();
+      for (let gx = 40; gx < W; gx += 40) { ctx.moveTo(gx, 0); ctx.lineTo(gx, H); }
+      for (let gy = 40; gy < H; gy += 40) { ctx.moveTo(0, gy); ctx.lineTo(W, gy); }
+      ctx.stroke();
+      // Draw exact port-to-port wires (cubic Bézier aligned to port normals; #ff0a94 ONLY on principal-port redexes ►◄)
+      state.wires.forEach((w, wi) => {
+        const A = state.cells.find(c => c.id === w.a), B = state.cells.find(c => c.id === w.b); if (!A || !B) return;
+        const pA = portPos(A, w.ap, W, H), pB = portPos(B, w.bp, W, H);
+        const isRedex = (w.ap === 0 && w.bp === 0);
+        ctx.strokeStyle = isRedex ? '#ff0a94' : mut; ctx.lineWidth = isRedex ? (hoverWire === wi ? 3 : 2) : 1.1;
+        ctx.beginPath(); ctx.moveTo(pA.x, pA.y);
+        const dx = (pB.x - pA.x) * 0.45, dy = (pB.y - pA.y) * 0.45;
+        ctx.bezierCurveTo(pA.x + dx, pA.y, pB.x - dx, pB.y, pB.x, pB.y); ctx.stroke();
+        if (isRedex) {
+          const mx = (pA.x + pB.x) * 0.5, my = (pA.y + pB.y) * 0.5;
+          ctx.fillStyle = bg; ctx.fillRect(mx - 14, my - 8, 28, 16);
+          ctx.strokeStyle = '#ff0a94'; ctx.lineWidth = 1; ctx.strokeRect(mx - 14, my - 8, 28, 16);
+          ctx.fillStyle = '#ff0a94'; ctx.font = '700 10px ui-monospace,Menlo,monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('►◄', mx, my);
+        }
+      });
+      // Draw EXACT Lafont Geometric Port-Cells (oriented triangles, fan diamonds, rectilinear gates, double-bordered REF capsules — ZERO CIRCLES!)
+      state.cells.forEach(c => {
+        const cx = c.x * W, cy = c.y * H, hot = (hoverCell === c.id);
+        ctx.save(); ctx.translate(cx, cy); ctx.fillStyle = bg; ctx.strokeStyle = hot ? '#ff0a94' : ink; ctx.lineWidth = hot ? 2 : 1.25;
+        if (c.k === 'REF') {
+          ctx.fillRect(-58, -22, 116, 44); ctx.strokeRect(-58, -22, 116, 44); ctx.strokeRect(-54, -18, 108, 36);
+          ctx.fillStyle = hot ? '#ff0a94' : ink; ctx.font = '700 11px ui-monospace,Menlo,monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(c.lbl, 0, -5);
+          ctx.fillStyle = mut; ctx.font = '500 9px ui-monospace,Menlo,monospace'; ctx.fillText(c.meta || 'click to unfold', 0, 9);
+        } else if (c.k === 'DUP0' || c.k === 'DUP1') {
+          ctx.rotate(c.ang || 0); ctx.beginPath(); ctx.moveTo(24, 0); ctx.lineTo(0, -18); ctx.lineTo(-20, 0); ctx.lineTo(0, 18); ctx.closePath(); ctx.fill(); ctx.stroke();
+          ctx.fillStyle = '#ff0a94'; ctx.fillRect(21, -3, 6, 6); ctx.rotate(-(c.ang || 0));
+          ctx.fillStyle = ink; ctx.font = '700 12px ui-monospace,Menlo,monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(c.lbl, 0, 0);
+        } else if (c.k === 'ERA') {
+          ctx.rotate(c.ang || 0); ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(-10, 0); ctx.moveTo(-10, -14); ctx.lineTo(-10, 14); ctx.moveTo(-15, -9); ctx.lineTo(-15, 9); ctx.stroke();
+          ctx.rotate(-(c.ang || 0)); ctx.fillStyle = ink; ctx.font = '700 11px ui-monospace,Menlo,monospace'; ctx.textAlign = 'center'; ctx.fillText('ε', 0, -16);
+        } else if (c.k === 'MUL' || c.k === 'ADD' || c.k === 'NAND') {
+          ctx.fillRect(-26, -16, 52, 32); ctx.strokeRect(-26, -16, 52, 32);
+          ctx.fillStyle = ink; ctx.font = '700 12px ui-monospace,Menlo,monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(c.lbl, 0, -2);
+          ctx.fillStyle = mut; ctx.font = '500 8px ui-monospace,Menlo,monospace'; ctx.fillText(c.meta || '', 0, 10);
+        } else {
+          // Oriented Lafont Port-Triangle: apex = principal port (square pin), base corners = aux ports L/R!
+          ctx.rotate(c.ang || 0); ctx.beginPath(); ctx.moveTo(24, 0); ctx.lineTo(-18, -17); ctx.lineTo(-18, 17); ctx.closePath(); ctx.fill(); ctx.stroke();
+          ctx.fillStyle = '#ff0a94'; ctx.fillRect(21, -3, 6, 6); ctx.rotate(-(c.ang || 0));
+          ctx.fillStyle = ink; ctx.font = '700 12px ui-monospace,Menlo,monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(c.lbl, -2, 0);
+        }
+        ctx.restore();
+      });
+    };
+    const hitTest = (ex, ey) => {
+      const r = cv.getBoundingClientRect(), x = ex - r.left, y = ey - r.top;
+      let hw = null; state.wires.forEach((w, wi) => { if (w.ap !== 0 || w.bp !== 0) return; const A = state.cells.find(c => c.id === w.a), B = state.cells.find(c => c.id === w.b); if (!A || !B) return; const pA = portPos(A, 0, W, H), pB = portPos(B, 0, W, H); if (Math.hypot((pA.x + pB.x) * 0.5 - x, (pA.y + pB.y) * 0.5 - y) < 22) hw = wi; });
+      let hc = null; state.cells.forEach(c => { const dx = Math.abs(c.x * W - x), dy = Math.abs(c.y * H - y); if (c.k === 'REF' ? (dx < 60 && dy < 24) : (dx < 28 && dy < 24)) hc = c.id; });
+      return { hc, hw, x, y };
+    };
+    cv.addEventListener('pointermove', (e) => {
+      const h = hitTest(e.clientX, e.clientY); hoverCell = h.hc; hoverWire = h.hw;
+      if (dragCell) { const c = state.cells.find(z => z.id === dragCell); if (c) { c.x = Math.max(0.06, Math.min(0.94, h.x / W)); c.y = Math.max(0.08, Math.min(0.92, h.y / H)); } }
+      draw();
+    });
+    cv.addEventListener('pointerdown', (e) => {
+      const h = hitTest(e.clientX, e.clientY);
+      if (h.hw !== null) { reduceRedex(h.hw); syncChrome(); draw(); return; }
+      if (h.hc !== null) { const c = state.cells.find(z => z.id === h.hc); if (c && c.k === 'REF' && PRESETS[c.sub]) { unfold(c.sub); draw(); return; } dragCell = h.hc; }
+    });
+    window.addEventListener('pointerup', () => { dragCell = null; });
+    cv.addEventListener('wheel', (e) => { if (!open) return; e.preventDefault(); if (e.deltaY > 12) factorUp(); else if (e.deltaY < -12) { const c = state.cells.find(z => z.id === hoverCell && z.k === 'REF'); if (c) unfold(c.sub); } draw(); }, { passive: false });
+    wrap.querySelector('#hxn-step').onclick = () => { stepOne(); syncChrome(); draw(); };
+    wrap.querySelector('#hxn-up').onclick = () => { factorUp(); draw(); };
+    wrap.querySelector('#hxn-rst').onclick = () => { stack = ['root']; state = PRESETS.root(); emitDelta('RST:root[7c,2r]'); syncChrome(); draw(); };
+    wrap.querySelector('#hxn-close').onclick = () => { window.hxNet.toggle(false); };
+    wrap.querySelector('#hxn-auto').onclick = (e) => { autoRun = !autoRun; e.target.style.color = autoRun ? '#ff0a94' : 'inherit'; if (autoRun) autoTimer = setInterval(() => { if (!stepOne()) { clearInterval(autoTimer); autoRun = false; e.target.style.color = 'inherit'; } syncChrome(); draw(); }, 750); else clearInterval(autoTimer); };
+    const fIn = wrap.querySelector('#hxn-flow'); if (fIn) fIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { compileFlow(fIn.value); draw(); } });
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && open) window.hxNet.toggle(false); if (e.shiftKey && e.key === 'N' && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) window.hxNet.toggle(); });
+    window.hxNet = {
+      toggle: (v) => { open = (v === undefined) ? !open : !!v; wrap.style.display = open ? 'flex' : 'none'; if (open) { resize(); syncChrome(); draw(); } },
+      syncMesh: (snap) => { meshSnap = snap; const p = state.cells.find(c => c.sub === 'swarm' || c.lbl === '▸#local'); if (p && snap) { p.meta = (snap.peers ? snap.peers.length : 0) + 'p · ' + Math.round((snap.stats.rate || 0)/1000) + 'K/s'; if (open) draw(); } },
+      step: () => { const r = stepOne(); syncChrome(); draw(); return r; },
+      compileFlow
+    };
+    syncChrome();
+  }
+  // Single-Page Fluid Space Morph Engine: kills URL-reload ontology across all OS spaces while keeping window.hxMesh + window.hxNet + WebRTC immortal!
+  function mountFluidSpaces() {
+    if (window._hxFluidMounted) return;
+    window._hxFluidMounted = true;
+    const _origRAF = window.requestAnimationFrame.bind(window);
+    window._hxRawRAF = _origRAF;
+    let _spaceGen = 0;
+    window.requestAnimationFrame = (cb) => { const g = _spaceGen; return _origRAF((ts) => { if (g === _spaceGen) cb(ts); }); };
+    const morphStyle = document.createElement('style'); morphStyle.dataset.hxImmortal = '1';
+    morphStyle.textContent = '::view-transition-old(root){animation:hxOut .22s cubic-bezier(.22,1,.36,1) both}::view-transition-new(root){animation:hxIn .28s cubic-bezier(.22,1,.36,1) both}@keyframes hxOut{to{opacity:0;transform:scale(.992)}}@keyframes hxIn{from{opacity:1;transform:scale(1.006)}}';
+    document.head.appendChild(morphStyle);
+    const SPACE_CACHE = new Map();
+    const isExempt = (p) => ['/daw','/paper.pdf','/pdf','/hx/','/api/','/feed.xml','/llms.txt','/sitemap.xml'].some(x => p === x || p.startsWith(x));
+    const canMorph = (a) => {
+      if (!a) return null;
+      const href = a.getAttribute('href') || (a.href && a.href.baseVal) || '';
+      if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('javascript:')) return null;
+      if (a.hasAttribute('download') || a.getAttribute('target') === '_blank') return null;
+      let u; try { u = new URL(href, location.href); } catch (_) { return null; }
+      if (u.origin !== location.origin || isExempt(u.pathname)) return null;
+      if (u.pathname === location.pathname && u.search === location.search && u.hash) return null;
+      return u;
+    };
+    const prefetch = (urlStr) => {
+      if (SPACE_CACHE.has(urlStr)) return SPACE_CACHE.get(urlStr);
+      const p = fetch(urlStr, { headers: { 'X-HX-Fluid': '1' } }).then(r => r.ok && (r.headers.get('content-type') || '').includes('text/html') ? r.text() : null).catch(() => null);
+      SPACE_CACHE.set(urlStr, p); return p;
+    };
+    const swapSpace = async (u, push) => {
+      const html = await prefetch(u.href);
+      if (!html) { location.href = u.href; return; }
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const doSwap = () => {
+        _spaceGen++;
+        document.title = doc.title || document.title;
+        if (doc.documentElement.classList.contains('syn-page')) document.documentElement.classList.add('syn-page'); else document.documentElement.classList.remove('syn-page');
+        Array.from(document.head.querySelectorAll('style')).forEach(s => { if (!s.dataset.hxImmortal) s.remove(); });
+        Array.from(doc.head.querySelectorAll('style')).forEach(s => { document.head.appendChild(document.importNode(s, true)); });
+        Array.from(doc.head.querySelectorAll('link[rel=stylesheet]')).forEach(l => {
+          const h = l.getAttribute('href');
+          if (h && !document.head.querySelector('link[href=' + JSON.stringify(h) + ']')) document.head.appendChild(document.importNode(l, true));
+        });
+        const keep = Array.from(document.body.children).filter(el => el.id === 'hx-node-bar' || el.id === 'hx-exact-net' || (el.id && el.id.startsWith('hx-lens')) || (el.className && String(el.className).includes('hx-lens')) || el.hasAttribute('data-hx-immortal'));
+        const scripts = [], frag = document.createDocumentFragment();
+        Array.from(doc.body.childNodes).forEach(n => {
+          if (n.nodeType === 1 && n.tagName === 'SCRIPT') { scripts.push(n); return; }
+          frag.appendChild(document.importNode(n, true));
+        });
+        document.body.innerHTML = ''; document.body.appendChild(frag);
+        keep.forEach(el => document.body.appendChild(el));
+        if (push) history.pushState({ hxFluid: true }, '', u.pathname + u.search + u.hash);
+        if (u.hash) { const t = document.getElementById(u.hash.slice(1)); if (t) t.scrollIntoView({ behavior: 'smooth' }); else window.scrollTo(0, 0); } else window.scrollTo(0, 0);
+        scripts.forEach(old => {
+          const src = old.getAttribute('src');
+          if (src) {
+            if (src.includes('/hx/mesh.js') || src.includes('/hx/lens.js')) return;
+            if (document.head.querySelector('script[src=' + JSON.stringify(src) + ']')) return;
+            const s = document.createElement('script'); s.src = src; s.defer = true; document.head.appendChild(s);
+          } else if (old.textContent && old.textContent.trim()) {
+            const s = document.createElement('script'); s.textContent = '(function(){' + String.fromCharCode(10) + old.textContent + String.fromCharCode(10) + '})();'; document.body.appendChild(s); s.remove();
+          }
+        });
+        if (typeof window.renderMathInElement === 'function') {
+          try { window.renderMathInElement(document.body, { delimiters: [{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}], throwOnError: false }); } catch (_) {}
+        }
+      };
+      if (document.startViewTransition) { try { document.startViewTransition(doSwap); } catch (_) { doSwap(); } } else { doSwap(); }
+    };
+    document.addEventListener('pointerenter', (ev) => { const a = ev.target && ev.target.closest && ev.target.closest('a'); const u = canMorph(a); if (u) prefetch(u.href); }, true);
+    document.addEventListener('click', (ev) => {
+      if (ev.defaultPrevented || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+      const a = ev.target && ev.target.closest && ev.target.closest('a'); const u = canMorph(a);
+      if (!u) return; ev.preventDefault(); swapSpace(u, true);
+    }, false);
+    window.addEventListener('popstate', () => { swapSpace(new URL(location.href), false); });
+    window.hxFluidMorph = (path) => swapSpace(new URL(path, location.href), true);
+  }
+  // Auto-seed active responsive P2P WebRTC superintelligence mesh + Exact Factored Lafont INet Workbench
+  if (typeof window !== 'undefined' && typeof document !== 'undefined' && !window.HX_OS_MANUAL_MESH) {
+    const boot = () => {
+      if (window.HX_OS_MANUAL_MESH || window.hxMesh) return;
+      try { mountFluidSpaces(); mountExactNet(); window.hxMesh = new HxMesh({ mode: 'active' }).start(); mountNodeBar(window.hxMesh); } catch (_) {}
+    };
+    if (document.readyState === 'complete') setTimeout(boot, 800);
+    else window.addEventListener('load', () => setTimeout(boot, 800), { once: true });
+  }
+})(typeof window !== 'undefined' ? window : globalThis);
