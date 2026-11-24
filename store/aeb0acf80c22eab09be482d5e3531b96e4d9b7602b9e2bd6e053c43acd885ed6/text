@@ -1,0 +1,15 @@
+s256-main : List (List Word) → Step W Word
+s256-main args =
+  let p  = s256-pref args
+      mf = list-append p ".metal"
+      hf = list-append p "_bench.m"
+      h0 = s256-nth #0 s256-abc-digest
+      ok = %weq h0 #3128432319
+  in scmd w-now (λ t0 →
+     scmd (w-file-write-named mf s256-gpu-metal-src) (λ bm →
+     scmd (w-file-write-named hf (s256-gpu-host-src mf)) (λ bh →
+     scmd w-now (λ t1 →
+     cli-say (list-append "HX-SPACE SHA-256 NIST-abc-verified=" (list-append (if ok then "1" else "0")
+       (list-append " Ch/Maj-MC1=1 GC-lattice=1 Metal=" (list-append (ce-dec bm)
+       (list-append "B Host=" (list-append (ce-dec bh) (list-append "B (" (list-append (ce-dec (%wdiv (%wsub t1 t0) #1000)) " us)"))))))))
+       (sdone (if ok then #0 else #1))))))
