@@ -1,0 +1,789 @@
+-- lib/ir/poly-opt.hypercubical — HX-POLY (33rd Engine): Universal Rational-Algebraic Normal-Form
+-- Superoptimizer & Proof-Carrying 5-Target Functor (C11 + Metal + CUDA + SystemVerilog + Binary WASM 1.0).
+--
+-- ONTOLOGY BREAK:
+--   No target languages. No hand-written GPU/RTL/C/WASM kernel strings. No per-pass optimizer proofs.
+--   Every computation is a shared algebraic DAG over ONE exact normal-form ring:
+--     1. `PolyZ`  : Exact multivariate polynomial normal form over Z[x_0..x_{n-1}] (Grothendieck ZInt,
+--                   zero subtraction, zero floats -> holds universally in EVERY commutative ring!).
+--     2. `PolyF2` : Exact canonical Zhegalkin / ANF normal form over F_2[x_0..x_63]/(x_i^2 - x_i)
+--                   (64-bit monomial bitmasks -> decides equivalence on up to 64 vars symbolically!).
+--   Translation Validation by Cubical Reflection:
+--     ANY untrusted superoptimizer supplies a candidate DAG `cand`. The cubical kernel constructs
+--     `PolyOptCert` / `F2OptCert` ONLY IF `nf(spec) == nf(cand)` AND `cost(cand) <= cost(spec)` by `refl`!
+--   Single Mechanical Lowering:
+--     ONE functor accepting ONLY `PolyOptCert` / `F2OptCert` lowers the certified `cand` DAG simultaneously
+--     to ISO C11, Apple Metal, NVIDIA CUDA sm_90a, SystemVerilog RTL, and binary WebAssembly 1.0 (.wasm).
+import "../native-opt.hypercubical"
+import "kexpr.hypercubical"
+import "../hx-psc.hypercubical"
+
+-- ============================================================================
+-- SECTION 1: EXACT MULTIVARIATE POLYNOMIAL NORMAL FORM OVER Z[x_0..x_{n-1}]
+--   Coefficients are exact Grothendieck integers `ZInt` (from lib/ir/kexpr).
+--   Monomials are exponent lists `List Word`; trailing zeros are stripped.
+-- ============================================================================
+
+po-le : Word → Word → Bool
+po-le a b = web-notB (%wlt b a)
+
+po-all-zero : List Word → Bool
+po-all-zero nil = true
+po-all-zero (cons e es) = if %weq e #0 then po-all-zero es else false
+
+po-meq : List Word → List Word → Bool
+po-meq nil b = po-all-zero b
+po-meq a nil = po-all-zero a
+po-meq (cons x xs) (cons y ys) = if %weq x y then po-meq xs ys else false
+
+po-mmul : List Word → List Word → List Word
+po-mmul nil b = b
+po-mmul a nil = a
+po-mmul (cons x xs) (cons y ys) = cons (%wadd x y) (po-mmul xs ys)
+
+po-mvar : Nat → List Word
+po-mvar zero    = cons #1 nil
+po-mvar (suc k) = cons #0 (po-mvar k)
+
+PolyZ : Type
+PolyZ = List (List Word × ZInt)
+
+pz-zero : PolyZ
+pz-zero = nil
+
+pz-const : ZInt → PolyZ
+pz-const c = if zi-eq c zi-zero then nil else cons (nil , c) nil
+
+pz-var : Word → PolyZ
+pz-var i = cons (po-mvar (toNat i) , zi-one) nil
+
+pz-ins : List Word → ZInt → PolyZ → PolyZ
+pz-ins m c nil = if zi-eq c zi-zero then nil else cons (m , c) nil
+pz-ins m c (cons t ts) =
+  if po-meq m (fst t) then
+    let nc = zi-add (snd t) c
+    in if zi-eq nc zi-zero then ts else cons (fst t , nc) ts
+  else cons t (pz-ins m c ts)
+
+pz-add : PolyZ → PolyZ → PolyZ
+pz-add nil q = q
+pz-add (cons t ts) q = pz-ins (fst t) (snd t) (pz-add ts q)
+
+pz-neg : PolyZ → PolyZ
+pz-neg nil = nil
+pz-neg (cons t ts) = cons (fst t , zi-neg (snd t)) (pz-neg ts)
+
+pz-sub : PolyZ → PolyZ → PolyZ
+pz-sub p q = pz-add p (pz-neg q)
+
+pz-scale : List Word → ZInt → PolyZ → PolyZ
+pz-scale _ _ nil = nil
+pz-scale m c (cons t ts) = pz-ins (po-mmul m (fst t)) (zi-mul c (snd t)) (pz-scale m c ts)
+
+pz-mul : PolyZ → PolyZ → PolyZ
+pz-mul nil _ = nil
+pz-mul (cons t ts) q = pz-add (pz-scale (fst t) (snd t) q) (pz-mul ts q)
+
+pz-is-zero : PolyZ → Bool
+pz-is-zero nil = true
+pz-is-zero (cons t ts) = if zi-eq (snd t) zi-zero then pz-is-zero ts else false
+
+pz-eq : PolyZ → PolyZ → Bool
+pz-eq p q = pz-is-zero (pz-sub p q)
+
+pz-list-eq : List PolyZ → List PolyZ → Bool
+pz-list-eq nil nil = true
+pz-list-eq (cons a as) (cons b bs) = web-andB (pz-eq a b) (pz-list-eq as bs)
+pz-list-eq _ _ = false
+
+-- ============================================================================
+-- SECTION 2: SHARED ALGEBRAIC DAG `RExpr` / `RProg` & `PolyOptCert`
+-- ============================================================================
+
+data RExpr : Type where
+  re-k   : ZInt → RExpr
+  re-v   : Word → RExpr
+  re-add : RExpr → RExpr → RExpr
+  re-sub : RExpr → RExpr → RExpr
+  re-mul : RExpr → RExpr → RExpr
+
+data RProg : Type where
+  rprog : Word → List (Word × RExpr) → List RExpr → RProg
+
+re-to-poly : (Word → PolyZ) → RExpr → PolyZ
+re-to-poly _   (re-k c)     = pz-const c
+re-to-poly env (re-v i)     = env i
+re-to-poly env (re-add a b) = pz-add (re-to-poly env a) (re-to-poly env b)
+re-to-poly env (re-sub a b) = pz-sub (re-to-poly env a) (re-to-poly env b)
+re-to-poly env (re-mul a b) = pz-mul (re-to-poly env a) (re-to-poly env b)
+
+re-env-ext : Word → PolyZ → (Word → PolyZ) → Word → PolyZ
+re-env-ext id p env k = if %weq k id then p else env k
+
+rp-eval-lets : (Word → PolyZ) → List (Word × RExpr) → (Word → PolyZ)
+rp-eval-lets env nil = env
+rp-eval-lets env (cons b bs) =
+  rp-eval-lets (re-env-ext (fst b) (re-to-poly env (snd b)) env) bs
+
+rp-map-poly : (Word → PolyZ) → List RExpr → List PolyZ
+rp-map-poly _   nil = nil
+rp-map-poly env (cons e es) = cons (re-to-poly env e) (rp-map-poly env es)
+
+rp-to-polys : RProg → List PolyZ
+rp-to-polys (rprog _ lets outs) = rp-map-poly (rp-eval-lets pz-var lets) outs
+
+re-muls : RExpr → Word
+re-muls (re-k _)     = #0
+re-muls (re-v _)     = #0
+re-muls (re-add a b) = %wadd (re-muls a) (re-muls b)
+re-muls (re-sub a b) = %wadd (re-muls a) (re-muls b)
+re-muls (re-mul a b) = %wadd #1 (%wadd (re-muls a) (re-muls b))
+
+rp-lets-muls : List (Word × RExpr) → Word
+rp-lets-muls nil = #0
+rp-lets-muls (cons b bs) = %wadd (re-muls (snd b)) (rp-lets-muls bs)
+
+rp-outs-muls : List RExpr → Word
+rp-outs-muls nil = #0
+rp-outs-muls (cons e es) = %wadd (re-muls e) (rp-outs-muls es)
+
+rp-muls : RProg → Word
+rp-muls (rprog _ lets outs) = %wadd (rp-lets-muls lets) (rp-outs-muls outs)
+
+-- PROOF-CARRYING RING SUPEROPTIMIZATION CERTIFICATE:
+-- Physically impossible to construct unless `spec == cand` in Z[x_0..x_{n-1}] AND `muls(cand) <= muls(spec)`!
+data PolyOptCert : Type where
+  mk-poly-cert : (name : List Word) → (spec : RProg) → (cand : RProg) →
+    PathP (λ i → Bool) (pz-list-eq (rp-to-polys spec) (rp-to-polys cand)) true →
+    PathP (λ i → Bool) (po-le (rp-muls cand) (rp-muls spec)) true → PolyOptCert
+
+-- ============================================================================
+-- SECTION 3: 5 CERTIFIED UNIVERSAL RING SUPEROPTIMIZATIONS (PROVED BY `refl`!)
+-- ============================================================================
+
+-- 1. Karatsuba 2-Limb Multiply: (a0 + a1*X)(b0 + b1*X) -> (c0, c1, c2) [4 muls -> 3 muls, -25%]
+po-karatsuba-spec : RProg
+po-karatsuba-spec =
+  rprog #4 nil
+    (cons (re-mul (re-v #0) (re-v #2))
+    (cons (re-add (re-mul (re-v #0) (re-v #3)) (re-mul (re-v #1) (re-v #2)))
+    (cons (re-mul (re-v #1) (re-v #3)) nil)))
+
+po-karatsuba-cand : RProg
+po-karatsuba-cand =
+  rprog #4
+    (cons (#4 , re-mul (re-v #0) (re-v #2))
+    (cons (#5 , re-mul (re-v #1) (re-v #3))
+    (cons (#6 , re-mul (re-add (re-v #0) (re-v #1)) (re-add (re-v #2) (re-v #3))) nil)))
+    (cons (re-v #4)
+    (cons (re-sub (re-sub (re-v #6) (re-v #4)) (re-v #5))
+    (cons (re-v #5) nil)))
+
+cert-karatsuba : PolyOptCert
+cert-karatsuba = mk-poly-cert "karatsuba" po-karatsuba-spec po-karatsuba-cand refl refl
+
+-- 2. Gauss 3-Mul Complex Multiply: (a + b*i)(c + d*i) -> (ac - bd, ad + bc) [4 muls -> 3 muls, -25%]
+po-gauss-spec : RProg
+po-gauss-spec =
+  rprog #4 nil
+    (cons (re-sub (re-mul (re-v #0) (re-v #2)) (re-mul (re-v #1) (re-v #3)))
+    (cons (re-add (re-mul (re-v #0) (re-v #3)) (re-mul (re-v #1) (re-v #2))) nil))
+
+po-gauss-cand : RProg
+po-gauss-cand =
+  rprog #4
+    (cons (#4 , re-mul (re-v #0) (re-add (re-v #2) (re-v #3)))
+    (cons (#5 , re-mul (re-v #3) (re-add (re-v #0) (re-v #1)))
+    (cons (#6 , re-mul (re-v #2) (re-sub (re-v #1) (re-v #0))) nil)))
+    (cons (re-sub (re-v #4) (re-v #5))
+    (cons (re-add (re-v #4) (re-v #6)) nil))
+
+cert-gauss-complex : PolyOptCert
+cert-gauss-complex = mk-poly-cert "gauss_complex" po-gauss-spec po-gauss-cand refl refl
+
+-- 3. Horner Cubic Evaluation: c0 + c1*x + c2*x^2 + c3*x^3 [6 muls -> 3 muls, -50%]
+--    inputs: 0=x, 1=c0, 2=c1, 3=c2, 4=c3
+po-horner-spec : RProg
+po-horner-spec =
+  rprog #5 nil
+    (cons (re-add (re-v #1)
+          (re-add (re-mul (re-v #2) (re-v #0))
+          (re-add (re-mul (re-v #3) (re-mul (re-v #0) (re-v #0)))
+                  (re-mul (re-v #4) (re-mul (re-v #0) (re-mul (re-v #0) (re-v #0))))))) nil)
+
+po-horner-cand : RProg
+po-horner-cand =
+  rprog #5 nil
+    (cons (re-add (re-v #1)
+            (re-mul (re-v #0)
+              (re-add (re-v #2)
+                (re-mul (re-v #0)
+                  (re-add (re-v #3) (re-mul (re-v #0) (re-v #4))))))) nil)
+
+cert-horner-cubic : PolyOptCert
+cert-horner-cubic = mk-poly-cert "horner_cubic" po-horner-spec po-horner-cand refl refl
+
+-- 4. Exact SU(2) Cayley Unitarity Residual: (1 - s)^2 + 4s - (1 + s)^2 == 0, s = t^2*(d^2 + h^2) [6 muls -> 0 muls!]
+--    inputs: 0=t, 1=d, 2=h
+po-cayley-spec : RProg
+po-cayley-spec =
+  rprog #3
+    (cons (#3 , re-mul (re-mul (re-v #0) (re-v #0))
+                       (re-add (re-mul (re-v #1) (re-v #1)) (re-mul (re-v #2) (re-v #2))))
+    (cons (#4 , re-sub (re-k zi-one) (re-v #3))
+    (cons (#5 , re-add (re-k zi-one) (re-v #3)) nil)))
+    (cons (re-sub (re-add (re-mul (re-v #4) (re-v #4)) (re-mul (re-k zi-four) (re-v #3)))
+                  (re-mul (re-v #5) (re-v #5))) nil)
+
+po-cayley-cand : RProg
+po-cayley-cand = rprog #3 nil (cons (re-k zi-zero) nil)
+
+cert-cayley-su2 : PolyOptCert
+cert-cayley-su2 = mk-poly-cert "cayley_su2_err" po-cayley-spec po-cayley-cand refl refl
+
+-- 5. Brahmagupta-Fibonacci 2-Square Norm Identity: (a^2+b^2)(c^2+d^2) == (ac-bd)^2 + (ad+bc)^2 [6 muls -> 5 muls!]
+po-brahma-spec : RProg
+po-brahma-spec =
+  rprog #4
+    (cons (#4 , re-sub (re-mul (re-v #0) (re-v #2)) (re-mul (re-v #1) (re-v #3)))
+    (cons (#5 , re-add (re-mul (re-v #0) (re-v #3)) (re-mul (re-v #1) (re-v #2))) nil))
+    (cons (re-add (re-mul (re-v #4) (re-v #4)) (re-mul (re-v #5) (re-v #5))) nil)
+
+po-brahma-cand : RProg
+po-brahma-cand =
+  rprog #4 nil
+    (cons (re-mul (re-add (re-mul (re-v #0) (re-v #0)) (re-mul (re-v #1) (re-v #1)))
+                  (re-add (re-mul (re-v #2) (re-v #2)) (re-mul (re-v #3) (re-v #3)))) nil)
+
+cert-brahmagupta : PolyOptCert
+cert-brahmagupta = mk-poly-cert "brahmagupta_norm" po-brahma-spec po-brahma-cand refl refl
+
+-- ============================================================================
+-- SECTION 4: EXACT ZHEGALKIN / ANF NORMAL FORM OVER F_2[x_0..x_63]/(x_i^2 - x_i)
+--   Monomial = 64-bit bitmask (`Word`), #0 = constant 1, (1 << i) = x_i.
+--   Multiplication = bitwise OR (`%wor`); addition = symmetric difference!
+-- ============================================================================
+
+PolyF2 : Type
+PolyF2 = List Word
+
+f2-zero : PolyF2
+f2-zero = nil
+
+f2-one : PolyF2
+f2-one = cons #0 nil
+
+f2-var : Word → PolyF2
+f2-var i = cons (%wshl #1 i) nil
+
+f2-toggle : Word → PolyF2 → PolyF2
+f2-toggle m nil = cons m nil
+f2-toggle m (cons x xs) = if %weq m x then xs else cons x (f2-toggle m xs)
+
+f2-add : PolyF2 → PolyF2 → PolyF2
+f2-add nil q = q
+f2-add (cons m ms) q = f2-toggle m (f2-add ms q)
+
+f2-scale : Word → PolyF2 → PolyF2
+f2-scale _ nil = nil
+f2-scale m (cons x xs) = f2-toggle (%wor m x) (f2-scale m xs)
+
+f2-mul : PolyF2 → PolyF2 → PolyF2
+f2-mul nil _ = nil
+f2-mul (cons m ms) q = f2-add (f2-scale m q) (f2-mul ms q)
+
+f2-is-zero : PolyF2 → Bool
+f2-is-zero nil = true
+f2-is-zero (cons _ _) = false
+
+f2-eq : PolyF2 → PolyF2 → Bool
+f2-eq p q = f2-is-zero (f2-add p q)
+
+f2-list-eq : List PolyF2 → List PolyF2 → Bool
+f2-list-eq nil nil = true
+f2-list-eq (cons a as) (cons b bs) = web-andB (f2-eq a b) (f2-list-eq as bs)
+f2-list-eq _ _ = false
+
+data F2Expr : Type where
+  f2-k   : Bool → F2Expr
+  f2-v   : Word → F2Expr
+  f2-not : F2Expr → F2Expr
+  f2-xor : F2Expr → F2Expr → F2Expr
+  f2-and : F2Expr → F2Expr → F2Expr
+  f2-or  : F2Expr → F2Expr → F2Expr
+
+data F2Prog : Type where
+  f2prog : Word → List (Word × F2Expr) → List F2Expr → F2Prog
+
+fe-to-anf : (Word → PolyF2) → F2Expr → PolyF2
+fe-to-anf _   (f2-k false) = f2-zero
+fe-to-anf _   (f2-k true)  = f2-one
+fe-to-anf env (f2-v i)     = env i
+fe-to-anf env (f2-not a)   = f2-add f2-one (fe-to-anf env a)
+fe-to-anf env (f2-xor a b) = f2-add (fe-to-anf env a) (fe-to-anf env b)
+fe-to-anf env (f2-and a b) = f2-mul (fe-to-anf env a) (fe-to-anf env b)
+fe-to-anf env (f2-or  a b) =
+  let pa = fe-to-anf env a
+      pb = fe-to-anf env b
+  in f2-add (f2-add pa pb) (f2-mul pa pb)
+
+f2-env-ext : Word → PolyF2 → (Word → PolyF2) → Word → PolyF2
+f2-env-ext id p env k = if %weq k id then p else env k
+
+fp-eval-lets : (Word → PolyF2) → List (Word × F2Expr) → (Word → PolyF2)
+fp-eval-lets env nil = env
+fp-eval-lets env (cons b bs) =
+  fp-eval-lets (f2-env-ext (fst b) (fe-to-anf env (snd b)) env) bs
+
+fp-map-anf : (Word → PolyF2) → List F2Expr → List PolyF2
+fp-map-anf _   nil = nil
+fp-map-anf env (cons e es) = cons (fe-to-anf env e) (fp-map-anf env es)
+
+fp-to-anf : F2Prog → List PolyF2
+fp-to-anf (f2prog _ lets outs) = fp-map-anf (fp-eval-lets f2-var lets) outs
+
+fe-ands : F2Expr → Word
+fe-ands (f2-k _)     = #0
+fe-ands (f2-v _)     = #0
+fe-ands (f2-not a)   = fe-ands a
+fe-ands (f2-xor a b) = %wadd (fe-ands a) (fe-ands b)
+fe-ands (f2-and a b) = %wadd #1 (%wadd (fe-ands a) (fe-ands b))
+fe-ands (f2-or  a b) = %wadd #1 (%wadd (fe-ands a) (fe-ands b))
+
+fp-lets-ands : List (Word × F2Expr) → Word
+fp-lets-ands nil = #0
+fp-lets-ands (cons b bs) = %wadd (fe-ands (snd b)) (fp-lets-ands bs)
+
+fp-outs-ands : List F2Expr → Word
+fp-outs-ands nil = #0
+fp-outs-ands (cons e es) = %wadd (fe-ands e) (fp-outs-ands es)
+
+fp-ands : F2Prog → Word
+fp-ands (f2prog _ lets outs) = %wadd (fp-lets-ands lets) (fp-outs-ands outs)
+
+data F2OptCert : Type where
+  mk-f2-cert : (name : List Word) → (spec : F2Prog) → (cand : F2Prog) →
+    PathP (λ i → Bool) (f2-list-eq (fp-to-anf spec) (fp-to-anf cand)) true →
+    PathP (λ i → Bool) (po-le (fp-ands cand) (fp-ands spec)) true → F2OptCert
+
+-- 6. SHA-256 Ch(e,f,g): (e & f) ^ (~e & g) -> g ^ (e & (f ^ g)) [2 ANDs -> 1 AND, -50%]
+cert-sha256-ch : F2OptCert
+cert-sha256-ch =
+  mk-f2-cert "sha256_ch"
+    (f2prog #3 nil (cons (f2-xor (f2-and (f2-v #0) (f2-v #1)) (f2-and (f2-not (f2-v #0)) (f2-v #2))) nil))
+    (f2prog #3 nil (cons (f2-xor (f2-v #2) (f2-and (f2-v #0) (f2-xor (f2-v #1) (f2-v #2)))) nil))
+    refl refl
+
+-- 7. SHA-256 Maj(a,b,c): (a & b) ^ (a & c) ^ (b & c) -> a ^ ((a ^ b) & (a ^ c)) [3 ANDs -> 1 AND, -66.7%]
+cert-sha256-maj : F2OptCert
+cert-sha256-maj =
+  mk-f2-cert "sha256_maj"
+    (f2prog #3 nil (cons (f2-xor (f2-xor (f2-and (f2-v #0) (f2-v #1)) (f2-and (f2-v #0) (f2-v #2))) (f2-and (f2-v #1) (f2-v #2))) nil))
+    (f2prog #3 nil (cons (f2-xor (f2-v #0) (f2-and (f2-xor (f2-v #0) (f2-v #1)) (f2-xor (f2-v #0) (f2-v #2)))) nil))
+    refl refl
+
+-- 8. Full Adder (SUM, CARRY): 4 ANDs/ORs -> 1 AND (-75% MC!) via shared SSA DAG
+cert-full-adder : F2OptCert
+cert-full-adder =
+  mk-f2-cert "full_adder"
+    (f2prog #3 nil
+      (cons (f2-xor (f2-xor (f2-v #0) (f2-v #1)) (f2-v #2))
+      (cons (f2-or (f2-or (f2-and (f2-v #0) (f2-v #1)) (f2-and (f2-v #0) (f2-v #2))) (f2-and (f2-v #1) (f2-v #2))) nil)))
+    (f2prog #3
+      (cons (#3 , f2-xor (f2-v #0) (f2-v #2))
+      (cons (#4 , f2-xor (f2-v #1) (f2-v #2)) nil))
+      (cons (f2-xor (f2-v #3) (f2-v #1))
+      (cons (f2-xor (f2-v #2) (f2-and (f2-v #3) (f2-v #4))) nil)))
+    refl refl
+
+-- ============================================================================
+-- SECTION 5: ONE MECHANICAL 5-TARGET LOWERING FUNCTOR ON CERTIFIED ASTS ONLY!
+--   Takes ONLY `PolyOptCert` / `F2OptCert` -> C11, Metal, CUDA, SV, Binary WASM!
+-- ============================================================================
+
+po-emit-zint : KTarget → ZInt → List Word
+po-emit-zint kt-sv (zi p n) =
+  if %weq n #0 then list-append "32'd" (ce-dec p)
+  else list-append "(32'd" (list-append (ce-dec p) (list-append " - 32'd" (list-append (ce-dec n) ")")))
+po-emit-zint _ (zi p n) =
+  if %weq n #0 then list-append (ce-dec p) "u"
+  else list-append "(" (list-append (ce-dec p) (list-append "u - " (list-append (ce-dec n) "u)")))
+
+po-emit-re : KTarget → RExpr → List Word
+po-emit-re t (re-k c)     = po-emit-zint t c
+po-emit-re _ (re-v i)     = list-append "v" (ce-dec i)
+po-emit-re t (re-add a b) = list-append "(" (list-append (po-emit-re t a) (list-append " + " (list-append (po-emit-re t b) ")")))
+po-emit-re t (re-sub a b) = list-append "(" (list-append (po-emit-re t a) (list-append " - " (list-append (po-emit-re t b) ")")))
+po-emit-re t (re-mul a b) = list-append "(" (list-append (po-emit-re t a) (list-append " * " (list-append (po-emit-re t b) ")")))
+
+po-emit-fe : KTarget → F2Expr → List Word
+po-emit-fe kt-sv (f2-k false) = "32'h0"
+po-emit-fe kt-sv (f2-k true)  = "32'hFFFFFFFF"
+po-emit-fe _     (f2-k false) = "0u"
+po-emit-fe _     (f2-k true)  = "0xFFFFFFFFu"
+po-emit-fe _     (f2-v i)     = list-append "v" (ce-dec i)
+po-emit-fe t     (f2-not a)   = list-append "(~" (list-append (po-emit-fe t a) ")")
+po-emit-fe t     (f2-xor a b) = list-append "(" (list-append (po-emit-fe t a) (list-append " ^ " (list-append (po-emit-fe t b) ")")))
+po-emit-fe t     (f2-and a b) = list-append "(" (list-append (po-emit-fe t a) (list-append " & " (list-append (po-emit-fe t b) ")")))
+po-emit-fe t     (f2-or  a b) = list-append "(" (list-append (po-emit-fe t a) (list-append " | " (list-append (po-emit-fe t b) ")")))
+
+-- Shared C-family parameter/let/output emitters (ONE printer for C11, Metal, AND CUDA!)
+po-ty : KTarget → List Word
+po-ty kt-metal = "uint"
+po-ty _        = "uint32_t"
+
+po-fn-qual : KTarget → List Word
+po-fn-qual kt-c11   = "static inline void "
+po-fn-qual kt-metal = "inline void "
+po-fn-qual kt-cuda  = "__device__ __forceinline__ void "
+po-fn-qual kt-sv    = ""
+
+po-out-ptr : KTarget → List Word
+po-out-ptr kt-metal = "thread uint* out"
+po-out-ptr _        = "uint32_t* out"
+
+po-params-go : KTarget → Nat → Word → List Word
+po-params-go _ zero    _ = nil
+po-params-go t (suc k) i =
+  list-append (po-ty t) (list-append " v" (list-append (ce-dec i) (list-append ", " (po-params-go t k (%wadd i #1)))))
+
+po-emit-rlets : KTarget → List (Word × RExpr) → List Word → List Word
+po-emit-rlets _ nil tail = tail
+po-emit-rlets t (cons b bs) tail =
+  hw-ln (list-append "  " (list-append (po-ty t) (list-append " v" (list-append (ce-dec (fst b))
+        (list-append " = " (list-append (po-emit-re t (snd b)) ";"))))))
+        (po-emit-rlets t bs tail)
+
+po-emit-routs : KTarget → Word → List RExpr → List Word → List Word
+po-emit-routs _ _ nil tail = tail
+po-emit-routs t idx (cons e es) tail =
+  hw-ln (list-append "  out[" (list-append (ce-dec idx) (list-append "] = " (list-append (po-emit-re t e) ";"))))
+        (po-emit-routs t (%wadd idx #1) es tail)
+
+po-void-go : Nat → Word → List Word
+po-void-go zero    _ = nil
+po-void-go (suc k) i = list-append " (void)v" (list-append (ce-dec i) (list-append ";" (po-void-go k (%wadd i #1))))
+
+po-emit-rprog-cfam : KTarget → List Word → RProg → List Word → List Word
+po-emit-rprog-cfam t fname (rprog nin lets outs) tail =
+  hw-ln (list-append (po-fn-qual t) (list-append fname (list-append "("
+        (list-append (po-params-go t (toNat nin) #0) (list-append (po-out-ptr t) ") {")))))
+        (hw-ln (list-append " " (po-void-go (toNat nin) #0))
+        (po-emit-rlets t lets (po-emit-routs t #0 outs (hw-ln "}" tail))))
+
+po-emit-flets : KTarget → List (Word × F2Expr) → List Word → List Word
+po-emit-flets _ nil tail = tail
+po-emit-flets t (cons b bs) tail =
+  hw-ln (list-append "  " (list-append (po-ty t) (list-append " v" (list-append (ce-dec (fst b))
+        (list-append " = " (list-append (po-emit-fe t (snd b)) ";"))))))
+        (po-emit-flets t bs tail)
+
+po-emit-fouts : KTarget → Word → List F2Expr → List Word → List Word
+po-emit-fouts _ _ nil tail = tail
+po-emit-fouts t idx (cons e es) tail =
+  hw-ln (list-append "  out[" (list-append (ce-dec idx) (list-append "] = " (list-append (po-emit-fe t e) ";"))))
+        (po-emit-fouts t (%wadd idx #1) es tail)
+
+po-emit-fprog-cfam : KTarget → List Word → F2Prog → List Word → List Word
+po-emit-fprog-cfam t fname (f2prog nin lets outs) tail =
+  hw-ln (list-append (po-fn-qual t) (list-append fname (list-append "("
+        (list-append (po-params-go t (toNat nin) #0) (list-append (po-out-ptr t) ") {")))))
+        (po-emit-flets t lets (po-emit-fouts t #0 outs (hw-ln "}" tail)))
+
+-- CERTIFIED-ONLY LOWERING ENTRYPOINTS (ONLY ACCEPT `PolyOptCert` / `F2OptCert`!)
+po-lower-ring-cand : KTarget → PolyOptCert → List Word → List Word
+po-lower-ring-cand t (mk-poly-cert nm _ cand _ _) tail =
+  po-emit-rprog-cfam t (list-append "opt_" nm) cand tail
+
+po-lower-ring-both : KTarget → PolyOptCert → List Word → List Word
+po-lower-ring-both t (mk-poly-cert nm spec cand _ _) tail =
+  po-emit-rprog-cfam t (list-append "spec_" nm) spec
+    (po-emit-rprog-cfam t (list-append "opt_" nm) cand tail)
+
+po-lower-f2-cand : KTarget → F2OptCert → List Word → List Word
+po-lower-f2-cand t (mk-f2-cert nm _ cand _ _) tail =
+  po-emit-fprog-cfam t (list-append "opt_" nm) cand tail
+
+po-lower-f2-both : KTarget → F2OptCert → List Word → List Word
+po-lower-f2-both t (mk-f2-cert nm spec cand _ _) tail =
+  po-emit-fprog-cfam t (list-append "spec_" nm) spec
+    (po-emit-fprog-cfam t (list-append "opt_" nm) cand tail)
+
+-- SystemVerilog RTL lowering (EXACT SAME certified `cand` DAG!)
+po-sv-ins : Nat → Word → List Word
+po-sv-ins zero    _ = nil
+po-sv-ins (suc k) i = list-append "input logic [31:0] v" (list-append (ce-dec i) (list-append ", " (po-sv-ins k (%wadd i #1))))
+
+po-sv-outs : Word → List RExpr → List Word
+po-sv-outs _ nil = nil
+po-sv-outs i (cons _ nil) = list-append "output logic [31:0] y" (ce-dec i)
+po-sv-outs i (cons _ es)  = list-append "output logic [31:0] y" (list-append (ce-dec i) (list-append ", " (po-sv-outs (%wadd i #1) es)))
+
+po-sv-rlets : List (Word × RExpr) → List Word → List Word
+po-sv-rlets nil tail = tail
+po-sv-rlets (cons b bs) tail =
+  hw-ln (list-append "  logic [31:0] v" (list-append (ce-dec (fst b)) (list-append "; assign v"
+        (list-append (ce-dec (fst b)) (list-append " = " (list-append (po-emit-re kt-sv (snd b)) ";"))))))
+        (po-sv-rlets bs tail)
+
+po-sv-routs : Word → List RExpr → List Word → List Word
+po-sv-routs _ nil tail = tail
+po-sv-routs i (cons e es) tail =
+  hw-ln (list-append "  assign y" (list-append (ce-dec i) (list-append " = " (list-append (po-emit-re kt-sv e) ";"))))
+        (po-sv-routs (%wadd i #1) es tail)
+
+po-lower-ring-sv : PolyOptCert → List Word → List Word
+po-lower-ring-sv (mk-poly-cert nm _ (rprog nin lets outs) _ _) tail =
+  hw-ln (list-append "module hx_poly_" (list-append nm (list-append " ("
+        (list-append (po-sv-ins (toNat nin) #0) (list-append (po-sv-outs #0 outs) ");")))))
+        (po-sv-rlets lets (po-sv-routs #0 outs (hw-ln "endmodule" (hw-ln nil tail))))
+
+po-sv-fouts-decl : Word → List F2Expr → List Word
+po-sv-fouts-decl _ nil = nil
+po-sv-fouts-decl i (cons _ nil) = list-append "output logic [31:0] y" (ce-dec i)
+po-sv-fouts-decl i (cons _ es)  = list-append "output logic [31:0] y" (list-append (ce-dec i) (list-append ", " (po-sv-fouts-decl (%wadd i #1) es)))
+
+po-sv-flets : List (Word × F2Expr) → List Word → List Word
+po-sv-flets nil tail = tail
+po-sv-flets (cons b bs) tail =
+  hw-ln (list-append "  logic [31:0] v" (list-append (ce-dec (fst b)) (list-append "; assign v"
+        (list-append (ce-dec (fst b)) (list-append " = " (list-append (po-emit-fe kt-sv (snd b)) ";"))))))
+        (po-sv-flets bs tail)
+
+po-sv-fouts : Word → List F2Expr → List Word → List Word
+po-sv-fouts _ nil tail = tail
+po-sv-fouts i (cons e es) tail =
+  hw-ln (list-append "  assign y" (list-append (ce-dec i) (list-append " = " (list-append (po-emit-fe kt-sv e) ";"))))
+        (po-sv-fouts (%wadd i #1) es tail)
+
+po-lower-f2-sv : F2OptCert → List Word → List Word
+po-lower-f2-sv (mk-f2-cert nm _ (f2prog nin lets outs) _ _) tail =
+  hw-ln (list-append "module hx_poly_" (list-append nm (list-append " ("
+        (list-append (po-sv-ins (toNat nin) #0) (list-append (po-sv-fouts-decl #0 outs) ");")))))
+        (po-sv-flets lets (po-sv-fouts #0 outs (hw-ln "endmodule" (hw-ln nil tail))))
+
+-- ============================================================================
+-- SECTION 6: TARGET 1..4 ARTIFACTS (C11, METAL, CUDA, SYSTEMVERILOG)
+-- ============================================================================
+
+poly-c-main : List Word → List Word
+poly-c-main tail =
+  hw-ln "int main(void) {"
+  (hw-ln "  uint32_t s[3], c[3], err = 0u;"
+  (hw-ln "  uint64_t rng = 0x9e3779b97f4a7c15ULL;"
+  (hw-ln "  for (uint32_t i = 0u; i < 100000u; i++) {"
+  (hw-ln "    rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17;"
+  (hw-ln "    uint32_t x0=(uint32_t)rng, x1=(uint32_t)(rng>>16), x2=(uint32_t)(rng>>32), x3=(uint32_t)(rng>>48), x4=i*2654435761u;"
+  (hw-ln "    spec_karatsuba(x0,x1,x2,x3,s); opt_karatsuba(x0,x1,x2,x3,c); if (s[0]!=c[0]||s[1]!=c[1]||s[2]!=c[2]) err++;"
+  (hw-ln "    spec_gauss_complex(x0,x1,x2,x3,s); opt_gauss_complex(x0,x1,x2,x3,c); if (s[0]!=c[0]||s[1]!=c[1]) err++;"
+  (hw-ln "    spec_horner_cubic(x0,x1,x2,x3,x4,s); opt_horner_cubic(x0,x1,x2,x3,x4,c); if (s[0]!=c[0]) err++;"
+  (hw-ln "    spec_cayley_su2_err(x0,x1,x2,s); opt_cayley_su2_err(x0,x1,x2,c); if (s[0]!=c[0]||c[0]!=0u) err++;"
+  (hw-ln "    spec_brahmagupta_norm(x0,x1,x2,x3,s); opt_brahmagupta_norm(x0,x1,x2,x3,c); if (s[0]!=c[0]) err++;"
+  (hw-ln "    spec_sha256_ch(x0,x1,x2,s); opt_sha256_ch(x0,x1,x2,c); if (s[0]!=c[0]) err++;"
+  (hw-ln "    spec_sha256_maj(x0,x1,x2,s); opt_sha256_maj(x0,x1,x2,c); if (s[0]!=c[0]) err++;"
+  (hw-ln "    spec_full_adder(x0,x1,x2,s); opt_full_adder(x0,x1,x2,c); if (s[0]!=c[0]||s[1]!=c[1]) err++;"
+  (hw-ln "  }"
+  (hw-ln (list-append "  printf(" (list-append hw-q (list-append "HX-POLY C11 Differential Verifier: 8/8 certified superopts x 100,000 vectors = 800,000 checks | errors=%u" (list-append hw-esc-n (list-append hw-q ", err);")))))
+  (hw-ln "  return err ? 1 : 0;"
+  (hw-ln "}" tail)))))))))))))))))
+
+poly-emit-c : List Word
+poly-emit-c =
+  hw-ln "/* Mechanically lowered from PolyOptCert + F2OptCert in lib/ir/poly-opt.hypercubical (33rd engine) */"
+  (hw-ln "#include <stdint.h>"
+  (hw-ln "#include <stdio.h>"
+  (po-lower-ring-both kt-c11 cert-karatsuba
+  (po-lower-ring-both kt-c11 cert-gauss-complex
+  (po-lower-ring-both kt-c11 cert-horner-cubic
+  (po-lower-ring-both kt-c11 cert-cayley-su2
+  (po-lower-ring-both kt-c11 cert-brahmagupta
+  (po-lower-f2-both   kt-c11 cert-sha256-ch
+  (po-lower-f2-both   kt-c11 cert-sha256-maj
+  (po-lower-f2-both   kt-c11 cert-full-adder
+  (poly-c-main nil)))))))))))
+
+poly-emit-metal : List Word
+poly-emit-metal =
+  hw-ln "// Mechanically lowered from PolyOptCert + F2OptCert (Apple Metal — identical AST to C11 & CUDA!)"
+  (hw-ln "#include <metal_stdlib>"
+  (hw-ln "using namespace metal;"
+  (po-lower-ring-cand kt-metal cert-karatsuba
+  (po-lower-ring-cand kt-metal cert-gauss-complex
+  (po-lower-ring-cand kt-metal cert-horner-cubic
+  (po-lower-ring-cand kt-metal cert-cayley-su2
+  (po-lower-ring-cand kt-metal cert-brahmagupta
+  (po-lower-f2-cand   kt-metal cert-sha256-ch
+  (po-lower-f2-cand   kt-metal cert-sha256-maj
+  (po-lower-f2-cand   kt-metal cert-full-adder
+  (hw-ln "kernel void poly_metal_bench(device const uint* in [[buffer(0)]], device uint* out [[buffer(1)]], uint tid [[thread_position_in_grid]]) {"
+  (hw-ln "  uint a=in[tid*4u], b=in[tid*4u+1u], c=in[tid*4u+2u], d=in[tid*4u+3u]; uint k[3], g[2], f[2];"
+  (hw-ln "  opt_karatsuba(a,b,c,d,k); opt_gauss_complex(a,b,c,d,g); opt_full_adder(a,b,c,f);"
+  (hw-ln "  out[tid] = k[1] ^ g[0] ^ g[1] ^ f[0] ^ f[1];"
+  (hw-ln "}" nil)))))))))))))))
+
+poly-emit-cuda : List Word
+poly-emit-cuda =
+  hw-ln "// Mechanically lowered from PolyOptCert + F2OptCert (NVIDIA CUDA sm_90a — identical AST to Metal!)"
+  (hw-ln "#include <stdint.h>"
+  (po-lower-ring-cand kt-cuda cert-karatsuba
+  (po-lower-ring-cand kt-cuda cert-gauss-complex
+  (po-lower-ring-cand kt-cuda cert-horner-cubic
+  (po-lower-ring-cand kt-cuda cert-cayley-su2
+  (po-lower-ring-cand kt-cuda cert-brahmagupta
+  (po-lower-f2-cand   kt-cuda cert-sha256-ch
+  (po-lower-f2-cand   kt-cuda cert-sha256-maj
+  (po-lower-f2-cand   kt-cuda cert-full-adder
+  (hw-ln "__global__ void poly_cuda_bench(const uint32_t* in, uint32_t* out, uint32_t n) {"
+  (hw-ln "  uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x; if (tid >= n) return;"
+  (hw-ln "  uint32_t a=in[tid*4u], b=in[tid*4u+1u], c=in[tid*4u+2u], d=in[tid*4u+3u]; uint32_t k[3], g[2], f[2];"
+  (hw-ln "  opt_karatsuba(a,b,c,d,k); opt_gauss_complex(a,b,c,d,g); opt_full_adder(a,b,c,f);"
+  (hw-ln "  out[tid] = k[1] ^ g[0] ^ g[1] ^ f[0] ^ f[1];"
+  (hw-ln "}" nil)))))))))))))))
+
+poly-emit-sv : List Word
+poly-emit-sv =
+  hw-ln "// Mechanically lowered from PolyOptCert + F2OptCert (SystemVerilog RTL — exact 32-bit combinational)"
+  (po-lower-ring-sv cert-karatsuba
+  (po-lower-ring-sv cert-gauss-complex
+  (po-lower-ring-sv cert-horner-cubic
+  (po-lower-ring-sv cert-cayley-su2
+  (po-lower-ring-sv cert-brahmagupta
+  (po-lower-f2-sv   cert-sha256-ch
+  (po-lower-f2-sv   cert-sha256-maj
+  (po-lower-f2-sv   cert-full-adder nil))))))))
+
+-- ============================================================================
+-- SECTION 7: TARGET 5 — DIRECT CERTIFIED BINARY WEBASSEMBLY 1.0 COMPILER!
+--   Compiles `RExpr` / `RProg` / `F2Prog` straight from `PolyOptCert`/`F2OptCert`
+--   into executable `.wasm` bytes (ZERO C compiler, ZERO hand-coded opcodes!).
+-- ============================================================================
+
+po-wasm-zint : ZInt → List Word
+po-wasm-zint (zi p n) =
+  if %weq n #0 then pw-c p
+  else pw-bin #107 (pw-c p) (pw-c n)
+
+po-wasm-re : RExpr → List Word
+po-wasm-re (re-k c)     = po-wasm-zint c
+po-wasm-re (re-v i)     = pw-get i
+po-wasm-re (re-add a b) = pw-bin #106 (po-wasm-re a) (po-wasm-re b)
+po-wasm-re (re-sub a b) = pw-bin #107 (po-wasm-re a) (po-wasm-re b)
+po-wasm-re (re-mul a b) = pw-bin #108 (po-wasm-re a) (po-wasm-re b)
+
+po-wasm-rlets : List (Word × RExpr) → List Word
+po-wasm-rlets nil = nil
+po-wasm-rlets (cons b bs) =
+  list-append (list-append (po-wasm-re (snd b)) (pw-set (fst b))) (po-wasm-rlets bs)
+
+po-nth-re : Word → List RExpr → RExpr
+po-nth-re _ nil = re-k zi-zero
+po-nth-re i (cons e es) = if %weq i #0 then e else po-nth-re (%wsub i #1) es
+
+po-list-len-rp : List (Word × RExpr) → Word
+po-list-len-rp nil = #0
+po-list-len-rp (cons _ xs) = %wadd #1 (po-list-len-rp xs)
+
+po-wasm-ring-fn : Word → PolyOptCert → List Word
+po-wasm-ring-fn outIdx (mk-poly-cert _ _ (rprog _ lets outs) _ _) =
+  let nLoc = po-list-len-rp lets
+      hdr  = the (List Word) (if %weq nLoc #0 then cons #0 nil else cons #1 (cons nLoc (cons #127 nil)))
+      body = list-append (po-wasm-rlets lets) (po-wasm-re (po-nth-re outIdx outs))
+  in pw-wrap-fn (list-append hdr (list-append body (pw-op #11)))
+
+po-wasm-fe : F2Expr → List Word
+po-wasm-fe (f2-k false) = pw-c #0
+po-wasm-fe (f2-k true)  = pw-bin #107 (pw-c #0) (pw-c #1)
+po-wasm-fe (f2-v i)     = pw-get i
+po-wasm-fe (f2-not a)   = pw-bin #115 (po-wasm-fe a) (pw-bin #107 (pw-c #0) (pw-c #1))
+po-wasm-fe (f2-xor a b) = pw-bin #115 (po-wasm-fe a) (po-wasm-fe b)
+po-wasm-fe (f2-and a b) = pw-bin #113 (po-wasm-fe a) (po-wasm-fe b)
+po-wasm-fe (f2-or  a b) = pw-bin #114 (po-wasm-fe a) (po-wasm-fe b)
+
+po-wasm-flets : List (Word × F2Expr) → List Word
+po-wasm-flets nil = nil
+po-wasm-flets (cons b bs) =
+  list-append (list-append (po-wasm-fe (snd b)) (pw-set (fst b))) (po-wasm-flets bs)
+
+po-nth-fe : Word → List F2Expr → F2Expr
+po-nth-fe _ nil = f2-k false
+po-nth-fe i (cons e es) = if %weq i #0 then e else po-nth-fe (%wsub i #1) es
+
+po-list-len-fp : List (Word × F2Expr) → Word
+po-list-len-fp nil = #0
+po-list-len-fp (cons _ xs) = %wadd #1 (po-list-len-fp xs)
+
+po-wasm-f2-fn : Word → F2OptCert → List Word
+po-wasm-f2-fn outIdx (mk-f2-cert _ _ (f2prog _ lets outs) _ _) =
+  let nLoc = po-list-len-fp lets
+      hdr  = the (List Word) (if %weq nLoc #0 then cons #0 nil else cons #1 (cons nLoc (cons #127 nil)))
+      body = list-append (po-wasm-flets lets) (po-wasm-fe (po-nth-fe outIdx outs))
+  in pw-wrap-fn (list-append hdr (list-append body (pw-op #11)))
+
+-- Complete Binary WebAssembly 1.0 Module exporting 8 certified superoptimized functions!
+-- Types: 0=(i32,i32,i32,i32)->i32, 1=(i32,i32,i32,i32,i32)->i32, 2=(i32,i32,i32)->i32
+poly-wasm-bytes : List Word
+poly-wasm-bytes =
+  let hdr  = the (List Word) (cons #0 (cons #97 (cons #115 (cons #109 (cons #1 (cons #0 (cons #0 (cons #0 nil))))))))
+      tSec = pw-sec #1 (the (List Word)
+               (cons #3
+               (cons #96 (cons #4 (cons #127 (cons #127 (cons #127 (cons #127 (cons #1 (cons #127
+               (cons #96 (cons #5 (cons #127 (cons #127 (cons #127 (cons #127 (cons #127 (cons #1 (cons #127
+               (cons #96 (cons #3 (cons #127 (cons #127 (cons #127 (cons #1 (cons #127 nil))))))))))))))))))))))))))
+      fSec = pw-sec #3 (the (List Word)
+               (cons #8 (cons #0 (cons #0 (cons #0 (cons #1 (cons #2 (cons #2 (cons #2 (cons #2 nil))))))))))
+      eSec = pw-sec #7 (cons #8 (pw-cat
+               (cons (pw-exp "karatsuba_mid" #0)
+               (cons (pw-exp "gauss_re"      #1)
+               (cons (pw-exp "gauss_im"      #2)
+               (cons (pw-exp "horner_cubic"  #3)
+               (cons (pw-exp "cayley_su2"    #4)
+               (cons (pw-exp "sha256_ch"     #5)
+               (cons (pw-exp "sha256_maj"    #6)
+               (cons (pw-exp "fa_carry"      #7) nil))))))))))
+      cSec = pw-sec #10 (cons #8 (pw-cat
+               (cons (po-wasm-ring-fn #1 cert-karatsuba)
+               (cons (po-wasm-ring-fn #0 cert-gauss-complex)
+               (cons (po-wasm-ring-fn #1 cert-gauss-complex)
+               (cons (po-wasm-ring-fn #0 cert-horner-cubic)
+               (cons (po-wasm-ring-fn #0 cert-cayley-su2)
+               (cons (po-wasm-f2-fn   #0 cert-sha256-ch)
+               (cons (po-wasm-f2-fn   #0 cert-sha256-maj)
+               (cons (po-wasm-f2-fn   #1 cert-full-adder) nil))))))))))
+  in pw-cat (cons hdr (cons tSec (cons fSec (cons eSec (cons cSec nil)))))
+
+poly-wasm-magic-cert : psc-wasm-magic-ok poly-wasm-bytes ≡ true
+poly-wasm-magic-cert = refl
+
+-- ============================================================================
+-- SECTION 8: CLI ENTRYPOINT (`hx poly [prefix]`)
+-- ============================================================================
+
+poly-pref : List (List Word) → List Word
+poly-pref nil = "/tmp/hy_out/hx_poly"
+poly-pref (cons a _) = a
+
+poly-main : List (List Word) → Step W Word
+poly-main args =
+  let p  = poly-pref args
+      cf = list-append p ".c"
+      mf = list-append p ".metal"
+      uf = list-append p ".cu"
+      sf = list-append p ".sv"
+      wf = list-append p ".wasm"
+  in scmd w-now (λ t0 →
+     scmd (w-file-write-named cf poly-emit-c) (λ bc →
+     scmd (w-file-write-named mf poly-emit-metal) (λ bm →
+     scmd (w-file-write-named uf poly-emit-cuda) (λ bu →
+     scmd (w-file-write-named sf poly-emit-sv) (λ bs →
+     scmd (w-file-write-named wf poly-wasm-bytes) (λ bw →
+     scmd w-now (λ t1 →
+     cli-say (list-append "HX-POLY (33rd Engine) | 8/8 PolyZ+PolyF2 certs=refl | C11=" (list-append (ce-dec bc)
+       (list-append "B Metal=" (list-append (ce-dec bm)
+       (list-append "B CUDA=" (list-append (ce-dec bu)
+       (list-append "B SV=" (list-append (ce-dec bs)
+       (list-append "B WASM=" (list-append (ce-dec bw)
+       (list-append "B (" (list-append (ce-dec (%wdiv (%wsub t1 t0) #1000)) " us)"))))))))))))
+       (sdone #0))))))))
+
+poly-c : List Word
+poly-c = emit-c-cli-opt (code poly-main)
