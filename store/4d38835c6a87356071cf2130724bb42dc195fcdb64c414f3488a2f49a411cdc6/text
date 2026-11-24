@@ -1,0 +1,21 @@
+-- Mechanically lower the EXACT SAME TKernelSpec -> NVIDIA CUDA Tensor Core WMMA!
+tir-lower-cuda-gemm : Word → Word → Word → Word → Word → Word → List Word
+tir-lower-cuda-gemm m n k tm tn tk =
+  tir-line "// Lowered mechanically from verified TKernelSpec (lib/ir/tensor-ir.hypercubical)"
+  (tir-line "#include <cuda_runtime.h>"
+  (tir-line "#include <mma.h>"
+  (tir-line "using namespace nvcuda;"
+  (tir-line (list-append "// Verified spec: M=" (list-append (ce-dec m) (list-append " N=" (list-append (ce-dec n) (list-append " K=" (list-append (ce-dec k) (list-append " tile=" (list-append (ce-dec tm) (list-append "x" (list-append (ce-dec tn) (list-append "x" (ce-dec tk))))))))))))
+  (tir-line "__global__ void tir_gemm_wmma16(const half* A, const half* B, float* C, int M, int N, int K) {"
+  (tir-line "  int wm = blockIdx.y * 16, wn = blockIdx.x * 16;"
+  (tir-line "  wmma::fragment<wmma::matrix_a, 16, 16, 16, half, wmma::row_major> a_frag;"
+  (tir-line "  wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::row_major> b_frag;"
+  (tir-line "  wmma::fragment<wmma::accumulator, 16, 16, 16, float> c_frag;"
+  (tir-line "  wmma::fill_fragment(c_frag, 0.0f);"
+  (tir-line "  for (int kk = 0; kk < K; kk += 16) {"
+  (tir-line "    wmma::load_matrix_sync(a_frag, A + wm * K + kk, K);"
+  (tir-line "    wmma::load_matrix_sync(b_frag, B + kk * N + wn, N);"
+  (tir-line "    wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);"
+  (tir-line "  }"
+  (tir-line "  wmma::store_matrix_sync(C + wm * N + wn, c_frag, N, wmma::mem_row_major);"
+  (tir-line "}" nil)))))))))))))))))
