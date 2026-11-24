@@ -1,0 +1,26 @@
+hxn-send : Word → List Word → Step W Word
+hxn-send port mode =
+  let pkt =
+        if cli-eq mode "synth" then
+          let r = hs-id #232 #6
+          in hxn-pack-synth #232 (fst r) (fst (snd r))
+        else if cli-eq mode "synth-forged" then
+          let r = hs-id #232 #6
+          in hxn-pack-synth #232 (fst r) (%wxor (fst (snd r)) #1)
+        else
+          let base = hxn-digest hxn-msg
+              key  = if cli-eq mode "forged" then %wxor base #1 else base
+          in hxn-pack key #42 (cfs-enc-list sr-sample-L sr-sample-fuel (sr-sample-L , nil) cfs-sample-init-ctx hxn-msg)
+      plen = cli-len pkt
+  in scmd w-now (λ t0 →
+     scmd (w-sys #41 #2 #2 #0 #0 #0 #0) (λ fd →
+     scmd (w-alloc #16) (λ sa →
+     cli-poke sa (cli-sa-lo port) (λ _ →
+     scmd (w-alloc #512) (λ buf →
+     cli-poke buf pkt (λ _ →
+     scmd (w-sys #44 fd buf plen #0 sa #16) (λ _ →
+     scmd (w-sys #45 fd buf #512 #0 #0 #0) (λ rn →
+     cli-peek buf rn (λ rcpt →
+     scmd w-now (λ t1 →
+     scmd (w-sys #3 fd #0 #0 #0 #0 #0) (λ _ →
+     cli-say (list-append "HX-Node-Send port=" (list-append (ce-dec port) (list-append " wire=" (list-append (ce-dec plen) (list-append "B rtt=" (list-append (ce-dec (%wdiv (%wsub t1 t0) #1000)) (list-append "us receipt=" rcpt))))))) (sdone #0))))))))))))

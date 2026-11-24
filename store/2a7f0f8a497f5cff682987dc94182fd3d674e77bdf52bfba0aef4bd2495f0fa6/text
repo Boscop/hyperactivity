@@ -1,0 +1,30 @@
+hxn-listen : Word → Step W Word
+hxn-listen port =
+  scmd (w-sys #41 #2 #2 #0 #0 #0 #0) (λ fd →
+  scmd (w-alloc #16) (λ sa →
+  cli-poke sa (cli-sa-lo port) (λ _ →
+  scmd (w-sys #49 fd sa #16 #0 #0 #0) (λ _ →
+  scmd (w-alloc #512) (λ buf →
+  scmd (w-alloc #16) (λ peer →
+  scmd (w-sys #45 fd buf #512 #0 peer #0) (λ n →
+  cli-peek buf n (λ pkt →
+    let tag = hxn-hd pkt
+        rcpt =
+          if %weq tag #83 then
+            let g1 = hxn-get32 (hxn-tail pkt)
+                g2 = hxn-get32 (snd g1)
+                g3 = hxn-get32 (snd g2)
+                g4 = hxn-get32 (snd g3)
+                prog = %wor (%wshl (fst g3) #32) (fst g4)
+                res = hxn-settle-synth (fst g1) (fst g2) prog #100 #50
+            in hxn-rcpt-synth (fst res) (fst g2)
+          else
+            let g1 = hxn-get32 (hxn-tail pkt)
+                g2 = hxn-get32 (snd g1)
+                g3 = hxn-get32 (snd g2)
+                res = hxn-settle (fst g1) #100 #50 (fst g3) (fst g2 , snd g3)
+            in hxn-rcpt (fst res)
+    in cli-poke buf rcpt (λ _ →
+       scmd (w-sys #44 fd buf (cli-len rcpt) #0 peer #16) (λ _ →
+       scmd (w-sys #3 fd #0 #0 #0 #0 #0) (λ _ →
+       cli-say (list-append "HX-Node-Listen port=" (list-append (ce-dec port) (list-append " rx=" (list-append (ce-dec n) (list-append "B -> " rcpt))))) (sdone #0))))))))))))

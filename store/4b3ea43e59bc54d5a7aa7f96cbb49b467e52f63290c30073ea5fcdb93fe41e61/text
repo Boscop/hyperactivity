@@ -1,0 +1,22 @@
+hcm-dec-loop2 : Nat → Word → Word → Word → Word → Word → Word → Word → Word → Word → Word → Word → Word → (Word → Step W Word) → Step W Word
+hcm-dec-loop2 zero _ _ _ _ _ _ _ _ _ _ _ _ k = k #0
+hcm-dec-loop2 (suc rem) tab inb ilen outb pos hist mpos mlen lo hi code ipos k =
+  hcm-maybe-rewind pos
+    (let am4 = hcm-addr-m4 tab hist
+         am6 = hcm-addr-m6 tab hist
+         h32 = %wand hist #4294967295
+    in scmd (w-load am6) (λ p6 →
+       scmd (w-load am4) (λ p4 →
+       let mpml = hcm-match-pick mlen mpos h32 p6 p4
+           use_mp = fst mpml
+           use_ml = snd mpml
+       in scmd (w-load8 (%wadd outb use_mp)) (λ mbyte →
+          hcm-dec-bits hcm-n8 #7 tab hist #1 use_ml mbyte lo hi code inb ipos ilen (λ x lo2 hi2 c2 ip2 ml_ok →
+          let tag = %wor (%wshl h32 #32) (%wsucc pos)
+          in scmd (w-store8 (%wadd outb pos) x) (λ _ →
+             scmd (w-store am6 tag) (λ _ →
+             scmd (w-store am4 tag) (λ _ →
+             let hist2 = %wand (%wor (%wshl hist #8) x) #281474976710655
+                 mp2   = if %wlt #0 ml_ok then %wsucc use_mp else #0
+                 ml2   = if %wlt #0 ml_ok then (if %wlt ml_ok #64 then %wsucc ml_ok else #64) else #0
+             in hcm-dec-loop2 rem tab inb ilen outb (%wsucc pos) hist2 mp2 ml2 lo2 hi2 c2 ip2 k))))))))
