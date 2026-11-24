@@ -1,0 +1,24 @@
+-- Walk a List Word cons-chain of cwlit bytes up to 512 bytes (ISO C99 safe literal length)
+ce-str-take : Nat → Code → List Word × (Word × Code)
+ce-str-take zero c = (nil , (#0 , c))
+ce-str-take (suc k) c =
+  case c of
+    ccon dd j fs _ →
+      if %weq dd ce-list-dd then
+        if %weq j #1 then
+          case fs of
+            lcons hd r1 →
+              case hd of
+                cwlit b →
+                  if %wlt b #256 then
+                    case r1 of
+                      lcons tl _ →
+                        let sub = ce-str-take k tl
+                        in (cons b (fst sub) , (%wsucc (fst (snd sub)) , snd (snd sub)))
+                      lnil → (nil , (#0 , c))
+                  else (nil , (#0 , c))
+                _ → (nil , (#0 , c))
+            lnil → (nil , (#0 , c))
+        else (nil , (#0 , c))
+      else (nil , (#0 , c))
+    _ → (nil , (#0 , c))

@@ -1,0 +1,17 @@
+hcm-rc-dec-pure : List Word → Word → Word → Word → List Word → List Word
+hcm-rc-dec-pure nil _ _ _ _ = nil
+hcm-rc-dec-pure (cons p rest) lo hi code bs =
+  let mid = %wadd lo (%wmul (%wshr (%wsub hi lo) #12) p)
+      bit = if %wlt mid code then #0 else #1
+      lo2 = if %weq bit #1 then lo else %wsucc mid
+      hi2 = if %weq bit #1 then mid else hi
+  in if %wlt (%wxor lo2 hi2) #16777216 then
+       let lo3 = %wand (%wshl lo2 #8) #4294967295
+           hi3 = %wand (%wor (%wshl hi2 #8) #255) #4294967295
+           c3  = %wand (%wor (%wshl code #8) (hcm-rc-head bs)) #4294967295
+           bs3 = hcm-rc-tail bs
+       in if %wlt (%wxor lo3 hi3) #16777216 then
+            cons bit (hcm-rc-dec-pure rest (%wand (%wshl lo3 #8) #4294967295) (%wand (%wor (%wshl hi3 #8) #255) #4294967295)
+              (%wand (%wor (%wshl c3 #8) (hcm-rc-head bs3)) #4294967295) (hcm-rc-tail bs3))
+          else cons bit (hcm-rc-dec-pure rest lo3 hi3 c3 bs3)
+     else cons bit (hcm-rc-dec-pure rest lo2 hi2 code bs)

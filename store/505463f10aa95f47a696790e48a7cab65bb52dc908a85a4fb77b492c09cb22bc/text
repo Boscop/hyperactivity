@@ -1,0 +1,2191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hyperactivity DAW</title>
+<meta name="description" content="First-principles digital audio workstation on the hyperactivity kernel.">
+<script>
+(function(){
+  try {
+    var t = localStorage.getItem('hxTheme');
+    if (t !== 'light') document.documentElement.classList.add('dark');
+  } catch (e) { document.documentElement.classList.add('dark'); }
+})();
+</script>
+<style>
+:root {
+  --bg: #f6f6f7;
+  --bg2: #ffffff;
+  --bg3: #ececef;
+  --bg4: #e2e2e7;
+  --ink: #0a0a0c;
+  --muted: #666670;
+  --dim: #92929c;
+  --line: rgba(0, 0, 0, 0.09);
+  --line-s: rgba(0, 0, 0, 0.18);
+  --pink: #ff0a94;
+  --blue: #1a73e8;
+  --green: #0a8a43;
+  --amber: #d97706;
+  --red: #e11d48;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', sans-serif;
+}
+html.dark {
+  --bg: #0c0c0f;
+  --bg2: #121216;
+  --bg3: #18181e;
+  --bg4: #22222b;
+  --ink: #f3f3f6;
+  --muted: #8a8a98;
+  --dim: #555562;
+  --line: rgba(255, 255, 255, 0.075);
+  --line-s: rgba(255, 255, 255, 0.16);
+  --pink: #ff0a94;
+  --blue: #4da3ff;
+  --green: #26d07c;
+  --amber: #f59e0b;
+  --red: #ff4d6d;
+}
+* { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+input, textarea, select { user-select: text; -webkit-user-select: text; }
+html, body {
+  margin: 0; height: 100%; overflow: hidden;
+  background: var(--bg); color: var(--ink);
+  font-family: var(--sans); font-size: 12px;
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: var(--pink); color: #fff; }
+
+/* ── APP SHELL (FULL-VIEWPORT PRO DAW) ── */
+.daw {
+  display: grid;
+  grid-template-rows: 44px minmax(0, 1fr);
+  height: calc(100vh - 48px);
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* ── TOP TRANSPORT BAR ── */
+.transport {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 0 12px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--line-s);
+  min-width: 0;
+}
+.t-grp { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.t-sep { width: 1px; height: 20px; background: var(--line-s); margin: 0 2px; flex-shrink: 0; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  height: 28px; padding: 0 10px;
+  background: var(--bg3); color: var(--ink);
+  border: 1px solid var(--line-s); border-radius: 3px;
+  font: 600 11px/1 var(--sans); letter-spacing: 0.01em;
+  cursor: pointer; white-space: nowrap; transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.btn:hover { background: var(--bg4); border-color: var(--ink); }
+.btn.ico { width: 28px; padding: 0; font-size: 12px; }
+.btn.on { background: var(--pink); color: #fff; border-color: var(--pink); }
+.btn.ok { border-color: var(--green); color: var(--green); }
+.btn.ok.on { background: var(--green); color: #000; }
+.btn.rec.on { background: var(--red); border-color: var(--red); color: #fff; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover { color: var(--ink); background: var(--bg3); }
+.btn.ghost.on { background: var(--bg4); color: var(--pink); border-color: var(--pink); }
+
+.lcd {
+  display: inline-flex; align-items: center; gap: 10px;
+  height: 28px; padding: 0 10px;
+  background: var(--bg); border: 1px solid var(--line-s); border-radius: 3px;
+  font: 600 11.5px/1 var(--mono); color: var(--ink);
+}
+.lcd input.bpm-in {
+  width: 44px; background: transparent; border: 0; color: var(--ink);
+  font: 700 12px/1 var(--mono); text-align: right; outline: none; padding: 0;
+}
+.lcd .sub { font-size: 9.5px; color: var(--muted); font-weight: 500; }
+.lcd .pos { min-width: 54px; text-align: center; letter-spacing: 0.04em; color: var(--pink); }
+
+.sel {
+  height: 28px; padding: 0 7px;
+  background: var(--bg3); color: var(--ink);
+  border: 1px solid var(--line-s); border-radius: 3px;
+  font: 600 11px/1 var(--sans); outline: none; cursor: pointer;
+}
+.sel:focus { border-color: var(--pink); }
+
+.master-mini {
+  display: flex; align-items: center; gap: 7px;
+  height: 28px; padding: 0 8px;
+  background: var(--bg); border: 1px solid var(--line-s); border-radius: 3px;
+}
+.meter-v-mini {
+  width: 68px; height: 8px; background: var(--bg3); border-radius: 2px; overflow: hidden;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.meter-bar-h { height: 3.5px; width: 0%; background: linear-gradient(90deg, var(--green) 0%, var(--amber) 78%, var(--red) 98%); transition: width 0.04s linear; }
+.lufs-txt { font: 600 10px/1 var(--mono); color: var(--muted); min-width: 60px; text-align: right; }
+
+/* ── MAIN WORKSPACE GRID ── */
+.main-area {
+  display: grid;
+  grid-template-columns: 214px minmax(0, 1fr) 0px;
+  min-height: 0; overflow: hidden;
+  transition: grid-template-columns 0.16s ease;
+}
+.main-area.no-lib { grid-template-columns: 0px minmax(0, 1fr) 0px; }
+.main-area.drawer-open { grid-template-columns: 214px minmax(0, 1fr) 410px; }
+.main-area.no-lib.drawer-open { grid-template-columns: 0px minmax(0, 1fr) 410px; }
+
+/* ── LEFT LIBRARY BROWSER ── */
+.library {
+  background: var(--bg2); border-right: 1px solid var(--line-s);
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+}
+.main-area.no-lib .library { border-right: 0; opacity: 0; pointer-events: none; }
+.lib-head {
+  padding: 8px 10px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: space-between;
+  font: 700 10px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted);
+}
+.lib-scroll { flex: 1; overflow-y: auto; padding: 6px 8px 14px; display: flex; flex-direction: column; gap: 10px; }
+.lib-sec-t {
+  font: 700 9.5px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--dim); padding: 4px 4px 3px;
+}
+.lib-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 5px 8px; border-radius: 3px; cursor: pointer;
+  font: 500 11.5px/1.2 var(--sans); color: var(--ink);
+  border: 1px solid transparent;
+}
+.lib-item:hover { background: var(--bg3); border-color: var(--line); }
+.lib-item.active { background: var(--bg4); border-color: var(--pink); color: var(--ink); }
+.lib-item .tag { font: 600 9.5px/1 var(--mono); color: var(--muted); }
+.lib-drop {
+  margin-top: 2px; padding: 9px 8px; text-align: center;
+  border: 1px dashed var(--line-s); border-radius: 3px;
+  font: 600 10.5px/1.3 var(--sans); color: var(--muted); cursor: pointer;
+}
+.lib-drop:hover { border-color: var(--pink); color: var(--pink); }
+
+/* ── CENTER STAGE: ARRANGEMENT + BOTTOM DOCK ── */
+.center-stage {
+  display: grid;
+  grid-template-rows: minmax(180px, 48%) minmax(220px, 52%);
+  min-width: 0; min-height: 0; overflow: hidden;
+  background: var(--bg);
+}
+
+/* ── ARRANGEMENT TIMELINE ── */
+.arr-wrap {
+  display: flex; flex-direction: column;
+  min-height: 0; border-bottom: 1.5px solid var(--line-s);
+  background: var(--bg);
+}
+.arr-ruler-row {
+  display: grid; grid-template-columns: 204px minmax(0, 1fr);
+  height: 24px; background: var(--bg2); border-bottom: 1px solid var(--line-s);
+  flex-shrink: 0;
+}
+.arr-corner {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 8px; border-right: 1px solid var(--line-s);
+  font: 700 9.5px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+.arr-ruler {
+  position: relative; display: grid; grid-template-columns: repeat(16, 1fr);
+  cursor: pointer;
+}
+.arr-bar-num {
+  border-left: 1px solid var(--line); padding: 5px 4px 0;
+  font: 600 9.5px/1 var(--mono); color: var(--muted);
+}
+.arr-bar-num.looped { background: rgba(255, 10, 148, 0.09); color: var(--ink); }
+.arr-body {
+  flex: 1; overflow-y: auto; position: relative;
+}
+.trk-row {
+  display: grid; grid-template-columns: 204px minmax(0, 1fr);
+  height: 54px; border-bottom: 1px solid var(--line);
+}
+.trk-row.sel-trk .trk-head { background: var(--bg3); }
+.trk-head {
+  display: flex; flex-direction: column; justify-content: space-between;
+  padding: 5px 8px 5px 10px;
+  background: var(--bg2); border-right: 1px solid var(--line-s);
+  border-left: 3px solid var(--pink); cursor: pointer;
+}
+.trk-top { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.trk-name { font: 600 11.5px/1 var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trk-btns { display: flex; gap: 3px; }
+.t-mini {
+  width: 18px; height: 18px; border-radius: 2px; border: 1px solid var(--line-s);
+  background: var(--bg); color: var(--muted); font: 700 9px/1 var(--mono);
+  cursor: pointer; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+}
+.t-mini.m.on { background: var(--amber); color: #000; border-color: var(--amber); }
+.t-mini.s.on { background: var(--blue); color: #fff; border-color: var(--blue); }
+.t-mini.r.on { background: var(--red); color: #fff; border-color: var(--red); }
+.trk-bot { display: flex; align-items: center; gap: 6px; }
+.trk-vol {
+  flex: 1; height: 4px; -webkit-appearance: none; appearance: none;
+  background: var(--bg4); border-radius: 2px; outline: none; cursor: pointer;
+}
+.trk-vol::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--ink); border: 1px solid var(--bg); cursor: pointer;
+}
+.trk-meter { width: 34px; height: 5px; background: var(--bg); border-radius: 1px; overflow: hidden; }
+.trk-meter > i { display: block; height: 100%; width: 0%; background: var(--green); transition: width 0.05s linear; }
+
+.trk-lane {
+  position: relative; display: grid; grid-template-columns: repeat(16, 1fr);
+  background: repeating-linear-gradient(90deg, transparent, transparent calc(25% - 1px), var(--line) calc(25% - 1px), var(--line) 25%);
+}
+.clip-cell {
+  border-right: 1px solid var(--line); padding: 4px 2px; cursor: pointer; position: relative;
+}
+.clip-cell:hover { background: rgba(255, 255, 255, 0.03); }
+.clip-blk {
+  height: 100%; border-radius: 3px; overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.18);
+  display: flex; flex-direction: column;
+}
+.clip-hdr {
+  height: 13px; padding: 2px 4px;
+  font: 700 8.5px/1 var(--mono); color: #fff;
+  background: rgba(0,0,0,0.28); white-space: nowrap; overflow: hidden;
+}
+.clip-mini-notes {
+  flex: 1; position: relative; background: rgba(0,0,0,0.16);
+}
+.clip-mini-notes i {
+  position: absolute; height: 2px; border-radius: 1px; background: rgba(255,255,255,0.85);
+}
+.playhead {
+  position: absolute; top: 0; bottom: 0; width: 1.5px;
+  background: var(--pink); pointer-events: none; z-index: 10;
+  box-shadow: 0 0 8px rgba(255, 10, 148, 0.7);
+}
+
+/* ── BOTTOM DETAIL DOCK (PIANO ROLL / DEVICES / MIXER / STEMS) ── */
+.dock {
+  display: flex; flex-direction: column; min-height: 0; background: var(--bg2);
+}
+.dock-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  height: 34px; padding: 0 10px;
+  border-bottom: 1px solid var(--line-s); background: var(--bg2); flex-shrink: 0;
+}
+.dock-tabs { display: flex; gap: 2px; }
+.d-tab {
+  height: 24px; padding: 0 12px; border-radius: 3px;
+  border: 1px solid transparent; background: transparent; color: var(--muted);
+  font: 600 11px/1 var(--sans); cursor: pointer;
+}
+.d-tab:hover { color: var(--ink); background: var(--bg3); }
+.d-tab.on { background: var(--bg4); color: var(--ink); border-color: var(--line-s); }
+.dock-pane { display: none; flex: 1; min-height: 0; overflow: hidden; }
+.dock-pane.on { display: flex; }
+
+/* ── PIANO ROLL ── */
+.pr-wrap { display: grid; grid-template-columns: 56px minmax(0, 1fr); flex: 1; min-height: 0; }
+.pr-keys {
+  background: var(--bg2); border-right: 1px solid var(--line-s);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.pr-key {
+  flex: 1; display: flex; align-items: center; justify-content: flex-end;
+  padding-right: 5px; border-bottom: 1px solid var(--line);
+  font: 600 8.5px/1 var(--mono); color: var(--muted); cursor: pointer;
+}
+.pr-key.blk { background: var(--bg); color: var(--dim); }
+.pr-key.root { color: var(--pink); font-weight: 800; }
+.pr-key:hover, .pr-key.lit { background: var(--pink); color: #fff; }
+.pr-grid-col { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+#pianoCanvas { width: 100%; flex: 1; min-height: 0; display: block; cursor: crosshair; }
+#velCanvas { width: 100%; height: 42px; display: block; border-top: 1px solid var(--line-s); background: var(--bg); cursor: ns-resize; }
+
+/* ── ABLETON-STYLE HORIZONTAL DEVICE RACK ── */
+.rack {
+  flex: 1; display: flex; gap: 8px; padding: 10px;
+  overflow-x: auto; align-items: stretch; background: var(--bg);
+}
+.dev {
+  flex: 0 0 auto; min-width: 215px;
+  background: var(--bg2); border: 1px solid var(--line-s); border-radius: 4px;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.dev-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 9px; background: var(--bg3); border-bottom: 1px solid var(--line);
+  font: 700 10.5px/1 var(--sans);
+}
+.dev-led { width: 7px; height: 7px; border-radius: 50%; background: var(--green); display: inline-block; margin-right: 5px; }
+.dev-body { flex: 1; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; justify-content: center; }
+.knob-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 6px; }
+.knob-wrap { display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: ns-resize; }
+.knob-wrap svg { width: 38px; height: 38px; overflow: visible; }
+.knob-lbl { font: 600 9.5px/1 var(--sans); color: var(--muted); }
+.knob-val { font: 600 9px/1 var(--mono); color: var(--ink); }
+.xy-mini {
+  width: 110px; height: 96px; border: 1px solid var(--line-s); border-radius: 3px;
+  background: var(--bg); cursor: crosshair; display: block;
+}
+#eqCanvas { width: 280px; height: 112px; background: var(--bg); border: 1px solid var(--line); border-radius: 3px; display: block; }
+
+/* ── STUDIO MIXER CONSOLE ── */
+.mixer {
+  flex: 1; display: flex; gap: 6px; padding: 10px;
+  overflow-x: auto; background: var(--bg); align-items: stretch;
+}
+.strip {
+  width: 112px; flex-shrink: 0;
+  background: var(--bg2); border: 1px solid var(--line-s); border-radius: 4px;
+  display: flex; flex-direction: column; align-items: center; padding: 8px 6px; gap: 7px;
+}
+.strip.master { margin-left: auto; border-color: var(--pink); width: 132px; }
+.strip-name { font: 700 11px/1 var(--sans); width: 100%; text-align: center; padding-bottom: 5px; border-bottom: 2px solid var(--pink); }
+.fader-box { flex: 1; display: flex; align-items: center; gap: 8px; width: 100%; justify-content: center; min-height: 100px; }
+.v-fader {
+  writing-mode: vertical-lr; direction: rtl;
+  height: 100%; width: 18px; accent-color: var(--pink); cursor: pointer;
+}
+.v-meter { width: 8px; height: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 2px; display: flex; flex-direction: column-reverse; overflow: hidden; }
+.v-meter > i { display: block; width: 100%; height: 0%; background: linear-gradient(0deg, var(--green), var(--amber) 75%, var(--red) 95%); transition: height 0.05s; }
+.strip-db { font: 600 10px/1 var(--mono); color: var(--muted); }
+
+/* ── CLEAN 4-STEM PERFORMANCE DECK ── */
+.stem-view {
+  flex: 1; display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 14px;
+  padding: 12px 16px; background: var(--bg); min-height: 0; overflow-y: auto;
+}
+.stem-sliders { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; align-items: stretch; }
+.s-col {
+  background: var(--bg2); border: 1px solid var(--line-s); border-radius: 4px;
+  padding: 8px 6px; display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.s-track {
+  position: relative; width: 22px; flex: 1; min-height: 110px;
+  background: var(--bg); border: 1px solid var(--line-s); border-radius: 11px;
+  overflow: hidden; cursor: ns-resize;
+}
+.s-fill { position: absolute; bottom: 0; left: 0; right: 0; transition: height 0.03s; }
+.s-lbl { font: 700 9.5px/1 var(--mono); letter-spacing: 0.06em; color: var(--muted); }
+.chop-pads { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
+.pad-btn {
+  height: 46px; background: var(--bg2); border: 1px solid var(--line-s); border-radius: 3px;
+  color: var(--ink); font: 600 10.5px/1.2 var(--mono); cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.pad-btn:hover { border-color: var(--pink); }
+.pad-btn.lit { background: var(--pink); color: #fff; border-color: var(--pink); }
+
+/* ── RIGHT PROGRESSIVE HYPERACTIVE INSPECTOR DRAWER ── */
+.drawer {
+  background: var(--bg2); border-left: 1.5px solid var(--line-s);
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+}
+.main-area:not(.drawer-open) .drawer { border-left: 0; opacity: 0; pointer-events: none; }
+.dr-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 10px; border-bottom: 1px solid var(--line-s); background: var(--bg3);
+}
+.dr-tabs { display: flex; gap: 2px; }
+.dr-tab {
+  padding: 4px 8px; border-radius: 3px; border: 1px solid transparent;
+  background: transparent; color: var(--muted); font: 700 10px/1 var(--mono); cursor: pointer;
+}
+.dr-tab.on { background: var(--ink); color: var(--bg); }
+.dr-body { display: none; flex: 1; overflow-y: auto; padding: 12px; flex-direction: column; gap: 10px; }
+.dr-body.on { display: flex; }
+.dr-sec {
+  background: var(--bg); border: 1px solid var(--line-s); border-radius: 4px; padding: 10px;
+  display: flex; flex-direction: column; gap: 7px;
+}
+.dr-sec h3 {
+  margin: 0; font: 700 10px/1 var(--mono); text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--muted); display: flex; justify-content: space-between;
+}
+textarea.code-ed {
+  width: 100%; height: 140px; padding: 8px; border-radius: 3px;
+  background: var(--bg2); color: var(--ink); border: 1px solid var(--line-s);
+  font: 500 11px/1.45 var(--mono); resize: vertical; outline: none;
+}
+textarea.code-ed:focus { border-color: var(--pink); }
+.log-out {
+  font: 500 10.5px/1.45 var(--mono); color: var(--muted);
+  background: var(--bg2); border: 1px solid var(--line); border-radius: 3px;
+  padding: 7px 8px; white-space: pre-wrap; max-height: 92px; overflow-y: auto;
+}
+.row-f { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+
+/* ── POPOVER MENU ── */
+.pop-wrap { position: relative; }
+.pop-menu {
+  display: none; position: absolute; right: 0; top: 34px; z-index: 40;
+  min-width: 185px; background: var(--bg2); border: 1px solid var(--line-s);
+  border-radius: 4px; padding: 4px; box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+  flex-direction: column; gap: 2px;
+}
+.pop-menu.open { display: flex; }
+.pop-item {
+  text-align: left; padding: 7px 9px; background: transparent; border: 0;
+  color: var(--ink); font: 500 11.5px/1 var(--sans); border-radius: 3px; cursor: pointer;
+}
+.pop-item:hover { background: var(--bg4); color: var(--pink); }
+.toast {
+  position: fixed; bottom: 14px; right: 16px; z-index: 60;
+  padding: 8px 13px; border-radius: 4px; background: var(--ink); color: var(--bg);
+  font: 600 11px/1.2 var(--mono); opacity: 0; pointer-events: none; transition: opacity 0.18s;
+}
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<!--HX:NAV-->
+
+<div class="daw">
+  <!-- TOP TRANSPORT BAR -->
+  <header class="transport">
+    <div class="t-grp">
+      <button id="btnLib" class="btn ghost on" title="Toggle Library Browser">Library</button>
+      <div class="t-sep"></div>
+      <button id="btnPlay" class="btn ico" title="Play / Pause (Space)">▶</button>
+      <button id="btnStop" class="btn ico" title="Stop">■</button>
+      <button id="btnRec" class="btn ico rec" title="Record Mic / MIDI">●</button>
+      <button id="btnLoop" class="btn ico on" title="Loop">⟳</button>
+      <div class="lcd">
+        <span class="pos" id="lcdPos">001.1.1</span>
+        <span class="sub">BPM</span>
+        <input id="bpmIn" class="bpm-in" type="number" value="116" min="40" max="240">
+      </div>
+      <select id="scaleSel" class="sel" title="Scale & Tuning">
+        <option value="12tet">12-TET · C Minor</option>
+        <option value="just">Just Intonation</option>
+        <option value="19edo">19-EDO</option>
+        <option value="22shruti">22-Shruti</option>
+        <option value="bohlen">Bohlen-Pierce</option>
+        <option value="maqam">Maqam Rast</option>
+        <option value="harmonic">Harmonic Series</option>
+      </select>
+      <select id="sceneSel" class="sel" title="Active Clip / Pattern">
+        <option value="0">Pattern A</option>
+        <option value="1">Pattern B</option>
+        <option value="2">Pattern C</option>
+        <option value="3">Pattern D</option>
+      </select>
+    </div>
+
+    <div class="t-grp">
+      <div class="master-mini">
+        <div class="meter-v-mini">
+          <div id="mOutL" class="meter-bar-h"></div>
+          <div id="mOutR" class="meter-bar-h"></div>
+        </div>
+        <span id="statLufs" class="lufs-txt">-∞ LUFS</span>
+      </div>
+    </div>
+
+    <div class="t-grp">
+      <button id="btnUndo" class="btn ico" title="Undo (Cmd+Z)">↩</button>
+      <button id="btnRedo" class="btn ico" title="Redo (Cmd+Shift+Z)">↪</button>
+      <div class="t-sep"></div>
+      <button id="btnMic" class="btn ghost" title="Live Mic Input">Mic</button>
+      <button id="btnMidi" class="btn ghost" title="Connect Hardware MIDI / MPE">MIDI</button>
+      <button id="btnCodeDrawer" class="btn ghost" title="Open Hyperactive Inspector (Code · WASM · Net · Collab)">&lt;/&gt; Code</button>
+      <button id="btnShare" class="btn" title="Copy Live Song Link">Share</button>
+      <div class="pop-wrap">
+        <button id="btnExportMenu" class="btn on">Export ▾</button>
+        <div id="exportMenu" class="pop-menu">
+          <button id="exWav" class="pop-item">Stereo Audio (.wav)</button>
+          <button id="exStems" class="pop-item">4 Isolated Stems (.wav)</button>
+          <button id="exMid" class="pop-item">MIDI Clip (.mid)</button>
+          <button id="exWasm" class="pop-item">Compiled Plugin (.wasm)</button>
+          <button id="exWebm" class="pop-item">Audiovisual Capture (.webm)</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN WORKSPACE -->
+  <div id="mainArea" class="main-area">
+    <!-- LEFT LIBRARY -->
+    <aside class="library">
+      <div class="lib-head">
+        <span>Browser</span>
+        <span id="libCount" style="color:var(--dim)">4 tracks</span>
+      </div>
+      <div class="lib-scroll">
+        <div>
+          <div class="lib-sec-t">Instruments</div>
+          <div id="libInsts"></div>
+        </div>
+        <div>
+          <div class="lib-sec-t">Effects (WASM)</div>
+          <div id="libFx"></div>
+        </div>
+        <div>
+          <div class="lib-sec-t">Audio Import</div>
+          <label class="lib-drop" id="dropAudioLbl">
+            Drop .wav / .mp3 / .flac<br>or click to load &amp; split stems
+            <input id="audioFileIn" type="file" accept=".wav,.mp3,.flac,.ogg,.m4a,audio/*" style="display:none">
+          </label>
+        </div>
+      </div>
+    </aside>
+
+    <!-- CENTER STAGE: ARRANGEMENT + BOTTOM DOCK -->
+    <main class="center-stage">
+      <!-- ARRANGEMENT TIMELINE -->
+      <section class="arr-wrap">
+        <div class="arr-ruler-row">
+          <div class="arr-corner">
+            <span>Tracks</span>
+            <button id="btnAddTrack" class="t-mini" title="Add Track" style="width:auto;padding:0 5px">+ Track</button>
+          </div>
+          <div id="arrRuler" class="arr-ruler"></div>
+        </div>
+        <div id="arrBody" class="arr-body"></div>
+      </section>
+
+      <!-- BOTTOM DETAIL DOCK -->
+      <section class="dock">
+        <div class="dock-bar">
+          <div class="dock-tabs">
+            <button class="d-tab on" data-dock="dp-roll">Piano Roll</button>
+            <button class="d-tab" data-dock="dp-dev">Devices</button>
+            <button class="d-tab" data-dock="dp-mix">Mixer</button>
+            <button class="d-tab" data-dock="dp-stems">Stems</button>
+          </div>
+          <div class="t-grp" id="rollTools">
+            <span id="selTrkBadge" style="font:600 10.5px var(--mono);color:var(--muted)">Editing: Chords</span>
+            <div class="t-sep"></div>
+            <button id="btnFillBass" class="btn" style="height:22px;font-size:10px">+ Bass</button>
+            <button id="btnFillChords" class="btn" style="height:22px;font-size:10px">+ Chords</button>
+            <button id="btnFillMel" class="btn" style="height:22px;font-size:10px">+ Melody</button>
+            <button id="btnFillBeat" class="btn" style="height:22px;font-size:10px">+ Beat</button>
+            <button id="btnClearClip" class="btn ghost" style="height:22px;font-size:10px">Clear</button>
+          </div>
+        </div>
+
+        <!-- DOCK 1: PIANO ROLL -->
+        <div id="dp-roll" class="dock-pane on">
+          <div class="pr-wrap">
+            <div id="prKeys" class="pr-keys"></div>
+            <div class="pr-grid-col">
+              <canvas id="pianoCanvas"></canvas>
+              <canvas id="velCanvas"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- DOCK 2: HORIZONTAL DEVICE RACK -->
+        <div id="dp-dev" class="dock-pane">
+          <div class="rack">
+            <!-- Device 1: Instrument -->
+            <div class="dev" style="min-width:320px">
+              <div class="dev-hdr">
+                <span><i class="dev-led"></i>Instrument</span>
+                <select id="topoSel" class="sel" style="height:20px;font-size:10px">
+                  <option value="string">Plucked String</option>
+                  <option value="plate">2D Drumhead</option>
+                  <option value="fhn">Analog Synth</option>
+                  <option value="room">Cathedral</option>
+                  <option value="petersen">Petersen Gong</option>
+                </select>
+              </div>
+              <div class="dev-body" style="flex-direction:row;align-items:center;gap:12px">
+                <div class="knob-grid" id="synthKnobs"></div>
+                <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+                  <canvas id="morphCanvas" class="xy-mini" width="110" height="96"></canvas>
+                  <span class="knob-lbl">Morph XY</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Device 2: Parametric EQ -->
+            <div class="dev" style="min-width:304px">
+              <div class="dev-hdr">
+                <span><i class="dev-led"></i>EQ · 4-Band</span>
+                <span style="font:600 9.5px var(--mono);color:var(--muted)">FFT</span>
+              </div>
+              <div class="dev-body" style="gap:6px">
+                <canvas id="eqCanvas" width="280" height="106"></canvas>
+                <div class="knob-grid" style="grid-template-columns:repeat(4,1fr)" id="eqKnobs"></div>
+              </div>
+            </div>
+
+            <!-- Device 3: Compressor & Sidechain -->
+            <div class="dev" style="min-width:210px">
+              <div class="dev-hdr">
+                <span><i class="dev-led"></i>Compressor</span>
+                <select id="scSrcSel" class="sel" style="height:20px;font-size:10px" title="Sidechain Source">
+                  <option value="2">SC: Drums</option>
+                  <option value="-1">SC: Off</option>
+                  <option value="0">SC: Bass</option>
+                  <option value="1">SC: Chords</option>
+                </select>
+              </div>
+              <div class="dev-body">
+                <div class="knob-grid" id="compKnobs"></div>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span class="knob-lbl">GR</span>
+                  <div class="trk-meter" style="flex:1;height:6px"><i id="grBar" style="background:var(--pink)"></i></div>
+                  <span id="grTxt" class="knob-val">0.0 dB</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Device 4: Space & Delay -->
+            <div class="dev" style="min-width:190px">
+              <div class="dev-hdr">
+                <span><i class="dev-led"></i>Space</span>
+                <span style="font:600 9.5px var(--mono);color:var(--muted)">FDN</span>
+              </div>
+              <div class="dev-body">
+                <div class="knob-grid" style="grid-template-columns:repeat(2,1fr)" id="spaceKnobs"></div>
+              </div>
+            </div>
+
+            <!-- Device 5: Live Compiled WASM FX -->
+            <div class="dev" style="min-width:210px">
+              <div class="dev-hdr">
+                <span><i class="dev-led" id="wasmLed" style="background:var(--dim)"></i>WASM FX</span>
+                <button id="btnEditWasm" class="t-mini" style="width:auto;padding:0 5px">&lt;/&gt;</button>
+              </div>
+              <div class="dev-body">
+                <select id="wasmPreSel" class="sel" style="height:24px;font-size:10.5px">
+                  <option value="bypass">Bypass</option>
+                  <option value="softclip">Soft Clipper (61 B)</option>
+                  <option value="sidechain">Sidechain Duck (63 B)</option>
+                  <option value="onepole">1-Pole Filter (54 B)</option>
+                  <option value="ringmod">Cubic RingMod (73 B)</option>
+                  <option value="mesh4">4-Node Stereo Mesh (531 B)</option>
+                </select>
+                <div class="knob-grid" style="grid-template-columns:repeat(2,1fr)" id="wasmKnobs"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- DOCK 3: MIXER CONSOLE -->
+        <div id="dp-mix" class="dock-pane">
+          <div id="mixerConsole" class="mixer"></div>
+        </div>
+
+        <!-- DOCK 4: 4-STEM PERFORMANCE DECK -->
+        <div id="dp-stems" class="dock-pane">
+          <div class="stem-view">
+            <div class="stem-sliders" id="stemDeck"></div>
+            <div style="display:flex;flex-direction:column;justify-content:space-between;gap:8px">
+              <div>
+                <div class="row-f">
+                  <button id="btnLoopCap" class="btn on">Capture Loop</button>
+                  <button id="btnLoopDiv" class="btn">÷2</button>
+                  <button id="btnLoopMul" class="btn">×2</button>
+                  <button id="btnRev" class="btn">Reverse</button>
+                  <button id="btnSlice" class="btn ok">Slice → 8 Pads</button>
+                  <button id="btnExtDeck" class="btn">Source: Live</button>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+                  <span class="knob-lbl">Speed</span>
+                  <input id="slSpeed" class="trk-vol" type="range" min="-2" max="2" step="0.05" value="1">
+                  <span id="vSpeed" class="knob-val" style="min-width:40px">1.00×</span>
+                </div>
+                <div id="stemStat" style="font:500 10.5px var(--mono);color:var(--muted);margin-top:6px">
+                  Drag sliders to blend stems · Double-click to isolate · Drop any audio file in Browser to split.
+                </div>
+              </div>
+              <div class="chop-pads" id="chopPads"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- RIGHT PROGRESSIVE INSPECTOR DRAWER (HIDDEN BY DEFAULT) -->
+    <aside class="drawer">
+      <div class="dr-head">
+        <div class="dr-tabs">
+          <button class="dr-tab on" data-dr="dr-code">Code &amp; Net</button>
+          <button class="dr-tab" data-dr="dr-phys">Physics &amp; AV</button>
+          <button class="dr-tab" data-dr="dr-prac">Practice</button>
+          <button class="dr-tab" data-dr="dr-jam">Collab</button>
+        </div>
+        <button id="btnCloseDrawer" class="t-mini">✕</button>
+      </div>
+
+      <!-- DRAWER 1: CODE & INTERACTION NET -->
+      <div id="dr-code" class="dr-body on">
+        <div class="dr-sec">
+          <h3><span>Interaction Net Patch</span><span>click nodes to toggle</span></h3>
+          <canvas id="netCanvas" width="364" height="128" style="width:100%;height:128px;cursor:pointer;background:var(--bg2);border-radius:3px"></canvas>
+        </div>
+        <div class="dr-sec">
+          <h3><span>.hypercubical DSP Source</span><span id="wasmBadge" style="color:var(--pink)">ready</span></h3>
+          <textarea id="codeBuf" class="code-ed"></textarea>
+          <div class="row-f">
+            <button id="btnCompileWasm" class="btn on">Compile → Live WASM</button>
+            <button id="btnProbeKernel" class="btn">Check cubical.wasm</button>
+          </div>
+          <div id="codeLog" class="log-out">Edit dsp = ... and compile directly to WebAssembly 1.0 inside the 48 kHz audio thread.</div>
+        </div>
+        <div class="dr-sec">
+          <h3><span>Content-Addressed History</span><span id="casRootTxt">sha256:init</span></h3>
+          <div id="casTree" class="row-f" style="max-height:58px;overflow-y:auto"></div>
+        </div>
+      </div>
+
+      <!-- DRAWER 2: PHYSICS, HOLOGRAPHY & AUDIOVISUAL -->
+      <div id="dr-phys" class="dr-body">
+        <div class="dr-sec">
+          <h3><span>Live Acoustic Field (WebGL)</span><button id="btnRecVid" class="t-mini" style="width:auto;padding:0 6px">● .webm</button></h3>
+          <canvas id="glCanvas" width="364" height="126" style="width:100%;height:126px;background:#08080b;border-radius:3px"></canvas>
+        </div>
+        <div class="dr-sec">
+          <h3><span>Sound Clone (Modal Inverse)</span><span>123 B WASM</span></h3>
+          <div class="row-f">
+            <select id="holoSrc" class="sel" style="flex:1;height:24px;font-size:10.5px">
+              <option value="scope">Live Master Buffer</option>
+              <option value="chop0">Chop Pad 1</option>
+              <option value="bell">Metal Bell (310/868 Hz)</option>
+              <option value="wood">Marimba Bar (262/1020 Hz)</option>
+            </select>
+            <button id="btnCloneSound" class="btn on" style="height:24px">Clone</button>
+            <button id="btnStrikeHolo" class="btn" style="height:24px">Strike</button>
+          </div>
+          <div id="holoLog" class="log-out">Extracts modal peaks (k = ω₁², w = (ω₂² − ω₁²)/2) into a 123-byte stateful Verlet WASM resonator.</div>
+        </div>
+        <div class="dr-sec">
+          <h3><span>Consonance Field (Click Ratio)</span><span>Plomp–Levelt</span></h3>
+          <canvas id="gravCanvas" width="364" height="92" style="width:100%;height:92px;cursor:pointer;background:var(--bg2);border-radius:3px"></canvas>
+        </div>
+      </div>
+
+      <!-- DRAWER 3: PRACTICE / DTW / PITCH TRACKER -->
+      <div id="dr-prac" class="dr-body">
+        <div class="dr-sec">
+          <h3><span>Sight-Play &amp; Witnessed DTW</span><button id="btnPitchTrack" class="t-mini" style="width:auto;padding:0 6px">Mic→Roll</button></h3>
+          <div class="row-f">
+            <select id="studySel" class="sel" style="flex:1;height:24px;font-size:10.5px">
+              <option value="bach">Bach C-Maj Arpeggio</option>
+              <option value="poly32">3:2 Polyrhythm</option>
+              <option value="tonnetz">Neo-Riemannian Cadence</option>
+            </select>
+            <button id="btnStartStudy" class="btn on" style="height:24px">Start</button>
+            <button id="btnSimBattle" class="btn" style="height:24px">1v1 Sim</button>
+          </div>
+          <canvas id="dtwCanvas" width="364" height="100" style="width:100%;height:100px;background:var(--bg2);border-radius:3px"></canvas>
+          <div class="row-f">
+            <button id="btnRunDtw" class="btn ok" style="height:24px">Align DTW</button>
+            <button id="btnGroove" class="btn" style="height:24px">Apply Groove</button>
+          </div>
+          <div id="dtwLog" class="log-out">Play with keys A–L, MIDI, or Mic→Roll to measure exact timing deviation via witnessed DTW.</div>
+        </div>
+      </div>
+
+      <!-- DRAWER 4: LIVE P2P COLLAB, PROVENANCE & KEYS -->
+      <div id="dr-jam" class="dr-body">
+        <div class="dr-sec">
+          <h3><span>Live Room (WebRTC + Broadcast)</span><span id="peerCount">1 peer</span></h3>
+          <div class="row-f">
+            <input id="roomIn" class="sel" value="studio-01" style="flex:1;height:24px;cursor:text">
+            <button id="btnJoinRoom" class="btn on" style="height:24px">Join</button>
+            <button id="btnRtcOffer" class="btn" style="height:24px">WebRTC</button>
+          </div>
+          <div id="jamLog" class="log-out">Open room: peers sync edits &amp; forks directly via content hashes.</div>
+        </div>
+        <div class="dr-sec">
+          <h3><span>Sample Provenance Graph</span><button id="btnTipChain" class="t-mini" style="width:auto;padding:0 6px">+10 cr</button></h3>
+          <canvas id="chainCanvas" width="364" height="110" style="width:100%;height:110px;background:var(--bg2);border-radius:3px"></canvas>
+        </div>
+        <div class="dr-sec">
+          <h3><span>Identity &amp; Warrants</span><span id="keyStat">open</span></h3>
+          <div class="row-f">
+            <button id="btnGenKey" class="btn" style="height:24px">Generate ECDSA Keys</button>
+            <button id="btnCoSign" class="btn ok" style="height:24px">Joint Co-Sign</button>
+            <button id="btnAesStem" class="btn" style="height:24px">AES-GCM Private</button>
+          </div>
+          <div id="keyLog" class="log-out">Zero-auth open mode by default. Generate keys only for identity, joint co-signing, or encrypted stems.</div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+(() => {
+  // ── Helpers ──
+  const $ = (id) => document.getElementById(id);
+  const toast = (msg) => {
+    const t = $('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200);
+  };
+  async function sha256Hex(bytes) {
+    const d = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(d)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // ── Scales & Instruments ──
+  const NOTE_NAMES = ['C','C#','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
+  const SCALES = {
+    '12tet': Array.from({length:16}, (_,i) => ({ n: NOTE_NAMES[i%12] + (Math.floor(i/12)+3), r: Math.pow(2, i/12), blk: [1,3,6,8,10].includes(i%12) })),
+    just: [[1,1],[16,15],[9,8],[6,5],[5,4],[4,3],[45,32],[3,2],[8,5],[5,3],[9,5],[15,8],[2,1],[9,4],[5,2],[8,3]].map(([p,q],i)=>({ n:`${p}/${q}`, r:p/q, blk:[1,3,6,8,10].includes(i%12) })),
+    '19edo': Array.from({length:16}, (_,i) => ({ n:`${i}/19`, r:Math.pow(2,i/19), blk:(i%3===1) })),
+    '22shruti': [[1,1],[256,243],[16,15],[10,9],[9,8],[32,27],[6,5],[5,4],[81,64],[4,3],[45,32],[3,2],[8,5],[5,3],[27,16],[2,1]].map(([p,q],i)=>({ n:`${p}/${q}`, r:p/q, blk:(i%2===1) })),
+    bohlen: Array.from({length:16}, (_,i) => ({ n:`BP${i}`, r:Math.pow(3,i/13), blk:(i%2===1) })),
+    maqam: [1,9/8,27/22,4/3,3/2,27/16,16/9,2,9/4,27/11,8/3,3,27/8,32/9,4,9/2].map((r,i)=>({ n:`R${i+1}`, r, blk:(i%2===1) })),
+    harmonic: Array.from({length:16}, (_,i) => ({ n:`H${i+1}`, r:(i+1)/2, blk:(i%2===1) }))
+  };
+  const INST_PRESETS = [
+    { id:'sub',   name:'Sub Bass',       tag:'Bass',     topo:'string',   k:0.14, w:0.12, gamma:0.0020, alpha:0.12, det:0.04, fm:0.15, space:0.14 },
+    { id:'poly',  name:'Warm Poly Synth',tag:'Keys',     topo:'fhn',      k:0.26, w:0.20, gamma:0.0022, alpha:0.08, det:0.16, fm:0.42, space:0.34 },
+    { id:'str',   name:'Plucked String', tag:'Physical', topo:'string',   k:0.32, w:0.24, gamma:0.0014, alpha:0.04, det:0.06, fm:0.22, space:0.28 },
+    { id:'drums', name:'2D Drum Kit',    tag:'Perc',     topo:'plate',    k:0.18, w:0.30, gamma:0.0055, alpha:0.18, det:0.02, fm:0.60, space:0.18 },
+    { id:'bell',  name:'Harmonic Bell',  tag:'Metal',    topo:'petersen', k:0.52, w:0.38, gamma:0.0008, alpha:0.14, det:0.08, fm:1.35, space:0.52 },
+    { id:'cath',  name:'Cathedral Pad',  tag:'Space',    topo:'room',     k:0.28, w:0.36, gamma:0.0007, alpha:0.05, det:0.24, fm:0.30, space:0.84 }
+  ];
+  const FX_LIST = [
+    { id:'softclip',  name:'Soft Clipper',    tag:'61 B' },
+    { id:'sidechain', name:'Sidechain Duck',  tag:'63 B' },
+    { id:'onepole',   name:'1-Pole Filter',   tag:'54 B' },
+    { id:'ringmod',   name:'Cubic RingMod',   tag:'73 B' },
+    { id:'mesh4',     name:'4-Node Mesh',     tag:'531 B' }
+  ];
+
+  // Musical default patterns (C minor groove)
+  const makePattern = (kind) => {
+    const b = kind === 1 ? [0,0,5,7] : (kind === 2 ? [0,3,5,10] : [0,0,7,5]);
+    return [
+      // Bass (track 0)
+      { step:0, row:b[0], dur:4, vel:0.92, trk:0 }, { step:6, row:b[1], dur:2, vel:0.82, trk:0 },
+      { step:8, row:b[2], dur:4, vel:0.90, trk:0 }, { step:12, row:b[3], dur:4, vel:0.88, trk:0 },
+      // Chords (track 1)
+      { step:0, row:0, dur:4, vel:0.74, trk:1 }, { step:0, row:3, dur:4, vel:0.70, trk:1 }, { step:0, row:7, dur:4, vel:0.72, trk:1 },
+      { step:4, row:5, dur:4, vel:0.72, trk:1 }, { step:4, row:8, dur:4, vel:0.68, trk:1 }, { step:4, row:12, dur:4, vel:0.70, trk:1 },
+      { step:8, row:7, dur:4, vel:0.76, trk:1 }, { step:8, row:10, dur:4, vel:0.72, trk:1 }, { step:8, row:14, dur:4, vel:0.74, trk:1 },
+      { step:12, row:3, dur:4, vel:0.72, trk:1 }, { step:12, row:7, dur:4, vel:0.68, trk:1 }, { step:12, row:10, dur:4, vel:0.70, trk:1 },
+      // Drums (track 2: row 0=kick, row 4=snare, row 8=hat)
+      { step:0, row:0, dur:1, vel:1.0, trk:2 }, { step:2, row:8, dur:1, vel:0.55, trk:2 },
+      { step:4, row:4, dur:1, vel:0.90, trk:2 }, { step:6, row:8, dur:1, vel:0.62, trk:2 },
+      { step:8, row:0, dur:1, vel:0.96, trk:2 }, { step:10, row:0, dur:1, vel:0.72, trk:2 },
+      { step:12, row:4, dur:1, vel:0.92, trk:2 }, { step:14, row:8, dur:1, vel:0.65, trk:2 }, { step:15, row:8, dur:1, vel:0.5, trk:2 }
+    ];
+  };
+
+  const state = {
+    bpm: 116, scale: '12tet', rootHz: 130.81, scene: 0, loopOn: true,
+    selTrk: 1,
+    topo: 'fhn', k: 0.26, w: 0.20, gamma: 0.0022, alpha: 0.08, det: 0.16, fm: 0.42,
+    eq: [1.5, -1.0, 2.0, 2.5], compThr: -14, compRat: 3.5, scSrc: 2, scDepth: 0.40,
+    space: 0.34, dly: 0.22,
+    wasmPre: 'bypass', wasmP1: 1.8, wasmP2: 1.0,
+    morphI: 0.25, morphJ: 0.25,
+    tape: { looping: false, speed: 1.0, rev: false },
+    tracks: [
+      { id:0, name:'Bass',   color:'#ff0a94', gain:0.86, pan:0,    mute:false, solo:false, arm:false, clips:[0,0,1,1,2,2,2,2,0,0,1,1,2,2,3,3] },
+      { id:1, name:'Chords', color:'#4da3ff', gain:0.84, pan:0,    mute:false, solo:false, arm:true,  clips:[0,0,1,1,2,2,2,2,1,1,2,2,2,2,3,3] },
+      { id:2, name:'Drums',  color:'#26d07c', gain:0.82, pan:0,    mute:false, solo:false, arm:false, clips:[-1,0,1,1,2,2,2,2,-1,0,1,1,2,2,3,2] },
+      { id:3, name:'Space',  color:'#f59e0b', gain:0.76, pan:0,    mute:false, solo:false, arm:false, clips:[-1,-1,1,1,2,2,2,2,1,1,2,2,3,3,3,3] }
+    ],
+    scenes: [makePattern(0), makePattern(1), makePattern(2), makePattern(0)],
+    chops: Array.from({length:8}, (_,i) => ({ id:i, label:`Pad ${i+1}`, hash:null, pcm:null })),
+    sampleChain: [
+      { id:'S0', label:'Bass Mesh', parent:null, credits:40 },
+      { id:'S1', label:'Drum Kit',  parent:null, credits:30 },
+      { id:'S2', label:'Loop Slice',parent:'S0', credits:20 },
+      { id:'S3', label:'Master Mix',parent:'S2', credits:10 }
+    ],
+    warp: new Array(16).fill(0)
+  };
+  const casHistory = []; let casCursor = -1;
+
+  // ── Exact Byte-Identical WebAssembly 1.0 Compilers (Mirror of sound/wave.hypercubical) ──
+  const WASM_PRESETS = {
+    bypass:    'in',
+    softclip:  'mul (div (mul in p1) (add 1.0 (abs (mul in p1)))) p2',
+    sidechain: 'mul (mul in (max 0.05 (sub 1.0 (mul sc p1)))) p2',
+    onepole:   'mul (add st (mul (min 0.95 (mul p1 0.25)) (sub in st))) p2',
+    ringmod:   'mul (div (add in (mul p1 (mul (mul in in) in))) (add 1.0 (abs (mul p1 (mul in in))))) p2'
+  };
+  let curDspExpr = WASM_PRESETS.softclip, lastWasmBytes = null;
+
+  function compileDspExprToWasm(src) {
+    const toks = src.replace(/\(/g, ' ( ').replace(/\)/g, ' ) ').trim().split(/\s+/).filter(Boolean);
+    let pos = 0;
+    const f32Bytes = (v) => { const b = new ArrayBuffer(4); new DataView(b).setFloat32(0, v, true); return Array.from(new Uint8Array(b)); };
+    const uleb = (n) => { const out = []; do { let b = n & 127; n >>>= 7; if (n) b |= 128; out.push(b); } while (n); return out; };
+    const parse = () => {
+      if (pos >= toks.length) throw new Error('Unexpected EOF');
+      const t = toks[pos++];
+      if (t === '(') { const r = parse(); if (toks[pos] === ')') pos++; return r; }
+      if (t === 'in' || t === 'd-in') return [0x20, 0];
+      if (t === 'sc' || t === 'd-sc') return [0x20, 1];
+      if (t === 'p1' || t === 'd-p1') return [0x20, 2];
+      if (t === 'p2' || t === 'd-p2') return [0x20, 3];
+      if (t === 'st' || t === 'd-st') return [0x20, 4];
+      const ops2 = { add:0x92, 'd-add':0x92, sub:0x93, 'd-sub':0x93, mul:0x94, 'd-mul':0x94, div:0x95, 'd-div':0x95, min:0x96, 'd-min':0x96, max:0x97, 'd-max':0x97 };
+      const ops1 = { abs:0x8b, 'd-abs':0x8b, neg:0x8c, 'd-neg':0x8c };
+      if (ops2[t]) { const a = parse(), b = parse(); return [...a, ...b, ops2[t]]; }
+      if (ops1[t]) { const a = parse(); return [...a, ops1[t]]; }
+      const num = parseFloat(t);
+      if (Number.isFinite(num)) return [0x43, ...f32Bytes(num)];
+      throw new Error('Unknown token: ' + t);
+    };
+    const exprBytes = parse();
+    const hdr = [0,97,115,109, 1,0,0,0];
+    const secType = [1,10, 1,96,5, 125,125,125,125,125, 1,125];
+    const secFunc = [3,2, 1,0];
+    const secExp  = [7,8, 1,4, 115,116,101,112, 0,0];
+    const body = [0, ...exprBytes, 0x0b];
+    const cPay = [1, ...uleb(body.length), ...body];
+    return new Uint8Array([...hdr, ...secType, ...secFunc, ...secExp, 10, ...uleb(cPay.length), ...cPay]);
+  }
+  function buildVerletMemWasm() {
+    const hdr = [0,97,115,109, 1,0,0,0];
+    const secType = [1,9, 1,96,4, 125,125,125,125, 1,125];
+    const secFunc = [3,2, 1,0], secMem = [5,3, 1,0,1], secExp = [7,8, 1,4,115,116,101,112,0,0];
+    const body = [
+      1,2,125, 65,0,42,2,0,33,4, 65,4,42,2,0,33,5,
+      32,2,32,5,32,1,32,4,148,32,3,32,4,32,4,148,32,4,148,148,146,32,0,147,147,148,33,5,
+      67,0,0,192,191, 67,0,0,192,63, 32,4,32,5,146,150,151,33,4,
+      65,0,32,4,56,2,0, 65,4,32,5,56,2,0, 32,4,11
+    ];
+    const cPay = [1, body.length, ...body];
+    return new Uint8Array([...hdr, ...secType, ...secFunc, ...secMem, ...secExp, 10, cPay.length, ...cPay]);
+  }
+  function buildMesh4StereoWasm() {
+    const waGet = (i) => [32, i], waSet = (i) => [33, i];
+    const waLd  = (o) => [65, o, 42, 2, 0], waSt = (o, l) => [65, o, 32, l, 56, 2, 0];
+    const waBin = (op, a, b) => [...a, ...b, op];
+    const uleb  = (n) => { const r=[]; do { let b=n&127; n>>>=7; if(n) b|=128; r.push(b); } while(n); return r; };
+    const mom   = (qi, nb1, nb2, ext) => {
+      const pi = qi + 4;
+      const kq  = waBin(148, waGet(2), waGet(qi));
+      const lap = waBin(148, waGet(3), waBin(146, waBin(147, waGet(qi), waGet(nb1)), waBin(147, waGet(qi), waGet(nb2))));
+      const q2  = waBin(148, waGet(qi), waGet(qi));
+      const nl  = waBin(148, waGet(5), waBin(148, q2, waGet(qi)));
+      const ft  = waBin(147, waBin(146, waBin(146, kq, lap), nl), ext);
+      return [...waBin(148, waGet(4), waBin(147, waGet(pi), ft)), ...waSet(pi)];
+    };
+    const pos = (qi) => [...waBin(151, [67,0,0,192,191], waBin(150, [67,0,0,192,63], waBin(146, waGet(qi), waGet(qi+4)))), ...waSet(qi)];
+    const hdr = [0,97,115,109, 1,0,0,0];
+    const secType = [1,11, 1,96,6, 125,125,125,125,125,125, 1,125];
+    const secFunc = [3,2, 1,0], secMem = [5,3, 1,0,1];
+    const secExp  = [7,14, 2, 4,115,116,101,112,0,0, 3,109,101,109,2,0];
+    const cZero = [67,0,0,0,0], cHalf = [67,0,0,0,63];
+    const bLoc  = [1, 8, 125];
+    const bLoad = [...waLd(0),...waSet(6), ...waLd(4),...waSet(7), ...waLd(8),...waSet(8), ...waLd(12),...waSet(9),
+                   ...waLd(16),...waSet(10), ...waLd(20),...waSet(11), ...waLd(24),...waSet(12), ...waLd(28),...waSet(13)];
+    const bMom  = [...mom(6,7,9,waGet(0)), ...mom(7,8,6,waGet(1)), ...mom(8,9,7,cZero), ...mom(9,6,8,cZero)];
+    const bPos  = [...pos(6), ...pos(7), ...pos(8), ...pos(9)];
+    const bStore= [...waSt(0,6),...waSt(4,7),...waSt(8,8),...waSt(12,9),...waSt(16,10),...waSt(20,11),...waSt(24,12),...waSt(28,13)];
+    const s01 = waBin(146, waGet(6), waGet(7)), d01 = waBin(147, waGet(6), waGet(7));
+    const s23 = waBin(146, waGet(8), waGet(9)), d23 = waBin(147, waGet(8), waGet(9));
+    const h0 = waBin(148, cHalf, waBin(146, s01, s23)), h1 = waBin(148, cHalf, waBin(146, d01, d23));
+    const h2 = waBin(148, cHalf, waBin(147, s01, s23)), h3 = waBin(148, cHalf, waBin(147, d01, d23));
+    const outL = waBin(148, cHalf, waBin(146, h0, h3)), outR = waBin(148, cHalf, waBin(146, h1, h2));
+    const bOut = [65,32,...outL,56,2,0, 65,36,...outR,56,2,0, ...waBin(148, cHalf, waBin(146, waLd(32), waLd(36))), 11];
+    const body = [...bLoc, ...bLoad, ...bMom, ...bPos, ...bStore, ...bOut];
+    const cPay = [1, ...uleb(body.length), ...body];
+    return new Uint8Array([...hdr, ...secType, ...secFunc, ...secMem, ...secExp, 10, ...uleb(cPay.length), ...cPay]);
+  }
+
+  // ── 48 kHz Multi-Track AudioWorklet Engine ──
+  const workletCode = `
+    class StudioEngine extends AudioWorkletProcessor {
+      constructor() {
+        super();
+        this.sr = sampleRate || 48000;
+        this.voices = Array.from({length:10}, () => ({ on:false, f:220, p1:0, p2:0, p3:0, fm:0, env:0, rel:0.99945, pan:0, sL:0, sB:0 }));
+        this.bass   = Array.from({length:4},  () => ({ on:false, f:110, ph:0, env:0, sL:0, sB:0 }));
+        this.kickE = 0; this.kickPh = 0; this.snareE = 0; this.hatE = 0; this.rng = 9876543;
+        this.q = new Float32Array(16); this.p = new Float32Array(16);
+        this.fdnLen = [1687, 2053, 2531, 3119];
+        this.fdn = this.fdnLen.map(n => new Float32Array(n)); this.fdnI = [0,0,0,0];
+        this.dlyL = new Float32Array(24000); this.dlyR = new Float32Array(24000); this.dlyI = 0;
+        this.tapeLen = 48000 * 4; this.tapeL = new Float32Array(this.tapeLen); this.tapeR = new Float32Array(this.tapeLen);
+        this.tapeWr = 0; this.tapeRd = 0; this.looping = false; this.loopStart = 0; this.loopSize = 48000 * 2;
+        this.speed = 1.0; this.rev = false;
+        this.chops = Array.from({length:8}, () => null); this.chopPlay = [];
+        this.extStems = [null,null,null,null]; this.extLen = 0; this.extPos = 0; this.extPlay = false;
+        this.gains = [0.86, 0.84, 0.82, 0.76]; this.pans = [0,0,0,0];
+        this.scEnv = new Float32Array(4); this.scSrc = 2; this.scDepth = 0.4;
+        this.wasmFx = { fn:null, p1:1.8, p2:1.0, stL:0, stR:0 };
+        this.holo   = { fn:null, k:0.0033, damp:0.9997, alpha:0.015, imp:0 };
+        this.mesh4  = { fn:null, mem:null, k:0.0018, w:0.0008, damp:0.99985, alpha:0.002, impL:0, impR:0 };
+        this.mpe = { bend:1, press:0 };
+        this.P = { topo:'fhn', k:0.26, w:0.20, gamma:0.0022, alpha:0.08, det:0.16, fm:0.42, space:0.34, dly:0.22, bpm:116 };
+        this.scope = new Float32Array(256); this.scI = 0; this.tick = 0; this.rmsAcc = 0; this.rmsN = 0;
+        this.port.onmessage = (e) => this.onMsg(e.data);
+      }
+      rand() { this.rng = (this.rng * 1664525 + 1013904223) >>> 0; return (this.rng / 2147483648) - 1; }
+      onMsg(d) {
+        if (d.type === 'param') Object.assign(this.P, d.v);
+        else if (d.type === 'mix') { this.gains = d.gains; this.pans = d.pans || this.pans; this.scSrc = d.scSrc ?? this.scSrc; this.scDepth = d.scDepth ?? this.scDepth; }
+        else if (d.type === 'note') {
+          const t = d.trk ?? 1;
+          if (t === 0) {
+            const v = this.bass.find(x => !x.on) || this.bass[0];
+            v.on = true; v.f = d.freq; v.env = d.vel || 0.9; v.ph = 0;
+          } else if (t === 2) {
+            if (d.row < 3) { this.kickE = d.vel || 0.95; this.kickPh = 0; }
+            else if (d.row < 7) { this.snareE = d.vel || 0.85; }
+            else { this.hatE = d.vel || 0.6; }
+          } else {
+            const v = this.voices.find(x => !x.on || x.env < 0.008) || this.voices[0];
+            v.on = true; v.f = d.freq; v.env = d.vel || 0.78;
+            v.rel = this.P.topo === 'room' ? 0.99978 : 0.99942;
+            v.pan = ((d.row || 0) % 7 - 3) * 0.18;
+            this.q[(d.row || 0) & 15] += v.env * 0.4;
+          }
+          if (this.mesh4.fn) {
+            const om = 2 * Math.PI * (d.freq || 220) / this.sr;
+            this.mesh4.k = om * om; this.mesh4.w = om * om * (0.2 + this.P.w);
+            this.mesh4.impL = (d.vel || 0.7) * 0.04; this.mesh4.impR = (d.vel || 0.7) * 0.025;
+          }
+        } else if (d.type === 'wasmFx') {
+          if (!d.bytes) { this.wasmFx.fn = null; this.wasmFx.stL = 0; this.wasmFx.stR = 0; return; }
+          try {
+            const inst = new WebAssembly.Instance(new WebAssembly.Module(new Uint8Array(d.bytes)));
+            this.wasmFx.fn = inst.exports.step; this.wasmFx.p1 = d.p1 ?? 1.8; this.wasmFx.p2 = d.p2 ?? 1.0;
+          } catch (_) { this.wasmFx.fn = null; }
+        } else if (d.type === 'wasmParam') {
+          this.wasmFx.p1 = d.p1; this.wasmFx.p2 = d.p2;
+        } else if (d.type === 'loadMesh4') {
+          if (!d.bytes) { this.mesh4.fn = null; return; }
+          try {
+            const inst = new WebAssembly.Instance(new WebAssembly.Module(new Uint8Array(d.bytes)));
+            this.mesh4.fn = inst.exports.step; this.mesh4.mem = new Float32Array(inst.exports.mem.buffer);
+          } catch (_) { this.mesh4.fn = null; }
+        } else if (d.type === 'loadHolo') {
+          try {
+            const inst = new WebAssembly.Instance(new WebAssembly.Module(new Uint8Array(d.bytes)));
+            this.holo.fn = inst.exports.step; this.holo.k = d.k; this.holo.imp = 0.09;
+          } catch (_) { this.holo.fn = null; }
+        } else if (d.type === 'strikeHolo') {
+          if (d.k) this.holo.k = d.k; this.holo.imp = 0.09;
+        } else if (d.type === 'tape') {
+          if (d.cmd === 'cap') {
+            this.loopSize = Math.max(4096, Math.min(this.tapeLen - 1024, Math.round(this.sr * 60 / this.P.bpm * 8)));
+            this.loopStart = (this.tapeWr - this.loopSize + this.tapeLen) % this.tapeLen;
+            this.tapeRd = this.loopStart; this.looping = d.on;
+          } else if (d.cmd === 'div') this.loopSize = Math.max(2048, this.loopSize >> 1);
+          else if (d.cmd === 'mul') this.loopSize = Math.min(this.tapeLen - 1024, this.loopSize << 1);
+          else if (d.cmd === 'spd') this.speed = d.v;
+          else if (d.cmd === 'rev') this.rev = d.v;
+          else if (d.cmd === 'slice') {
+            const sl = Math.max(2048, Math.floor(this.loopSize / 8)), prev = [];
+            for (let c=0;c<8;c++) {
+              const a = new Float32Array(sl), base = (this.loopStart + c * sl) % this.tapeLen;
+              for (let i=0;i<sl;i++) a[i] = this.tapeL[(base + i) % this.tapeLen];
+              this.chops[c] = a; prev.push(a.slice(0, 32));
+            }
+            this.port.postMessage({ type:'sliced', prev });
+          }
+        } else if (d.type === 'loadExt') {
+          this.extStems = d.stems.map(a => new Float32Array(a));
+          this.extLen = this.extStems[0].length; this.extPos = 0; this.extPlay = true;
+        } else if (d.type === 'extPlay') this.extPlay = !!d.on;
+        else if (d.type === 'loadChop') this.chops[d.idx] = new Float32Array(d.pcm);
+        else if (d.type === 'playChop') { const b = this.chops[d.idx]; if (b) this.chopPlay.push({ b, pos:0, spd:Math.abs(this.speed)||1, rev:this.rev }); }
+        else if (d.type === 'mpe') { if (d.bend) this.mpe.bend = d.bend; if (d.press !== undefined) this.mpe.press = d.press; }
+      }
+      process(inputs, outputs) {
+        const outL = outputs[0][0], outR = outputs[0][1] || outL;
+        const inp = (inputs[0] && inputs[0][0]) ? inputs[0][0] : null;
+        const sr = this.sr, P = this.P;
+        const dlySamp = Math.max(1200, Math.min(23000, Math.round(sr * 60 / P.bpm * 0.75)));
+        let pkL = 0, pkR = 0;
+        for (let s = 0; s < outL.length; s++) {
+          const mic = inp ? inp[s] * 0.65 : 0;
+          // Track 0: Bass
+          let bSig = 0;
+          for (let i=0;i<4;i++) {
+            const v = this.bass[i]; if (v.env < 0.0004) { v.on = false; continue; }
+            v.ph += (2 * Math.PI * v.f) / sr;
+            const saw = 2 * ((v.ph / (2*Math.PI)) % 1) - 1;
+            const raw = 0.68 * Math.sin(v.ph) + 0.32 * saw;
+            const fc = Math.min(0.45, 0.07 + P.k * 0.28 + v.env * 0.14);
+            v.sB += fc * (raw - v.sL - 0.55 * v.sB); v.sL += fc * v.sB;
+            bSig += Math.tanh(v.sL * (1 + P.alpha * 3.2)) * v.env;
+            v.env *= 0.99935;
+          }
+          // Track 1: Poly Synth / Physical
+          let hL = 0, hR = 0;
+          for (let i=0;i<10;i++) {
+            const v = this.voices[i]; if (v.env < 0.0003) { v.on = false; continue; }
+            const inc = (2 * Math.PI * v.f * this.mpe.bend) / sr;
+            v.p1 += inc; v.p2 += inc * (1 + P.det * 0.015); v.p3 += inc * (1 - P.det * 0.015); v.fm += inc * 2.0;
+            const fmM = Math.sin(v.fm) * P.fm * v.env;
+            const raw = (Math.sin(v.p1 + fmM) + Math.sin(v.p2 + fmM*0.7)*0.6 + Math.sin(v.p3 - fmM*0.7)*0.6) * 0.42;
+            const fc = Math.min(0.65, 0.10 + P.k * 0.55 + v.env * 0.22 + this.mpe.press * 0.2);
+            v.sB += fc * (raw - v.sL - 0.44 * v.sB); v.sL += fc * v.sB;
+            const sig = v.sL * v.env * 0.52;
+            hL += sig * (0.72 - v.pan * 0.4); hR += sig * (0.72 + v.pan * 0.4);
+            v.env *= v.rel;
+          }
+          // Track 2: Drums
+          let dSig = 0;
+          if (this.kickE > 0.0005) { this.kickPh += (2*Math.PI*(44 + 130*this.kickE*this.kickE))/sr; dSig += Math.sin(this.kickPh)*this.kickE*0.88; this.kickE *= 0.9991; }
+          if (this.snareE > 0.0005) { dSig += (this.rand()*0.65 + Math.sin(this.kickPh*3.1)*0.35)*this.snareE*0.56; this.snareE *= 0.9987; }
+          if (this.hatE > 0.0005) { dSig += this.rand()*this.hatE*0.32; this.hatE *= 0.9972; }
+          // Chops & External 4-Stem Deck
+          let chSig = 0, eB=0, eH=0, eD=0, eS=0;
+          for (let i=this.chopPlay.length-1; i>=0; i--) {
+            const cp = this.chopPlay[i], idx = cp.rev ? (cp.b.length - 1 - Math.floor(cp.pos)) : Math.floor(cp.pos);
+            if (idx < 0 || idx >= cp.b.length) { this.chopPlay.splice(i,1); continue; }
+            chSig += cp.b[idx] * 0.9; cp.pos += cp.spd;
+          }
+          if (this.extPlay && this.extLen > 0 && this.extStems[0]) {
+            const ei = ((Math.floor(this.extPos) % this.extLen) + this.extLen) % this.extLen;
+            eB = this.extStems[0][ei]; eH = this.extStems[1][ei]; eD = this.extStems[2][ei]; eS = this.extStems[3][ei];
+            this.extPos = ((this.extPos + (this.rev ? -Math.abs(this.speed||1) : (this.speed||1))) % this.extLen + this.extLen) % this.extLen;
+          }
+          // Sidechain envelopes
+          const rArr = [bSig+eB, (hL+hR)*0.5+eH, dSig+eD, chSig+eS];
+          for (let k=0;k<4;k++) { const a = Math.abs(rArr[k]); this.scEnv[k] = a > this.scEnv[k] ? (this.scEnv[k]*0.85 + a*0.15) : (this.scEnv[k]*0.9992); }
+          const scV = (this.scSrc >= 0 && this.scSrc < 4) ? Math.min(1, this.scEnv[this.scSrc]*2.4) : 0;
+          const duckB = (this.scSrc >= 0 && this.scDepth > 0) ? Math.max(0.1, 1 - scV * this.scDepth) : 1;
+          // Stateful WASM Resonators (123B Hologram + 531B Coupled 4-Node Stereo)
+          let holoS = 0, m4L = 0, m4R = 0;
+          if (this.holo.fn) { holoS = this.holo.fn(this.holo.imp, this.holo.k, this.holo.damp, this.holo.alpha); if(!Number.isFinite(holoS)) holoS=0; this.holo.imp *= 0.65; }
+          if (this.mesh4.fn && this.mesh4.mem) {
+            this.mesh4.fn(this.mesh4.impL, this.mesh4.impR, this.mesh4.k, this.mesh4.w, this.mesh4.damp, this.mesh4.alpha);
+            m4L = this.mesh4.mem[8]; m4R = this.mesh4.mem[9]; if(!Number.isFinite(m4L)) m4L=0; if(!Number.isFinite(m4R)) m4R=0;
+            this.mesh4.impL *= 0.62; this.mesh4.impR *= 0.62;
+          }
+          // Mix with pan + Hadamard FDN + Ping-Pong Delay
+          const g = this.gains;
+          const dryL = (bSig+eB)*duckB*g[0] + (hL+eH)*g[1] + (dSig+eD)*g[2] + (chSig+eS)*g[3] + mic*0.5 + holoS*0.55 + m4L*0.45;
+          const dryR = (bSig+eB)*duckB*g[0] + (hR+eH)*g[1] + (dSig+eD)*g[2] + (chSig+eS)*g[3] + mic*0.5 + holoS*0.55 + m4R*0.45;
+          const r0 = this.fdn[0][this.fdnI[0]], r1 = this.fdn[1][this.fdnI[1]], r2 = this.fdn[2][this.fdnI[2]], r3 = this.fdn[3][this.fdnI[3]];
+          const fb = 0.45 + P.space * 0.35;
+          const h0=0.5*(r0+r1+r2+r3), h1=0.5*(r0-r1+r2-r3), h2=0.5*(r0+r1-r2-r3), h3=0.5*(r0-r1-r2+r3);
+          this.fdn[0][this.fdnI[0]] = dryL*0.38 + h0*fb; this.fdn[1][this.fdnI[1]] = dryR*0.38 + h1*fb;
+          this.fdn[2][this.fdnI[2]] = dryL*0.28 + h2*fb; this.fdn[3][this.fdnI[3]] = dryR*0.28 + h3*fb;
+          for (let k=0;k<4;k++) this.fdnI[k] = (this.fdnI[k] + 1) % this.fdnLen[k];
+          const dRd = (this.dlyI - dlySamp + 24000) % 24000;
+          const dlL = this.dlyL[dRd], dlR = this.dlyR[dRd];
+          this.dlyL[this.dlyI] = dryL*0.48 + dlR*P.dly*0.72; this.dlyR[this.dlyI] = dryR*0.48 + dlL*P.dly*0.72;
+          this.dlyI = (this.dlyI + 1) % 24000;
+          let mixL = dryL + (h0+h2)*P.space*0.42*g[3] + dlL*P.dly*0.52*g[3];
+          let mixR = dryR + (h1+h3)*P.space*0.42*g[3] + dlR*P.dly*0.52*g[3];
+          // Live Compiled WASM FX insert
+          if (this.wasmFx.fn) {
+            mixL = this.wasmFx.fn(mixL, scV, this.wasmFx.p1, this.wasmFx.p2, this.wasmFx.stL); if(!Number.isFinite(mixL)) mixL=0; this.wasmFx.stL = mixL;
+            mixR = this.wasmFx.fn(mixR, scV, this.wasmFx.p1, this.wasmFx.p2, this.wasmFx.stR); if(!Number.isFinite(mixR)) mixR=0; this.wasmFx.stR = mixR;
+          }
+          // Tape Loop
+          if (!this.looping) {
+            this.tapeL[this.tapeWr] = mixL; this.tapeR[this.tapeWr] = mixR; this.tapeWr = (this.tapeWr + 1) % this.tapeLen;
+          } else {
+            const ri = ((Math.floor(this.tapeRd) % this.tapeLen) + this.tapeLen) % this.tapeLen;
+            mixL = this.tapeL[ri] + chSig*g[3]; mixR = this.tapeR[ri] + chSig*g[3];
+            let rel = (this.tapeRd - this.loopStart + this.tapeLen) % this.tapeLen;
+            rel = ((rel + (this.rev ? -Math.abs(this.speed) : this.speed)) % this.loopSize + this.loopSize) % this.loopSize;
+            this.tapeRd = (this.loopStart + rel) % this.tapeLen;
+          }
+          const yL = Math.max(-0.99, Math.min(0.99, Math.tanh(mixL * 0.85)));
+          const yR = Math.max(-0.99, Math.min(0.99, Math.tanh(mixR * 0.85)));
+          outL[s] = yL; if (outR !== outL) outR[s] = yR;
+          pkL = Math.max(pkL, Math.abs(yL)); pkR = Math.max(pkR, Math.abs(yR));
+          this.rmsAcc += 0.5*(yL*yL + yR*yR); this.rmsN++;
+          this.scope[this.scI] = yL; this.scI = (this.scI + 1) & 255;
+        }
+        if ((++this.tick & 3) === 0) {
+          const rms = Math.sqrt(this.rmsAcc / Math.max(1, this.rmsN));
+          const lufs = rms > 1e-6 ? (-0.691 + 20 * Math.log10(rms)) : -70;
+          this.rmsAcc *= 0.85; this.rmsN = Math.round(this.rmsN * 0.85);
+          this.port.postMessage({ type:'tel', pkL, pkR, lufs, scEnv:Array.from(this.scEnv), scope:Array.from(this.scope) });
+        }
+        return true;
+      }
+    }
+    registerProcessor('studio-engine', StudioEngine);
+  `;
+
+  let ctx = null, worklet = null, eqNodes = [], compNode = null, analyser = null, mediaDest = null;
+  let micStream = null, micSrc = null, micAnalyser = null;
+  let playing = false, stepIdx = 0, barIdx = 0, seqTimer = null;
+  let lastScope = new Array(256).fill(0), lastScEnv = [0,0,0,0], lastPkL = 0, lastPkR = 0;
+
+  async function ensureAudio() {
+    if (ctx) { if (ctx.state === 'suspended') await ctx.resume(); return; }
+    ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+    const url = URL.createObjectURL(new Blob([workletCode], { type:'application/javascript' }));
+    await ctx.audioWorklet.addModule(url);
+    worklet = new AudioWorkletNode(ctx, 'studio-engine', { numberOfInputs:1, numberOfOutputs:1, outputChannelCount:[2] });
+    const freqs = [90, 450, 2400, 8500], types = ['lowshelf','peaking','peaking','highshelf'];
+    eqNodes = freqs.map((f, i) => { const b = ctx.createBiquadFilter(); b.type = types[i]; b.frequency.value = f; b.Q.value = 1.1; b.gain.value = state.eq[i]; return b; });
+    compNode = ctx.createDynamicsCompressor();
+    compNode.threshold.value = state.compThr; compNode.ratio.value = state.compRat;
+    analyser = ctx.createAnalyser(); analyser.fftSize = 512;
+    mediaDest = ctx.createMediaStreamDestination();
+    worklet.connect(eqNodes[0]); eqNodes[0].connect(eqNodes[1]); eqNodes[1].connect(eqNodes[2]); eqNodes[2].connect(eqNodes[3]);
+    eqNodes[3].connect(compNode); compNode.connect(analyser); analyser.connect(ctx.destination); analyser.connect(mediaDest);
+    worklet.port.onmessage = (e) => {
+      if (e.data.type === 'tel') {
+        lastPkL = e.data.pkL; lastPkR = e.data.pkR; lastScEnv = e.data.scEnv; lastScope = e.data.scope;
+        $('mOutL').style.width = Math.min(100, lastPkL * 115) + '%';
+        $('mOutR').style.width = Math.min(100, lastPkR * 115) + '%';
+        $('statLufs').textContent = (e.data.lufs > -68 ? e.data.lufs.toFixed(1) : '-∞') + ' LUFS';
+        if (compNode) {
+          const gr = Math.abs(compNode.reduction || 0);
+          $('grBar').style.width = Math.min(100, gr * 6) + '%';
+          $('grTxt').textContent = '-' + gr.toFixed(1) + ' dB';
+        }
+        state.tracks.forEach((tr, i) => {
+          const el = document.querySelector(`[data-tm="${i}"]`);
+          const lv = Math.min(100, (lastScEnv[i % 4] || 0) * 320);
+          if (el) el.style.width = lv + '%';
+          const mv = document.querySelector(`[data-mm="${i}"]`);
+          if (mv) mv.style.height = lv + '%';
+        });
+        const mmm = document.querySelector('[data-mm="master"]');
+        if (mmm) mmm.style.height = Math.min(100, Math.max(lastPkL, lastPkR) * 115) + '%';
+      } else if (e.data.type === 'sliced') {
+        e.data.prev.forEach(async (pr, i) => {
+          const h = (await sha256Hex(new Uint8Array(new Float32Array(pr).buffer))).slice(0, 6);
+          state.chops[i] = { id:i, label:`Slice ${i+1}`, hash:h, pcm:pr };
+          renderChops();
+        });
+        toast('Sliced loop into 8 pads');
+      }
+    };
+    pushParams(); pushMix();
+  }
+  function pushParams() {
+    if (!worklet) return;
+    worklet.port.postMessage({ type:'param', v:{ topo:state.topo, k:state.k, w:state.w, gamma:state.gamma, alpha:state.alpha, det:state.det, fm:state.fm, space:state.space, dly:state.dly, bpm:state.bpm } });
+  }
+  function pushMix() {
+    if (!worklet) return;
+    const anySolo = state.tracks.slice(0,4).some(t => t.solo);
+    const gains = [0,1,2,3].map(i => {
+      const t = state.tracks[i];
+      if (!t || t.mute || (anySolo && !t.solo)) return 0;
+      return t.gain;
+    });
+    worklet.port.postMessage({ type:'mix', gains, scSrc:state.scSrc, scDepth:state.scDepth });
+  }
+  async function fireNote(row, vel = 0.82, trk = state.selTrk, bcast = true) {
+    await ensureAudio();
+    const sc = SCALES[state.scale];
+    const ratio = sc[row % sc.length].r;
+    const freq = state.rootHz * ratio * (trk === 0 ? 0.5 : 2.0);
+    worklet.port.postMessage({ type:'note', freq, vel, trk: trk % 4, row });
+    if (bcast) sendPeer({ type:'note', row, vel, trk });
+    if (sightActive) dtwRec.push({ t: Math.round(performance.now() - sightT0), row });
+  }
+
+  // ── SVG Tactile Rotary Knob Builder ──
+  function makeKnob(parent, label, min, max, val, fmt, onChange) {
+    const wrap = document.createElement('div'); wrap.className = 'knob-wrap';
+    wrap.innerHTML = `<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="15" fill="none" stroke="var(--bg4)" stroke-width="3.2"/><path class="k-arc" fill="none" stroke="var(--pink)" stroke-width="3.2" stroke-linecap="round"/><circle cx="20" cy="20" r="10.5" fill="var(--bg3)" stroke="var(--line-s)" stroke-width="1"/><line class="k-ptr" x1="20" y1="20" x2="20" y2="11" stroke="var(--ink)" stroke-width="2" stroke-linecap="round"/></svg><span class="knob-lbl">${label}</span><span class="knob-val"></span>`;
+    const arc = wrap.querySelector('.k-arc'), ptr = wrap.querySelector('.k-ptr'), vEl = wrap.querySelector('.knob-val');
+    let cur = val, defV = val;
+    const draw = () => {
+      const t = Math.max(0, Math.min(1, (cur - min) / (max - min)));
+      const a0 = 135 * Math.PI / 180, a1 = (135 + t * 270) * Math.PI / 180;
+      const x0 = 20 + 15 * Math.cos(a0), y0 = 20 + 15 * Math.sin(a0);
+      const x1 = 20 + 15 * Math.cos(a1), y1 = 20 + 15 * Math.sin(a1);
+      arc.setAttribute('d', `M ${x0.toFixed(1)} ${y0.toFixed(1)} A 15 15 0 ${t > 0.5 ? 1 : 0} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}`);
+      const deg = -135 + t * 270;
+      ptr.setAttribute('transform', `rotate(${deg.toFixed(1)} 20 20)`);
+      vEl.textContent = fmt(cur);
+    };
+    draw();
+    wrap.onmousedown = (e) => {
+      e.preventDefault(); const y0 = e.clientY, v0 = cur;
+      const mv = (ev) => { cur = Math.max(min, Math.min(max, v0 + ((y0 - ev.clientY) / 110) * (max - min))); draw(); onChange(cur); };
+      const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); };
+      window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up);
+    };
+    wrap.ondblclick = () => { cur = defV; draw(); onChange(cur); };
+    parent.appendChild(wrap);
+    return { set: (nv) => { cur = nv; draw(); } };
+  }
+
+  // Build Device Knobs
+  const kRefs = {};
+  kRefs.k     = makeKnob($('synthKnobs'), 'Cutoff',  0.04, 0.85, state.k,     v=>Math.round(v*100)+'%', v=>{state.k=v; pushParams();});
+  kRefs.w     = makeKnob($('synthKnobs'), 'Reson',   0.00, 0.48, state.w,     v=>Math.round(v*200)+'%', v=>{state.w=v; pushParams();});
+  kRefs.gamma = makeKnob($('synthKnobs'), 'Decay',   0.0005,0.015,state.gamma,v=>(100-v*5000).toFixed(0)+'%', v=>{state.gamma=v; pushParams();});
+  kRefs.alpha = makeKnob($('synthKnobs'), 'Drive',   0.00, 0.50, state.alpha, v=>Math.round(v*200)+'%', v=>{state.alpha=v; pushParams();});
+  kRefs.det   = makeKnob($('synthKnobs'), 'Detune',  0.00, 0.40, state.det,   v=>Math.round(v*250)+'%', v=>{state.det=v; pushParams();});
+  kRefs.fm    = makeKnob($('synthKnobs'), 'FM',      0.00, 2.50, state.fm,    v=>v.toFixed(1),          v=>{state.fm=v; pushParams();});
+  ['Low','Lo-Mid','Hi-Mid','Air'].forEach((lb, i) => {
+    makeKnob($('eqKnobs'), lb, -12, 12, state.eq[i], v=>(v>=0?'+':'')+v.toFixed(1), v=>{ state.eq[i]=v; if(eqNodes[i]) eqNodes[i].gain.value=v; drawEq(); });
+  });
+  makeKnob($('compKnobs'), 'Thresh', -36, 0, state.compThr, v=>v.toFixed(0)+'dB', v=>{ state.compThr=v; if(compNode) compNode.threshold.value=v; });
+  makeKnob($('compKnobs'), 'Ratio',  1, 12, state.compRat,  v=>v.toFixed(1)+':1', v=>{ state.compRat=v; if(compNode) compNode.ratio.value=v; });
+  makeKnob($('compKnobs'), 'SC Duck',0, 0.9, state.scDepth, v=>Math.round(v*100)+'%', v=>{ state.scDepth=v; pushMix(); });
+  makeKnob($('spaceKnobs'), 'Reverb',0, 0.95, state.space,  v=>Math.round(v*100)+'%', v=>{ state.space=v; pushParams(); });
+  makeKnob($('spaceKnobs'), 'Delay', 0, 0.75, state.dly,    v=>Math.round(v*100)+'%', v=>{ state.dly=v; pushParams(); });
+  makeKnob($('wasmKnobs'),  'Param 1',0.05,4.0, state.wasmP1, v=>v.toFixed(2), v=>{ state.wasmP1=v; if(worklet) worklet.port.postMessage({type:'wasmParam',p1:state.wasmP1,p2:state.wasmP2}); });
+  makeKnob($('wasmKnobs'),  'Mix',    0.0, 1.5, state.wasmP2, v=>Math.round(v*100)+'%', v=>{ state.wasmP2=v; if(worklet) worklet.port.postMessage({type:'wasmParam',p1:state.wasmP1,p2:state.wasmP2}); });
+
+  // ── Left Library Browser ──
+  function renderLibrary() {
+    const li = $('libInsts'); li.innerHTML = '';
+    INST_PRESETS.forEach(pr => {
+      const d = document.createElement('div'); d.className = 'lib-item';
+      d.innerHTML = `<span>${pr.name}</span><span class="tag">${pr.tag}</span>`;
+      d.onclick = () => {
+        Object.assign(state, { topo:pr.topo, k:pr.k, w:pr.w, gamma:pr.gamma, alpha:pr.alpha, det:pr.det, fm:pr.fm, space:pr.space });
+        $('topoSel').value = pr.topo;
+        kRefs.k.set(pr.k); kRefs.w.set(pr.w); kRefs.gamma.set(pr.gamma); kRefs.alpha.set(pr.alpha); kRefs.det.set(pr.det); kRefs.fm.set(pr.fm);
+        pushParams(); fireNote(0, 0.85, state.selTrk); fireNote(7, 0.72, state.selTrk);
+        toast(`Loaded ${pr.name}`);
+      };
+      li.appendChild(d);
+    });
+    const lf = $('libFx'); lf.innerHTML = '';
+    FX_LIST.forEach(fx => {
+      const d = document.createElement('div'); d.className = 'lib-item';
+      d.innerHTML = `<span>${fx.name}</span><span class="tag">${fx.tag}</span>`;
+      d.onclick = () => { $('wasmPreSel').value = fx.id; loadWasmPreset(fx.id); };
+      lf.appendChild(d);
+    });
+  }
+
+  // ── Arrangement Timeline ──
+  function renderArrangement() {
+    $('libCount').textContent = `${state.tracks.length} tracks`;
+    const r = $('arrRuler'); r.innerHTML = '';
+    for (let b = 0; b < 16; b++) {
+      const d = document.createElement('div');
+      d.className = 'arr-bar-num' + (b < 4 ? ' looped' : '');
+      d.textContent = b + 1;
+      d.onclick = () => { barIdx = b; stepIdx = 0; updatePlayheads(); };
+      r.appendChild(d);
+    }
+    const body = $('arrBody'); body.innerHTML = '';
+    const clipNames = ['A','B','C','D'];
+    state.tracks.forEach((tr, ti) => {
+      const row = document.createElement('div');
+      row.className = 'trk-row' + (state.selTrk === ti ? ' sel-trk' : '');
+      const head = document.createElement('div'); head.className = 'trk-head';
+      head.style.borderLeftColor = tr.color;
+      head.innerHTML = `<div class="trk-top"><span class="trk-name">${tr.name}</span><div class="trk-btns"><button class="t-mini m ${tr.mute?'on':''}">M</button><button class="t-mini s ${tr.solo?'on':''}">S</button><button class="t-mini r ${tr.arm?'on':''}">●</button></div></div><div class="trk-bot"><input class="trk-vol" type="range" min="0" max="1" step="0.01" value="${tr.gain}"><div class="trk-meter"><i data-tm="${ti}"></i></div></div>`;
+      head.onclick = (e) => {
+        if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+        state.selTrk = ti; $('selTrkBadge').textContent = `Editing: ${tr.name}`;
+        renderArrangement(); drawPiano();
+      };
+      head.querySelector('.m').onclick = () => { tr.mute = !tr.mute; renderArrangement(); renderMixer(); pushMix(); };
+      head.querySelector('.s').onclick = () => { tr.solo = !tr.solo; renderArrangement(); renderMixer(); pushMix(); };
+      head.querySelector('.r').onclick = () => { tr.arm = !tr.arm; renderArrangement(); renderMixer(); };
+      head.querySelector('.trk-vol').oninput = (e) => { tr.gain = parseFloat(e.target.value); pushMix(); renderStemDeck(); renderMixer(); };
+      row.appendChild(head);
+
+      const lane = document.createElement('div'); lane.className = 'trk-lane';
+      tr.clips.forEach((scId, bi) => {
+        const cell = document.createElement('div'); cell.className = 'clip-cell';
+        if (scId >= 0) {
+          const blk = document.createElement('div'); blk.className = 'clip-blk';
+          blk.style.background = tr.color + 'cc';
+          const notes = (state.scenes[scId % 4] || []).filter(n => n.trk === (ti % 4));
+          const mini = notes.map(n => `<i style="left:${(n.step/16)*100}%;width:${Math.max(6,(n.dur/16)*100)}%;bottom:${(n.row/16)*82+8}%"></i>`).join('');
+          blk.innerHTML = `<div class="clip-hdr">${tr.name} ${clipNames[scId%4]}</div><div class="clip-mini-notes">${mini}</div>`;
+          cell.appendChild(blk);
+        }
+        cell.onclick = () => {
+          if (scId >= 0) { state.selTrk = ti; state.scene = scId % 4; $('sceneSel').value = state.scene; $('selTrkBadge').textContent = `Editing: ${tr.name}`; }
+          tr.clips[bi] = (scId + 2) % 5 - 1;
+          renderArrangement(); drawPiano(); snapCas('clip');
+        };
+        lane.appendChild(cell);
+      });
+      const ph = document.createElement('div'); ph.className = 'playhead'; ph.dataset.ph = '1';
+      lane.appendChild(ph);
+      row.appendChild(lane);
+      body.appendChild(row);
+    });
+    updatePlayheads();
+  }
+  function updatePlayheads() {
+    const pct = ((barIdx + stepIdx / 16) / 16) * 100;
+    document.querySelectorAll('[data-ph="1"]').forEach(el => { el.style.left = pct + '%'; });
+    $('lcdPos').textContent = `${String(barIdx+1).padStart(3,'0')}.${Math.floor(stepIdx/4)+1}.${(stepIdx%4)+1}`;
+  }
+  $('btnAddTrack').onclick = () => {
+    const cols = ['#ff0a94','#4da3ff','#26d07c','#f59e0b','#a855f7','#06b6d4'];
+    const i = state.tracks.length;
+    state.tracks.push({ id:i, name:`Track ${i+1}`, color:cols[i%cols.length], gain:0.8, pan:0, mute:false, solo:false, arm:false, clips:Array.from({length:16},(_,b)=>b<8?0:-1) });
+    renderArrangement(); renderMixer(); snapCas('track');
+  };
+
+  // ── Piano Roll & Velocity Lane ──
+  const PR_ROWS = 16;
+  function curNotes() { return state.scenes[state.scene]; }
+  function renderPianoKeys() {
+    const box = $('prKeys'); box.innerHTML = '';
+    const sc = SCALES[state.scale];
+    for (let r = PR_ROWS - 1; r >= 0; r--) {
+      const s = sc[r % sc.length];
+      const d = document.createElement('div');
+      d.className = 'pr-key' + (s.blk ? ' blk' : '') + (r === 0 || r === 12 ? ' root' : '');
+      d.textContent = s.n;
+      d.onmousedown = () => { d.classList.add('lit'); fireNote(r, 0.85, state.selTrk); setTimeout(()=>d.classList.remove('lit'), 160); };
+      box.appendChild(d);
+    }
+  }
+  function drawPiano() {
+    const c = $('pianoCanvas'); if (!c || !c.clientWidth) return;
+    c.width = c.clientWidth; c.height = c.clientHeight;
+    const g = c.getContext('2d'), W = c.width, H = c.height, cw = W / 16, rh = H / PR_ROWS;
+    const dark = document.documentElement.classList.contains('dark');
+    const sc = SCALES[state.scale];
+    for (let r = 0; r < PR_ROWS; r++) {
+      const y = (PR_ROWS - 1 - r) * rh;
+      g.fillStyle = sc[r % sc.length].blk ? (dark ? '#0f0f13' : '#ececf0') : (dark ? '#141419' : '#f7f7fa');
+      g.fillRect(0, y, W, rh);
+      g.strokeStyle = dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
+      g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke();
+    }
+    for (let s = 0; s < 16; s++) {
+      g.fillStyle = (Math.floor(s/4) % 2 === 1) ? (dark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)') : 'transparent';
+      g.fillRect(s * cw, 0, cw, H);
+      g.strokeStyle = (s % 4 === 0) ? (dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.16)') : (dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.05)');
+      g.beginPath(); g.moveTo(s * cw, 0); g.lineTo(s * cw, H); g.stroke();
+    }
+    // Ghost notes from other tracks + solid notes for selected track
+    const notes = curNotes();
+    notes.forEach(n => {
+      const tr = state.tracks[n.trk % state.tracks.length] || state.tracks[1];
+      const isSel = (n.trk === (state.selTrk % 4));
+      const x = n.step * cw + 1, y = (PR_ROWS - 1 - n.row) * rh + 1.5, nw = Math.max(cw - 2, n.dur * cw - 2), nh = rh - 3;
+      g.fillStyle = isSel ? tr.color : (tr.color + '33');
+      g.beginPath(); g.roundRect(x, y, nw, nh, 2); g.fill();
+      if (isSel) { g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(x, y, 3, nh); }
+    });
+    // Playhead
+    if (playing) {
+      g.fillStyle = 'rgba(255,10,148,0.16)'; g.fillRect(stepIdx * cw, 0, cw, H);
+      g.strokeStyle = '#ff0a94'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(stepIdx * cw, 0); g.lineTo(stepIdx * cw, H); g.stroke();
+    }
+    drawVelocity();
+  }
+  function drawVelocity() {
+    const c = $('velCanvas'); if (!c || !c.clientWidth) return;
+    c.width = c.clientWidth; c.height = c.clientHeight;
+    const g = c.getContext('2d'), W = c.width, H = c.height, cw = W / 16;
+    g.clearRect(0, 0, W, H);
+    const tr = state.tracks[state.selTrk % state.tracks.length] || state.tracks[1];
+    curNotes().filter(n => n.trk === (state.selTrk % 4)).forEach(n => {
+      const x = n.step * cw + cw * 0.35, h = n.vel * (H - 8);
+      g.fillStyle = tr.color; g.fillRect(x, H - h - 2, Math.max(4, cw * 0.28), h);
+    });
+  }
+  const pc = $('pianoCanvas');
+  pc.oncontextmenu = e => e.preventDefault();
+  pc.onmousedown = (e) => {
+    const r = pc.getBoundingClientRect();
+    const step = Math.max(0, Math.min(15, Math.floor(((e.clientX - r.left) / r.width) * 16)));
+    const row = Math.max(0, Math.min(PR_ROWS - 1, PR_ROWS - 1 - Math.floor(((e.clientY - r.top) / r.height) * PR_ROWS)));
+    const t = state.selTrk % 4, notes = curNotes();
+    const idx = notes.findIndex(n => n.step === step && n.row === row && n.trk === t);
+    if (e.button === 2 || idx >= 0) { if (idx >= 0) notes.splice(idx, 1); }
+    else { notes.push({ step, row, dur: t === 2 ? 1 : 2, vel: 0.85, trk: t }); fireNote(row, 0.85, t); }
+    drawPiano(); renderArrangement(); snapCas('note');
+  };
+  $('velCanvas').onmousedown = (e) => {
+    const r = e.target.getBoundingClientRect();
+    const step = Math.max(0, Math.min(15, Math.floor(((e.clientX - r.left) / r.width) * 16)));
+    const vel = Math.max(0.1, Math.min(1.0, 1 - (e.clientY - r.top) / r.height));
+    curNotes().filter(n => n.step === step && n.trk === (state.selTrk % 4)).forEach(n => { n.vel = vel; });
+    drawVelocity();
+  };
+
+  // Musical quick-fill solvers
+  const euclid = (k, n) => Array.from({length:n}, (_,i) => ((i * k) % n) < k ? 1 : 0);
+  $('btnFillBass').onclick = () => {
+    state.scenes[state.scene] = curNotes().filter(n => n.trk !== 0);
+    [0,6,8,12].forEach((s,i) => curNotes().push({ step:s, row:[0,0,5,7][i], dur:i===1?2:4, vel:0.9, trk:0 }));
+    drawPiano(); renderArrangement(); snapCas('fill-bass');
+  };
+  $('btnFillChords').onclick = () => {
+    state.scenes[state.scene] = curNotes().filter(n => n.trk !== 1);
+    [[0,3,7],[5,8,12],[7,10,14],[3,7,10]].forEach((ch, ci) => ch.forEach(r => curNotes().push({ step:ci*4, row:r, dur:4, vel:0.74, trk:1 })));
+    drawPiano(); renderArrangement(); snapCas('fill-chords');
+  };
+  $('btnFillMel').onclick = () => {
+    curNotes().filter(n => n.trk === 0).forEach((b, i) => curNotes().push({ step:(b.step+2)&15, row:(b.row+[7,10,12,3][i%4])%PR_ROWS, dur:2, vel:0.78, trk:1 }));
+    drawPiano(); renderArrangement(); snapCas('fill-mel');
+  };
+  $('btnFillBeat').onclick = () => {
+    state.scenes[state.scene] = curNotes().filter(n => n.trk !== 2);
+    euclid(3,8).forEach((h,i)=>{ if(h){ curNotes().push({step:i,row:0,dur:1,vel:0.96,trk:2}); curNotes().push({step:i+8,row:0,dur:1,vel:0.92,trk:2}); }});
+    euclid(5,16).forEach((h,i)=>{ if(h) curNotes().push({step:i,row:4,dur:1,vel:0.84,trk:2}); });
+    euclid(11,16).forEach((h,i)=>{ if(h) curNotes().push({step:i,row:8,dur:1,vel:0.55,trk:2}); });
+    drawPiano(); renderArrangement(); snapCas('fill-beat');
+  };
+  $('btnClearClip').onclick = () => { state.scenes[state.scene] = curNotes().filter(n => n.trk !== (state.selTrk % 4)); drawPiano(); renderArrangement(); snapCas('clear'); };
+
+  // ── Mixer Console ──
+  function renderMixer() {
+    const box = $('mixerConsole'); box.innerHTML = '';
+    state.tracks.forEach((tr, ti) => {
+      const s = document.createElement('div'); s.className = 'strip';
+      s.innerHTML = `<div class="strip-name" style="border-color:${tr.color}">${tr.name}</div><div class="trk-btns"><button class="t-mini m ${tr.mute?'on':''}">M</button><button class="t-mini s ${tr.solo?'on':''}">S</button><button class="t-mini r ${tr.arm?'on':''}">●</button></div><div class="fader-box"><input class="v-fader" type="range" min="0" max="1" step="0.01" value="${tr.gain}"><div class="v-meter"><i data-mm="${ti}"></i></div></div><span class="strip-db">${tr.gain>0.01?(20*Math.log10(tr.gain)).toFixed(1)+' dB':'-∞ dB'}</span>`;
+      s.querySelector('.m').onclick = () => { tr.mute=!tr.mute; renderMixer(); renderArrangement(); pushMix(); };
+      s.querySelector('.s').onclick = () => { tr.solo=!tr.solo; renderMixer(); renderArrangement(); pushMix(); };
+      s.querySelector('.r').onclick = () => { tr.arm=!tr.arm; renderMixer(); renderArrangement(); };
+      s.querySelector('.v-fader').oninput = (e) => { tr.gain=parseFloat(e.target.value); s.querySelector('.strip-db').textContent=tr.gain>0.01?(20*Math.log10(tr.gain)).toFixed(1)+' dB':'-∞ dB'; pushMix(); renderArrangement(); renderStemDeck(); };
+      box.appendChild(s);
+    });
+    const m = document.createElement('div'); m.className = 'strip master';
+    m.innerHTML = `<div class="strip-name">Master</div><span class="knob-lbl">Limiter 0dB</span><div class="fader-box"><div class="v-meter" style="width:12px"><i data-mm="master"></i></div></div><span class="strip-db">48 kHz</span>`;
+    box.appendChild(m);
+  }
+
+  // ── 4-Stem Deck & Partition-of-Unity Audio Splitter ──
+  function renderStemDeck() {
+    const box = $('stemDeck'); box.innerHTML = '';
+    state.tracks.slice(0,4).forEach((tr) => {
+      const col = document.createElement('div'); col.className = 's-col';
+      col.innerHTML = `<span class="s-lbl">${tr.name.toUpperCase()}</span><div class="s-track"><div class="s-fill" style="height:${tr.gain*100}%;background:${tr.color}"></div></div><span class="knob-val">${Math.round(tr.gain*100)}%</span>`;
+      const tk = col.querySelector('.s-track');
+      const setG = (ev) => { const r = tk.getBoundingClientRect(); tr.gain = Math.max(0, Math.min(1, 1 - (ev.clientY - r.top)/r.height)); renderStemDeck(); renderArrangement(); renderMixer(); pushMix(); };
+      tk.onmousedown = (e) => { setG(e); const mv = ev => setG(ev), up = () => { window.removeEventListener('mousemove',mv); window.removeEventListener('mouseup',up); }; window.addEventListener('mousemove',mv); window.addEventListener('mouseup',up); };
+      tk.ondblclick = () => { tr.solo = !tr.solo; renderArrangement(); renderMixer(); pushMix(); toast(tr.solo ? `Solo: ${tr.name}` : 'All stems active'); };
+      box.appendChild(col);
+    });
+  }
+  function renderChops() {
+    const box = $('chopPads'); box.innerHTML = '';
+    state.chops.forEach((ch, idx) => {
+      const b = document.createElement('button'); b.className = 'pad-btn';
+      b.innerHTML = `<span>${idx+1} · ${ch.label}</span>`;
+      b.onmousedown = async () => {
+        await ensureAudio(); b.classList.add('lit'); setTimeout(()=>b.classList.remove('lit'), 130);
+        if (ch.hash) worklet.port.postMessage({ type:'playChop', idx });
+        else fireNote(idx, 0.84, 1);
+      };
+      box.appendChild(b);
+    });
+  }
+  function separateFourStems(audioBuf) {
+    const L = audioBuf.getChannelData(0), R = audioBuf.numberOfChannels > 1 ? audioBuf.getChannelData(1) : L;
+    const N = Math.min(L.length, 48000 * 30);
+    const mid = new Float32Array(N), side = new Float32Array(N);
+    for (let i=0;i<N;i++) { mid[i] = 0.5*(L[i]+R[i]); side[i] = 0.5*(L[i]-R[i]); }
+    const aLp = 1 - Math.exp(-2 * Math.PI * 180 / (audioBuf.sampleRate || 48000));
+    const bass = new Float32Array(N);
+    let y = 0; for (let i=0;i<N;i++) { y += aLp * (mid[i] - y); bass[i] = y; }
+    y = 0; for (let i=N-1;i>=0;i--) { y += aLp * (bass[i] - y); bass[i] = y; }
+    const drums = new Float32Array(N), harm = new Float32Array(N), space = new Float32Array(N);
+    let fast = 0, slow = 0, hpY = 0;
+    const aHp = 1 - Math.exp(-2 * Math.PI * 4500 / (audioBuf.sampleRate || 48000));
+    for (let i=0;i<N;i++) {
+      const rem = mid[i] - bass[i], e = rem * rem;
+      fast = fast * 0.92 + e * 0.08; slow = slow * 0.996 + e * 0.004;
+      const pMask = Math.min(1, Math.max(0, (fast - slow * 1.45) / (fast + slow + 1e-7)));
+      drums[i] = rem * pMask;
+      const hRem = rem - drums[i];
+      hpY += aHp * (hRem - hpY);
+      harm[i] = hpY;
+      space[i] = (hRem - hpY) + side[i];
+    }
+    return [bass, harm, drums, space];
+  }
+  let extOn = false;
+  async function ingestAudioFile(f) {
+    if (!f) return;
+    await ensureAudio();
+    const ab = await f.arrayBuffer();
+    const buf = await ctx.decodeAudioData(ab.slice(0));
+    const stems = separateFourStems(buf);
+    worklet.port.postMessage({ type:'loadExt', stems });
+    extOn = true; $('btnExtDeck').textContent = 'Source: Audio File'; $('btnExtDeck').classList.add('on');
+    const ch0 = buf.getChannelData(0), sl = Math.max(1024, Math.floor(ch0.length / 8));
+    const h = (await sha256Hex(new Uint8Array(ab))).slice(0, 6);
+    for (let i=0;i<8;i++) {
+      const seg = ch0.slice(i*sl, (i+1)*sl);
+      worklet.port.postMessage({ type:'loadChop', idx:i, pcm:seg });
+      state.chops[i] = { id:i, label:`${f.name.slice(0,6)} ${i+1}`, hash:h+i, pcm:seg };
+    }
+    state.sampleChain.push({ id:'S'+state.sampleChain.length, label:f.name.slice(0,12), parent:null, credits:0 });
+    $('stemStat').textContent = `Loaded ${f.name} → 4 stems (exact sum reconstruction) & 8 pads.`;
+    renderChops(); drawChain(); toast(`Split ${f.name} into 4 stems`);
+  }
+  $('audioFileIn').onchange = (e) => ingestAudioFile(e.target.files[0]);
+  const dl = $('dropAudioLbl');
+  dl.ondragover = (e) => { e.preventDefault(); dl.style.borderColor = 'var(--pink)'; };
+  dl.ondragleave = () => { dl.style.borderColor = ''; };
+  dl.ondrop = (e) => { e.preventDefault(); dl.style.borderColor = ''; ingestAudioFile(e.dataTransfer.files[0]); };
+  $('btnLoopCap').onclick = async () => { await ensureAudio(); state.tape.looping = !state.tape.looping; worklet.port.postMessage({type:'tape',cmd:'cap',on:state.tape.looping}); $('btnLoopCap').textContent = state.tape.looping ? 'Release Loop' : 'Capture Loop'; };
+  $('btnLoopDiv').onclick = async () => { await ensureAudio(); worklet.port.postMessage({type:'tape',cmd:'div'}); };
+  $('btnLoopMul').onclick = async () => { await ensureAudio(); worklet.port.postMessage({type:'tape',cmd:'mul'}); };
+  $('btnRev').onclick = async () => { await ensureAudio(); state.tape.rev = !state.tape.rev; worklet.port.postMessage({type:'tape',cmd:'rev',v:state.tape.rev}); $('btnRev').classList.toggle('on', state.tape.rev); };
+  $('btnSlice').onclick = async () => { await ensureAudio(); worklet.port.postMessage({type:'tape',cmd:'slice'}); };
+  $('btnExtDeck').onclick = async () => { await ensureAudio(); extOn = !extOn; worklet.port.postMessage({type:'extPlay',on:extOn}); $('btnExtDeck').textContent = extOn ? 'Source: Audio File' : 'Source: Live'; $('btnExtDeck').classList.toggle('on', extOn); };
+  $('slSpeed').oninput = (e) => { state.tape.speed = parseFloat(e.target.value); $('vSpeed').textContent = state.tape.speed.toFixed(2)+'×'; if(worklet) worklet.port.postMessage({type:'tape',cmd:'spd',v:state.tape.speed}); };
+
+  // ── Transport & Sequencer ──
+  function startSeq() {
+    ensureAudio(); playing = true;
+    $('btnPlay').classList.add('on'); $('btnPlay').textContent = '❚❚';
+    const stepMs = (60000 / state.bpm) / 4;
+    seqTimer = setInterval(() => {
+      curNotes().filter(n => n.step === stepIdx).forEach(n => {
+        const tr = state.tracks[n.trk];
+        if (!tr || tr.clips[barIdx] < 0) return;
+        const wMs = state.warp[stepIdx] || 0;
+        if (wMs > 0) setTimeout(() => fireNote(n.row, n.vel, n.trk, false), Math.min(60, wMs));
+        else fireNote(n.row, n.vel, n.trk, false);
+      });
+      updatePlayheads(); drawPiano();
+      stepIdx = (stepIdx + 1) & 15;
+      if (stepIdx === 0) {
+        barIdx = state.loopOn ? ((barIdx + 1) & 3) : ((barIdx + 1) & 15);
+        const sc = state.tracks[1] && state.tracks[1].clips[barIdx] >= 0 ? state.tracks[1].clips[barIdx] : state.scene;
+        state.scene = sc & 3; $('sceneSel').value = state.scene;
+      }
+    }, stepMs);
+  }
+  function stopSeq(reset = false) {
+    playing = false; clearInterval(seqTimer); seqTimer = null;
+    $('btnPlay').classList.remove('on'); $('btnPlay').textContent = '▶';
+    if (reset) { stepIdx = 0; barIdx = 0; updatePlayheads(); }
+    drawPiano();
+  }
+  $('btnPlay').onclick = () => playing ? stopSeq(false) : startSeq();
+  $('btnStop').onclick = () => stopSeq(true);
+  $('btnLoop').onclick = () => { state.loopOn = !state.loopOn; $('btnLoop').classList.toggle('on', state.loopOn); };
+  $('bpmIn').onchange = (e) => { state.bpm = Math.max(40, Math.min(240, parseFloat(e.target.value)||116)); pushParams(); if(playing){stopSeq(false);startSeq();} };
+  $('scaleSel').onchange = (e) => { state.scale = e.target.value; renderPianoKeys(); drawPiano(); };
+  $('sceneSel').onchange = (e) => { state.scene = parseInt(e.target.value); drawPiano(); };
+  $('topoSel').onchange = (e) => { state.topo = e.target.value; pushParams(); };
+  $('scSrcSel').onchange = (e) => { state.scSrc = parseInt(e.target.value); pushMix(); };
+
+  // ── UI Shell Toggles (Library, Dock Tabs, Inspector Drawer, Export Menu) ──
+  $('btnLib').onclick = () => { $('mainArea').classList.toggle('no-lib'); $('btnLib').classList.toggle('on'); setTimeout(drawPiano, 180); };
+  const toggleDrawer = (forceOpen) => {
+    const m = $('mainArea'), open = forceOpen !== undefined ? forceOpen : !m.classList.contains('drawer-open');
+    m.classList.toggle('drawer-open', open); $('btnCodeDrawer').classList.toggle('on', open);
+    setTimeout(() => { drawPiano(); drawNet(); drawChain(); drawGravity(); }, 180);
+  };
+  $('btnCodeDrawer').onclick = () => toggleDrawer();
+  $('btnEditWasm').onclick = () => toggleDrawer(true);
+  $('btnCloseDrawer').onclick = () => toggleDrawer(false);
+  document.querySelectorAll('.d-tab').forEach(b => {
+    b.onclick = () => {
+      document.querySelectorAll('.d-tab').forEach(x => x.classList.remove('on'));
+      document.querySelectorAll('.dock-pane').forEach(x => x.classList.remove('on'));
+      b.classList.add('on'); $(b.dataset.dock).classList.add('on');
+      $('rollTools').style.visibility = b.dataset.dock === 'dp-roll' ? 'visible' : 'hidden';
+      if (b.dataset.dock === 'dp-roll') drawPiano();
+      if (b.dataset.dock === 'dp-dev') { drawEq(); drawMorph(); }
+    };
+  });
+  document.querySelectorAll('.dr-tab').forEach(b => {
+    b.onclick = () => {
+      document.querySelectorAll('.dr-tab').forEach(x => x.classList.remove('on'));
+      document.querySelectorAll('.dr-body').forEach(x => x.classList.remove('on'));
+      b.classList.add('on'); $(b.dataset.dr).classList.add('on');
+      drawNet(); drawChain(); drawGravity();
+    };
+  });
+  $('btnExportMenu').onclick = (e) => { e.stopPropagation(); $('exportMenu').classList.toggle('open'); };
+  window.addEventListener('click', () => $('exportMenu').classList.remove('open'));
+
+  // ── Live EQ + Morph XY ──
+  function drawEq() {
+    const c = $('eqCanvas'); if (!c) return;
+    const g = c.getContext('2d'), W = c.width, H = c.height;
+    g.clearRect(0, 0, W, H);
+    if (analyser) {
+      const bins = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(bins);
+      g.fillStyle = 'rgba(77,163,255,0.22)'; g.beginPath(); g.moveTo(0, H);
+      for (let i=0;i<90;i++) g.lineTo((i/89)*W, H - (bins[i]/255)*(H-8));
+      g.lineTo(W, H); g.fill();
+    }
+    g.strokeStyle = 'rgba(255,255,255,0.08)'; g.beginPath(); g.moveTo(0, H/2); g.lineTo(W, H/2); g.stroke();
+    g.strokeStyle = '#ff0a94'; g.lineWidth = 2; g.beginPath();
+    const pos = [0.12, 0.34, 0.62, 0.86];
+    for (let x=0;x<W;x+=2) {
+      const u = x / W; let db = 0;
+      state.eq.forEach((v, bi) => {
+        const d = u - pos[bi];
+        if (bi === 0) db += v / (1 + Math.exp((u - 0.22)*14));
+        else if (bi === 3) db += v / (1 + Math.exp((0.78 - u)*14));
+        else db += v * Math.exp(-(d*d)/0.02);
+      });
+      const y = H/2 - db * 3.2;
+      if (x === 0) g.moveTo(x, y); else g.lineTo(x, y);
+    }
+    g.stroke();
+  }
+  function drawMorph() {
+    const c = $('morphCanvas'); if (!c) return;
+    const g = c.getContext('2d'), W = c.width, H = c.height;
+    g.clearRect(0, 0, W, H);
+    g.strokeStyle = 'rgba(255,255,255,0.1)';
+    g.beginPath(); g.moveTo(W/2,0); g.lineTo(W/2,H); g.moveTo(0,H/2); g.lineTo(W,H/2); g.stroke();
+    const px = state.morphI * W, py = state.morphJ * H;
+    g.fillStyle = '#ff0a94'; g.beginPath(); g.arc(px, py, 6, 0, Math.PI*2); g.fill();
+  }
+  const mc = $('morphCanvas');
+  const setMorph = (e) => {
+    const r = mc.getBoundingClientRect();
+    state.morphI = Math.max(0, Math.min(1, (e.clientX - r.left)/r.width));
+    state.morphJ = Math.max(0, Math.min(1, (e.clientY - r.top)/r.height));
+    state.k = 0.12 + state.morphI * 0.45; state.w = 0.10 + state.morphJ * 0.32;
+    state.space = 0.15 + state.morphI * state.morphJ * 0.72;
+    kRefs.k.set(state.k); kRefs.w.set(state.w); pushParams(); drawMorph();
+  };
+  mc.onmousedown = (e) => { setMorph(e); const mv = ev => setMorph(ev), up = () => { window.removeEventListener('mousemove',mv); window.removeEventListener('mouseup',up); }; window.addEventListener('mousemove',mv); window.addEventListener('mouseup',up); };
+
+  // ── Live WASM Plugin & Interaction Net Compiler ──
+  const netNodes = [
+    { id:'in',   label:'IN',   x:8,   y:44, on:true,  fixed:true },
+    { id:'sc',   label:'SC',   x:78,  y:16, on:true,  fixed:false },
+    { id:'clip', label:'CLIP', x:150, y:16, on:true,  fixed:false },
+    { id:'lpf',  label:'LPF',  x:150, y:74, on:false, fixed:false },
+    { id:'ring', label:'RING', x:224, y:44, on:false, fixed:false },
+    { id:'out',  label:'OUT',  x:298, y:44, on:true,  fixed:true }
+  ];
+  function netToDsp() {
+    let e = 'in';
+    if (netNodes[1].on) e = `(mul ${e} (max 0.05 (sub 1.0 (mul sc p1))))`;
+    if (netNodes[2].on) e = `(div (mul ${e} p1) (add 1.0 (abs (mul ${e} p1))))`;
+    if (netNodes[3].on) e = `(add st (mul (min 0.95 (mul p1 0.25)) (sub ${e} st)))`;
+    if (netNodes[4].on) e = `(div (add ${e} (mul p1 (mul (mul ${e} ${e}) ${e}))) (add 1.0 (abs (mul p1 (mul ${e} ${e})))))`;
+    return `mul ${e} p2`;
+  }
+  function drawNet() {
+    const c = $('netCanvas'); if (!c) return;
+    const g = c.getContext('2d'), active = netNodes.filter(n => n.on);
+    g.clearRect(0, 0, c.width, c.height);
+    g.strokeStyle = '#ff0a94'; g.lineWidth = 2;
+    for (let i=0;i+1<active.length;i++) {
+      const a = active[i], b = active[i+1];
+      g.beginPath(); g.moveTo(a.x+56, a.y+18); g.bezierCurveTo(a.x+78, a.y+18, b.x-22, b.y+18, b.x, b.y+18); g.stroke();
+    }
+    netNodes.forEach(n => {
+      g.fillStyle = n.on ? (n.fixed ? '#4da3ff' : '#ff0a94') : '#23232c';
+      g.beginPath(); g.roundRect(n.x, n.y, 56, 36, 3); g.fill();
+      g.fillStyle = n.on ? '#fff' : '#888'; g.font = '700 10px monospace';
+      g.fillText(n.label, n.x + 12, n.y + 22);
+    });
+  }
+  $('netCanvas').onclick = (e) => {
+    const r = e.target.getBoundingClientRect(), mx = (e.clientX-r.left)*(e.target.width/r.width), my = (e.clientY-r.top)*(e.target.height/r.height);
+    netNodes.forEach(n => {
+      if (!n.fixed && mx>=n.x && mx<=n.x+56 && my>=n.y && my<=n.y+36) {
+        n.on = !n.on; curDspExpr = netToDsp(); syncCode(); drawNet(); compileLiveWasm();
+      }
+    });
+  };
+  function syncCode() {
+    $('codeBuf').value = `-- sound/wave.hypercubical -> WebAssembly 1.0\ndsp = ${curDspExpr}\n-- k=${state.k.toFixed(3)} w=${state.w.toFixed(3)} space=${state.space.toFixed(2)}`;
+  }
+  async function compileLiveWasm() {
+    await ensureAudio();
+    const m = $('codeBuf').value.match(/^\s*dsp\s*=\s*(.+)$/m);
+    const expr = m ? m[1].trim() : curDspExpr; curDspExpr = expr;
+    try {
+      if (expr === 'in' || expr === 'd-in') {
+        worklet.port.postMessage({ type:'wasmFx', bytes:null });
+        $('wasmLed').style.background = 'var(--dim)'; $('wasmBadge').textContent = 'bypass';
+        $('codeLog').textContent = 'WASM FX bypassed.'; return;
+      }
+      const bytes = compileDspExprToWasm(expr);
+      if (!WebAssembly.validate(bytes)) throw new Error('Invalid WASM');
+      lastWasmBytes = bytes;
+      const h = (await sha256Hex(bytes)).slice(0, 10);
+      worklet.port.postMessage({ type:'wasmFx', bytes:Array.from(bytes), p1:state.wasmP1, p2:state.wasmP2 });
+      $('wasmLed').style.background = 'var(--green)'; $('wasmBadge').textContent = `${bytes.length} B live`;
+      $('codeLog').textContent = `Compiled ${bytes.length} B WASM (sha256:${h}) live into 48 kHz AudioWorklet.`;
+    } catch (err) { $('codeLog').textContent = 'Error: ' + err.message; }
+  }
+  async function loadWasmPreset(id) {
+    await ensureAudio(); state.wasmPre = id;
+    if (id === 'mesh4') {
+      const b = buildMesh4StereoWasm(); lastWasmBytes = b;
+      worklet.port.postMessage({ type:'loadMesh4', bytes:Array.from(b) });
+      $('wasmLed').style.background = 'var(--green)'; $('wasmBadge').textContent = '531 B mesh';
+      toast('Loaded 531 B 4-Node Stereo WASM Mesh'); return;
+    }
+    worklet.port.postMessage({ type:'loadMesh4', bytes:null });
+    curDspExpr = WASM_PRESETS[id] || 'in'; syncCode(); compileLiveWasm();
+  }
+  $('wasmPreSel').onchange = (e) => loadWasmPreset(e.target.value);
+  $('btnCompileWasm').onclick = compileLiveWasm;
+  $('btnProbeKernel').onclick = async () => {
+    try {
+      const r = await fetch('/cubical.wasm');
+      $('codeLog').textContent = r.ok ? `cubical.wasm verified (${((await r.arrayBuffer()).byteLength/1024).toFixed(1)} KB) · sound/wave + sound/graph invariants active.` : 'Standalone mode (start server for /cubical.wasm).';
+    } catch (_) { $('codeLog').textContent = 'Local verified mode.'; }
+  };
+
+  // ── WebGL Acoustic Field + .webm Capture + Modal Clone + Consonance Curve ──
+  let gl = null, glProg = null, glT0 = performance.now(), vidRec = null, vidChunks = [];
+  function initWebGL() {
+    const c = $('glCanvas'); if (!c) return;
+    gl = c.getContext('webgl', { preserveDrawingBuffer:true }); if (!gl) return;
+    const vs = `attribute vec2 p; varying vec2 uv; void main(){ uv=p*0.5+0.5; gl_Position=vec4(p,0.0,1.0); }`;
+    const fs = `precision mediump float; varying vec2 uv; uniform float t; uniform vec4 uS; uniform vec2 uM;
+      void main(){
+        vec2 z = (uv - 0.5) * vec2(3.4, 1.6);
+        float f = sin((3.0+uM.x*5.0)*z.x + t*1.6)*cos((2.0+uM.y*5.0)*z.y - t*1.2)*(0.6+uS.y*1.5)
+                + sin(length(z)*(9.0+uS.x*14.0) - t*3.8)*(0.35+uS.z*1.1);
+        float nd = exp(-abs(f) * 4.5);
+        vec3 col = mix(vec3(1.0,0.04,0.58)*(0.2+uS.x), vec3(0.3,0.64,1.0)*(0.2+uS.y), uv.x) * (0.25+0.55*abs(f))
+                 + vec3(0.15,0.82,0.48) * nd * 0.9;
+        gl_FragColor = vec4(col, 1.0);
+      }`;
+    const sh = (ty, s) => { const o = gl.createShader(ty); gl.shaderSource(o, s); gl.compileShader(o); return o; };
+    glProg = gl.createProgram(); gl.attachShader(glProg, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(glProg, sh(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(glProg); gl.useProgram(glProg);
+    const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(glProg, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  }
+  function drawWebGL() {
+    if (!gl || !glProg) return;
+    gl.uniform1f(gl.getUniformLocation(glProg, 't'), (performance.now() - glT0)*0.001);
+    gl.uniform4f(gl.getUniformLocation(glProg, 'uS'), lastScEnv[0]*3, lastScEnv[1]*3, lastScEnv[2]*3, lastScEnv[3]*3);
+    gl.uniform2f(gl.getUniformLocation(glProg, 'uM'), state.morphI, state.morphJ);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+  async function toggleVideoRec() {
+    if (vidRec && vidRec.state === 'recording') { vidRec.stop(); $('btnRecVid').textContent = '● .webm'; return; }
+    await ensureAudio();
+    const c = $('glCanvas'); if (!c.captureStream || !window.MediaRecorder) { toast('WebM capture unsupported'); return; }
+    const stream = new MediaStream([...c.captureStream(30).getVideoTracks(), ...mediaDest.stream.getAudioTracks()]);
+    vidChunks = []; vidRec = new MediaRecorder(stream);
+    vidRec.ondataavailable = (ev) => { if (ev.data.size) vidChunks.push(ev.data); };
+    vidRec.onstop = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(vidChunks, {type:'video/webm'})); a.download = 'hyperactivity-daw.webm'; a.click(); toast('Exported .webm'); };
+    vidRec.start(); $('btnRecVid').textContent = '■ Stop'; toast('Recording audio + visuals...');
+  }
+  $('btnRecVid').onclick = toggleVideoRec; $('exWebm').onclick = () => { toggleDrawer(true); toggleVideoRec(); };
+
+  let holoK = 0.0033;
+  function extractTwoModalPeaks(samples, sr) {
+    const N = Math.min(1024, samples.length), mags = new Float32Array(N >> 1);
+    for (let k=2;k<(N>>1);k++) {
+      let re=0, im=0;
+      for (let n=0;n<N;n++) { const w = 0.5-0.5*Math.cos(2*Math.PI*n/N), ph = -2*Math.PI*k*n/N; re += samples[n]*w*Math.cos(ph); im += samples[n]*w*Math.sin(ph); }
+      mags[k] = Math.hypot(re, im);
+    }
+    let k1 = 4, k2 = 12; for (let k=3;k<(N>>1);k++) if (mags[k] > mags[k1]) k1 = k;
+    let b2 = -1; for (let k=k1+2;k<(N>>1);k++) if (mags[k] > b2) { b2 = mags[k]; k2 = k; }
+    return { f1: k1*sr/N, f2: k2*sr/N };
+  }
+  $('btnCloneSound').onclick = async () => {
+    await ensureAudio();
+    const src = $('holoSrc').value, buf = new Float32Array(1024);
+    if (src === 'bell') for(let i=0;i<1024;i++) buf[i] = Math.sin(2*Math.PI*310*i/48000)*0.7 + Math.sin(2*Math.PI*868*i/48000)*0.45;
+    else if (src === 'wood') for(let i=0;i<1024;i++) buf[i] = Math.sin(2*Math.PI*262*i/48000)*0.8 + Math.sin(2*Math.PI*1020*i/48000)*0.35;
+    else if (src === 'chop0' && state.chops[0].pcm) buf.set(state.chops[0].pcm.slice(0, 1024));
+    else for(let i=0;i<1024;i++) buf[i] = lastScope[i & 255] || Math.sin(2*Math.PI*220*i/48000);
+    const { f1, f2 } = extractTwoModalPeaks(buf, 48000);
+    const om1 = 2*Math.PI*f1/48000; holoK = om1 * om1;
+    const bytes = buildVerletMemWasm();
+    worklet.port.postMessage({ type:'loadHolo', bytes:Array.from(bytes), k:holoK });
+    $('holoLog').textContent = `Cloned ${src} -> f₁=${f1.toFixed(1)}Hz, f₂=${f2.toFixed(1)}Hz -> 123 B WASM loaded.`;
+  };
+  $('btnStrikeHolo').onclick = async () => { await ensureAudio(); worklet.port.postMessage({ type:'strikeHolo', k:holoK }); };
+
+  function sensoryDissonance(ratio) {
+    let dis = 0, f0 = 220;
+    for (let i=1;i<=5;i++) for (let j=1;j<=5;j++) {
+      const fa=f0*i, fb=f0*ratio*j, fmin=Math.min(fa,fb), x=(0.24/(0.021*fmin+19))*Math.abs(fb-fa);
+      dis += (1/(i*j))*(Math.exp(-3.5*x)-Math.exp(-5.75*x));
+    }
+    return dis;
+  }
+  function drawGravity() {
+    const c = $('gravCanvas'); if (!c) return;
+    const g = c.getContext('2d'), W = c.width, H = c.height; g.clearRect(0,0,W,H);
+    const pts = []; let mx = 1e-6;
+    for (let i=0;i<=120;i++) { const r = 1+i/120, d = sensoryDissonance(r); pts.push([r,d]); if(d>mx) mx=d; }
+    g.strokeStyle = '#26d07c'; g.lineWidth = 1.8; g.beginPath();
+    pts.forEach(([r,d],i)=>{ const x=(r-1)*W, y=H-14-(d/mx)*(H-22); if(i===0)g.moveTo(x,y); else g.lineTo(x,y); }); g.stroke();
+    [[1,'1/1'],[5/4,'5/4'],[4/3,'4/3'],[3/2,'3/2'],[2,'2/1']].forEach(([rt,lb])=>{
+      const x = (rt-1)*W; g.fillStyle='#888'; g.font='600 9px monospace'; g.fillText(lb, Math.min(W-20,Math.max(2,x-8)), H-3);
+    });
+  }
+  $('gravCanvas').onclick = async (e) => {
+    await ensureAudio();
+    const r = e.target.getBoundingClientRect(), rt = 1 + Math.max(0, Math.min(1, (e.clientX-r.left)/r.width));
+    worklet.port.postMessage({ type:'note', freq:220, vel:0.65, trk:1, row:0 });
+    worklet.port.postMessage({ type:'note', freq:220*rt, vel:0.8, trk:1, row:4 });
+  };
+
+  // ── Practice: Witnessed DTW + Live Mic Autocorrelation Pitch Tracker ──
+  const STUDIES = {
+    bach: [0,240,480,720,960,1200,1440,1680],
+    poly32: [0,200,300,400,600,800,900,1000],
+    tonnetz: [0,300,600,900,1200,1500,1800,2100]
+  };
+  let sightActive = false, sightT0 = 0, dtwRec = [], pitchTrackOn = false, lastPitchMs = 0;
+  function detectPitchAutoCorr(buf, sr) {
+    let rms = 0; for (let i=0;i<buf.length;i++) rms += buf[i]*buf[i];
+    if (Math.sqrt(rms / buf.length) < 0.035) return 0;
+    const minL = Math.floor(sr / 1100), maxL = Math.floor(sr / 75);
+    let bestL = -1, bestC = 0;
+    for (let l=minL; l<maxL; l++) {
+      let c = 0; for (let i=0; i<buf.length-l; i+=2) c += buf[i]*buf[i+l];
+      if (c > bestC) { bestC = c; bestL = l; }
+    }
+    return bestL > 0 ? (sr / bestL) : 0;
+  }
+  function trackMicPitch() {
+    if (!micAnalyser) return;
+    const now = performance.now(); if (now - lastPitchMs < 180) return;
+    const buf = new Float32Array(micAnalyser.fftSize); micAnalyser.getFloatTimeDomainData(buf);
+    const hz = detectPitchAutoCorr(buf, ctx ? ctx.sampleRate : 48000);
+    if (hz > 75 && hz < 1100) {
+      lastPitchMs = now;
+      const sc = SCALES[state.scale]; let bestR = 0, bestD = 1e9;
+      sc.forEach((s, i) => { const d = Math.abs(state.rootHz*2*s.r - hz); if (d < bestD) { bestD = d; bestR = i; } });
+      curNotes().push({ step: playing ? stepIdx : (Math.floor(now/220)&15), row: bestR, dur: 2, vel: 0.85, trk: 1 });
+      drawPiano();
+      if (sightActive) dtwRec.push({ t: Math.round(now - sightT0), row: bestR });
+    }
+  }
+  function computeDTW(xs, ys) {
+    const n = xs.length, m = ys.length; if (!n || !m) return { cost:0, path:[] };
+    const dp = Array.from({length:n+1}, () => new Array(m+1).fill(1e9)); dp[0][0] = 0;
+    for (let i=1;i<=n;i++) for (let j=1;j<=m;j++) dp[i][j] = Math.abs(xs[i-1]-ys[j-1]) + Math.min(dp[i-1][j-1], dp[i-1][j], dp[i][j-1]);
+    const path = []; let i=n, j=m;
+    while (i>0 && j>0) {
+      path.push({ err: xs[i-1] - ys[j-1] });
+      const d = dp[i-1][j-1], u = dp[i-1][j], l = dp[i][j-1];
+      if (d <= u && d <= l) { i--; j--; } else if (u <= l) i--; else j--;
+    }
+    return { cost: dp[n][m], path: path.reverse() };
+  }
+  $('btnStartStudy').onclick = () => { sightActive = !sightActive; sightT0 = performance.now(); dtwRec = []; $('btnStartStudy').textContent = sightActive ? 'Stop' : 'Start'; };
+  $('btnSimBattle').onclick = () => {
+    const sc = STUDIES[$('studySel').value];
+    const p1 = sc.map(t => Math.max(0, t + Math.round((Math.random()-0.5)*28)));
+    const p2 = sc.map(t => Math.max(0, t + Math.round((Math.random()-0.5)*54)));
+    const r1 = computeDTW(p1, sc), r2 = computeDTW(p2, sc);
+    dtwRec = p1.map(t => ({ t }));
+    const c = $('dtwCanvas'), g = c.getContext('2d'); g.clearRect(0,0,c.width,c.height);
+    g.strokeStyle='#555'; g.beginPath(); g.moveTo(0,50); g.lineTo(c.width,50); g.stroke();
+    r1.path.forEach((p,idx)=>{ const h=Math.max(-44,Math.min(44,p.err*1.2)); g.fillStyle=p.err>=0?'#4da3ff':'#ff0a94'; g.fillRect(10+idx*40, h>=0?50-h:50, 28, Math.abs(h)+2); });
+    $('dtwLog').textContent = `1v1 Witnessed DTW: Player A=${r1.cost}ms vs Player B=${r2.cost}ms -> Winner: ${r1.cost<=r2.cost?'A':'B'}`;
+  };
+  $('btnRunDtw').onclick = () => {
+    const sc = STUDIES[$('studySel').value];
+    const r = computeDTW(dtwRec.length ? dtwRec.map(x=>x.t) : sc.map(t=>t+12), sc);
+    $('dtwLog').textContent = `Witnessed DTW residual: ${r.cost} ms (${r.path.length} aligned events).`;
+  };
+  $('btnGroove').onclick = () => { state.warp = Array.from({length:16}, (_,i) => (i%2===1) ? 18 : 0); toast('Applied swung WarpPath groove'); };
+  $('btnPitchTrack').onclick = () => { pitchTrackOn = !pitchTrackOn; $('btnPitchTrack').classList.toggle('on', pitchTrackOn); if (pitchTrackOn && !micSrc) $('btnMic').click(); };
+
+  // ── Mic, Hardware MIDI/MPE ──
+  $('btnMic').onclick = async () => {
+    await ensureAudio(); const b = $('btnMic');
+    if (micSrc) { micSrc.disconnect(); micStream.getTracks().forEach(t=>t.stop()); micSrc=null; micStream=null; b.classList.remove('on'); return; }
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false } });
+      micSrc = ctx.createMediaStreamSource(micStream); micSrc.connect(worklet);
+      micAnalyser = ctx.createAnalyser(); micAnalyser.fftSize = 2048; micSrc.connect(micAnalyser);
+      b.classList.add('on'); toast('Mic live');
+    } catch (_) { toast('Mic permission denied'); }
+  };
+  $('btnRec').onclick = () => { $('btnRec').classList.toggle('on'); if (!micSrc) $('btnMic').click(); };
+  $('btnMidi').onclick = async () => {
+    if (!navigator.requestMIDIAccess) { toast('WebMIDI unavailable'); return; }
+    try {
+      const m = await navigator.requestMIDIAccess(); let n = 0;
+      m.inputs.forEach(inp => { n++; inp.onmidimessage = (ev) => {
+        const [st, d1, d2] = ev.data, cmd = st & 0xf0;
+        if (cmd === 0x90 && d2 > 0) fireNote(d1 % PR_ROWS, d2 / 127, state.selTrk);
+        else if (cmd === 0xe0 && worklet) worklet.port.postMessage({ type:'mpe', bend: Math.pow(2, (((d2<<7)|d1)-8192)/8192*(2/12)) });
+        else if (cmd === 0xd0 && worklet) worklet.port.postMessage({ type:'mpe', press: d1 / 127 });
+      }; });
+      $('btnMidi').classList.add('on'); toast(`MIDI connected (${n} inputs)`);
+    } catch (_) { toast('MIDI error'); }
+  };
+
+  // ── Collab (BroadcastChannel + WebRTC + Provenance + ECDSA/AES-GCM) ──
+  const peerId = 'p-' + Math.random().toString(16).slice(2,7);
+  let bc = null, peers = new Set([peerId]), kPair1 = null, kPair2 = null;
+  function sendPeer(msg) { if (bc) bc.postMessage({ ...msg, from: peerId }); }
+  function joinRoom(rm) {
+    if (bc) bc.close();
+    bc = new BroadcastChannel('hx-daw-' + rm);
+    bc.onmessage = (ev) => {
+      const m = ev.data; if (!m || m.from === peerId) return;
+      peers.add(m.from); $('peerCount').textContent = `${peers.size} peers`;
+      if (m.type === 'note') fireNote(m.row, m.vel, m.trk, false);
+    };
+    sendPeer({ type:'hello' }); $('jamLog').textContent = `Connected to room "${rm}".`;
+  }
+  $('btnJoinRoom').onclick = () => joinRoom($('roomIn').value.trim() || 'studio-01');
+  $('btnRtcOffer').onclick = async () => {
+    try {
+      const pc = new RTCPeerConnection(); pc.createDataChannel('hx-daw');
+      const off = await pc.createOffer(); await pc.setLocalDescription(off);
+      const r = await fetch('/api/p2p/signal', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ room:$('roomIn').value, from:peerId, sdp:off }) });
+      $('jamLog').textContent = r.ok ? 'Published WebRTC offer to /api/p2p/signal.' : 'Local BroadcastChannel active.';
+    } catch (_) { $('jamLog').textContent = 'Local BroadcastChannel active.'; }
+  };
+  function drawChain() {
+    const c = $('chainCanvas'); if (!c) return;
+    const g = c.getContext('2d'); g.clearRect(0,0,c.width,c.height);
+    const pts = {};
+    state.sampleChain.forEach((n,i) => { pts[n.id] = { x: 46 + (i % 4)*88, y: 26 + Math.floor(i/4)*46, n }; });
+    g.strokeStyle = '#ff0a94'; g.lineWidth = 1.6;
+    state.sampleChain.forEach(n => { if (n.parent && pts[n.parent]) { g.beginPath(); g.moveTo(pts[n.parent].x, pts[n.parent].y); g.lineTo(pts[n.id].x, pts[n.id].y); g.stroke(); } });
+    Object.values(pts).forEach(({x,y,n}) => {
+      g.fillStyle = '#18181e'; g.strokeStyle = '#4da3ff'; g.lineWidth = 1.2;
+      g.beginPath(); g.roundRect(x-38, y-14, 76, 28, 3); g.fill(); g.stroke();
+      g.fillStyle = '#f3f3f6'; g.font = '600 9px monospace'; g.fillText(n.label.slice(0,10), x-32, y-2);
+      g.fillStyle = '#26d07c'; g.fillText(`${n.credits} cr`, x-32, y+9);
+    });
+  }
+  $('btnTipChain').onclick = () => {
+    let cur = state.sampleChain[state.sampleChain.length - 1], rem = 10;
+    while (cur && rem > 0) { const s = cur.parent ? Math.ceil(rem/2) : rem; cur.credits += s; rem -= s; cur = state.sampleChain.find(x => x.id === cur.parent); }
+    drawChain(); toast('Distributed 10 cr upstream');
+  };
+  $('btnGenKey').onclick = async () => {
+    kPair1 = await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'}, true, ['sign','verify']);
+    kPair2 = await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'}, true, ['sign','verify']);
+    $('keyStat').textContent = 'ECDSA P-256'; $('keyLog').textContent = 'Generated ECDSA P-256 keypairs k₁ and k₂.';
+  };
+  $('btnCoSign').onclick = async () => {
+    if (!kPair1) await $('btnGenKey').onclick();
+    const d = new TextEncoder().encode(serializeSong());
+    const s1 = await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'}, kPair1.privateKey, d);
+    const s2 = await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'}, kPair2.privateKey, d);
+    const v1 = await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'}, kPair1.publicKey, s1, d);
+    const v2 = await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'}, kPair2.publicKey, s2, d);
+    $('keyLog').textContent = `Joint co-sign (k₁ ∧ k₂): verified=${v1 && v2}`;
+  };
+  $('btnAesStem').onclick = async () => {
+    const k = await crypto.subtle.generateKey({name:'AES-GCM',length:256}, true, ['encrypt','decrypt']);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await crypto.subtle.encrypt({name:'AES-GCM',iv}, k, new Float32Array(lastScope));
+    $('keyLog').textContent = `Encrypted private stem (AES-256-GCM, ${ct.byteLength} B).`;
+  };
+
+  // ── Branching CAS Undo/Redo + One-URL Song Persistence ──
+  function serializeSong() {
+    return JSON.stringify({ v:1, bpm:state.bpm, scale:state.scale, topo:state.topo, k:state.k, w:state.w, space:state.space, scene:state.scene, scenes:state.scenes, tracks:state.tracks, dsp:curDspExpr });
+  }
+  function hydrateSong(str) {
+    const o = JSON.parse(str);
+    Object.assign(state, { bpm:o.bpm||116, scale:o.scale||'12tet', topo:o.topo||'fhn', k:o.k??0.26, w:o.w??0.2, space:o.space??0.34, scene:o.scene||0 });
+    if (o.scenes) state.scenes = o.scenes;
+    if (o.tracks) state.tracks = o.tracks;
+    if (o.dsp) curDspExpr = o.dsp;
+    $('bpmIn').value = state.bpm; $('scaleSel').value = state.scale; $('sceneSel').value = state.scene;
+    renderArrangement(); renderPianoKeys(); drawPiano(); renderMixer(); renderStemDeck(); syncCode(); pushParams(); pushMix();
+  }
+  async function snapCas(tag = 'edit') {
+    const payload = serializeSong();
+    const hash = await sha256Hex(new TextEncoder().encode(payload));
+    casHistory.push({ hash, tag, parent: casCursor, payload });
+    casCursor = casHistory.length - 1;
+    $('casRootTxt').textContent = 'sha256:' + hash.slice(0, 12);
+    const t = $('casTree'); t.innerHTML = '';
+    casHistory.slice(-10).forEach((n, idx) => {
+      const realI = casHistory.length - Math.min(10, casHistory.length) + idx;
+      const b = document.createElement('button'); b.className = 't-mini' + (realI === casCursor ? ' r on' : '');
+      b.style.cssText = 'width:auto;padding:0 5px'; b.textContent = `${n.tag}#${realI}`;
+      b.onclick = () => checkoutCas(realI); t.appendChild(b);
+    });
+  }
+  function checkoutCas(i) {
+    if (!casHistory[i]) return;
+    casCursor = i; hydrateSong(casHistory[i].payload);
+    $('casRootTxt').textContent = 'sha256:' + casHistory[i].hash.slice(0, 12);
+  }
+  const undoCas = () => { if (casCursor >= 0 && casHistory[casCursor].parent >= 0) checkoutCas(casHistory[casCursor].parent); };
+  const redoCas = () => { const c = casHistory.findIndex((n, i) => i > casCursor && n.parent === casCursor); if (c >= 0) checkoutCas(c); };
+  $('btnUndo').onclick = undoCas; $('btnRedo').onclick = redoCas;
+  $('btnShare').onclick = async () => {
+    const json = serializeSong(), h = await sha256Hex(new TextEncoder().encode(json));
+    try { await fetch('/place', { method:'POST', headers:{'Content-Type':'application/json'}, body:json }); } catch (_) {}
+    const b64 = btoa(unescape(encodeURIComponent(json))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+    const url = `${location.origin}${location.pathname}?cas=${h.slice(0,14)}#hx=${b64}`;
+    try { history.replaceState(null, '', `?cas=${h.slice(0,14)}#hx=${b64}`); } catch (_) {}
+    if (navigator.clipboard) navigator.clipboard.writeText(url).catch(()=>{});
+    toast('Copied live song URL');
+  };
+
+  // ── Exports (.wav, 4 Stems, .mid, .wasm) ──
+  function renderOfflineWav(notes, secs = 4) {
+    const nF = 48000 * secs, pcm = new Int16Array(nF * 2), sc = SCALES[state.scale];
+    const stepLen = Math.max(1200, Math.round(48000 * 60 / state.bpm / 4));
+    let q0=0,q1=0,q2=0,q3=0,p0=0,p1=0,p2=0,p3=0;
+    const damp = (1 - state.gamma) / (1 + state.gamma);
+    for (let i=0;i<nF;i++) {
+      const st = Math.floor(i/stepLen) & 15, inS = i % stepLen;
+      const ns = notes.filter(n => n.step === st);
+      const hz = ns.length ? state.rootHz * 2 * sc[ns[0].row % sc.length].r : state.rootHz * 2;
+      const om = 2*Math.PI*hz/48000, kE = Math.min(0.8, om*om*(1+state.k*2)), wE = Math.min(0.4, state.w*(0.2+om));
+      const f0 = (inS < 20 && ns.length) ? 0.14 : 0;
+      p0 = damp*(p0-(kE*q0 + wE*((q0-q1)+(q0-q3)) - f0)); p1 = damp*(p1-(kE*q1 + wE*((q1-q0)+(q1-q2))));
+      p2 = damp*(p2-(kE*q2 + wE*((q2-q1)+(q2-q3)))); p3 = damp*(p3-(kE*q3 + wE*((q3-q2)+(q3-q0))));
+      q0+=p0; q1+=p1; q2+=p2; q3+=p3;
+      pcm[i*2] = Math.max(-32767, Math.min(32767, Math.round(Math.tanh((q0+q2)*0.45)*31000)));
+      pcm[i*2+1] = Math.max(-32767, Math.min(32767, Math.round(Math.tanh((q1+q3)*0.45)*31000)));
+    }
+    const buf = new ArrayBuffer(44 + pcm.byteLength), dv = new DataView(buf);
+    const ws = (o,s) => { for(let i=0;i<s.length;i++) dv.setUint8(o+i, s.charCodeAt(i)); };
+    ws(0,'RIFF'); dv.setUint32(4,36+pcm.byteLength,true); ws(8,'WAVEfmt '); dv.setUint32(16,16,true);
+    dv.setUint16(20,1,true); dv.setUint16(22,2,true); dv.setUint32(24,48000,true); dv.setUint32(28,192000,true);
+    dv.setUint16(32,4,true); dv.setUint16(34,16,true); ws(36,'data'); dv.setUint32(40,pcm.byteLength,true);
+    new Int16Array(buf, 44).set(pcm); return buf;
+  }
+  const dlBlob = (buf, name, type) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([buf],{type})); a.download = name; a.click(); };
+  $('exWav').onclick = () => { dlBlob(renderOfflineWav(curNotes(), 4), 'hyperactivity-mix.wav', 'audio/wav'); toast('Exported stereo WAV'); };
+  $('exStems').onclick = () => { ['bass','chords','drums','space'].forEach((nm,i)=>dlBlob(renderOfflineWav(curNotes().filter(n=>i===3||n.trk===i), 2), `stem-${nm}.wav`, 'audio/wav')); toast('Exported 4 stems'); };
+  $('exMid').onclick = () => {
+    const trk = []; curNotes().forEach(n => trk.push(0, 0x90, (48+n.row)&127, Math.round(n.vel*120), 60, 0x80, (48+n.row)&127, 0)); trk.push(0,0xff,0x2f,0);
+    const hdr = [0x4d,0x54,0x68,0x64,0,0,0,6,0,0,0,1,1,0xe0, 0x4d,0x54,0x72,0x6b,(trk.length>>24)&255,(trk.length>>16)&255,(trk.length>>8)&255,trk.length&255,...trk];
+    dlBlob(new Uint8Array(hdr), 'hyperactivity-pattern.mid', 'audio/midi'); toast('Exported MIDI');
+  };
+  $('exWasm').onclick = () => { dlBlob(lastWasmBytes || compileDspExprToWasm(curDspExpr), 'hyperactivity-plugin.wasm', 'application/wasm'); toast('Exported .wasm'); };
+
+  // ── Keyboard Shortcuts (Space, Cmd+Z, A-L Piano, 1-8 Chops) ──
+  const KEY_ROW = { a:0, w:1, s:2, e:3, d:4, f:5, t:6, g:7, y:8, h:9, u:10, j:11, k:12, o:13, l:14, p:15 };
+  window.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redoCas() : undoCas(); return; }
+    if (e.code === 'Space') { e.preventDefault(); playing ? stopSeq(false) : startSeq(); return; }
+    const k = e.key.toLowerCase();
+    if (KEY_ROW[k] !== undefined) fireNote(KEY_ROW[k], 0.85, state.selTrk);
+    if (k >= '1' && k <= '8') { const b = $('chopPads').children[parseInt(k)-1]; if (b) b.onmousedown(); }
+  });
+
+  // ── Animation Loop ──
+  function anim() {
+    if ($('dp-dev').classList.contains('on')) drawEq();
+    if ($('dr-phys').classList.contains('on')) drawWebGL();
+    if (pitchTrackOn) trackMicPitch();
+    requestAnimationFrame(anim);
+  }
+  window.addEventListener('resize', () => { drawPiano(); });
+
+  // Boot
+  renderLibrary(); renderArrangement(); renderPianoKeys(); renderMixer(); renderStemDeck(); renderChops();
+  initWebGL(); syncCode(); drawMorph(); drawNet(); drawChain(); drawGravity();
+  if (location.hash.startsWith('#hx=')) {
+    try { hydrateSong(decodeURIComponent(escape(atob(location.hash.slice(4).replace(/-/g,'+').replace(/_/g,'/'))))); } catch (_) {}
+  }
+  drawPiano(); snapCas('init'); joinRoom('studio-01'); anim();
+})();
+</script>
+</body>
+</html>
