@@ -1,0 +1,469 @@
+-- lib/py-syntax.hypercubical — Pythonic (Non-Lisp) Theorem-Grade Surface Syntax for Hyperactivity
+-- Uses Hyperactivity's built-in zero-trust `syntax N` kernel extension (lib/syntax.hypercubical + src/syntax.c).
+-- Every `syntax py` block lowers deterministically into checked `Code` (lib/code.hypercubical) and is
+-- typechecked by lib/check.hypercubical with ZERO trust and ZERO postulates (`py-theorem-grade`).
+import "syntax.hypercubical"
+
+-- ============================================================================
+-- 1. PURE BYTE & LINE UTILITIES (0 POSTULATES)
+-- ============================================================================
+
+py-or : Bool → Bool → Bool
+py-or true _ = true
+py-or false b = b
+
+py-and : Bool → Bool → Bool
+py-and true b = b
+py-and false _ = false
+
+py-is-space : Word → Bool
+py-is-space b = py-or (weq b #32) (weq b #9)
+
+py-is-digit : Word → Bool
+py-is-digit b = py-and (not (wlt b #48)) (wlt b #58)
+
+py-is-alpha : Word → Bool
+py-is-alpha b =
+  py-or (py-and (not (wlt b #65)) (wlt b #91))
+  (py-or (py-and (not (wlt b #97)) (wlt b #123))
+         (weq b #95))
+
+py-is-alnum : Word → Bool
+py-is-alnum b = py-or (py-is-alpha b) (py-or (py-is-digit b) (weq b #45))
+
+py-eq : List Word → List Word → Bool
+py-eq nil nil = true
+py-eq nil (cons _ _) = false
+py-eq (cons _ _) nil = false
+py-eq (cons a as) (cons b bs) = if weq a b then py-eq as bs else false
+
+py-rev-go : List Word → List Word → List Word
+py-rev-go acc nil = acc
+py-rev-go acc (cons b r) = py-rev-go (cons b acc) r
+
+py-trim-l : List Word → List Word
+py-trim-l nil = nil
+py-trim-l (cons b r) = if py-is-space b then py-trim-l r else cons b r
+
+py-trim : List Word → List Word
+py-trim s = py-rev-go nil (py-trim-l (py-rev-go nil (py-trim-l s)))
+
+py-null : List Word → Bool
+py-null nil = true
+py-null (cons _ _) = false
+
+py-split-lines-go : List Word → List Word → List (List Word)
+py-split-lines-go cur nil = cons (py-rev-go nil cur) nil
+py-split-lines-go cur (cons b r) =
+  if weq b #10
+  then cons (py-rev-go nil cur) (py-split-lines-go nil r)
+  else py-split-lines-go (cons b cur) r
+
+py-lines : List Word → List (List Word)
+py-lines s = py-split-lines-go nil s
+
+py-len : List Word → Nat
+py-len nil = zero
+py-len (cons _ r) = suc (py-len r)
+
+-- ============================================================================
+-- 2. PYTHONIC LEXER
+-- ============================================================================
+
+data PyTok
+  = tk-id (s : List Word)
+  | tk-num (n : Word)
+  | tk-lp | tk-rp | tk-colon | tk-comma | tk-arrow
+  | tk-eq | tk-eqeq | tk-lt | tk-plus | tk-minus | tk-star | tk-slash
+  | tk-amp | tk-bar | tk-caret
+
+py-read-num : Word → List Word → (Word × List Word)
+py-read-num acc nil = (acc , nil)
+py-read-num acc (cons b r) =
+  if py-is-digit b
+  then py-read-num (%wadd (%wmul acc #10) (%wsub b #48)) r
+  else (acc , cons b r)
+
+py-read-id : List Word → List Word → (List Word × List Word)
+py-read-id acc nil = (py-rev-go nil acc , nil)
+py-read-id acc (cons b r) =
+  if py-is-alnum b
+  then py-read-id (cons b acc) r
+  else (py-rev-go nil acc , cons b r)
+
+py-lex-go : Nat → List Word → List PyTok
+py-lex-go zero _ = nil
+py-lex-go _ nil = nil
+py-lex-go (suc fuel) (cons b r) =
+  if py-is-space b then py-lex-go fuel r
+  else if weq b #35 then nil
+  else if weq b #40 then cons tk-lp (py-lex-go fuel r)
+  else if weq b #41 then cons tk-rp (py-lex-go fuel r)
+  else if weq b #58 then cons tk-colon (py-lex-go fuel r)
+  else if weq b #44 then cons tk-comma (py-lex-go fuel r)
+  else if weq b #43 then cons tk-plus (py-lex-go fuel r)
+  else if weq b #42 then cons tk-star (py-lex-go fuel r)
+  else if weq b #47 then cons tk-slash (py-lex-go fuel r)
+  else if weq b #60 then cons tk-lt (py-lex-go fuel r)
+  else if weq b #38 then cons tk-amp (py-lex-go fuel r)
+  else if weq b #124 then cons tk-bar (py-lex-go fuel r)
+  else if weq b #94 then cons tk-caret (py-lex-go fuel r)
+  else if weq b #45 then
+    (case r of
+      nil → cons tk-minus nil
+      cons b2 r2 → if weq b2 #62 then cons tk-arrow (py-lex-go fuel r2) else cons tk-minus (py-lex-go fuel r))
+  else if weq b #61 then
+    (case r of
+      nil → cons tk-eq nil
+      cons b2 r2 → if weq b2 #61 then cons tk-eqeq (py-lex-go fuel r2) else cons tk-eq (py-lex-go fuel r))
+  else if py-is-digit b then
+    let pr = py-read-num (%wsub b #48) r
+    in cons (tk-num (fst pr)) (py-lex-go fuel (snd pr))
+  else if py-is-alpha b then
+    let pr = py-read-id (cons b nil) r
+    in cons (tk-id (fst pr)) (py-lex-go fuel (snd pr))
+  else py-lex-go fuel r
+
+py-lex : List Word → List PyTok
+py-lex s = py-lex-go (suc (py-len s)) s
+
+-- ============================================================================
+-- 3. SINGLE-PASS RECURSIVE-DESCENT PYTHON EXPRESSION COMPILER -> `Code`
+-- ============================================================================
+
+py-lookup-go : Word → List Word → List (List Word) → Opt Word
+py-lookup-go _ _ nil = none
+py-lookup-go idx nm (cons x xs) =
+  if py-eq nm x then some idx else py-lookup-go (%wsucc idx) nm xs
+
+py-lookup : List Word → List (List Word) → Opt Word
+py-lookup nm env = py-lookup-go #0 nm env
+
+py-code-add   : Code
+py-code-add   = code (the (Word → Word → Word) (λ a b → %wadd a b))
+py-code-sub   : Code
+py-code-sub   = code (the (Word → Word → Word) (λ a b → %wsub a b))
+py-code-mul   : Code
+py-code-mul   = code (the (Word → Word → Word) (λ a b → %wmul a b))
+py-code-div   : Code
+py-code-div   = code (the (Word → Word → Word) (λ a b → %wdiv a b))
+py-code-and   : Code
+py-code-and   = code (the (Word → Word → Word) (λ a b → %wand a b))
+py-code-or    : Code
+py-code-or    = code (the (Word → Word → Word) (λ a b → %wor a b))
+py-code-xor   : Code
+py-code-xor   = code (the (Word → Word → Word) (λ a b → %wxor a b))
+py-code-lt    : Code
+py-code-lt    = code (the (Word → Word → Bool) (λ a b → wlt a b))
+py-code-eq    : Code
+py-code-eq    = code (the (Word → Word → Bool) (λ a b → weq a b))
+py-code-ifw   : Code
+py-code-ifw   = code (the (Bool → Word → Word → Word) (λ c t f → if c then t else f))
+py-code-true  : Code
+py-code-true  = code true
+py-code-false : Code
+py-code-false = code false
+
+py-app2 : Code → Code → Code → Code
+py-app2 fn a b = capp (capp fn a) b
+
+py-app3 : Code → Code → Code → Code → Code
+py-app3 fn a b c = capp (capp (capp fn a) b) c
+
+py-is-kw : List Word → List PyTok → Bool
+py-is-kw _ nil = false
+py-is-kw kw (cons t _) =
+  case t of
+    tk-id s → py-eq kw s
+    _       → false
+
+py-tail-tok : List PyTok → List PyTok
+py-tail-tok nil = nil
+py-tail-tok (cons _ r) = r
+
+py-drop-rp : List PyTok → List PyTok
+py-drop-rp nil = nil
+py-drop-rp (cons t r) =
+  case t of
+    tk-rp → r
+    _     → cons t r
+
+py-drop-comma : List PyTok → List PyTok
+py-drop-comma nil = nil
+py-drop-comma (cons t r) =
+  case t of
+    tk-comma → r
+    _        → cons t r
+
+-- Single non-mutual recursive-descent parser with explicit phase tag:
+--   0 = ternary (`a if c else b`), 1 = compare (`<`, `==`),
+--   2 = add/sub/or/xor, 3 = mul/div/and, 4 = atom,
+--   5 = mul-tail (with acc), 6 = add-tail (with acc)
+py-parse : Nat → Word → Code → List (List Word) → List PyTok → (Code × List PyTok)
+py-parse zero _ acc _ ts = (acc , ts)
+py-parse (suc fuel) phase acc env ts =
+  if weq phase #4 then
+    (case ts of
+      nil → (cwlit #0 , nil)
+      cons t rest →
+        case t of
+          tk-num n → (cwlit n , rest)
+          tk-id nm →
+            if py-eq nm "True" then (py-code-true , rest)
+            else if py-eq nm "False" then (py-code-false , rest)
+            else (case py-lookup nm env of
+                    some idx → (cvar idx , rest)
+                    none     → (cwlit #0 , rest))
+          tk-lp →
+            let p1 = py-parse fuel #0 (cwlit #0) env rest
+            in (fst p1 , py-drop-rp (snd p1))
+          _ → (cwlit #0 , rest))
+  else if weq phase #5 then
+    (case ts of
+      nil → (acc , nil)
+      cons t r1 →
+        case t of
+          tk-star →
+            let p2 = py-parse fuel #4 (cwlit #0) env r1
+            in py-parse fuel #5 (py-app2 py-code-mul acc (fst p2)) env (snd p2)
+          tk-slash →
+            let p2 = py-parse fuel #4 (cwlit #0) env r1
+            in py-parse fuel #5 (py-app2 py-code-div acc (fst p2)) env (snd p2)
+          tk-amp →
+            let p2 = py-parse fuel #4 (cwlit #0) env r1
+            in py-parse fuel #5 (py-app2 py-code-and acc (fst p2)) env (snd p2)
+          _ → (acc , cons t r1))
+  else if weq phase #3 then
+    let p1 = py-parse fuel #4 (cwlit #0) env ts
+    in py-parse fuel #5 (fst p1) env (snd p1)
+  else if weq phase #6 then
+    (case ts of
+      nil → (acc , nil)
+      cons t r1 →
+        case t of
+          tk-plus →
+            let p2 = py-parse fuel #3 (cwlit #0) env r1
+            in py-parse fuel #6 (py-app2 py-code-add acc (fst p2)) env (snd p2)
+          tk-minus →
+            let p2 = py-parse fuel #3 (cwlit #0) env r1
+            in py-parse fuel #6 (py-app2 py-code-sub acc (fst p2)) env (snd p2)
+          tk-bar →
+            let p2 = py-parse fuel #3 (cwlit #0) env r1
+            in py-parse fuel #6 (py-app2 py-code-or acc (fst p2)) env (snd p2)
+          tk-caret →
+            let p2 = py-parse fuel #3 (cwlit #0) env r1
+            in py-parse fuel #6 (py-app2 py-code-xor acc (fst p2)) env (snd p2)
+          _ → (acc , cons t r1))
+  else if weq phase #2 then
+    let p1 = py-parse fuel #3 (cwlit #0) env ts
+    in py-parse fuel #6 (fst p1) env (snd p1)
+  else if weq phase #1 then
+    let p1 = py-parse fuel #2 (cwlit #0) env ts
+    in case snd p1 of
+         nil → (fst p1 , nil)
+         cons t r1 →
+           case t of
+             tk-lt →
+               let p2 = py-parse fuel #2 (cwlit #0) env r1
+               in (py-app2 py-code-lt (fst p1) (fst p2) , snd p2)
+             tk-eqeq →
+               let p2 = py-parse fuel #2 (cwlit #0) env r1
+               in (py-app2 py-code-eq (fst p1) (fst p2) , snd p2)
+             _ → (fst p1 , cons t r1)
+  else
+    let p1 = py-parse fuel #1 (cwlit #0) env ts
+    in if py-is-kw "if" (snd p1) then
+         let pc = py-parse fuel #1 (cwlit #0) env (py-tail-tok (snd p1))
+         in if py-is-kw "else" (snd pc) then
+              let p2 = py-parse fuel #0 (cwlit #0) env (py-tail-tok (snd pc))
+              in (py-app3 py-code-ifw (fst pc) (fst p1) (fst p2) , snd p2)
+            else p1
+       else p1
+
+py-parse-expr : List (List Word) → List PyTok → Code
+py-parse-expr env ts = fst (py-parse (toNat #64) #0 (cwlit #0) env ts)
+
+-- ============================================================================
+-- 4. PYTHONIC `def name(p1: T1, p2: T2) -> R:` + BLOCK COMPILER -> `Lst Meaning`
+-- ============================================================================
+
+py-type-code : List Word → Code
+py-type-code nm =
+  if py-eq nm "Bool" then code Bool
+  else if py-eq nm "Nat" then code Nat
+  else code Word
+
+py-read-param-type : List PyTok → (Code × List PyTok)
+py-read-param-type nil = (code Word , nil)
+py-read-param-type (cons t r) =
+  case t of
+    tk-colon →
+      (case r of
+        nil → (code Word , nil)
+        cons t2 r2 →
+          case t2 of
+            tk-id ty → (py-type-code ty , r2)
+            _        → (code Word , r))
+    _ → (code Word , cons t r)
+
+py-parse-params-go : Nat → List PyTok → (List (List Word × Code) × List PyTok)
+py-parse-params-go zero ts = (nil , ts)
+py-parse-params-go (suc fuel) ts =
+  case ts of
+    nil → (nil , nil)
+    cons t rest →
+      case t of
+        tk-rp → (nil , rest)
+        tk-id nm →
+          let pt  = py-read-param-type rest
+              r2  = py-drop-comma (snd pt)
+              nxt = py-parse-params-go fuel r2
+          in (cons (nm , fst pt) (fst nxt) , snd nxt)
+        _ → (nil , cons t rest)
+
+py-parse-ret-type : List PyTok → Code
+py-parse-ret-type nil = code Word
+py-parse-ret-type (cons t r) =
+  case t of
+    tk-arrow →
+      (case r of
+        nil → code Word
+        cons t2 _ →
+          case t2 of
+            tk-id ty → py-type-code ty
+            _        → code Word)
+    _ → code Word
+
+py-wrap-pi : List (List Word × Code) → Code → Code
+py-wrap-pi nil retTy = retTy
+py-wrap-pi (cons p ps) retTy = cpi #2 (snd p) (py-wrap-pi ps retTy)
+
+py-wrap-lam : List (List Word × Code) → Code → Code
+py-wrap-lam nil body = body
+py-wrap-lam (cons _ ps) body = clam (py-wrap-lam ps body)
+
+py-push-params : List (List Word × Code) → List (List Word) → List (List Word)
+py-push-params nil env = env
+py-push-params (cons p ps) env = py-push-params ps (cons (fst p) env)
+
+-- Compile body lines (`x = expr` local bindings + `return expr`)
+py-compile-body : List (List Word) → List (List Word) → Code
+py-compile-body _ nil = cwlit #0
+py-compile-body env (cons ln rest) =
+  let ts = py-lex ln
+  in if py-is-kw "return" ts then
+       py-parse-expr env (py-tail-tok ts)
+     else case ts of
+       nil → py-compile-body env rest
+       cons t r →
+         case t of
+           tk-id v →
+             (case r of
+               nil → py-compile-body env rest
+               cons t2 rhs →
+                 case t2 of
+                   tk-eq → clet (py-parse-expr env rhs) (py-compile-body (cons v env) rest)
+                   _     → py-compile-body env rest)
+           _ → py-compile-body env rest
+
+py-is-def-line : List Word → Bool
+py-is-def-line ln = py-is-kw "def" (py-lex ln)
+
+py-take-body : List (List Word) → (List (List Word) × List (List Word))
+py-take-body nil = (nil , nil)
+py-take-body (cons ln rest) =
+  let tr = py-trim ln
+  in if py-null tr then
+       py-take-body rest
+     else if py-is-def-line tr then
+       (nil , cons ln rest)
+     else
+       let pr = py-take-body rest in (cons tr (fst pr) , snd pr)
+
+py-compile-def-after : List Word → List PyTok → List (List Word) → Opt Meaning
+py-compile-def-after fname r1 bodyLines =
+  case r1 of
+    nil → none
+    cons t r2 →
+      case t of
+        tk-lp →
+          let pr     = py-parse-params-go (toNat #32) r2
+              params = fst pr
+              retTy  = py-parse-ret-type (snd pr)
+              env    = py-push-params params nil
+              body   = py-compile-body env bodyLines
+              fullTy = py-wrap-pi params retTy
+              fullVl = py-wrap-lam params body
+          in some (means fname fullTy fullVl)
+        _ → none
+
+py-compile-def : List Word → List (List Word) → Opt Meaning
+py-compile-def hdr bodyLines =
+  case py-lex hdr of
+    nil → none
+    cons _ r0 →
+      case r0 of
+        nil → none
+        cons t1 r1 →
+          case t1 of
+            tk-id fname → py-compile-def-after fname r1 bodyLines
+            _           → none
+
+py-compile-lines : Nat → List (List Word) → Lst Meaning
+py-compile-lines zero _ = lnil
+py-compile-lines _ nil = lnil
+py-compile-lines (suc fuel) (cons ln rest) =
+  let tr = py-trim ln
+  in if py-null tr then py-compile-lines fuel rest
+     else if py-is-def-line tr then
+       let pr = py-take-body rest
+           mo = py-compile-def tr (fst pr)
+           tl = py-compile-lines fuel (snd pr)
+       in case mo of
+            some m → lcons m tl
+            none   → tl
+     else py-compile-lines fuel rest
+
+-- THE ZERO-TRUST PYTHONIC SYNTAX READING (`syntax py`)
+py : List Word → Lst Meaning
+py src =
+  let ls = py-lines src
+  in py-compile-lines (suc (py-len src)) ls
+
+-- THEOREM: `syntax py` IS THEOREM-GRADE (CONTRACTIBLE READING FIBER, 0 POSTULATES!)
+py-theorem-grade : theorem-grade (reads-as (λ (u : Unit) → py)) unit
+py-theorem-grade = reads-as-theorem-grade (λ (u : Unit) → py) unit
+
+-- ============================================================================
+-- 5. LIVE CHECKED EXAMPLES WRITTEN IN PYTHONIC `syntax py` + `refl` PROOFS!
+-- ============================================================================
+
+syntax py
+  def py_square(x: Word) -> Word:
+    return x * x
+
+  def py_linear_comb(a: Word, b: Word) -> Word:
+    s = a + b
+    return s * 2 + 1
+
+  def py_clamp(x: Word, lim: Word) -> Word:
+    return x if x < lim else lim
+
+  def py_mix_hash(a: Word, b: Word) -> Word:
+    t = a ^ b
+    return (t + a) * 3
+
+py-thm-square : py_square #7 ≡ #49
+py-thm-square = refl
+
+py-thm-linear : py_linear_comb #3 #4 ≡ #15
+py-thm-linear = refl
+
+py-thm-clamp-hi : py_clamp #10 #5 ≡ #5
+py-thm-clamp-hi = refl
+
+py-thm-clamp-lo : py_clamp #3 #5 ≡ #3
+py-thm-clamp-lo = refl
+
+py-thm-mix : py_mix_hash #6 #3 ≡ #33
+py-thm-mix = refl
