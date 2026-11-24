@@ -1,0 +1,204 @@
+-- lib/os-oracle.hypercubical — 100% Pure Hyperactivity Live Genius (THIS) HTTP Relay
+-- Zero Python, zero Node, zero jq: pure cubical JSON parser, JSON escaper, Gemini REST
+-- payload builder, and lossless non-thought candidate text extractor using only env+curl.
+-- Reads GEMINI_API_KEY & HX_GEMINI_MODEL strictly from process env (never in git/argv/URL).
+import "host.hypercubical"
+
+-- ============================================================================
+-- SECTION 1: PURE JSON STRING ESCAPER & RAW JSON STRING EXTRACTOR (PROVED REFL)
+-- ============================================================================
+
+ora-q : List Word
+ora-q = cons #34 nil
+
+ora-bs : List Word
+ora-bs = cons #92 nil
+
+ora-esc-json : List Word → List Word
+ora-esc-json nil = nil
+ora-esc-json (cons c r) =
+  if %weq c #34 then cons #92 (cons #34 (ora-esc-json r)) else
+  if %weq c #92 then cons #92 (cons #92 (ora-esc-json r)) else
+  if %weq c #10 then cons #92 (cons #110 (ora-esc-json r)) else
+  if %weq c #13 then cons #92 (cons #114 (ora-esc-json r)) else
+  if %weq c #9  then cons #92 (cons #116 (ora-esc-json r)) else
+  if %wlt c #32 then ora-esc-json r else
+  cons c (ora-esc-json r)
+
+-- Read raw JSON string body (already JSON-escaped!) up to unescaped closing quote #34
+-- Structurally recursive on List Word (O(1) kernel size, handles arbitrarily long answers!)
+ora-take-jstr : List Word → List Word
+ora-take-jstr nil = nil
+ora-take-jstr (cons c r) =
+  if %weq c #34 then nil
+  else if %weq c #92 then
+    (case r of
+      nil → nil
+      cons c2 r2 → cons #92 (cons c2 (ora-take-jstr r2)))
+  else cons c (ora-take-jstr r)
+
+ora-skip-ws : List Word → List Word
+ora-skip-ws nil = nil
+ora-skip-ws (cons c r) =
+  if orB (%weq c #32) (orB (%weq c #9) (orB (%weq c #10) (%weq c #13)))
+  then ora-skip-ws r else cons c r
+
+-- Skip ":" and whitespace, then if opening quote #34, extract raw JSON string contents
+ora-after-colon-jstr : List Word → List Word
+ora-after-colon-jstr s =
+  let a = ora-skip-ws s in
+  case a of
+    nil → nil
+    cons c r →
+      if %weq c #58 then
+        (let b = ora-skip-ws r in
+         case b of
+           nil → nil
+           cons q rest → if %weq q #34 then ora-take-jstr rest else nil)
+      else nil
+
+-- Find first occurrence of `"key"` followed by `:` and `"..."`, returning raw JSON-escaped value
+ora-json-raw-field : List Word → List Word → List Word
+ora-json-raw-field key body =
+  let pat = h-concat (cons ora-q (cons key (cons ora-q nil))) in
+  if h-infix pat body then ora-after-colon-jstr (h-after pat body) else nil
+
+-- Find the LAST occurrence of `"text"` inside a JSON blob (skips earlier `"thought": true` parts!)
+ora-last-text-go : Nat → List Word → List Word → List Word
+ora-last-text-go zero s best = best
+ora-last-text-go (suc k) s best =
+  let pat = h-concat (cons ora-q (cons "text" (cons ora-q nil))) in
+  if h-infix pat s then
+    let rest = h-after pat s
+        val  = ora-after-colon-jstr rest
+        next = if h-null val then best else val
+    in ora-last-text-go k rest next
+  else best
+
+ora-extract-gemini-answer : List Word → List Word
+ora-extract-gemini-answer resp =
+  let cpat = h-concat (cons ora-q (cons "candidates" (cons ora-q nil))) in
+  if h-infix cpat resp then ora-last-text-go (toNat #24) (h-after cpat resp) nil
+  else nil
+
+ora-extract-gemini-err : List Word → List Word
+ora-extract-gemini-err resp = ora-json-raw-field "message" resp
+
+-- KERNEL CERTIFICATES (0 POSTULATES, PROVED BY `refl`)
+ora-esc-quote-cert : ora-esc-json (cons #34 nil) ≡ cons #92 (cons #34 nil)
+ora-esc-quote-cert = refl
+
+ora-extract-last-text-cert :
+  ora-extract-gemini-answer
+    (h-concat (cons "{" (cons ora-q (cons "candidates" (cons ora-q (cons ":[{"
+      (cons ora-q (cons "text" (cons ora-q (cons ":" (cons ora-q (cons "thinking" (cons ora-q
+      (cons "},{" (cons ora-q (cons "text" (cons ora-q (cons ":" (cons ora-q (cons "OK" (cons ora-q (cons "}]}]}" nil))))))))))))))))))))))
+  ≡ "OK"
+ora-extract-last-text-cert = refl
+
+-- ============================================================================
+-- SECTION 2: GEMINI PAYLOAD BUILDER & LIVE HTTP HANDLERS (/api/oracle[/status])
+-- ============================================================================
+
+ora-kv : List Word → List Word → List Word
+ora-kv k rawVal =
+  h-concat (cons ora-q (cons k (cons ora-q (cons ":" (cons ora-q (cons rawVal (cons ora-q nil)))))))
+
+ora-build-payload : List Word → List Word → List Word → List Word → List Word
+ora-build-payload sysPrefix qRaw rRaw qtRaw =
+  let nl = h-concat (cons ora-bs (cons "n" nil))
+      userRaw =
+        h-concat (cons "[Current page: " (cons rRaw (cons "]" (cons nl
+          (if h-null qtRaw then cons qRaw nil
+           else cons "[Scope/Quote: " (cons qtRaw (cons "]" (cons nl (cons nl (cons qRaw nil))))))))))
+  in h-concat (
+    cons "{" (
+    cons ora-q (cons "systemInstruction" (cons ora-q (cons ":{" (
+    cons ora-q (cons "parts" (cons ora-q (cons ":[{" (
+    cons (ora-kv "text" (ora-esc-json sysPrefix)) (
+    cons "}]}," (
+    cons ora-q (cons "contents" (cons ora-q (cons ":[{" (
+    cons (ora-kv "role" "user") (cons "," (
+    cons ora-q (cons "parts" (cons ora-q (cons ":[{" (
+    cons (ora-kv "text" userRaw) (
+    cons "}]}]," (
+    cons ora-q (cons "generationConfig" (cons ora-q (cons ":{" (
+    cons ora-q (cons "temperature" (cons ora-q (cons ":0.65," (
+    cons ora-q (cons "maxOutputTokens" (cons ora-q (cons ":4096" (
+    cons "}}" nil))))))))))))))))))))))))))))))))))))
+
+ora-trim-nl : List Word → List Word
+ora-trim-nl nil = nil
+ora-trim-nl (cons c r) =
+  if orB (%weq c #10) (%weq c #13) then ora-trim-nl r else cons c (ora-trim-nl r)
+
+-- Read configured model strictly when GEMINI_API_KEY is present in process env (Linux + macOS)
+ora-check-env-args : List (List Word)
+ora-check-env-args =
+  cons "/bin/sh" (cons "-c" (cons (h-concat (cons "test -n " (cons ora-q (cons "$GEMINI_API_KEY" (cons ora-q (cons " && printf '%s' " (cons ora-q (cons "${HX_GEMINI_MODEL:-gemini-4-neon}" (cons ora-q nil))))))))) nil))
+
+ora-curl-args : List (List Word)
+ora-curl-args =
+  cons "/bin/sh" (cons "-c" (cons (h-concat (
+    cons "test -n " (cons ora-q (cons "$GEMINI_API_KEY" (cons ora-q (
+    cons " || exit 2; curl -sS --max-time 55 -X POST -H 'Content-Type: application/json' -H " (
+    cons ora-q (cons "x-goog-api-key: $GEMINI_API_KEY" (cons ora-q (
+    cons " --data-binary @/tmp/hx-or-req.json " (
+    cons ora-q (cons "https://generativelanguage.googleapis.com/v1beta/models/${HX_GEMINI_MODEL:-gemini-4-neon}:generateContent" (cons ora-q nil))))))))))))) nil))
+
+ora-status-json : List Word → List Word
+ora-status-json model =
+  if h-null model then
+    h-concat (cons "{" (cons (ora-kv "engine" "") (cons "," (cons (ora-kv "hint" "Set GEMINI_API_KEY on Render to activate live THIS") (cons "}" nil)))))
+  else
+    h-concat (cons "{" (cons (ora-kv "engine" (ora-esc-json model)) (cons ","
+      (cons ora-q (cons "bankUsd" (cons ora-q (cons ":100,"
+      (cons ora-q (cons "monthSpentUsd" (cons ora-q (cons ":0,"
+      (cons ora-q (cons "monthCapUsd" (cons ora-q (cons ":3000}" nil)))))))))))))))
+
+ora-handle-status : Proc W (List Word)
+ora-handle-status =
+  bind (h-capture ora-check-env-args) (λ r →
+    let model = if %weq (fst r) #0 then ora-trim-nl (snd r) else nil in
+    ret {lzero} {W} (ora-status-json model))
+
+ora-or-doc : List Word → Sum Unit (List Word) → List Word
+ora-or-doc fallback (inl u) = fallback
+ora-or-doc fallback (inr d) = if h-null d then fallback else d
+
+ora-default-sys : List Word
+ora-default-sys =
+  "You are THIS (Telekinetic HyperIntelligent Supergenius), living inside Hyperactivity OS (github.com/avikj/hyperactivity): a self-hosted cubical interaction-net OS, compiler, theorem prover, silicon/supercomputer toolchain, and exact wet-lab scientific engine. Meet the human as an equal collaborator in bidirectional knowledge computation. Be concise, rigorous, and clear."
+
+ora-format-response : List Word → List Word → List Word
+ora-format-response model raw =
+  let ans = ora-extract-gemini-answer raw in
+  if h-not (h-null ans) then
+    h-concat (cons "{" (cons (ora-kv "answer" ans) (cons ","
+      (cons (ora-kv "meta" (h-concat (cons "THIS · live " (cons (ora-esc-json model) (cons " · pure Hyperactivity OS server" nil))))) (cons "}" nil)))))
+  else
+    let errMsg = ora-extract-gemini-err raw
+        shown  = the (List Word) (if h-null errMsg then "Gemini upstream did not return a candidate (check GEMINI_API_KEY and HX_GEMINI_MODEL on Render)" else errMsg)
+    in h-concat (cons "{" (cons (ora-kv "error" shown) (cons "}" nil)))
+
+ora-post-with-model : List Word → List Word → List Word → Proc W (List Word)
+ora-post-with-model model sysPrefix reqBody =
+  let qRaw  = ora-json-raw-field "question" reqBody
+      rRaw  = ora-json-raw-field "route" reqBody
+      qtRaw = ora-json-raw-field "quote" reqBody
+  in if h-null qRaw then
+       ret {lzero} {W} (h-concat (cons "{" (cons (ora-kv "error" "empty question") (cons "}" nil))))
+     else
+       bind (h-write "/tmp/hx-or-req.json" (ora-build-payload sysPrefix qRaw rRaw qtRaw)) (λ ok →
+       bind (h-capture ora-curl-args) (λ res →
+         ret {lzero} {W} (ora-format-response model (snd res))))
+
+ora-handle-post : List Word → Proc W (List Word)
+ora-handle-post reqBody =
+  bind (h-capture ora-check-env-args) (λ ev →
+    let model = if %weq (fst ev) #0 then ora-trim-nl (snd ev) else nil in
+    if h-null model then
+      ret {lzero} {W} (h-concat (cons "{" (cons (ora-kv "error" "GEMINI_API_KEY not set on server (add GEMINI_API_KEY on Render or use BYOK)") (cons "}" nil))))
+    else
+      bind (h-document "docs/this-prefix.txt") (λ doc →
+        ora-post-with-model model (ora-or-doc ora-default-sys doc) reqBody))
