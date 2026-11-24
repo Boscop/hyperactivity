@@ -1,10 +1,194 @@
-# One source and the ban on code in other languages (Avik, 2026-11-15): every push and pull request is
-# judged by lib/guard.hypercubical, the hyperactive program the pre-commit hook runs, on the commit checked out.
-name: one source
+# Hyperactivity Continuous Verification Matrix (5 parallel gates on every push and PR to main):
+# 1. one-source:           lib/guard.hypercubical (zero foreign code, g-frozen) + store/ROOT closure + KG index coverage
+# 2. kernel-and-brunerie:  make brunerie (0 & 4 workers, CUBICAL_NOCACHE=1 -> -2 + step ratchet), elaboration, c-sound
+# 3. full-library-pouw:    make library (3,168+ defs), lib/pouw, lib/hx, fold/hx-fold, lib/silicon/tapeout, make workflow
+# 4. native-ubsan-e2e:     zero-UB C11 emission of unified `hx` + live GDSII/rANS/FlashAttn/Book/2-process UDP PoUW checks
+# 5. web-and-server-smoke: all 12 HTML treatises JS/DOM checks + live HTTP server smoke test across all 18 public routes
+name: Hyperactivity Verification Matrix
 on: [push, pull_request]
+
 jobs:
-  guard:
+  one-source:
+    name: "1 · One Source & Store Integrity"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: make -s build/cubical && build/cubical lib/guard.hypercubical
+      - name: Build cubical and run lib/guard
+        run: make -s build/cubical && build/cubical lib/guard.hypercubical
+      - name: Verify store/ROOT closure and KG index coverage
+        run: |
+          python3 - <<'PY'
+          import os, json
+          root = open("store/ROOT/root").read().strip()
+          assert len(root) == 64, f"Bad store/ROOT/root: {root!r}"
+          rfile = f"store/{root}/root"
+          assert os.path.exists(rfile), f"Missing root object {rfile}"
+          by_p = {}
+          missing = []
+          for line in open(rfile):
+              ps = line.split()
+              if len(ps) == 2 and ps[0] != "names":
+                  p = bytes.fromhex(ps[0]).decode("utf-8")
+                  h = ps[1]
+                  by_p[p] = h
+                  if not os.path.isdir(f"store/{h}"):
+                      missing.append((p, h))
+          assert not missing, f"Dangling store hashes: {missing[:5]}"
+          kg_mod = open(f"store/{by_p['docs/kg-index.json']}/module").read().strip().split()[-1]
+          kg = json.loads(open(f"store/{kg_mod}/text").read())
+          kg_mods = {m[0] for m in kg["mods"]}
+          domains = ("chem", "fold", "lib", "lqg", "neuro", "phys")
+          expected = {p for p in by_p if p.endswith(".hypercubical") and p.split("/")[0] in domains}
+          uncovered = sorted(expected - kg_mods)
+          assert not uncovered, f"Modules missing from docs/kg-index.json: {uncovered[:10]}"
+          print(f"OK: ROOT={root[:12]} ({len(by_p)} entries, 0 dangling), kg-index covers all {len(expected)} domain modules")
+          PY
+
+  kernel-and-brunerie:
+    name: "2 · Kernel, Brunerie (-2) & Elaboration"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build cubical
+        run: make -s build/cubical
+      - name: Run make brunerie (0 & 4 workers, CUBICAL_NOCACHE=1) + step ratchet
+        run: |
+          make brunerie
+          out=$(CUBICAL_NOCACHE=1 CUBICAL_WORKERS=0 ./build/cubical lib/core.hypercubical experiments/brunerie/typed.hypercubical experiments/brunerie/run-typed.hypercubical)
+          echo "$out" | tail -n 10
+          echo "$out" | grep -q "0 failed"
+          steps=$(echo "$out" | grep -A1 -x brunerie | sed -n 's/.*\[\([0-9]*\) steps.*/\1/p')
+          echo "Brunerie reduction steps: $steps (budget <= 450000)"
+          test -n "$steps" && test "$steps" -le 450000
+      - name: Run elaboration suite and C emitter soundness
+        run: |
+          CUBICAL_NOCACHE=1 ./build/cubical experiments/surface/elaboration.hypercubical | tee /tmp/elab.log
+          grep -q "0 failed" /tmp/elab.log
+          ./build/cubical lib/c-sound.hypercubical | tee /tmp/csound.log
+          grep -q "0 failed" /tmp/csound.log
+
+  full-library-pouw:
+    name: "3 · Full Library, PoUW, Fold & Silicon"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build cubical
+        run: make -s build/cubical
+      - name: Check full library, PoUW, unified hx, fold, tapeout & workflow
+        run: |
+          for m in lib/library.hypercubical lib/pouw.hypercubical lib/hx.hypercubical fold/hx-fold.hypercubical lib/silicon/tapeout.hypercubical workflow/hyperactivity.hypercubical; do
+            echo "=== Checking $m ==="
+            ./build/cubical "$m" | tee /tmp/chk.log
+            grep -q "0 failed" /tmp/chk.log
+          done
+
+  native-ubsan-e2e:
+    name: "4 · Native Zero-UB E2E & Live UDP PoUW"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build cubical and emit unified hx native binary (UBSan)
+        run: |
+          make -s build/cubical
+          mkdir -p /tmp/ci_hx
+          echo '#run (scmd (w-file-write-named "/tmp/ci_hx/hx.c" hx-c) (λ _ → sdone unit))' > /tmp/ci_hx/e_hx.hypercubical
+          ./build/cubical lib/hx.hypercubical /tmp/ci_hx/e_hx.hypercubical
+          CC_BIN=$(command -v clang || command -v gcc)
+          $CC_BIN -std=c11 -O3 -fsanitize=undefined -fno-sanitize-recover=all -o /tmp/ci_hx/hx /tmp/ci_hx/hx.c
+      - name: Run all 6 native engines + live 2-process UDP PoUW + ratchets
+        run: |
+          /tmp/ci_hx/hx tapeout /tmp/ci_hx/foundry
+          python3 - <<'PY'
+          for fn in ["/tmp/ci_hx/foundry_xor4_gaa3nm.gds", "/tmp/ci_hx/foundry_hypercore_soc_5layer.gds"]:
+              b = open(fn, "rb").read()
+              assert b[:6] == b"\x00\x06\x00\x02\x02\x58" and b[-4:] == b"\x00\x04\x04\x00", f"Invalid GDSII v6.0: {fn}"
+          sv = open("/tmp/ci_hx/foundry_rtl.sv").read()
+          assert sv.count("module ") >= 8, "Expected 8 SystemVerilog modules"
+          print("GDSII v6.0 + 8-module SV RTL verified!")
+          PY
+          /tmp/ci_hx/hx zip /tmp/ci_hx/foundry_hypercore_soc_5layer.gds /tmp/ci_hx/soc.hxz
+          /tmp/ci_hx/hx unzip /tmp/ci_hx/soc.hxz /tmp/ci_hx/soc.gds
+          cmp /tmp/ci_hx/foundry_hypercore_soc_5layer.gds /tmp/ci_hx/soc.gds
+          sz=$(wc -c < /tmp/ci_hx/soc.hxz)
+          echo "hxz GDSII size: $sz bytes (ratchet <= 270)"
+          test "$sz" -le 270
+          /tmp/ci_hx/hx tensor 200000 2000 | tee /tmp/ci_hx/tensor.log
+          grep -q "out=54" /tmp/ci_hx/tensor.log && grep -q "EXACT" /tmp/ci_hx/tensor.log
+          /tmp/ci_hx/hx book 500000 | tee /tmp/ci_hx/book.log
+          grep -q "OrderBook N=500000" /tmp/ci_hx/book.log
+          python3 - <<'PY'
+          import subprocess, time
+          p1 = subprocess.Popen(["/tmp/ci_hx/hx", "node", "listen", "47491"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+          time.sleep(0.15)
+          c1 = subprocess.run(["/tmp/ci_hx/hx", "node", "send", "47491", "valid"], capture_output=True, text=True, timeout=5)
+          s1, _ = p1.communicate(timeout=5)
+          print("UDP VALID:", s1.strip(), "|", c1.stdout.strip())
+          assert "ACCEPT:escrow=0:bal=150:conserved=150" in c1.stdout
+          p2 = subprocess.Popen(["/tmp/ci_hx/hx", "node", "listen", "47492"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+          time.sleep(0.15)
+          c2 = subprocess.run(["/tmp/ci_hx/hx", "node", "send", "47492", "forged"], capture_output=True, text=True, timeout=5)
+          s2, _ = p2.communicate(timeout=5)
+          print("UDP FORGED:", s2.strip(), "|", c2.stdout.strip())
+          assert "REJECT:escrow=100:bal=50:forged=1" in c2.stdout
+          PY
+
+  web-and-server-smoke:
+    name: "5 · Web Treatises (JS/DOM) & Live HTTP Server Smoke"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build cubical
+        run: make -s build/cubical
+      - name: Verify all 12 HTML treatises (node --check & DOM IDs)
+        run: |
+          python3 - <<'PY'
+          import os, re, subprocess
+          root = open("store/ROOT/root").read().strip()
+          by_p = {}
+          for l in open(f"store/{root}/root"):
+              ps = l.split()
+              if len(ps) == 2 and ps[0] != "names":
+                  by_p[bytes.fromhex(ps[0]).decode()] = ps[1]
+          pages = [
+              "docs/home.html", "docs/learn.html", "docs/hyperfactor.html", "docs/decentralized.html",
+              "docs/ai.html", "docs/silicon.html", "docs/kernel.html", "docs/kg.html",
+              "docs/nets.html", "docs/neuro.html", "docs/physics.html", "docs/resonance.html"
+          ]
+          strict_ids = {"docs/home.html", "docs/hyperfactor.html", "docs/decentralized.html"}
+          for p in pages:
+              m = open(f"store/{by_p[p]}/module").read().strip().split()[-1]
+              html = open(f"store/{m}/text").read()
+              for i, sc in enumerate(re.findall(r"<script(?:\s[^>]*)?>(.*?)</script>", html, re.S)):
+                  if sc.strip():
+                      fn = f"/tmp/chk_{os.path.basename(p)}_{i}.js"
+                      open(fn, "w").write(sc)
+                      r = subprocess.run(["node", "--check", fn], capture_output=True, text=True)
+                      assert r.returncode == 0, f"JS syntax error in {p}#{i}: {r.stderr}"
+              if p in strict_ids:
+                  assert "<!--HX:NAV-->" in html, f"Missing <!--HX:NAV--> in {p}"
+                  ids = set(re.findall(r'id="([^"]+)"', html))
+                  refs = set(re.findall(r'getElementById\(["\x27]([^"\x27]+)["\x27]\)', html))
+                  assert not (refs - ids), f"Missing DOM IDs in {p}: {refs - ids}"
+              print(f"OK: {p} ({len(html)} B)")
+          PY
+      - name: Boot real Hyperactivity HTTP server and smoke-test all 18 public routes
+        run: |
+          ./hyperactive server 18080 > /tmp/srv.log 2>&1 &
+          SRV_PID=$!
+          trap "kill $SRV_PID 2>/dev/null || true" EXIT
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:18080/healthz >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:18080/healthz | grep -qx "ok"
+          for route in "/" "/archive" "/learn" "/hyperfactor" "/decentralized" "/pouw" "/silicon" "/ai" "/physics" "/neuro" "/ide" "/kg" "/pdf" "/monograph" "/nets" "/sitemap.xml" "/api/kg/index"; do
+            code=$(curl -s -o /tmp/page.out -w "%{http_code}" "http://127.0.0.1:18080${route}")
+            echo "$code  $route"
+            test "$code" -eq 200
+          done
+          curl -sf http://127.0.0.1:18080/ > /tmp/root.html
+          grep -q "/decentralized" /tmp/root.html
+          grep -q "/hyperfactor" /tmp/root.html
+          grep -q "/archive" /tmp/root.html
+          grep -q "Computing," /tmp/root.html
+          echo "All 18 live HTTP routes verified 200!"
