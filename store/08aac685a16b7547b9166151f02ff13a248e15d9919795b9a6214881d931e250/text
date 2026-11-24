@@ -1,0 +1,19 @@
+-- Single shared mechanical AST expression printer (valid across C11, Metal, CUDA, and SystemVerilog!)
+kir-emit-expr : List Word → List Word → WExpr → List Word
+kir-emit-expr k0 _  (we-k false)   = k0
+kir-emit-expr _  k1 (we-k true)    = k1
+kir-emit-expr _  _  (we-v i)       = kir-var-name i
+kir-emit-expr k0 k1 (we-not a)     = list-append "(~" (list-append (kir-emit-expr k0 k1 a) ")")
+kir-emit-expr k0 k1 (we-xor a b)   = list-append "(" (list-append (kir-emit-expr k0 k1 a) (list-append " ^ " (list-append (kir-emit-expr k0 k1 b) ")")))
+kir-emit-expr k0 k1 (we-and a b)   = list-append "(" (list-append (kir-emit-expr k0 k1 a) (list-append " & " (list-append (kir-emit-expr k0 k1 b) ")")))
+kir-emit-expr k0 k1 (we-or  a b)   = list-append "(" (list-append (kir-emit-expr k0 k1 a) (list-append " | " (list-append (kir-emit-expr k0 k1 b) ")")))
+kir-emit-expr k0 k1 (we-ch  e f g) =
+  let es = kir-emit-expr k0 k1 e
+      fs = kir-emit-expr k0 k1 f
+      gs = kir-emit-expr k0 k1 g
+  in list-append "(" (list-append gs (list-append " ^ (" (list-append es (list-append " & (" (list-append fs (list-append " ^ " (list-append gs ")))")))))))
+kir-emit-expr k0 k1 (we-maj a b c) =
+  let as = kir-emit-expr k0 k1 a
+      bs = kir-emit-expr k0 k1 b
+      cs = kir-emit-expr k0 k1 c
+  in list-append "(" (list-append as (list-append " ^ ((" (list-append as (list-append " ^ " (list-append bs (list-append ") & (" (list-append as (list-append " ^ " (list-append cs ")))")))))))))
