@@ -1,0 +1,19 @@
+g-check-root-lines : List (List Word) → Proc W (List Word)
+g-check-root-lines nil = ret {lzero} {W} nil
+g-check-root-lines (cons ln lns) =
+  let ws = h-split #32 ln
+  in case ws of
+    nil → g-check-root-lines lns
+    cons hx rest →
+      case rest of
+        nil → g-check-root-lines lns
+        cons mh _ →
+          if h-eq hx "names" then g-check-root-lines lns
+          else let p = h-unhex hx
+               in if andB (h-prefix "lib/" p) (andB (h-ends ".hypercubical" p) (h-not (g-tcb-or-legacy p)))
+                  then bind (h-read (list-append "store/" (list-append mh "/module"))) (λ mm →
+                    case mm of
+                      inl _ → g-check-root-lines lns
+                      inr modt → bind (g-check-chunks p (h-split #10 modt)) (λ err →
+                        bind (g-check-root-lines lns) (λ more → ret {lzero} {W} (list-append err more))))
+                  else g-check-root-lines lns
