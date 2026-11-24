@@ -1,0 +1,298 @@
+-- lib/ir/tensor-rank-opt.hypercubical — HX-STRASSEN (41st Engine):
+-- Universal Bilinear Tensor-Rank & Convolution/Matrix/Polynomial Superoptimizer
+--
+-- ZERO postulates. ZERO floats. ZERO Python. ZERO raw foreign-code string smuggling!
+-- Passes `lib/guard.hypercubical` (`g-smuggles-foreign == false`) NATIVELY.
+--
+-- Proves FIVE foundational bilinear tensor-rank superoptimizations universally over EVERY
+-- commutative ring Z[x_0..x_{n-1}] by exact canonical `PolyZ` normal form (`refl`),
+-- and lowers all five through `lib/ir/poly-opt.hypercubical`'s certified 4-target functor
+-- (ISO C11, Apple Metal, NVIDIA CUDA, SystemVerilog RTL):
+--   1. STRASSEN 1969 (2x2 Matrix Multiply):       8 muls -> 7 muls (-12.5%, O(N^{2.8074}))
+--   2. WINOGRAD-STRASSEN (2x2 Matrix Multiply):   8 muls -> 7 muls AND 18 adds -> 15 adds (-16.7% adds vs Strassen!)
+--   3. WINOGRAD F(2,3) 1D CONVOLUTION (cuDNN):    6 muls -> 4 muls (-33.3% multiplies!)
+--   4. TOOM-COOK-3 (Bodrato deg-2 x deg-2 poly):  9 muls -> 5 muls (-44.4% multiplies, GMP / Post-Quantum ML-KEM core!)
+--   5. 3M DUAL COMPLEX MULTIPLY (2x Gauss 3M):    8 muls -> 6 muls (-25.0% multiplies!)
+import "poly-opt.hypercubical"
+
+-- ============================================================================
+-- SECTION 1: EXACT ADDITION-COUNT & MULTIPLY-SAVINGS METRICS (0 POSTULATES)
+-- ============================================================================
+
+tr-re-adds : RExpr → Word
+tr-re-adds (re-k _)     = #0
+tr-re-adds (re-v _)     = #0
+tr-re-adds (re-add a b) = %wadd #1 (%wadd (tr-re-adds a) (tr-re-adds b))
+tr-re-adds (re-sub a b) = %wadd #1 (%wadd (tr-re-adds a) (tr-re-adds b))
+tr-re-adds (re-mul a b) = %wadd (tr-re-adds a) (tr-re-adds b)
+
+tr-lets-adds : List (Word × RExpr) → Word
+tr-lets-adds nil = #0
+tr-lets-adds (cons b bs) = %wadd (tr-re-adds (snd b)) (tr-lets-adds bs)
+
+tr-outs-adds : List RExpr → Word
+tr-outs-adds nil = #0
+tr-outs-adds (cons e es) = %wadd (tr-re-adds e) (tr-outs-adds es)
+
+tr-rp-adds : RProg → Word
+tr-rp-adds (rprog _ lets outs) = %wadd (tr-lets-adds lets) (tr-outs-adds outs)
+
+-- Exact addition-only small-integer scaling helpers (ZERO extra multiplications!)
+tr-dbl : RExpr → RExpr
+tr-dbl x = re-add x x
+
+tr-x3 : RExpr → RExpr
+tr-x3 x = re-add x (re-add x x)
+
+tr-x4 : RExpr → RExpr
+tr-x4 x = tr-dbl (tr-dbl x)
+
+tr-x6 : RExpr → RExpr
+tr-x6 x = tr-dbl (tr-x3 x)
+
+tr-x12 : RExpr → RExpr
+tr-x12 x = tr-dbl (tr-x6 x)
+
+-- ============================================================================
+-- SECTION 2: STRASSEN 1969 & WINOGRAD-STRASSEN 2x2 MATRIX MULTIPLY (8 -> 7 MULS)
+-- ============================================================================
+-- Inputs: A = [[v0, v1], [v2, v3]],  B = [[v4, v5], [v6, v7]]
+-- Outputs: C = A * B = [C00, C01, C10, C11]
+
+tr-matmul2-spec : RProg
+tr-matmul2-spec =
+  rprog #8 nil
+    (cons (re-add (re-mul (re-v #0) (re-v #4)) (re-mul (re-v #1) (re-v #6)))
+    (cons (re-add (re-mul (re-v #0) (re-v #5)) (re-mul (re-v #1) (re-v #7)))
+    (cons (re-add (re-mul (re-v #2) (re-v #4)) (re-mul (re-v #3) (re-v #6)))
+    (cons (re-add (re-mul (re-v #2) (re-v #5)) (re-mul (re-v #3) (re-v #7))) nil))))
+
+-- 1. Classic Strassen 1969: 7 muls, 18 adds (v8..v14 = M1..M7)
+tr-strassen-cand : RProg
+tr-strassen-cand =
+  rprog #8
+    (cons (#8  , re-mul (re-add (re-v #0) (re-v #3)) (re-add (re-v #4) (re-v #7)))
+    (cons (#9  , re-mul (re-add (re-v #2) (re-v #3)) (re-v #4))
+    (cons (#10 , re-mul (re-v #0) (re-sub (re-v #5) (re-v #7)))
+    (cons (#11 , re-mul (re-v #3) (re-sub (re-v #6) (re-v #4)))
+    (cons (#12 , re-mul (re-add (re-v #0) (re-v #1)) (re-v #7))
+    (cons (#13 , re-mul (re-sub (re-v #2) (re-v #0)) (re-add (re-v #4) (re-v #5)))
+    (cons (#14 , re-mul (re-sub (re-v #1) (re-v #3)) (re-add (re-v #6) (re-v #7))) nil)))))))
+    (cons (re-add (re-sub (re-add (re-v #8) (re-v #11)) (re-v #12)) (re-v #14))
+    (cons (re-add (re-v #10) (re-v #12))
+    (cons (re-add (re-v #9) (re-v #11))
+    (cons (re-add (re-add (re-sub (re-v #8) (re-v #9)) (re-v #10)) (re-v #13)) nil))))
+
+-- THEOREM 1: STRASSEN 1969 UNIVERSAL RING EQUIVALENCE & 7 <= 8 MULS BY `refl`!
+cert-strassen-2x2 : PolyOptCert
+cert-strassen-2x2 = mk-poly-cert "strassen_2x2" tr-matmul2-spec tr-strassen-cand refl refl
+
+-- 2. Winograd-Strassen: 7 muls, ONLY 15 adds (saves 3 adds per recursion level over Strassen!)
+--   S1=v8=a10+a11, S2=v9=S1-a00, S3=v10=a00-a10, S4=v11=a01-S2
+--   T1=v12=b01-b00, T2=v13=b11-T1, T3=v14=b11-b01, T4=v15=T2-b10
+--   P1=v16=a00*b00, P2=v17=a01*b10, P3=v18=S4*b11, P4=v19=a11*T4
+--   P5=v20=S1*T1, P6=v21=S2*T2, P7=v22=S3*T3
+--   U2=v23=P1+P6, U3=v24=U2+P7, U4=v25=U2+P5
+--   C00=P1+P2, C01=U4+P3, C10=U3-P4, C11=U3+P5
+tr-wino-strassen-cand : RProg
+tr-wino-strassen-cand =
+  rprog #8
+    (cons (#8  , re-add (re-v #2) (re-v #3))
+    (cons (#9  , re-sub (re-v #8) (re-v #0))
+    (cons (#10 , re-sub (re-v #0) (re-v #2))
+    (cons (#11 , re-sub (re-v #1) (re-v #9))
+    (cons (#12 , re-sub (re-v #5) (re-v #4))
+    (cons (#13 , re-sub (re-v #7) (re-v #12))
+    (cons (#14 , re-sub (re-v #7) (re-v #5))
+    (cons (#15 , re-sub (re-v #13) (re-v #6))
+    (cons (#16 , re-mul (re-v #0) (re-v #4))
+    (cons (#17 , re-mul (re-v #1) (re-v #6))
+    (cons (#18 , re-mul (re-v #11) (re-v #7))
+    (cons (#19 , re-mul (re-v #3) (re-v #15))
+    (cons (#20 , re-mul (re-v #8) (re-v #12))
+    (cons (#21 , re-mul (re-v #9) (re-v #13))
+    (cons (#22 , re-mul (re-v #10) (re-v #14))
+    (cons (#23 , re-add (re-v #16) (re-v #21))
+    (cons (#24 , re-add (re-v #23) (re-v #22))
+    (cons (#25 , re-add (re-v #23) (re-v #20)) nil))))))))))))))))))
+    (cons (re-add (re-v #16) (re-v #17))
+    (cons (re-add (re-v #25) (re-v #18))
+    (cons (re-sub (re-v #24) (re-v #19))
+    (cons (re-add (re-v #24) (re-v #20)) nil))))
+
+-- THEOREM 2: WINOGRAD-STRASSEN UNIVERSAL RING EQUIVALENCE (7 MULS) & 15 < 18 ADDS BY `refl`!
+cert-wino-strassen-2x2 : PolyOptCert
+cert-wino-strassen-2x2 = mk-poly-cert "winograd_strassen_2x2" tr-matmul2-spec tr-wino-strassen-cand refl refl
+
+tr-thm-wino-saves-adds :
+  andB (%weq (tr-rp-adds tr-strassen-cand) #18)
+       (%weq (tr-rp-adds tr-wino-strassen-cand) #15) ≡ true
+tr-thm-wino-saves-adds = refl
+
+-- ============================================================================
+-- SECTION 3: WINOGRAD F(2, 3) 1D CONVOLUTION (6 MULS -> 4 MULS, -33.3%!)
+-- ============================================================================
+-- Inputs: signal taps d0..d3 = v0..v3, filter weights g0..g2 = v4..v6
+-- Outputs (scaled by 2 for exact division-free Z[x]): [2*y0, 2*y1]
+
+tr-wino23-spec : RProg
+tr-wino23-spec =
+  rprog #7
+    (cons (#7 , re-add (re-add (re-mul (re-v #0) (re-v #4)) (re-mul (re-v #1) (re-v #5))) (re-mul (re-v #2) (re-v #6)))
+    (cons (#8 , re-add (re-add (re-mul (re-v #1) (re-v #4)) (re-mul (re-v #2) (re-v #5))) (re-mul (re-v #3) (re-v #6))) nil))
+    (cons (tr-dbl (re-v #7))
+    (cons (tr-dbl (re-v #8)) nil))
+
+tr-wino23-cand : RProg
+tr-wino23-cand =
+  rprog #7
+    (cons (#7  , re-mul (re-sub (re-v #0) (re-v #2)) (tr-dbl (re-v #4)))
+    (cons (#8  , re-mul (re-add (re-v #1) (re-v #2)) (re-add (re-add (re-v #4) (re-v #5)) (re-v #6)))
+    (cons (#9  , re-mul (re-sub (re-v #2) (re-v #1)) (re-add (re-sub (re-v #4) (re-v #5)) (re-v #6)))
+    (cons (#10 , re-mul (re-sub (re-v #1) (re-v #3)) (tr-dbl (re-v #6))) nil))))
+    (cons (re-add (re-add (re-v #7) (re-v #8)) (re-v #9))
+    (cons (re-sub (re-sub (re-v #8) (re-v #9)) (re-v #10)) nil))
+
+-- THEOREM 3: WINOGRAD F(2,3) CONVOLUTION EQUIVALENCE & 4 <= 6 MULS (-33.3%) BY `refl`!
+cert-winograd-f23 : PolyOptCert
+cert-winograd-f23 = mk-poly-cert "winograd_f23" tr-wino23-spec tr-wino23-cand refl refl
+
+-- ============================================================================
+-- SECTION 4: TOOM-COOK-3 (BODRATO) POLYNOMIAL MULTIPLICATION (9 MULS -> 5 MULS, -44.4%!)
+-- ============================================================================
+-- Inputs: P(x) = v0 + v1*x + v2*x^2,  Q(x) = v3 + v4*x + v5*x^2
+-- Outputs (scaled by 6 for exact division-free Z[x]): [6*c0, 6*c1, 6*c2, 6*c3, 6*c4]
+
+tr-toom3-spec : RProg
+tr-toom3-spec =
+  rprog #6
+    (cons (#6  , re-mul (re-v #0) (re-v #3))
+    (cons (#7  , re-add (re-mul (re-v #0) (re-v #4)) (re-mul (re-v #1) (re-v #3)))
+    (cons (#8  , re-add (re-add (re-mul (re-v #0) (re-v #5)) (re-mul (re-v #1) (re-v #4))) (re-mul (re-v #2) (re-v #3)))
+    (cons (#9  , re-add (re-mul (re-v #1) (re-v #5)) (re-mul (re-v #2) (re-v #4)))
+    (cons (#10 , re-mul (re-v #2) (re-v #5)) nil)))))
+    (cons (tr-x6 (re-v #6))
+    (cons (tr-x6 (re-v #7))
+    (cons (tr-x6 (re-v #8))
+    (cons (tr-x6 (re-v #9))
+    (cons (tr-x6 (re-v #10)) nil)))))
+
+-- 5 pointwise evaluations at {0, +1, -1, -2, inf} -> 5 muls (v6..v10 = r0, r1, rm1, rm2, rinf):
+tr-toom3-cand : RProg
+tr-toom3-cand =
+  rprog #6
+    (cons (#6  , re-mul (re-v #0) (re-v #3))
+    (cons (#7  , re-mul (re-add (re-add (re-v #0) (re-v #1)) (re-v #2)) (re-add (re-add (re-v #3) (re-v #4)) (re-v #5)))
+    (cons (#8  , re-mul (re-add (re-sub (re-v #0) (re-v #1)) (re-v #2)) (re-add (re-sub (re-v #3) (re-v #4)) (re-v #5)))
+    (cons (#9  , re-mul (re-add (re-sub (re-v #0) (tr-dbl (re-v #1))) (tr-x4 (re-v #2)))
+                        (re-add (re-sub (re-v #3) (tr-dbl (re-v #4))) (tr-x4 (re-v #5))))
+    (cons (#10 , re-mul (re-v #2) (re-v #5))
+    (cons (#11 , tr-x6 (re-v #6))
+    (cons (#12 , tr-x6 (re-v #10))
+    (cons (#13 , re-add (re-sub (re-sub (re-add (re-v #7) (tr-x3 (re-v #8))) (re-v #9)) (tr-x3 (re-v #6))) (tr-x12 (re-v #10))) nil))))))))
+    (cons (re-v #11)
+    (cons (re-sub (tr-x3 (re-sub (re-v #7) (re-v #8))) (re-v #13))
+    (cons (re-sub (re-sub (tr-x3 (re-add (re-v #7) (re-v #8))) (re-v #11)) (re-v #12))
+    (cons (re-v #13)
+    (cons (re-v #12) nil)))))
+
+-- THEOREM 4: TOOM-COOK-3 UNIVERSAL RING EQUIVALENCE & 5 <= 9 MULS (-44.4%) BY `refl`!
+cert-toom-cook-3 : PolyOptCert
+cert-toom-cook-3 = mk-poly-cert "toom_cook_3" tr-toom3-spec tr-toom3-cand refl refl
+
+-- ============================================================================
+-- SECTION 5: 3M DUAL COMPLEX MULTIPLY (8 MULS -> 6 MULS, -25.0%!)
+-- ============================================================================
+-- Computes (v0 + i*v1)*(v2 + i*v3) AND (v4 + i*v5)*(v6 + i*v7) in 6 muls instead of 8!
+
+tr-dual-cmul-spec : RProg
+tr-dual-cmul-spec =
+  rprog #8 nil
+    (cons (re-sub (re-mul (re-v #0) (re-v #2)) (re-mul (re-v #1) (re-v #3)))
+    (cons (re-add (re-mul (re-v #0) (re-v #3)) (re-mul (re-v #1) (re-v #2)))
+    (cons (re-sub (re-mul (re-v #4) (re-v #6)) (re-mul (re-v #5) (re-v #7)))
+    (cons (re-add (re-mul (re-v #4) (re-v #7)) (re-mul (re-v #5) (re-v #6))) nil))))
+
+tr-dual-cmul-cand : RProg
+tr-dual-cmul-cand =
+  rprog #8
+    (cons (#8  , re-mul (re-v #0) (re-add (re-v #2) (re-v #3)))
+    (cons (#9  , re-mul (re-v #3) (re-add (re-v #0) (re-v #1)))
+    (cons (#10 , re-mul (re-v #2) (re-sub (re-v #1) (re-v #0)))
+    (cons (#11 , re-mul (re-v #4) (re-add (re-v #6) (re-v #7)))
+    (cons (#12 , re-mul (re-v #7) (re-add (re-v #4) (re-v #5)))
+    (cons (#13 , re-mul (re-v #6) (re-sub (re-v #5) (re-v #4))) nil))))))
+    (cons (re-sub (re-v #8) (re-v #9))
+    (cons (re-add (re-v #8) (re-v #10))
+    (cons (re-sub (re-v #11) (re-v #12))
+    (cons (re-add (re-v #11) (re-v #13)) nil))))
+
+-- THEOREM 5: 3M DUAL COMPLEX MULTIPLY EQUIVALENCE & 6 <= 8 MULS (-25.0%) BY `refl`!
+cert-dual-complex-3m : PolyOptCert
+cert-dual-complex-3m = mk-poly-cert "dual_complex_3m" tr-dual-cmul-spec tr-dual-cmul-cand refl refl
+
+-- ============================================================================
+-- SECTION 6: EXACT AGGREGATE MULTIPLY SAVINGS CERTIFICATE (39 -> 29 MULS, -25.6%!)
+-- ============================================================================
+
+tr-spec-muls-total : Word
+tr-spec-muls-total =
+  %wadd (rp-muls tr-matmul2-spec)
+  (%wadd (rp-muls tr-matmul2-spec)
+  (%wadd (rp-muls tr-wino23-spec)
+  (%wadd (rp-muls tr-toom3-spec)
+         (rp-muls tr-dual-cmul-spec))))
+
+tr-opt-muls-total : Word
+tr-opt-muls-total =
+  %wadd (rp-muls tr-strassen-cand)
+  (%wadd (rp-muls tr-wino-strassen-cand)
+  (%wadd (rp-muls tr-wino23-cand)
+  (%wadd (rp-muls tr-toom3-cand)
+         (rp-muls tr-dual-cmul-cand))))
+
+tr-thm-exact-mul-counts :
+  andB (%weq (rp-muls tr-matmul2-spec) #8)
+  (andB (%weq (rp-muls tr-strassen-cand) #7)
+  (andB (%weq (rp-muls tr-wino-strassen-cand) #7)
+  (andB (%weq (rp-muls tr-wino23-spec) #6)
+  (andB (%weq (rp-muls tr-wino23-cand) #4)
+  (andB (%weq (rp-muls tr-toom3-spec) #9)
+  (andB (%weq (rp-muls tr-toom3-cand) #5)
+  (andB (%weq (rp-muls tr-dual-cmul-spec) #8)
+        (%weq (rp-muls tr-dual-cmul-cand) #6)))))))) ≡ true
+tr-thm-exact-mul-counts = refl
+
+tr-thm-total-mul-reduction :
+  andB (%weq tr-spec-muls-total #39)
+       (%weq tr-opt-muls-total #29) ≡ true
+tr-thm-total-mul-reduction = refl
+
+-- ============================================================================
+-- SECTION 7: ZERO-FOREIGN-STRING CERTIFIED 4-TARGET LOWERING (C11, METAL, CUDA, SV)
+-- ============================================================================
+-- Zero raw foreign syntax strings here: 100% delegated to certified `po-lower-ring-*` functors!
+
+tr-lower-all-both : KTarget → List Word → List Word
+tr-lower-all-both t tail =
+  po-lower-ring-both t cert-strassen-2x2
+  (po-lower-ring-both t cert-wino-strassen-2x2
+  (po-lower-ring-both t cert-winograd-f23
+  (po-lower-ring-both t cert-toom-cook-3
+  (po-lower-ring-both t cert-dual-complex-3m tail))))
+
+tr-lower-all-cand : KTarget → List Word → List Word
+tr-lower-all-cand t tail =
+  po-lower-ring-cand t cert-strassen-2x2
+  (po-lower-ring-cand t cert-wino-strassen-2x2
+  (po-lower-ring-cand t cert-winograd-f23
+  (po-lower-ring-cand t cert-toom-cook-3
+  (po-lower-ring-cand t cert-dual-complex-3m tail))))
+
+tr-lower-all-sv : List Word → List Word
+tr-lower-all-sv tail =
+  po-lower-ring-sv cert-strassen-2x2
+  (po-lower-ring-sv cert-wino-strassen-2x2
+  (po-lower-ring-sv cert-winograd-f23
+  (po-lower-ring-sv cert-toom-cook-3
+  (po-lower-ring-sv cert-dual-complex-3m tail))))
