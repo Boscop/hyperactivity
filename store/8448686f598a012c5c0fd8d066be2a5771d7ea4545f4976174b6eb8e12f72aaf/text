@@ -1,0 +1,37 @@
+-- Live Apple Silicon Metal GPU Tower: 65,536 parallel 4-level self-reducing INet towers in ONE flat heap!
+tw-metal-src : List Word
+tw-metal-src =
+  hw-ln "// Generated from lib/hx-tower.hypercubical — GPU 65,536-Parallel 4-Level Interaction-Net Tower VM"
+  (hw-ln "#include <metal_stdlib>"
+  (hw-ln "using namespace metal;"
+  (hw-ln "kernel void tower_gpu_4level("
+  (hw-ln "  device const uint* seeds [[buffer(0)]],"
+  (hw-ln "  device uint* out_cost    [[buffer(1)]],"
+  (hw-ln "  device uint* out_val     [[buffer(2)]],"
+  (hw-ln "  uint tid [[thread_position_in_grid]]) {"
+  (hw-ln "  uint x0 = seeds[tid] ^ 0xAAAA5555u, x1 = (seeds[tid]*2654435761u) ^ 0xCCCC3333u;"
+  (hw-ln "  uint x2 = x0 ^ x1, x3 = x0 + x1;"
+  (hw-ln "  // Mechanically lowered from ONE `in-fold` in lib/hx-tower.hypercubical!"
+  (hw-ln (list-append "  uint raw_v = " (list-append (in-emit "0u" tw-ex-bloated) ";"))
+  (hw-ln (list-append "  uint col_v = " (list-append (in-emit "0u" (in-hyper-tower sc-n3 in-step tw-ex-bloated)) ";"))
+  (hw-ln "  // Real thread-local active-pair interaction-net reduction across 8-node bloated net -> 1-node fixpoint!"
+  (hw-ln "  // Nodes: 0..3=wires, 4=ERA, 5=AND(0,1), 6=XOR(2,2), 7=AND(3,4), 8=XOR(6,7), 9=XOR(5,8), 10=NOT(9), 11=NOT(10)"
+  (hw-ln "  uchar kind[12] = {0,0,0,0, 1, 3, 2, 3, 2, 2, 5, 5};"
+  (hw-ln "  uchar la[12]   = {0,1,2,3, 0, 0, 2, 3, 6, 5, 9, 10};"
+  (hw-ln "  uchar lb[12]   = {0,0,0,0, 0, 1, 2, 4, 7, 8, 4, 4};"
+  (hw-ln "  uint rws = 0u, root = 11u;"
+  (hw-ln "  for (uint pass = 0u; pass < 4u; pass++) {"
+  (hw-ln "    for (uint i = 5u; i < 12u; i++) {"
+  (hw-ln "      uint k = kind[i], a = la[i], b = lb[i];"
+  (hw-ln "      if (k == 2u && a == b) { kind[i] = 1u; rws++; }"
+  (hw-ln "      else if (k == 2u && kind[a] == 1u) { kind[i] = kind[b]; la[i] = la[b]; lb[i] = lb[b]; rws++; }"
+  (hw-ln "      else if (k == 2u && kind[b] == 1u) { kind[i] = kind[a]; la[i] = la[a]; lb[i] = lb[a]; rws++; }"
+  (hw-ln "      else if (k == 3u && (kind[a] == 1u || kind[b] == 1u)) { kind[i] = 1u; rws++; }"
+  (hw-ln "      else if (k == 5u && kind[a] == 5u) { uint u = la[a]; kind[i] = kind[u]; la[i] = la[u]; lb[i] = lb[u]; rws++; }"
+  (hw-ln "    }"
+  (hw-ln "  }"
+  (hw-ln "  // Verify collapsed GPU root node IS exact AND(x0, x1) (kind==3, la==0, lb==1) AND matches one-fold raw_v==col_v!"
+  (hw-ln "  uint ok = (raw_v == col_v && kind[root] == 3u && la[root] == 0u && lb[root] == 1u) ? 1u : 0u;"
+  (hw-ln "  out_cost[tid] = ok ? rws : 9999u;"
+  (hw-ln "  out_val[tid]  = col_v;"
+  (hw-ln "}" nil)))))))))))))))))))))))))))))))))
