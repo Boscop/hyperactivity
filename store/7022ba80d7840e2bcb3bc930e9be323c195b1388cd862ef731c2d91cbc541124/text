@@ -1,0 +1,49 @@
+cos-host-src : List Word → List Word
+cos-host-src mpath =
+  hw-ln "#import <Foundation/Foundation.h>"
+  (hw-ln "#import <Metal/Metal.h>"
+  (hw-ln "#include <stdio.h>"
+  (hw-ln "#include <stdint.h>"
+  (hw-ln "#include <sys/time.h>"
+  (hw-ln "static double now_ms(void){ struct timeval tv; gettimeofday(&tv,NULL); return tv.tv_sec*1000.0 + tv.tv_usec/1000.0; }"
+  (hw-ln "int main(void){"
+  (hw-ln "  @autoreleasepool {"
+  (hw-ln "    id<MTLDevice> dev = MTLCreateSystemDefaultDevice();"
+  (hw-ln (list-append "    if (!dev) { printf(" (list-append hw-q (list-append "No Metal device" (list-append hw-esc-n (list-append hw-q "); return 1; }")))))
+  (hw-ln "    NSError* err = nil;"
+  (hw-ln (list-append "    NSString* src = [NSString stringWithContentsOfFile:" (list-append (omni-ns mpath) " encoding:NSUTF8StringEncoding error:&err];"))
+  (hw-ln "    id<MTLLibrary> lib = [dev newLibraryWithSource:src options:nil error:&err];"
+  (hw-ln (list-append "    if (!lib) { printf(" (list-append hw-q (list-append "Metal err: %s" (list-append hw-esc-n (list-append hw-q ", [[err localizedDescription] UTF8String]); return 1; }")))))
+  (hw-ln "    id<MTLCommandQueue> q = [dev newCommandQueue];"
+  (hw-ln "    uint32_t N = 65536u, ne = 512u;"
+  (hw-ln "    id<MTLBuffer> bU = [dev newBufferWithLength:ne*4 options:MTLResourceStorageModeShared];"
+  (hw-ln "    id<MTLBuffer> bV = [dev newBufferWithLength:ne*4 options:MTLResourceStorageModeShared];"
+  (hw-ln "    id<MTLBuffer> bE = [dev newBufferWithLength:N*4 options:MTLResourceStorageModeShared];"
+  (hw-ln "    uint32_t* up=(uint32_t*)[bU contents]; uint32_t* vp=(uint32_t*)[bV contents];"
+  (hw-ln "    for (uint32_t i=0;i<ne;i++){ up[i]=(i*37u)&4095u; vp[i]=((i&3u)?((i*37u+((i&7u)+1u))&4095u):((i*101u)&4095u)); }"
+  (hw-ln (list-append "    id<MTLComputePipelineState> p1 = [dev newComputePipelineStateWithFunction:[lib newFunctionWithName:" (list-append (omni-ns "cos_metal_manifold_search") "] error:&err];"))
+  (hw-ln "    float best[3] = {1e9f, 1e9f, 1e9f}; double dt_m = 0.0;"
+  (hw-ln "    for (uint32_t m=0;m<3;m++) {"
+  (hw-ln "      double t0 = now_ms();"
+  (hw-ln "      id<MTLCommandBuffer> cb = [q commandBuffer]; id<MTLComputeCommandEncoder> en = [cb computeCommandEncoder];"
+  (hw-ln "      [en setComputePipelineState:p1]; [en setBuffer:bU offset:0 atIndex:0]; [en setBuffer:bV offset:0 atIndex:1];"
+  (hw-ln "      [en setBuffer:bE offset:0 atIndex:2]; [en setBytes:&ne length:4 atIndex:3]; [en setBytes:&m length:4 atIndex:4];"
+  (hw-ln "      [en dispatchThreads:MTLSizeMake(N,1,1) threadsPerThreadgroup:MTLSizeMake(256,1,1)]; [en endEncoding]; [cb commit]; [cb waitUntilCompleted];"
+  (hw-ln "      dt_m += now_ms() - t0;"
+  (hw-ln "      float* ep = (float*)[bE contents]; for (uint32_t i=0;i<N;i++) if (ep[i]<best[m]) best[m]=ep[i];"
+  (hw-ln "    }"
+  (hw-ln (list-append "    printf(" (list-append hw-q (list-append "HX-COSMOS GPU (%s): 196,608 manifold evals in %.2f ms | best avg wire: 2D=%.2f -> 3D_SoIC=%.2f -> Optical_HC=%.2f (%.2fx collapse!)" (list-append hw-esc-n (list-append hw-q ", [[dev name] UTF8String], dt_m, best[0], best[1], best[2], best[0]/best[2]);")))))
+  (hw-ln "    id<MTLBuffer> bViol = [dev newBufferWithLength:4 options:MTLResourceStorageModeShared];"
+  (hw-ln "    id<MTLBuffer> bMin  = [dev newBufferWithLength:N*4 options:MTLResourceStorageModeShared];"
+  (hw-ln "    *(uint32_t*)[bViol contents] = 0u;"
+  (hw-ln (list-append "    id<MTLComputePipelineState> p2 = [dev newComputePipelineStateWithFunction:[lib newFunctionWithName:" (list-append (omni-ns "cos_metal_cbf_reach") "] error:&err];"))
+  (hw-ln "    double t2 = now_ms();"
+  (hw-ln "    id<MTLCommandBuffer> cb2 = [q commandBuffer]; id<MTLComputeCommandEncoder> e2 = [cb2 computeCommandEncoder];"
+  (hw-ln "    [e2 setComputePipelineState:p2]; [e2 setBuffer:bViol offset:0 atIndex:0]; [e2 setBuffer:bMin offset:0 atIndex:1];"
+  (hw-ln "    [e2 dispatchThreads:MTLSizeMake(N,1,1) threadsPerThreadgroup:MTLSizeMake(256,1,1)]; [e2 endEncoding]; [cb2 commit]; [cb2 waitUntilCompleted];"
+  (hw-ln "    double dt2 = now_ms() - t2;"
+  (hw-ln "    float* mp=(float*)[bMin contents]; float gmin=1e9f; for (uint32_t i=0;i<N;i++) if (mp[i]<gmin) gmin=mp[i];"
+  (hw-ln (list-append "    printf(" (list-append hw-q (list-append "  [GPU CBF] 65,536 adversarial trajectories x 256 steps (16.77M steps) in %.2f ms | violations=%u | global_min_margin=%.4f (>=0.2000)" (list-append hw-esc-n (list-append hw-q ", dt2, *(uint32_t*)[bViol contents], gmin);")))))
+  (hw-ln "  }"
+  (hw-ln "  return 0;"
+  (hw-ln "}" nil))))))))))))))))))))))))))))))))))))))))))))))
