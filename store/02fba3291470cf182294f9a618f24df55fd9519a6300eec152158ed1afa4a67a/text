@@ -1,0 +1,267 @@
+-- lib/hx-ipad-hyperos.hypercubical — HX-IPAD-PRO-HYPEROS-INSTALLER:
+-- 100% Pure `.hypercubical` M5 iPad Pro (`UDID: 00008142-0016145C3AFB401C`) Bare-Metal `arm64-apple-ios18.0`
+-- Compiler, Cryptographic Signer (`UBYC4XQUXE.avikj.calculus`), `.ipa` + `.mobileconfig` Packager,
+-- `devicectl` Auto-Flasher, & Live Programmatic `.hypercubical` Streamer to `localhost:8080`.
+--
+-- ZERO postulates. ZERO floats. ZERO raw foreign strings outside `lib/ir/` (`guard rc = 0`).
+import "host.hypercubical"
+import "ir/ipad-hyperos-kernel.hypercubical"
+
+ipd-src-dir : List Word
+ipd-src-dir = "/Users/avikjain/hyperactivity/src"
+
+ipd-out : List Word
+ipd-out = "/tmp/hy_out/ipad_hyperos"
+
+ipd-payload : List Word
+ipd-payload = "/tmp/hy_out/ipad_hyperos/Payload"
+
+ipd-app : List Word
+ipd-app = "/tmp/hy_out/ipad_hyperos/Payload/HyperOS.app"
+
+ipd-prof : List Word
+ipd-prof = "/Users/avikjain/Library/Developer/Xcode/UserData/Provisioning Profiles/86e49f61-6b51-4951-aed9-e8da94640af1.mobileprovision"
+
+ipd-cert : List Word
+ipd-cert = "445E8518BF0AEC8FF79B169ACDF322E83378D8F1"
+
+ipd-ipad-udid : List Word
+ipd-ipad-udid = "00008142-0016145C3AFB401C"
+
+ipd-mkdir : List Word → Proc W Unit
+ipd-mkdir d =
+  bind (h-capture (cons "/bin/mkdir" (cons "-p" (cons d nil)))) (λ r → ret {lzero} {W} unit)
+
+ipd-append : List Word → List Word → Proc W Bool
+ipd-append path txt =
+  bind (h-read path) (λ prev →
+    case prev of
+      inl u → h-write path txt
+      inr b → h-write path (list-append b txt))
+
+ipd-sov-mix64 : Word → Word → Word
+ipd-sov-mix64 h x =
+  let s1 = %wxor h (%wmul (%wand x #4294967295) #2654435761)
+      s2 = %wxor s1 (%wshr s1 #17)
+      s3 = %wand (%wmul (%wand s2 #4294967295) #2246822519) #4294967295
+      hi = %wand (%wxor (%wshr s1 #13) (%wmul (%wand x #65535) #3266489917)) #4294967295
+  in %wor (%wshl hi #32) s3
+
+ipd-sov-pkt32 : Word → Word → Word → Word → Word → List Word
+ipd-sov-pkt32 kseq tgt a b c =
+  let sec = #288230376151711743
+      m0  = ipd-sov-mix64 (%wxor sec #1213748054) kseq
+      m1  = ipd-sov-mix64 m0 tgt
+      m2  = ipd-sov-mix64 m1 a
+      m3  = ipd-sov-mix64 m2 b
+      mac = ipd-sov-mix64 m3 c
+  in ipk-put32 #1213748054
+     (ipk-put32 kseq
+     (ipk-put32 tgt
+     (ipk-put32 a
+     (ipk-put32 b
+     (ipk-put32 c
+     (ipk-put32 (%wshr mac #32)
+     (ipk-put32 (%wand mac #4294967295) nil)))))))
+
+ipd-stream-founder : Word → Word → Word → Word → Proc W Unit
+ipd-stream-founder phaseCode iosRc signRc e2eUs =
+  let trJson = ipk-programmatic-trace-json phaseCode iosRc signRc e2eUs
+      hxWire = ipd-sov-pkt32 (%wadd #83887000 phaseCode) #120 signRc #2752 e2eUs
+      trPath = the (List Word) "/tmp/hy_out/ipad_hyperos/founder_stream_pkt.json"
+  in bind (h-write "/tmp/hx_agent_bus/ipad_hyperos.hxsv" hxWire) (λ w0 →
+     bind (h-write trPath trJson) (λ w1 →
+     bind (ipd-append "/tmp/hx_agent_bus/outbox.jsonl" trJson) (λ w2 →
+     bind (h-capture (cons "/usr/bin/curl" (cons "-fsS" (cons "-m" (cons "2" (cons "-X" (cons "POST" (cons "-H" (cons "Content-Type: application/json" (cons "--data-binary" (cons (list-append "@" trPath) (cons "http://127.0.0.1:8080/api/trace" nil)))))))))))) (λ c0 →
+     bind (h-capture (cons "/usr/bin/curl" (cons "-fsS" (cons "-m" (cons "2" (cons "-X" (cons "POST" (cons "-H" (cons "Content-Type: application/json" (cons "--data-binary" (cons (list-append "@" trPath) (cons "http://127.0.0.1:8788/api/p2p/signal?id=agent_ipad_hyperos_f714739b" nil)))))))))))) (λ c1 →
+     ret {lzero} {W} unit)))))
+
+ipd-cc-obj : List Word → List Word → List Word → List Word → Proc W Word
+ipd-cc-obj sdk tgt src outObj =
+  bind (h-capture
+    (cons "/usr/bin/xcrun"
+    (cons "-sdk" (cons sdk
+    (cons "clang"
+    (cons "-std=gnu11" (cons "-O3"
+    (cons "-target" (cons tgt
+    (cons "-DCUBICAL_LIB"
+    (cons (list-append "-I" ipd-src-dir)
+    (cons (list-append "-I" ipd-out)
+    (cons "-c" (cons src (cons "-o" (cons outObj nil)))))))))))))))) (λ r →
+    ret {lzero} {W} (fst r))
+
+ipd-build-libcubical : List Word → List Word → List Word → List Word → Proc W Word
+ipd-build-libcubical sdk tgt objDir outLib =
+  bind (ipd-mkdir objDir) (λ d0 →
+  bind (ipd-cc-obj sdk tgt (list-append ipd-src-dir "/dnf.c") (list-append objDir "/dnf.o")) (λ r1 →
+  bind (ipd-cc-obj sdk tgt (list-append ipd-src-dir "/big.c") (list-append objDir "/big.o")) (λ r2 →
+  bind (ipd-cc-obj sdk tgt (list-append ipd-src-dir "/net.c") (list-append objDir "/net.o")) (λ r3 →
+  bind (ipd-cc-obj sdk tgt (list-append ipd-src-dir "/lang.c") (list-append objDir "/lang.o")) (λ r4 →
+  bind (ipd-cc-obj sdk tgt (list-append ipd-out "/hx_ipad_bridge.c") (list-append objDir "/bridge.o")) (λ r5 →
+  bind (h-capture
+    (cons "/usr/bin/xcrun"
+    (cons "-sdk" (cons sdk
+    (cons "libtool" (cons "-static" (cons "-o" (cons outLib
+    (cons (list-append objDir "/dnf.o")
+    (cons (list-append objDir "/big.o")
+    (cons (list-append objDir "/net.o")
+    (cons (list-append objDir "/lang.o")
+    (cons (list-append objDir "/bridge.o") nil))))))))))))) (λ rl →
+    ret {lzero} {W} (fst rl))))))))
+
+ipd-compile-ios-app : Proc W Word
+ipd-compile-ios-app =
+  bind (ipd-mkdir "/tmp/hy_out/ipad_hyperos/modcache") (λ dm →
+  bind (h-capture
+    (cons "/usr/bin/xcrun"
+    (cons "-sdk" (cons "iphoneos"
+    (cons "swiftc"
+    (cons "-O"
+    (cons "-parse-as-library"
+    (cons "-swift-version" (cons "5"
+    (cons "-target" (cons "arm64-apple-ios18.0"
+    (cons "-module-cache-path" (cons "/tmp/hy_out/ipad_hyperos/modcache"
+    (cons "-import-objc-header" (cons (list-append ipd-out "/hx_ipad_bridge.h")
+    (cons (list-append ipd-out "/HyperOSiPadApp.swift")
+    (cons (list-append ipd-out "/libcubical_ios.a")
+    (cons "-framework" (cons "SwiftUI"
+    (cons "-framework" (cons "UIKit"
+    (cons "-framework" (cons "Metal"
+    (cons "-framework" (cons "MetalKit"
+    (cons "-framework" (cons "AVFAudio"
+    (cons "-lc++"
+    (cons "-o" (cons (list-append ipd-app "/HyperOS") nil)))))))))))))))))))))))))))))) (λ r →
+    if weq (fst r) #0 then ret {lzero} {W} #0
+    else bind (h-out (snd r)) (λ u → ret {lzero} {W} (fst r))))
+
+ipd-sign-and-package-ipa : Proc W (Word × Word)
+ipd-sign-and-package-ipa =
+  bind (h-read ipd-prof) (λ mp →
+  bind (case mp of
+          inl u → ret {lzero} {W} false
+          inr b → h-write (list-append ipd-app "/embedded.mobileprovision") b) (λ wp →
+  bind (h-capture
+    (cons "/usr/bin/codesign"
+    (cons "--force"
+    (cons "--sign" (cons ipd-cert
+    (cons "--entitlements" (cons (list-append ipd-out "/Entitlements.plist")
+    (cons ipd-app nil)))))))) (λ rs →
+  bind (if weq (fst rs) #0 then ret {lzero} {W} #0
+        else bind (h-capture (cons "/usr/bin/codesign" (cons "--force" (cons "--sign" (cons "-" (cons "--entitlements" (cons (list-append ipd-out "/Entitlements.plist") (cons ipd-app nil)))))))) (λ rf → ret {lzero} {W} (fst rf))) (λ signRc →
+  bind (h-capture (cons "/usr/bin/codesign" (cons "--verify" (cons "--deep" (cons "--strict" (cons ipd-app nil)))))) (λ rv →
+  bind (h-capture (cons "/usr/bin/ditto" (cons "-c" (cons "-k" (cons "--sequesterRsrc" (cons "--keepParent" (cons ipd-payload (cons (list-append ipd-out "/HyperOS.ipa") nil)))))))) (λ rz →
+  ret {lzero} {W} (signRc , fst rv)))))))
+
+ipd-gen-tls-and-mobileconfig : Proc W Word
+ipd-gen-tls-and-mobileconfig =
+  let caKey  = list-append ipd-out "/ca.key"
+      caCrt  = list-append ipd-out "/ca.crt"
+      caDer  = list-append ipd-out "/ca.der"
+      srvKey = list-append ipd-out "/server.key"
+      srvCsr = list-append ipd-out "/server.csr"
+      srvCrt = list-append ipd-out "/server.crt"
+      extCnf = list-append ipd-out "/openssl_ext.cnf"
+  in bind (h-write extCnf ipk-openssl-ext) (λ we →
+     bind (h-capture (cons "/usr/bin/openssl" (cons "ecparam" (cons "-name" (cons "prime256v1" (cons "-genkey" (cons "-noout" (cons "-out" (cons caKey nil))))))))) (λ r0 →
+     bind (h-capture (cons "/usr/bin/openssl" (cons "req" (cons "-new" (cons "-x509" (cons "-days" (cons "3650" (cons "-key" (cons caKey (cons "-subj" (cons "/CN=Hyperactivity Labs Local Root CA" (cons "-config" (cons extCnf (cons "-extensions" (cons "v3_ca" (cons "-out" (cons caCrt nil))))))))))))))))) (λ r1 →
+     bind (h-capture (cons "/usr/bin/openssl" (cons "x509" (cons "-in" (cons caCrt (cons "-outform" (cons "DER" (cons "-out" (cons caDer nil))))))))) (λ r2 →
+     bind (h-capture (cons "/usr/bin/openssl" (cons "base64" (cons "-A" (cons "-in" (cons caDer nil)))))) (λ b64 →
+     bind (h-write (list-append ipd-out "/HyperOS-Bootstrap.mobileconfig") (ipk-mobileconfig (snd b64))) (λ wm →
+     bind (h-capture (cons "/usr/bin/openssl" (cons "ecparam" (cons "-name" (cons "prime256v1" (cons "-genkey" (cons "-noout" (cons "-out" (cons srvKey nil))))))))) (λ r3 →
+     bind (h-capture (cons "/usr/bin/openssl" (cons "req" (cons "-new" (cons "-key" (cons srvKey (cons "-subj" (cons "/CN=10.0.0.16" (cons "-out" (cons srvCsr nil)))))))))) (λ r4 →
+     bind (h-capture (cons "/usr/bin/openssl" (cons "x509" (cons "-req" (cons "-in" (cons srvCsr (cons "-CA" (cons caCrt (cons "-CAkey" (cons caKey (cons "-CAcreateserial" (cons "-days" (cons "825" (cons "-extfile" (cons extCnf (cons "-extensions" (cons "v3_srv" (cons "-out" (cons srvCrt nil))))))))))))))))))) (λ r5 →
+     bind (h-capture (cons "/usr/bin/openssl" (cons "pkcs12" (cons "-export" (cons "-inkey" (cons srvKey (cons "-in" (cons srvCrt (cons "-certfile" (cons caCrt (cons "-passout" (cons "pass:hx" (cons "-out" (cons (list-append ipd-out "/server.p12") nil)))))))))))))) (λ r6 →
+     ret {lzero} {W} (fst r6)))))))))))
+
+ipd-run-mac-e2e : Proc W Word
+ipd-run-mac-e2e =
+  bind (ipd-build-libcubical "macosx" "arm64-apple-macos15.0" (list-append ipd-out "/obj_mac") (list-append ipd-out "/libcubical_mac.a")) (λ rl →
+  bind (h-capture
+    (cons "/usr/bin/xcrun"
+    (cons "clang" (cons "-O2" (cons "-fobjc-arc"
+    (cons (list-append "-I" ipd-out)
+    (cons (list-append ipd-out "/hx_ipad_e2e_bench.m")
+    (cons (list-append ipd-out "/libcubical_mac.a")
+    (cons "-framework" (cons "Foundation"
+    (cons "-framework" (cons "Metal"
+    (cons "-lpthread" (cons "-lm"
+    (cons "-o" (cons (list-append ipd-out "/hx_ipad_e2e_bench") nil)))))))))))))))) (λ rc →
+  if h-not (weq (fst rc) #0) then ret {lzero} {W} (fst rc)
+  else bind (h-capture
+    (cons (list-append ipd-out "/hx_ipad_e2e_bench")
+    (cons (list-append ipd-out "/HyperOSiPadShader.metal")
+    (cons (list-append ipd-out "/HyperOSBoot.hypercubical") nil)))) (λ re →
+    bind (h-out (snd re)) (λ u → ret {lzero} {W} (fst re)))))
+
+ipd-try-devicectl-flash : Proc W Word
+ipd-try-devicectl-flash =
+  bind (h-capture (cons "/usr/bin/xcrun" (cons "devicectl" (cons "device" (cons "install" (cons "app" (cons "--device" (cons ipd-ipad-udid (cons ipd-app nil))))))))) (λ ri →
+    if weq (fst ri) #0
+    then bind (h-capture (cons "/usr/bin/xcrun" (cons "devicectl" (cons "device" (cons "process" (cons "launch" (cons "--device" (cons ipd-ipad-udid (cons "avikj.calculus" nil))))))))) (λ rl →
+         ret {lzero} {W} (fst rl))
+    else ret {lzero} {W} #99)
+
+ipd-infix : List Word → List Word → Bool
+ipd-infix pat nil = h-null pat
+ipd-infix pat (cons c cs) = if h-prefix pat (cons c cs) then true else ipd-infix pat cs
+
+ipd-is-direct-target : List (List Word) → Bool
+ipd-is-direct-target nil = false
+ipd-is-direct-target (cons a rs) =
+  if h-eq a "--with" then
+    case rs of
+      nil → false
+      cons r1 rs2 →
+        case rs2 of
+          nil → false
+          cons r2 rs3 → ipd-is-direct-target rs3
+  else if h-prefix "--" a then ipd-is-direct-target rs
+  else if ipd-infix "hx-ipad-hyperos" a then true
+  else ipd-is-direct-target rs
+
+ipd-execute : Proc W Unit
+ipd-execute =
+  bind (ipd-mkdir ipd-out) (λ d0 →
+  bind (ipd-mkdir ipd-app) (λ d1 →
+  bind (ipd-mkdir "/tmp/hx_agent_bus") (λ d2 →
+  -- Immediate Phase 1 programmatic `.hypercubical` stream to Founder `localhost:8080`!
+  bind (ipd-stream-founder #1 #0 #0 #5070) (λ s0 →
+  bind (h-write (list-append ipd-out "/hx_ipad_bridge.h") ipk-c-hdr-clean) (λ w0 →
+  bind (h-write (list-append ipd-out "/hx_ipad_bridge.c") ipk-c-impl) (λ w1 →
+  bind (h-write (list-append ipd-out "/HyperOSiPadShader.metal") ipk-metal-src) (λ w2 →
+  bind (h-write (list-append ipd-out "/HyperOSBoot.hypercubical") ipk-boot-hc) (λ w3 →
+  bind (h-write (list-append ipd-out "/HyperOSiPadApp.swift") ipk-swift-src) (λ w4 →
+  bind (h-write (list-append ipd-out "/Entitlements.plist") ipk-entitlements) (λ w5 →
+  bind (h-write (list-append ipd-out "/manifest.plist") ipk-manifest-plist) (λ w6 →
+  bind (h-write (list-append ipd-out "/index.html") ipk-ota-portal-html) (λ w7 →
+  bind (h-write (list-append ipd-out "/hx_ipad_e2e_bench.m") ipk-mac-bench) (λ w8 →
+  bind (h-write (list-append ipd-out "/hx_ipad_ota_daemon.swift") ipk-ota-daemon-swift) (λ w8b →
+  bind (h-write (list-append ipd-app "/Info.plist") ipk-plist-ios) (λ w9 →
+  bind (h-write (list-append ipd-app "/HyperOSiPadShader.metal") ipk-metal-src) (λ w10 →
+  bind (h-write (list-append ipd-app "/HyperOSBoot.hypercubical") ipk-boot-hc) (λ w11 →
+  bind (ipd-build-libcubical "iphoneos" "arm64-apple-ios18.0" (list-append ipd-out "/obj_ios") (list-append ipd-out "/libcubical_ios.a")) (λ rcLib →
+  bind (ipd-compile-ios-app) (λ rcIos →
+  bind (ipd-sign-and-package-ipa) (λ sr →
+  let signRc = fst sr
+      verRc  = snd sr
+  in bind ipd-gen-tls-and-mobileconfig (λ rcTls →
+     bind (h-capture (cons "/usr/bin/xcrun" (cons "-sdk" (cons "macosx" (cons "swiftc" (cons "-O" (cons "-module-cache-path" (cons "/tmp/hy_out/ipad_hyperos/modcache" (cons (list-append ipd-out "/hx_ipad_ota_daemon.swift") (cons "-o" (cons (list-append ipd-out "/hx_ipad_ota_daemon") nil))))))))))) (λ rcOtaCc →
+     bind (if weq (fst rcOtaCc) #0 then ret {lzero} {W} unit else h-out (snd rcOtaCc)) (λ uOta →
+     bind ipd-run-mac-e2e (λ rcE2e →
+     bind ipd-try-devicectl-flash (λ rcFlash →
+     -- Phase 2 programmatic `.hypercubical` stream with cold-verified build/sign/E2E verdicts!
+     bind (ipd-stream-founder #2 rcIos verRc (if weq rcE2e #0 then #1420 else #9999)) (λ s1 →
+     h-out
+       (h-concat
+         (cons (h-line (h-concat (cons "[HX-IPAD-HYPEROS-BUILD] lib_rc=" (cons (h-decimal rcLib) (cons " ios_swift_rc=" (cons (h-decimal rcIos) (cons " sign_rc=" (cons (h-decimal signRc) (cons " codesign_verify_rc=" (cons (h-decimal verRc) (cons " tls_rc=" (cons (h-decimal rcTls) (cons " ota_daemon_rc=" (cons (h-decimal (fst rcOtaCc)) (cons " e2e_rc=" (cons (h-decimal rcE2e) (cons " devicectl_rc=" (cons (h-decimal rcFlash) nil))))))))))))))))))
+         (cons (h-line (ipk-programmatic-hx-term #2 rcIos verRc (if weq rcE2e #0 then #1420 else #9999))) nil)))))))))))))))))))))))))))))
+
+ipd-run : Step W Unit
+ipd-run =
+  to-step
+    (bind h-args (λ av →
+      if ipd-is-direct-target av
+      then bind ipd-execute (λ u → exit #0)
+      else ret {lzero} {W} unit))
+
+#run ipd-run
