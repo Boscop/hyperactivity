@@ -1,0 +1,35 @@
+ho-bench-all4-h200 : Proc W (List Word)
+ho-bench-all4-h200 =
+  let elfLoc = the (List Word) (list-append ho-out-dir "/hyperop_x86_64.elf")
+      g0     = the (List Word) (list-append ho-out-dir "/hyperop_gen0.ptx")
+      g1     = the (List Word) (list-append ho-out-dir "/hyperop_gen1.ptx")
+      g2     = the (List Word) (list-append ho-out-dir "/hyperop_gen2.ptx")
+      g3     = the (List Word) (list-append ho-out-dir "/hyperop_gen3.ptx")
+      remCmd = the (List Word)
+                 (h-concat
+                   (cons "/bin/chmod +x /tmp/hx_brainnet_asm/hyperop_x86_64.elf"
+                   (cons " && (/tmp/hx_brainnet_asm/hyperop_x86_64.elf || true)"
+                   (cons " && /usr/local/cuda/bin/ptxas --gpu-name=sm_90a /tmp/hx_brainnet_asm/hyperop_gen0.ptx -o /tmp/hx_brainnet_asm/hyperop_gen0.cubin"
+                   (cons " && /usr/local/cuda/bin/ptxas --gpu-name=sm_90a /tmp/hx_brainnet_asm/hyperop_gen1.ptx -o /tmp/hx_brainnet_asm/hyperop_gen1.cubin"
+                   (cons " && /usr/local/cuda/bin/ptxas --gpu-name=sm_90a /tmp/hx_brainnet_asm/hyperop_gen2.ptx -o /tmp/hx_brainnet_asm/hyperop_gen2.cubin"
+                   (cons " && /usr/local/cuda/bin/ptxas --gpu-name=sm_90a /tmp/hx_brainnet_asm/hyperop_gen3.ptx -o /tmp/hx_brainnet_asm/hyperop_gen3.cubin"
+                   (cons " && /bin/cp -f /tmp/hx_brainnet_asm/hyperop_gen3.cubin /tmp/hx_brainnet_asm/champion_sm90a.cubin"
+                   (cons " && echo SASS0_BEGIN && /usr/local/cuda/bin/cuobjdump -sass /tmp/hx_brainnet_asm/hyperop_gen0.cubin && echo SASS0_END"
+                   (cons " && echo SASS1_BEGIN && /usr/local/cuda/bin/cuobjdump -sass /tmp/hx_brainnet_asm/hyperop_gen1.cubin && echo SASS1_END"
+                   (cons " && echo SASS2_BEGIN && /usr/local/cuda/bin/cuobjdump -sass /tmp/hx_brainnet_asm/hyperop_gen2.cubin && echo SASS2_END"
+                   (cons " && echo SASS3_BEGIN && /usr/local/cuda/bin/cuobjdump -sass /tmp/hx_brainnet_asm/hyperop_gen3.cubin && echo SASS3_END" nil))))))))))))
+  in bind (h-capture
+       (cons "/usr/bin/scp"
+       (cons "-q" (cons "-o" (cons "BatchMode=yes" (cons "-o" (cons "ConnectTimeout=8"
+       (cons "-o" (cons "StrictHostKeyChecking=no"
+       (cons "-P" (cons "10166"
+       (cons elfLoc (cons g0 (cons g1 (cons g2 (cons g3
+       (cons "root@213.181.104.219:/tmp/hx_brainnet_asm/" nil))))))))))))))))) (λ rScp →
+     bind (h-capture
+       (cons "/usr/bin/ssh"
+       (cons "-o" (cons "BatchMode=yes" (cons "-o" (cons "ConnectTimeout=10"
+       (cons "-o" (cons "StrictHostKeyChecking=no"
+       (cons "-p" (cons "10166"
+       (cons "root@213.181.104.219"
+       (cons remCmd nil)))))))))))) (λ rRun →
+       ret {lzero} {W} (if %weq (fst rRun) #0 then snd rRun else bn-empty-bytes)))
