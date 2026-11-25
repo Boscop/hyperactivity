@@ -1,0 +1,32 @@
+-- Wake the 3 idle H200 GPUs (`0, 1, 3`) on `hx-coind-01` with our synthesized `ULOP3.LUT` SM_90a kernel + hyperfactor solver:
+ms-strike-h200-mesh : Proc W Word
+ms-strike-h200-mesh =
+  let ptxLoc = the (List Word) (list-append ms-out-dir "/masterstroke_ulop3_sm90a.ptx")
+      elfLoc = the (List Word) (list-append ms-out-dir "/masterstroke_worker_x86_64")
+      remCmd = the (List Word) "chmod +x /tmp/hx_brainnet_asm/masterstroke_worker_x86_64 && CUDA_VISIBLE_DEVICES=0,1,3 /usr/local/cuda/bin/ptxas --gpu-name=sm_90a /tmp/hx_brainnet_asm/masterstroke_ulop3_sm90a.ptx -o /tmp/hx_brainnet_asm/masterstroke_ulop3.cubin && (/tmp/hx_brainnet_asm/masterstroke_worker_x86_64; test $? -eq 37) && CUDA_VISIBLE_DEVICES=0,1,3 /tmp/hx_tig_submission/hx_value_hyperfactor >/tmp/hx_brainnet_asm/masterstroke_h200.log 2>&1 && echo H200_MASTERSTROKE_OK"
+  in bind (h-capture
+       (cons "/usr/bin/ssh"
+       (cons "-o" (cons "BatchMode=yes"
+       (cons "-o" (cons "ConnectTimeout=6"
+       (cons "-o" (cons "StrictHostKeyChecking=no"
+       (cons "-p" (cons "10166"
+       (cons "root@213.181.104.219"
+       (cons "mkdir -p /tmp/hx_brainnet_asm" nil)))))))))))) (λ r0 →
+     bind (h-capture
+       (cons "/usr/bin/scp"
+       (cons "-q"
+       (cons "-o" (cons "BatchMode=yes"
+       (cons "-o" (cons "ConnectTimeout=6"
+       (cons "-o" (cons "StrictHostKeyChecking=no"
+       (cons "-P" (cons "10166"
+       (cons ptxLoc (cons elfLoc
+       (cons "root@213.181.104.219:/tmp/hx_brainnet_asm/" nil)))))))))))))) (λ r1 →
+     bind (h-capture
+       (cons "/usr/bin/ssh"
+       (cons "-o" (cons "BatchMode=yes"
+       (cons "-o" (cons "ConnectTimeout=10"
+       (cons "-o" (cons "StrictHostKeyChecking=no"
+       (cons "-p" (cons "10166"
+       (cons "root@213.181.104.219"
+       (cons remCmd nil)))))))))))) (λ r2 →
+       ret {lzero} {W} (if %weq (fst r2) #0 then #1 else #0))))

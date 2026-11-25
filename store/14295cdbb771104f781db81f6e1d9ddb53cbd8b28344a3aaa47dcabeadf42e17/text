@@ -1,0 +1,19 @@
+-- THEOREM 6 (INBOUND `x402` PAYWALL ACCEPTS VALID FOUNDER-USDC AUTH & REJECTS DIVERSION/FORGERY BY `refl`!):
+ms-thm-inbound-x402-founder-locked :
+  let payer20  = eth-priv-to-addr20 #7
+      fnd20    = eth-founder-coinbase-addr20
+      nonce32  = keccak256 "hx-inbound-x402-shot-1"
+      digValid = bn-eip3009-digest payer20 fnd20 #250000 #0 #1893456000 nonce32
+      sig      = secp-ecdsa-sign #7 digValid
+      yp       = fst sig
+      r        = fst (snd sig)
+      s        = snd (snd sig)
+      okValid  = ms-verify-inbound-x402 #100000 payer20 fnd20 #250000 #0 #1893456000 nonce32 yp r s
+      badDivrt = ms-verify-inbound-x402 #100000 payer20 payer20 #250000 #0 #1893456000 nonce32 yp r s
+      badForge = ms-verify-inbound-x402 #100000 payer20 fnd20 #250000 #0 #1893456000 nonce32 yp (%wadd r #1) s
+      badUnder = ms-verify-inbound-x402 #500000 payer20 fnd20 #250000 #0 #1893456000 nonce32 yp r s
+  in andB okValid
+     (andB (eth-not badDivrt)
+     (andB (eth-not badForge)
+           (eth-not badUnder))) ≡ true
+ms-thm-inbound-x402-founder-locked = refl

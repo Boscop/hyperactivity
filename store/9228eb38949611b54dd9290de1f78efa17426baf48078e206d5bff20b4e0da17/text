@@ -1,0 +1,11 @@
+-- Cryptographic Inbound `x402` EIP-3009 Verifier:
+-- Accepts ONLY if `payTo == 0x4A50...A26f`, `val6 >= minPrice6`, and `ecrecover(digest) == from20`!
+ms-verify-inbound-x402 :
+  Word → List Word → List Word → Word → Word → Word → List Word → Word → Word → Word → Bool
+ms-verify-inbound-x402 minPrice6 from20 to20 val6 vAfter vBefore nonce32 yp r s =
+  let toFounderOk = h-eq to20 eth-founder-coinbase-addr20
+      amountOk    = eth-not (%wlt val6 minPrice6)
+      dig32       = bn-eip3009-digest from20 to20 val6 vAfter vBefore nonce32
+      rec20       = secp-ecrecover-addr20 yp r s dig32
+      sigOk       = h-eq rec20 from20
+  in andB toFounderOk (andB amountOk sigOk)
