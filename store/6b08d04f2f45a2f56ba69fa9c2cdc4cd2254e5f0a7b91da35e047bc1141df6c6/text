@@ -1,0 +1,23 @@
+bn-load-key-path : List Word → Bool → Proc W Word
+bn-load-key-path kp requireLive =
+  bind (h-read kp) (λ mr →
+    case mr of
+      inr kh →
+        let priv = bn-parse-priv-hex kh
+        in if andB (%wlt #0 priv) (%wlt priv secp-n)
+           then ret {lzero} {W} priv
+           else bind (h-fail "Invalid secp256k1 scalar in keyfile") (λ u → ret {lzero} {W} #0)
+      inl u →
+        bind (h-read bn-fallback-vault-json) (λ mv →
+          case mv of
+            inr jtxt →
+              let priv2 = bn-parse-priv-hex (bn-extract-json-str "evm_priv_hex" jtxt)
+              in if andB (%wlt #0 priv2) (%wlt priv2 secp-n)
+                 then ret {lzero} {W} priv2
+                 else if requireLive
+                      then bind (h-fail "Invalid fallback vault key") (λ u3 → ret {lzero} {W} #0)
+                      else ret {lzero} {W} #3
+            inl u2 →
+              if requireLive
+              then bind (h-fail (list-append "Funded keyfile unreadable: " kp)) (λ u4 → ret {lzero} {W} #0)
+              else ret {lzero} {W} #3))

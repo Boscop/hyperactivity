@@ -1,0 +1,73 @@
+-- Live `up` Bare-Metal ASM Provisioner:
+-- Pushes the pure `.hypercubical`-compiled 211B `x86_64 ELF64` + Hopper `SM_90a` `lop3.b32` PTX
+-- to each SSH GPU/CPU node, compiles `.ptx -> .cubin` via `ptxas --gpu-name=sm_90a`, executes
+-- the bare-metal `ELF64` directly on the remote Linux kernel, and verifies `rc == 37` (`BN_OK`)!
+bn-up-ssh-nodes : Word → List BnNodeSpec → Proc W Word
+bn-up-ssh-nodes idx nil = ret {lzero} {W} #0
+bn-up-ssh-nodes idx (cons (mk-bn-node nid prov tr gpus rl ep sp rate) rest) =
+  case prov of
+    bp-ssh-mesh minOk →
+      if h-eq ep "127.0.0.1"
+      then bn-up-ssh-nodes (%wadd idx #1) rest
+      else
+        let spDec   = the (List Word) (h-decimal sp)
+            rootEp  = the (List Word) (list-append "root@" ep)
+            locElf  = the (List Word) (list-append bn-out-dir "/brainnet_worker_x86_64")
+            locPtx  = the (List Word) (list-append bn-out-dir "/brainnet_hopper_sm90a_lop3.ptx")
+            locOpt  = the (List Word) (list-append bn-out-dir "/brainnet_hopper_sm90a_opt.ptx")
+            remCmd  = the (List Word) "chmod +x /tmp/hx_brainnet_asm/brainnet_worker_x86_64 && CUDA_VISIBLE_DEVICES=2,4 /usr/local/cuda/bin/ptxas --gpu-name=sm_90a /tmp/hx_brainnet_asm/brainnet_hopper_sm90a_lop3.ptx -o /tmp/hx_brainnet_asm/brainnet_sm90a.cubin && (/tmp/hx_brainnet_asm/brainnet_worker_x86_64; test $? -eq 37) >/tmp/hx_brainnet_asm/heartbeat.log 2>&1 && uname -n"
+        in bind (h-capture
+             (cons "/usr/bin/ssh"
+             (cons "-o" (cons "BatchMode=yes"
+             (cons "-o" (cons "ConnectTimeout=6"
+             (cons "-o" (cons "StrictHostKeyChecking=no"
+             (cons "-p" (cons spDec (cons rootEp (cons "mkdir -p /tmp/hx_brainnet_asm" nil)))))))))))) (λ rMk →
+           bind (h-capture
+             (cons "/usr/bin/scp"
+             (cons "-q"
+             (cons "-o" (cons "BatchMode=yes"
+             (cons "-o" (cons "ConnectTimeout=6"
+             (cons "-o" (cons "StrictHostKeyChecking=no"
+             (cons "-P" (cons spDec
+             (cons locElf (cons locPtx (cons locOpt
+             (cons (list-append rootEp ":/tmp/hx_brainnet_asm/") nil))))))))))))))) (λ rScp →
+           bind (h-capture
+             (cons "/usr/bin/ssh"
+             (cons "-o" (cons "BatchMode=yes"
+             (cons "-o" (cons "ConnectTimeout=8"
+             (cons "-o" (cons "StrictHostKeyChecking=no"
+             (cons "-p" (cons spDec (cons rootEp (cons remCmd nil)))))))))))) (λ rRun →
+           bind (bn-up-ssh-nodes (%wadd idx #1) rest) (λ cnt →
+             ret {lzero} {W} (if %weq (fst rRun) #0 then %wadd cnt #1 else cnt)))))
+    bp-akash → bn-up-ssh-nodes (%wadd idx #1) rest
+    bp-clore →
+      bind (h-env "CLORE_API_KEY") (λ eKey →
+        case eKey of
+          inl u → bn-up-ssh-nodes (%wadd idx #1) rest
+          inr k →
+            bind (h-capture
+              (cons "/usr/bin/curl"
+              (cons "-sS" (cons "--max-time" (cons "10"
+              (cons "-H" (cons (list-append "auth: " k)
+              (cons "-H" (cons "Content-Type: application/json"
+              (cons "-d" (cons (list-append "@" (list-append bn-out-dir "/clore_create_order.json"))
+              (cons "https://api.clore.ai/v1/create_order" nil)))))))))))) (λ rc →
+              bind (h-write (list-append bn-out-dir "/clore_live_resp.json") (snd rc)) (λ w0 →
+              bn-up-ssh-nodes (%wadd idx #1) rest)))
+    bp-x402 →
+      bind (h-env "HX_X402_URL") (λ eUrl →
+        case eUrl of
+          inl u → bn-up-ssh-nodes (%wadd idx #1) rest
+          inr url →
+            bind (h-read (list-append bn-out-dir "/x402_payment_header.txt")) (λ mHdr →
+              case mHdr of
+                inl u2 → bn-up-ssh-nodes (%wadd idx #1) rest
+                inr hdr →
+                  bind (h-capture
+                    (cons "/usr/bin/curl"
+                    (cons "-sS" (cons "--max-time" (cons "10"
+                    (cons "-H" (cons (list-append "PAYMENT-SIGNATURE: " hdr)
+                    (cons "-H" (cons (list-append "X-PAYMENT: " hdr)
+                    (cons url nil)))))))))) (λ rx →
+                    bind (h-write (list-append bn-out-dir "/x402_live_resp.json") (snd rx)) (λ w1 →
+                    bn-up-ssh-nodes (%wadd idx #1) rest))))

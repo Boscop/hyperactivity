@@ -1,0 +1,57 @@
+bn-cmd-plan-or-up : Bool → Proc W Unit
+bn-cmd-plan-or-up isUp =
+  bind (bn-load-funded-key isUp) (λ priv →
+  bind (h-mkdir bn-out-dir) (λ m0 →
+    let rel20     = eth-priv-to-addr20 priv
+        relEip55  = eth-eip55-from-bytes20 rel20
+        vltEip55  = eth-eip55-from-bytes20 (eth-create-addr20 rel20 #0)
+        fndEip55  = eth-eip55-from-bytes20 eth-founder-coinbase-addr20
+        elfX86    = emit-elf64-x86 #11 bn-demo-inet
+        elfArm    = emit-elf64-arm64 #11 bn-demo-inet
+        ptxSm90   = emit-ptx-sm90a false bn-demo-inet
+        ptxOpt    = emit-ptx-sm90a true bn-demo-inet
+        ptxSm89   = emit-ptx-sm89 true bn-demo-inet
+        wasmBin   = emit-wasm-inet bn-demo-inet
+        evmInit   = emit-evm-inet-initcode bn-demo-inet
+        svRtl     = emit-superchip-sv bn-demo-inet
+        hElfX86   = list-append "0x" (h-hex (keccak256 elfX86))
+        hPtxSm90  = list-append "0x" (h-hex (keccak256 ptxSm90))
+        bootTok   = h-hex (keccak256 (list-append (eth-word-be32 priv) "HX-BRAINNET-BOOT-V1"))
+        clorePass = h-take (toNat #24) (h-hex (keccak256 (list-append (eth-word-be32 priv) "HX-CLORE-SSH")))
+        akashSdl  = bn-emit-akash-sdl (mk-bn-node "akash-h100-03" bp-akash bt-h100-sxm #2 br-zk-pouw-miner "akash" #22 #3900000) bootTok
+        cloreJson = bn-emit-clore-order #10001 clorePass
+        runpodJsn = bn-runpod-graphql-json relEip55 hElfX86 hPtxSm90
+        x402Hdr   = bn-sign-x402-header priv eth-founder-coinbase-addr20 #900000 #1893456000 "hx-brainnet-x402-0"
+        rateUsdc6 = bn-cluster-rate bn-default-cluster
+        aupOk     = bn-cluster-aup-ok bn-default-cluster
+        cbfOk     = %wlt rateUsdc6 #25000000
+    in bind (h-write (list-append bn-out-dir "/brainnet_worker_x86_64") elfX86) (λ wa →
+       bind (h-write (list-append bn-out-dir "/brainnet_worker_arm64") elfArm) (λ wb →
+       bind (h-write (list-append bn-out-dir "/brainnet_hopper_sm90a_lop3.ptx") ptxSm90) (λ wc →
+       bind (h-write (list-append bn-out-dir "/brainnet_hopper_sm90a_opt.ptx") ptxOpt) (λ wd →
+       bind (h-write (list-append bn-out-dir "/brainnet_ada_sm89_opt.ptx") ptxSm89) (λ we →
+       bind (h-write (list-append bn-out-dir "/brainnet_edge.wasm") wasmBin) (λ wf →
+       bind (h-write (list-append bn-out-dir "/brainnet_base8453.evm.hex") (bn-ln (list-append "0x" (h-hex evmInit)))) (λ wg →
+       bind (h-write (list-append bn-out-dir "/brainnet_superchip.sv") svRtl) (λ wh →
+       bind (h-write (list-append bn-out-dir "/Dockerfile.scratch") bn-dockerfile-scratch) (λ wi →
+       bind (h-write (list-append bn-out-dir "/render.brainnet.yaml") bn-render-blueprint-yaml) (λ wj →
+       bind (h-write (list-append bn-out-dir "/runpod_deploy.json") (bn-ln runpodJsn)) (λ wk →
+       bind (h-write (list-append bn-out-dir "/brainnet_akash_sdl.yaml") akashSdl) (λ w1 →
+       bind (h-write (list-append bn-out-dir "/clore_create_order.json") cloreJson) (λ w2 →
+       bind (h-write (list-append bn-out-dir "/x402_payment_header.txt") x402Hdr) (λ w3 →
+       bind (bl-rpc-call "eth_chainId" "[]") (λ rCid →
+       bind (bl-rpc-call "eth_getBalance" (h-concat (cons "[" (cons (h-quote relEip55) (cons "," (cons (h-quote "latest") (cons "]" nil))))))) (λ rBal →
+       bind (bn-query-usdc6 rel20) (λ usdc6 →
+       bind (if andB isUp (andB aupOk cbfOk) then bn-up-ssh-nodes #0 bn-default-cluster else ret {lzero} {W} #0) (λ liveSsh →
+         let cidW  = bl-hex-to-word (bl-extract-json-hex rCid)
+             balW  = bl-hex-to-word (bl-extract-json-hex rBal)
+             line1 = bn-ln "[HX-BRAINNET-IAC | SUPERCHIP MULTI-ISA + FUNDED-KEY CLUSTER ENGINE]"
+             line2 = bn-ln (list-append "  1. Funded Key & Vault   : relayer=" (list-append relEip55 (list-append " | vault=" (list-append vltEip55 (list-append " | founder=" fndEip55)))))
+             line3 = bn-ln (list-append "  2. Live Base 8453 Funds : chain_id=" (list-append (h-decimal cidW) (list-append " | eth_wei=" (list-append (h-decimal balW) (list-append " | usdc_micro=" (h-decimal usdc6))))))
+             line4 = bn-ln (list-append "  3. Superchip ASM Targets: x86_64_ELF64=" (list-append (h-decimal (fromNat (list-length elfX86))) (list-append "B | arm64_ELF64=" (list-append (h-decimal (fromNat (list-length elfArm))) (list-append "B | SM_90a_PTX=" (list-append (h-decimal (fromNat (list-length ptxSm90))) (list-append "B | WASM=" (list-append (h-decimal (fromNat (list-length wasmBin))) "B | EVM+SV (0 Python, 0 C++)"))))))))
+             line5 = bn-ln (list-append "  4. Cluster Safety Gates : nodes=5 (H200+H100+4090+EPYC+ARM) | AUP_Safe=" (list-append (if aupOk then "PASS" else "FAIL") (list-append " | Budget_CBF=" (list-append (if cbfOk then "PASS (" else "FAIL (") (list-append (h-decimal rateUsdc6) " / 25000000 uUSDC/hr)")))))
+             line6 = bn-ln (list-append "  5. Emitted IaC + BinDir : " bn-out-dir)
+             modeS = if isUp then list-append "LIVE_UP (verified_bare_elf64_and_sm90a_ptxas_nodes=" (list-append (h-decimal liveSsh) ")")
+                             else "PLAN_READY (run with 'up' or 'fund-usdc <wei>' to execute live)"
+             line7 = bn-ln (list-append "  6. Execution Mode       : " modeS)
+         in h-out (h-concat (cons line1 (cons line2 (cons line3 (cons line4 (cons line5 (cons line6 (cons line7 nil))))))))))))))))))))))))))))

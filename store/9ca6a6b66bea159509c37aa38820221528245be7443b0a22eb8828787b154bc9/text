@@ -1,0 +1,29 @@
+bn-sign-x402-header : Word → List Word → Word → Word → List Word → List Word
+bn-sign-x402-header priv payTo20 val6 validBefore nonceSeed =
+  let from20    = eth-priv-to-addr20 priv
+      fromEip55 = eth-eip55-from-bytes20 from20
+      toEip55   = eth-eip55-from-bytes20 payTo20
+      nonce32   = keccak256 (list-append (eth-word-be32 priv) nonceSeed)
+      dig32     = bn-eip3009-digest from20 payTo20 val6 #0 validBefore nonce32
+      sig       = secp-ecdsa-sign priv dig32
+      sigHex    = bn-sig65-hex sig
+      nonceHex  = list-append "0x" (h-hex nonce32)
+      authObj   = h-concat
+        (cons "{"
+        (cons (bn-jkv "from" fromEip55 ",")
+        (cons (bn-jkv "to" toEip55 ",")
+        (cons (bn-jkv "value" (h-decimal val6) ",")
+        (cons (bn-jkv "validAfter" "0" ",")
+        (cons (bn-jkv "validBefore" (h-decimal validBefore) ",")
+        (cons (bn-jkv "nonce" nonceHex "}") nil)))))))
+      payObj    = h-concat
+        (cons "{"
+        (cons (bn-jkv "signature" sigHex ",")
+        (cons (bn-jraw "authorization" authObj "}") nil)))
+      jsonPay   = h-concat
+        (cons "{"
+        (cons (bn-jraw "x402Version" "2" ",")
+        (cons (bn-jkv "scheme" "exact" ",")
+        (cons (bn-jkv "network" "eip155:8453" ",")
+        (cons (bn-jraw "payload" payObj "}") nil)))))
+  in bn-base64-enc jsonPay

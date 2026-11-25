@@ -1,0 +1,14 @@
+bn-load-funded-key : Bool → Proc W Word
+bn-load-funded-key requireLive =
+  bind (h-env "HX_PRIVATE_KEY_HEX") (λ eHex →
+    case eHex of
+      inr hx →
+        let priv = bn-parse-priv-hex hx
+        in if andB (%wlt #0 priv) (%wlt priv secp-n)
+           then ret {lzero} {W} priv
+           else bind (h-fail "Invalid HX_PRIVATE_KEY_HEX") (λ u → ret {lzero} {W} #0)
+      inl u0 →
+        bind (h-env "HX_KEY_FILE") (λ eFile →
+          case eFile of
+            inr kf → bn-load-key-path kf requireLive
+            inl u1 → bn-load-key-path bl-key-path requireLive))

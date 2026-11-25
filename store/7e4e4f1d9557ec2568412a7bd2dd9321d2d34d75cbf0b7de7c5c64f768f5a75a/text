@@ -1,0 +1,54 @@
+bn-ptx-emit : Word → INetExpr → Word × (Word × List Word)
+bn-ptx-emit nx (in-lit w) =
+  let line = the (List Word)
+               (h-concat (cons "  mov.u64 " (cons (bn-ptx-reg nx) (cons ", " (cons (h-decimal (bn-w64 w)) (cons ";" (cons bn-nl nil)))))))
+  in (%wadd nx #1 , (nx , line))
+bn-ptx-emit nx in-var0 =
+  (nx , (#0 , bn-empty-bytes))
+bn-ptx-emit nx (in-dup-add x) =
+  let rx  = the (Word × (Word × List Word)) (bn-ptx-emit nx x)
+      nx1 = the Word (fst rx)
+      vx  = the Word (fst (snd rx))
+      tx  = the (List Word) (snd (snd rx))
+      ln  = the (List Word)
+              (h-concat (cons "  add.u64 " (cons (bn-ptx-reg nx1) (cons ", " (cons (bn-ptx-reg vx) (cons ", " (cons (bn-ptx-reg vx) (cons ";" (cons bn-nl nil)))))))))
+  in (%wadd nx1 #1 , (nx1 , list-append tx ln))
+bn-ptx-emit nx (in-add a b) =
+  let ra  = the (Word × (Word × List Word)) (bn-ptx-emit nx a)
+      rb  = the (Word × (Word × List Word)) (bn-ptx-emit (fst ra) b)
+      nx2 = the Word (fst rb)
+      va  = the Word (fst (snd ra))
+      vb  = the Word (fst (snd rb))
+      ln  = the (List Word)
+              (h-concat (cons "  add.u64 " (cons (bn-ptx-reg nx2) (cons ", " (cons (bn-ptx-reg va) (cons ", " (cons (bn-ptx-reg vb) (cons ";" (cons bn-nl nil)))))))))
+  in (%wadd nx2 #1 , (nx2 , h-concat (cons (snd (snd ra)) (cons (snd (snd rb)) (cons ln nil)))))
+bn-ptx-emit nx (in-xor a b) =
+  let ra  = the (Word × (Word × List Word)) (bn-ptx-emit nx a)
+      rb  = the (Word × (Word × List Word)) (bn-ptx-emit (fst ra) b)
+      nx2 = the Word (fst rb)
+      va  = the Word (fst (snd ra))
+      vb  = the Word (fst (snd rb))
+      ln  = the (List Word)
+              (h-concat (cons "  xor.b64 " (cons (bn-ptx-reg nx2) (cons ", " (cons (bn-ptx-reg va) (cons ", " (cons (bn-ptx-reg vb) (cons ";" (cons bn-nl nil)))))))))
+  in (%wadd nx2 #1 , (nx2 , h-concat (cons (snd (snd ra)) (cons (snd (snd rb)) (cons ln nil)))))
+bn-ptx-emit nx (in-era-l _ live) =
+  bn-ptx-emit nx live
+bn-ptx-emit nx (in-lut3 m a b c) =
+  let ra   = the (Word × (Word × List Word)) (bn-ptx-emit nx a)
+      rb   = the (Word × (Word × List Word)) (bn-ptx-emit (fst ra) b)
+      rc   = the (Word × (Word × List Word)) (bn-ptx-emit (fst rb) c)
+      nx3  = the Word (fst rc)
+      va   = the Word (fst (snd ra))
+      vb   = the Word (fst (snd rb))
+      vc   = the Word (fst (snd rc))
+      b32  = the Word (%wmul nx3 #2)
+      immS = the (List Word) (h-decimal (%wand m #255))
+      lns  = the (List Word)
+               (h-concat
+                 (cons "  mov.b64 {" (cons (bn-ptx-r32 b32) (cons ", " (cons (bn-ptx-r32 (%wadd b32 #1)) (cons "}, " (cons (bn-ptx-reg va) (cons ";" (cons bn-nl
+                 (cons "  mov.b64 {" (cons (bn-ptx-r32 (%wadd b32 #2)) (cons ", " (cons (bn-ptx-r32 (%wadd b32 #3)) (cons "}, " (cons (bn-ptx-reg vb) (cons ";" (cons bn-nl
+                 (cons "  mov.b64 {" (cons (bn-ptx-r32 (%wadd b32 #4)) (cons ", " (cons (bn-ptx-r32 (%wadd b32 #5)) (cons "}, " (cons (bn-ptx-reg vc) (cons ";" (cons bn-nl
+                 (cons "  lop3.b32 " (cons (bn-ptx-r32 (%wadd b32 #6)) (cons ", " (cons (bn-ptx-r32 b32) (cons ", " (cons (bn-ptx-r32 (%wadd b32 #2)) (cons ", " (cons (bn-ptx-r32 (%wadd b32 #4)) (cons ", " (cons immS (cons ";" (cons bn-nl
+                 (cons "  lop3.b32 " (cons (bn-ptx-r32 (%wadd b32 #7)) (cons ", " (cons (bn-ptx-r32 (%wadd b32 #1)) (cons ", " (cons (bn-ptx-r32 (%wadd b32 #3)) (cons ", " (cons (bn-ptx-r32 (%wadd b32 #5)) (cons ", " (cons immS (cons ";" (cons bn-nl
+                 (cons "  mov.b64 " (cons (bn-ptx-reg nx3) (cons ", {" (cons (bn-ptx-r32 (%wadd b32 #6)) (cons ", " (cons (bn-ptx-r32 (%wadd b32 #7)) (cons "};" (cons bn-nl nil)))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  in (%wadd nx3 #1 , (nx3 , h-concat (cons (snd (snd ra)) (cons (snd (snd rb)) (cons (snd (snd rc)) (cons lns nil))))))

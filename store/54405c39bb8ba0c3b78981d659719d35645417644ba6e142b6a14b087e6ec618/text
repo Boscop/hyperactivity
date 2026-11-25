@@ -1,0 +1,22 @@
+emit-ptx-arch : List Word → Bool → INetExpr → List Word
+emit-ptx-arch smArch useOpt e =
+  let srcE = the INetExpr (if useOpt then superchip-opt e else e)
+      res  = the (Word × (Word × List Word)) (bn-ptx-emit #2 srcE)
+      rOut = the Word (fst (snd res))
+      body = the (List Word) (snd (snd res))
+  in h-concat
+       (cons ".version 8.0" (cons bn-nl
+       (cons ".target " (cons smArch (cons bn-nl
+       (cons ".address_size 64" (cons bn-nl (cons bn-nl
+       (cons ".visible .entry hx_brainnet_inet_kernel(" (cons bn-nl
+       (cons "  .param .u64 param_in," (cons bn-nl
+       (cons "  .param .u64 param_out" (cons bn-nl
+       (cons ") {" (cons bn-nl
+       (cons "  .reg .u64 %rd<64>;" (cons bn-nl
+       (cons "  .reg .u32 %r<128>;" (cons bn-nl
+       (cons "  ld.param.u64 %rd0, [param_in];" (cons bn-nl
+       (cons "  ld.param.u64 %rd1, [param_out];" (cons bn-nl
+       (cons body
+       (cons "  st.global.u64 [%rd1], " (cons (bn-ptx-reg rOut) (cons ";" (cons bn-nl
+       (cons "  ret;" (cons bn-nl
+       (cons "}" (cons bn-nl nil)))))))))))))))))))))))))))))))))

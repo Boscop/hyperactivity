@@ -1,0 +1,29 @@
+bn-cmd-fund-usdc : List (List Word) → Proc W Unit
+bn-cmd-fund-usdc args =
+  let swapWei = case args of
+                  nil       → #20000000000000000
+                  cons a rs → h-number a
+  in bind (bn-load-funded-key true) (λ priv →
+       let rel20    = eth-priv-to-addr20 priv
+           relEip55 = eth-eip55-from-bytes20 rel20
+       in bind (bl-rpc-call "eth_getBalance" (h-concat (cons "[" (cons (h-quote relEip55) (cons "," (cons (h-quote "latest") (cons "]" nil))))))) (λ rBal →
+          bind (bl-rpc-call "eth_getTransactionCount" (h-concat (cons "[" (cons (h-quote relEip55) (cons "," (cons (h-quote "latest") (cons "]" nil))))))) (λ rNc →
+          bind (bl-rpc-call "eth_gasPrice" "[]") (λ rGp →
+            let balW    = bl-hex-to-word (bl-extract-json-hex rBal)
+                ncW     = bl-hex-to-word (bl-extract-json-hex rNc)
+                gpW     = bl-hex-to-word (bl-extract-json-hex rGp)
+                mfee    = %wadd (%wmul gpW #2) #2000000
+                reserve = #2000000000000000
+                needWei = %wadd swapWei reserve
+                minUsdc = %wdiv (%wmul swapWei #1500) #1000000000000
+                cd      = bn-encode-eth-to-usdc rel20 swapWei minUsdc
+            in if %wlt balW needWei
+               then h-fail (list-append "INSUFFICIENT_BASE_ETH_FOR_SWAP_PLUS_RESERVE_AT_" relEip55)
+               else
+                 let tx  = mk-tx1559 #8453 ncW #1000000 mfee #220000 bn-uni3-router20 swapWei cd
+                     ok  = eth-tx1559-selfcheck priv tx
+                     raw = fst (eth-tx1559-sign-raw priv tx)
+                     rHx = list-append "0x" (h-hex raw)
+                 in if eth-not ok then h-fail "Swap EIP-1559 ecrecover self-check failed"
+                    else bind (bl-rpc-call "eth_sendRawTransaction" (h-concat (cons "[" (cons (h-quote rHx) (cons "]" nil))))) (λ rTx →
+                         h-out (h-concat (cons "[HX-BRAINNET-IAC | ETH->USDC SWAP TX] " (cons rTx (cons bn-nl nil)))))))))
