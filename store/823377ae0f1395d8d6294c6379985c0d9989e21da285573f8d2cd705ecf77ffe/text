@@ -1,0 +1,24 @@
+sov-send : Word → List Word → Step W Word
+sov-send port mode =
+  let pkt =
+        if cli-eq mode "forged" then
+          sov-pack-pkt #3735928559 sov-sample-pkt
+        else if cli-eq mode "cut" then
+          sov-pack-cut-frame sov-test-secret #1 ev-sample-com
+        else
+          sov-pack-pkt sov-test-secret (sov-pkt pk-exhausted #2 #9001 #11 #10 #15)
+  in scmd w-now (λ t0 →
+     scmd (w-sys #41 #2 #2 #0 #0 #0 #0) (λ fd →
+     scmd (w-alloc #16) (λ sa →
+     cli-poke sa (cli-sa-lo port) (λ u0 →
+     scmd (w-alloc #64) (λ buf →
+     cli-poke buf pkt (λ u1 →
+     scmd (w-sys #44 fd buf (cli-len pkt) #0 sa #16) (λ u2 →
+     scmd (w-sys #45 fd buf #64 #0 #0 #0) (λ n →
+     scmd w-now (λ t1 →
+     cli-peek buf n (λ resp →
+     scmd (w-sys #3 fd #0 #0 #0 #0 #0) (λ u3 →
+     cli-say (list-append "HX-Sovereign-Send mode=" (list-append mode
+       (list-append " rtt=" (list-append (ce-dec (%wdiv (%wsub t1 t0) #1000))
+       (list-append "us -> " resp)))))
+       (sdone #0))))))))))))

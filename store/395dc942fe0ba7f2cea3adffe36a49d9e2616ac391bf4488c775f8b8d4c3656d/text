@@ -1,0 +1,54 @@
+-- Subcommand `scan`: live Base Mainnet multi-DEX CL/V3/V2 scan + live on-chain Vault `eth_call` verification!
+bl-cmd-scan : Proc W Unit
+bl-cmd-scan =
+  bind bl-load-or-gen-key (λ priv →
+    let rel20    = eth-priv-to-addr20 priv
+        relEip55 = eth-eip55-from-bytes20 rel20
+        vlt20    = eth-create-addr20 rel20 #0
+        vltEip55 = eth-eip55-from-bytes20 vlt20
+        sweepCd  = list-append "0x01000001" bl-usdc-hex
+        vltChkP  = h-concat (cons "[{" (cons (h-quote "from") (cons ":" (cons (h-quote relEip55)
+                     (cons "," (cons (h-quote "to") (cons ":" (cons (h-quote vltEip55)
+                     (cons "," (cons (h-quote "data") (cons ":" (cons (h-quote sweepCd)
+                     (cons "}," (cons (h-quote "latest") (cons "]" nil)))))))))))))))
+    in bind (bl-scan-v3-pool "UniV3_1bps"  bl-uni-v3-fact #100)  (λ u1 →
+       bind (bl-scan-v3-pool "UniV3_5bps"  bl-uni-v3-fact #500)  (λ u5 →
+       bind (bl-scan-v3-pool "UniV3_30bps" bl-uni-v3-fact #3000) (λ u30 →
+       bind (bl-scan-v3-pool "PcsV3_1bps"  bl-pcs-v3-fact #100)  (λ p1 →
+       bind (bl-scan-v3-pool "PcsV3_5bps"  bl-pcs-v3-fact #500)  (λ p5 →
+       bind (bl-scan-v2-pool bl-uni-v2-pair)   (λ v2u →
+       bind (bl-scan-v2-pool bl-baseswap-pair) (λ v2b →
+       bind (bl-rpc-call "eth_call" vltChkP) (λ rVltCall →
+         let pxU1  = fst (snd u1)
+             pxU5  = fst (snd u5)
+             pxU30 = fst (snd u30)
+             pxP1  = fst (snd p1)
+             pxP5  = fst (snd p5)
+             pxV2U = fst v2u
+             pxV2B = fst v2b
+             hiCl  = if %wlt pxU1 pxP1 then pxP1 else pxU1
+             loCl  = if %wlt pxU1 pxP1 then pxU1 else pxP1
+             spClBps = if %weq loCl #0 then #0 else %wdiv (%wmul (%wsub hiCl loCl) #10000) loCl
+             hi5   = if %wlt pxU5 pxP5 then pxP5 else pxU5
+             lo5   = if %wlt pxU5 pxP5 then pxU5 else pxP5
+             sp5Bps = if %weq lo5 #0 then #0 else %wdiv (%wmul (%wsub hi5 lo5) #10000) lo5
+             vltCallOk = bl-chk-status-str rVltCall
+         in h-out (h-concat
+              (cons "[HX-BASE-LIVE | LIVE BASE MAINNET 7-POOL V3/V2 SCAN & ON-CHAIN VAULT CHECK]"
+              (cons (cons #10 nil)
+              (cons "   Vault 0xd480610563fCD40334D1B7587842bCFf60F17F18 eth_call(sweepUSDC->Founder) : "
+              (cons vltCallOk
+              (cons (cons #10 nil)
+              (cons (bl-fmt-pool "UniV3 1bps " (fst u1)        pxU1)
+              (cons (bl-fmt-pool "UniV3 5bps " (fst u5)        pxU5)
+              (cons (bl-fmt-pool "UniV3 30bps" (fst u30)       pxU30)
+              (cons (bl-fmt-pool "PcsV3 1bps " (fst p1)        pxP1)
+              (cons (bl-fmt-pool "PcsV3 5bps " (fst p5)        pxP5)
+              (cons (bl-fmt-pool "UniV2 30bps" bl-uni-v2-pair  pxV2U)
+              (cons (bl-fmt-pool "BaseSwap   " bl-baseswap-pair pxV2B)
+              (cons "  Spread Gate : 1bps_CL_spread="
+              (cons (h-decimal spClBps)
+              (cons " bps (need >2 bps) | 5bps_CL_spread="
+              (cons (h-decimal sp5Bps)
+              (cons " bps (need >10 bps) -> ATOMIC HOLD (0 wei gas spent)"
+              (cons (cons #10 nil) nil))))))))))))))))))))))))))))

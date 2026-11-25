@@ -1,0 +1,104 @@
+-- Execute 1 Complete `Hyperprofiler -> Hyperoptimizer -> 7-Network Hyperoperator` Epoch:
+ho-run-epoch : Word → OperatorState → Word → Proc W (OperatorState × Word)
+ho-run-epoch epochIdx curSt prevBestMops =
+  let sieveHex   = list-append "0x" (h-hex ho-sieve-bytes)
+      sievePrm   = h-concat
+                     (cons "[{" (cons (h-quote "data") (cons ":" (cons (h-quote sieveHex)
+                     (cons "}," (cons (h-quote "latest") (cons "]" nil)))))))
+      -- 1. Live `Hyperprofiler` VM Reflection (`%gcode` AST node counts) + Geodesic Prescription:
+      astPtx     = ho-reflect-def-nodes (code ho-compile-genome-ptx)
+      astOpt     = ho-reflect-def-nodes (code ho-hyperoptimize-step)
+      astSieve   = ho-reflect-def-nodes (code ho-sieve-bytes)
+      fsBefore   = ho-op-fstats curSt
+      actNow     = prof-prescribe-geodesic fsBefore
+      actStr     = ho-action-name actNow
+      -- 2. Live `Hyperoptimizer` Monotone Metacircular Step (`ml-meta-step` from `lib/hx-metacircular-loop`):
+      nextSt     = ml-meta-step ho-op-cost-nat ho-hyperoptimize-step curSt
+      fsAfter    = ho-op-fstats nextSt
+      cutsBefore = prof-cost-before fsBefore
+      cutsAfter  = prof-cost-before fsAfter
+      inetBefore = fromNat (inet-nodes (ho-op-inet curSt))
+      inetAfter  = fromNat (inet-nodes (ho-op-inet nextSt))
+      prescGen   = ho-genome-id (ho-op-genome nextSt)
+  in bind (h-mkdir "/tmp/hx_agent_bus") (λ mBus →
+     bind (ho-http-post-json "https://ethereum-rpc.publicnode.com" ho-rpc-block-req) (λ rEth →
+     bind (ho-http-post-json "https://mainnet.base.org" ho-rpc-block-req) (λ rBase →
+     bind (bl-rpc-call "eth_call" sievePrm) (λ rSieve →
+     bind (ho-http-post-json "https://arb1.arbitrum.io/rpc" ho-rpc-block-req) (λ rArb →
+     bind (ho-http-post-json "https://api.mainnet-beta.solana.com" ho-sol-slot-req) (λ rSol →
+     bind (ho-http-post-json "https://api.hyperliquid.xyz/info" ho-hl-mids-req) (λ rHl →
+     bind (ho-http-get "https://gamma-api.polymarket.com/events?active=true&closed=false&limit=2") (λ rPoly →
+     bind (ho-http-get "https://mainnet-api.tig.foundation/get-block") (λ rTig →
+     bind ho-bench-all4-h200 (λ rBench →
+       let ethBlk    = bl-hex-to-word (bl-extract-json-hex rEth)
+           baseBlk   = bl-hex-to-word (bl-extract-json-hex rBase)
+           arbBlk    = bl-hex-to-word (bl-extract-json-hex rArb)
+           solSlot   = ho-extract-json-int rSol
+           hlEthStr  = ho-extract-str "ETH" rHl
+           polySlug  = ho-extract-str "slug" rPoly
+           tigBoot   = ho-extract-str "bootstrap_address" rTig
+           svHex     = bl-extract-json-hex rSieve
+           mUsdcM    = %wdiv (ho-word-at zero svHex) #1000000000000
+           mWeth     = %wdiv (ho-word-at (suc zero) svHex) #1000000000000000000
+           pxUni     = ho-sqrtpx-usdc6 (ho-word-at (toNat #2) svHex)
+           pxSlip    = ho-sqrtpx-usdc6 (ho-word-at (toNat #3) svHex)
+           spreadU   = ho-abs-diff pxUni pxSlip
+           mops0     = ho-extract-tag-int "MOPS0=" rBench
+           mops1     = ho-extract-tag-int "MOPS1=" rBench
+           mops2     = ho-extract-tag-int "MOPS2=" rBench
+           mops3     = ho-extract-tag-int "MOPS3=" rBench
+           bestEpoch = ho-max-w (ho-max-w mops0 mops1) (ho-max-w mops2 mops3)
+           champMop  = ho-max-w prevBestMops bestEpoch
+           champId   = ho-pick-champ-id bestEpoch mops1 mops2 mops3
+           liveHs    = mk-hyperspace baseBlk ethBlk
+                         (mk-pool-edge #8453 #1 #50 pxUni #94170)
+                         (mk-perp-node #2 pxSlip spreadU #37740)
+                         (mk-lending-vault #8453 mUsdcM #0 #500)
+                         (mk-coherence-bundle #1 #9710 #20 #300)
+                         (mk-bounty-target #1 #23000 #335 #0)
+                         (mk-compute-node #1 #3 #423 champMop)
+           luxHex    = list-append "0x" (h-hex (eth-word-be-min (ch-fold-xor (ch-encode-hs liveHs))))
+           -- 3. Authenticated 32-Byte Binary `HXSV` Self-Profile & Champion Frame (`lib/hx-sovereign`):
+           hxsvFrame = sov-pack-pkt sov-test-secret
+                         (sov-pkt pk-cut4b epochIdx prescGen cutsBefore cutsAfter champMop)
+           stJson    = h-concat
+                         (cons "{"
+                         (cons (bn-jraw "epoch" (h-decimal epochIdx) ",")
+                         (cons (bn-jkv "hyperprofiler_prescription" actStr ",")
+                         (cons (bn-jkv "lux_chord_commitment_hex" luxHex ",")
+                         (cons (bn-jraw "reflected_gcode_nodes_ptx_compiler" (h-decimal astPtx) ",")
+                         (cons (bn-jraw "reflected_gcode_nodes_hyperopt" (h-decimal astOpt) ",")
+                         (cons (bn-jraw "reflected_gcode_nodes_evm_sieve" (h-decimal astSieve) ",")
+                         (cons (bn-jraw "lafont_cuts_before" (h-decimal cutsBefore) ",")
+                         (cons (bn-jraw "lafont_cuts_after" (h-decimal cutsAfter) ",")
+                         (cons (bn-jraw "host_inet_nodes_before" (h-decimal inetBefore) ",")
+                         (cons (bn-jraw "host_inet_nodes_after" (h-decimal inetAfter) ",")
+                         (cons (bn-jraw "eth_l1_block" (h-decimal ethBlk) ",")
+                         (cons (bn-jraw "base_8453_block" (h-decimal baseBlk) ",")
+                         (cons (bn-jraw "arbitrum_42161_block" (h-decimal arbBlk) ",")
+                         (cons (bn-jraw "solana_slot" (h-decimal solSlot) ",")
+                         (cons (bn-jkv "hyperliquid_eth_mid" hlEthStr ",")
+                         (cons (bn-jkv "polymarket_live_slug" polySlug ",")
+                         (cons (bn-jkv "tig_opow_bootstrap" tigBoot ",")
+                         (cons (bn-jraw "morpho_0bps_usdc_millions" (h-decimal mUsdcM) ",")
+                         (cons (bn-jraw "morpho_0bps_weth" (h-decimal mWeth) ",")
+                         (cons (bn-jraw "base_univ3_eth_usdc6" (h-decimal pxUni) ",")
+                         (cons (bn-jraw "base_slipstream_eth_usdc6" (h-decimal pxSlip) ",")
+                         (cons (bn-jraw "base_dex_spread_usdc6" (h-decimal spreadU) ",")
+                         (cons (bn-jkv "founder_beneficiary_lock" ho-founder-coinbase ",")
+                         (cons (bn-jraw "gen0_m_ulop3_s" (h-decimal mops0) ",")
+                         (cons (bn-jraw "gen1_m_ulop3_s" (h-decimal mops1) ",")
+                         (cons (bn-jraw "gen2_m_ulop3_s" (h-decimal mops2) ",")
+                         (cons (bn-jraw "gen3_m_ulop3_s" (h-decimal mops3) ",")
+                         (cons (bn-jraw "ratcheted_champion_m_ulop3_s" (h-decimal champMop) ",")
+                         (cons (bn-jkv "champion_genome" champId "}") nil))))))))))))))))))))))))))))))
+           l1 = bn-ln (list-append "[HX-HYPEROPERATOR EPOCH #" (list-append (h-decimal epochIdx) " | HYPERPROFILER -> HYPEROPTIMIZER -> 7-NETWORK MESH]"))
+           l2 = bn-ln (list-append "  1. Hyperprofiler     : %gcode_nodes(ptx=" (list-append (h-decimal astPtx) (list-append ",opt=" (list-append (h-decimal astOpt) (list-append ",sieve=" (list-append (h-decimal astSieve) (list-append ") | action=" (list-append actStr (list-append " | cuts=" (list-append (h-decimal cutsBefore) (list-append "->" (list-append (h-decimal cutsAfter) (list-append " | inet_nodes=" (list-append (h-decimal inetBefore) (list-append "->" (list-append (h-decimal inetAfter) " | HXSV=32B"))))))))))))))))
+           l3 = bn-ln (list-append "  2. Multi-Chain Sync  : ETH_L1=#" (list-append (h-decimal ethBlk) (list-append " | Base_8453=#" (list-append (h-decimal baseBlk) (list-append " | Arb_42161=#" (list-append (h-decimal arbBlk) (list-append " | Solana_Slot=#" (h-decimal solSlot))))))))
+           l4 = bn-ln (list-append "  3. Markets & OPOW    : Hyperliquid_ETH=$" (list-append hlEthStr (list-append " | UniV3_uUSDC=" (list-append (h-decimal pxUni) (list-append " | Slipstream_uUSDC=" (list-append (h-decimal pxSlip) (list-append " (spread=" (list-append (h-decimal spreadU) (list-append " uUSDC) | Polymarket=" (list-append polySlug (list-append " | TIG=" tigBoot)))))))))))
+           l5 = bn-ln (list-append "  4. 0-bps Flash Pool  : Morpho_USDC=$" (list-append (h-decimal mUsdcM) (list-append "M | Morpho_WETH=" (list-append (h-decimal mWeth) (list-append " ETH | Beneficiary=" ho-founder-coinbase)))))
+           l6 = bn-ln (list-append "  5. 3x H200 Evolution : Gen0=" (list-append (h-decimal mops0) (list-append " -> Gen1=" (list-append (h-decimal mops1) (list-append " -> Gen2=" (list-append (h-decimal mops2) (list-append " -> Gen3=" (list-append (h-decimal mops3) (list-append " M-ULOP3/s | CHAMPION=" (list-append champId (list-append " (" (list-append (h-decimal champMop) " M-ULOP3/s)"))))))))))))
+       in bind (h-write "/tmp/hx_agent_bus/hyperoperator.hxsv" hxsvFrame) (λ wHx →
+          bind (h-write (list-append ho-out-dir "/live_brainnet_state.json") (bn-ln stJson)) (λ wSt →
+          bind (h-out (h-concat (cons l1 (cons l2 (cons l3 (cons l4 (cons l5 (cons l6 nil)))))))) (λ uOut →
+          ret {lzero} {W} (nextSt , champMop))))))))))))))

@@ -1,0 +1,41 @@
+evm-vault-part4 : List EvmInst
+evm-vault-part4 =
+  -- Lbl #40: Single-shot flash callback (`CALLER == SLOAD(0)`!):
+  -- Note: in both V2 (`uniswapV2Call(addr,u256,u256,bytes)`) and V3 (`uniswapV3SwapCallback(i256,i256,bytes)`),
+  -- ABI `bytes data` offset word is at `cd[4 + 32*k]` -> first word of `bytes` body holds magic offset `cd[4 + off + 32]`!
+  -- Even simpler: pass callback body starting offset at the LAST 32 bytes of calldata (`CALLDATASIZE - 32` -> no, fixed ABI:
+  -- in V3 `bytes` offset is at `cd[68]` (`data` starts at `132`), in V2 `bytes` offset is at `cd[100]` (`data` starts at `164`)!
+  -- Check `CALLDATALOAD(68) == 96` (V3) ? `132` : `164`!
+  list-append
+    (cons (ev-lbl #40)
+    (cons (ev-push nil)
+    (cons (ev-op #84)                   -- SLOAD(0) = activeBorrowPool
+    (cons (ev-op #51)                   -- CALLER
+    (cons (ev-op #20)                   -- CALLER == SLOAD(0)
+    (cons (ev-op #21)                   -- ISZERO
+    (cons (ev-jmpi #99)                 -- UNAUTHORIZED CALLBACK -> REVERT!
+    (cons (ev-push nil)
+    (cons (ev-push nil)
+    (cons (ev-op #85)                   -- SSTORE(0, 0) single-shot clear!
+    -- Determine bytes payload start (`cd[68] == 96` -> V3 `132`, else V2 `164`):
+    (cons (ev-push (cons #68 nil))
+    (cons (ev-op #53)
+    (cons (ev-push (cons #96 nil))
+    (cons (ev-op #20)
+    (cons (ev-jmpi #41)
+    (cons (ev-push (cons #164 nil))
+    (cons (ev-jmp #42)
+    (cons (ev-lbl #41)
+    (cons (ev-push (cons #132 nil))
+    (cons (ev-lbl #42)                  -- Loop Lbl #42: stack has `[off]`, executes subcalls until `target == 0`!
+    nil))))))))))))))))))))
+  (list-append evm-cb-subcall
+    (cons (ev-jmp #42)
+    (cons (ev-lbl #45)                  -- Lbl #45: clean callback exit
+    (cons (ev-op #80)
+    (cons (ev-op #80)
+    (cons (ev-op #0)                    -- STOP
+    (cons (ev-lbl #99)                  -- Lbl #99: REVERT(0, 0)
+    (cons (ev-push nil)
+    (cons (ev-push nil)
+    (cons (ev-op #253) nil))))))))))

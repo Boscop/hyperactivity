@@ -1,0 +1,46 @@
+-- Full Runtime Program:
+--   Lbl #10: Sweep ETH (`SELFBALANCE`) -> `founder20`
+--   Lbl #20: Sweep ERC-20 (`0x01000001`, `cd[4] = token`) -> `founder20`
+--   Lbl #30: Relayer `execAtomicFlashArb` (`0x02000002`)
+--   Lbl #40: Flash Callback (`SSTORE(0)` locked, executes 3 subcalls encoded at callback offset `cd[132]`/`cd[100]`)
+--   Lbl #99: `REVERT(0, 0)`
+evm-vault-part1 : List Word → List Word → List EvmInst
+evm-vault-part1 founder20 relayer20 =
+  -- If CALLDATASIZE < 4 -> jump to Lbl #10 (ETH sweep to founder!)
+  cons (ev-push (cons #4 nil))
+  (cons (ev-op #54)                     -- CALLDATASIZE; stack: [cds, 4] -> LT checks cds < 4!
+  (cons (ev-op #16)                     -- LT(cds, 4)
+  (cons (ev-jmpi #10)
+  -- Load 4-byte selector = CALLDATALOAD(0) >> 224:
+  (cons (ev-push nil)
+  (cons (ev-op #53)                     -- CALLDATALOAD(0)
+  (cons (ev-push (cons #224 nil))
+  (cons (ev-op #28)                     -- SHR(224, cd0) = sel
+  -- Dispatch sel:
+  (cons (ev-op #128)                    -- DUP1
+  (cons (ev-push (cons #1 (cons #0 (cons #0 (cons #1 nil)))))
+  (cons (ev-op #20)                     -- sel == 0x01000001 (sweepToken)
+  (cons (ev-jmpi #20)
+  (cons (ev-op #128)                    -- DUP1
+  (cons (ev-push (cons #2 (cons #0 (cons #0 (cons #2 nil)))))
+  (cons (ev-op #20)                     -- sel == 0x02000002 (execAtomicFlashArb)
+  (cons (ev-jmpi #30)
+  -- If `SLOAD(0) != 0`, any pool callback (`uniswapV2Call`, `uniswapV3SwapCallback`, `hook`) jumps to Lbl #40!
+  (cons (ev-op #80)                     -- POP sel
+  (cons (ev-push nil)
+  (cons (ev-op #84)                     -- SLOAD(0)
+  (cons (ev-jmpi #40)                   -- if activeBorrowPool != 0 -> Lbl #40!
+  -- Otherwise default to Lbl #10 (ETH sweep / payComputeLicense -> founder20!):
+  (cons (ev-lbl #10)
+  (cons (ev-push nil)                   -- retLen = 0
+  (cons (ev-push nil)                   -- retOff = 0
+  (cons (ev-push nil)                   -- argsLen = 0
+  (cons (ev-push nil)                   -- argsOff = 0
+  (cons (ev-op #71)                     -- SELFBALANCE (100% of contract ETH!)
+  (cons (ev-push founder20)             -- HARDCODED founder20!
+  (cons (ev-op #90)                     -- GAS
+  (cons (ev-op #241)                    -- CALL
+  (cons (ev-op #21)                     -- ISZERO
+  (cons (ev-jmpi #99)
+  (cons (ev-op #0)                      -- STOP
+  nil)))))))))))))))))))))))))))))))

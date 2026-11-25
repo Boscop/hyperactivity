@@ -1,0 +1,63 @@
+lir-sv2 : List Word → List Word
+lir-sv2 tl =
+  lir-lines
+    (list-append
+      (lir-l8
+        "  input  wire [63:0] gauge_mask,"
+        "  input  wire        pol_mode,"
+        "  output wire [63:0] plaq_out,"
+        "  output wire        stokes_closed"
+        ");"
+        "  wire [63:0] a = edge_n ^ gauge_mask;"
+        "  wire [63:0] b = edge_e ^ gauge_mask;"
+        "  wire [63:0] c = edge_s ^ gauge_mask;")
+      (lir-l8
+        "  wire [63:0] d = edge_w ^ gauge_mask;"
+        "  wire [63:0] coboundary = (a ^ b) ^ (b ^ c) ^ (c ^ d) ^ (d ^ a);"
+        "  assign stokes_closed = (coboundary == 64'd0);"
+        "  wire [63:0] cut_ab = pol_mode ? (a | b) : (a & b);"
+        "  wire [63:0] cut_cd = pol_mode ? (~(c | d)) : (~(c & d));"
+        "  assign plaq_out = (cut_ab ^ cut_cd) ^ gauge_mask;"
+        "endmodule"
+        ""))
+    (lir-lines
+      (list-append
+        (lir-l8
+          "module hx_lux_top ("
+          "  input  wire        clk,"
+          "  input  wire        rst_n,"
+          "  input  wire        wave_valid,"
+          "  input  wire        pol_mode,"
+          "  input  wire [10:0] dst_syn,"
+          "  input  wire [11:0] bf16_packed12,"
+          "  input  wire [7:0]  bf16_pal_exp,")
+        (lir-l8
+          "  input  wire [63:0] wave_in_a,"
+          "  input  wire [63:0] wave_in_b,"
+          "  input  wire [63:0] gauge_key,"
+          "  output reg  [63:0] wave_out,"
+          "  output reg  [10:0] cur_syn,"
+          "  output wire [15:0] bf16_unpacked,"
+          "  output wire        antipode_fold,"
+          "  output wire        stokes_ok"))
+      (lir-lines
+        (list-append
+          (lir-l8
+            ");"
+            "  wire [10:0] next_syn;"
+            "  wire [3:0]  hop_ub;"
+            "  wire [63:0] plaq_y;"
+            "  assign bf16_unpacked = {bf16_packed12[11], bf16_pal_exp, bf16_packed12[6:0]};"
+            "  hx_lux_golay23_chord u_g23 (.syn_in(cur_syn), .dst_syn(dst_syn), .syn_next(next_syn), .antipode_fold(antipode_fold), .hop_dist_ub(hop_ub));"
+            "  hx_lux_cryptic_plaquette u_plq ("
+            "    .edge_n(wave_in_a), .edge_e(wave_in_b), .edge_s(wave_out), .edge_w({48'd0, bf16_unpacked}),")
+          (lir-l8
+            "    .gauge_mask(gauge_key), .pol_mode(pol_mode), .plaq_out(plaq_y), .stokes_closed(stokes_ok));"
+            "  always @(posedge clk) begin"
+            "    if (!rst_n) begin cur_syn <= 11'h001; wave_out <= 64'd0; end"
+            "    else if (wave_valid) begin cur_syn <= next_syn ^ {7'd0, hop_ub}; wave_out <= plaq_y; end"
+            "  end"
+            "endmodule"
+            "`default_nettype wire"
+            ""))
+        tl))

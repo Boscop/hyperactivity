@@ -1,0 +1,22 @@
+bl-cmd-yield-status : Proc W Unit
+bl-cmd-yield-status =
+  bind bl-load-or-gen-key (λ priv →
+    let rel20    = eth-priv-to-addr20 priv
+        relEip55 = eth-eip55-from-bytes20 rel20
+        balCdHex = list-append "0x70a08231000000000000000000000000" (h-hex rel20)
+        convSel  = bl-sel4 "convertToAssets(uint256)"
+    in bind (bl-eth-call bl-morpho-usdc-vlt balCdHex) (λ shUHex →
+       bind (bl-eth-call bl-morpho-weth-vlt balCdHex) (λ shWHex →
+         let shU64 = h-take (toNat #64) shUHex
+             shW64 = h-take (toNat #64) shWHex
+         in bind (bl-eth-call bl-morpho-usdc-vlt (list-append convSel shU64)) (λ aUHex →
+            bind (bl-eth-call bl-morpho-weth-vlt (list-append convSel shW64)) (λ aWHex →
+              let aUW = bl-hex-to-word (h-take (toNat #64) aUHex)
+                  aWW = bl-hex-to-word (h-take (toNat #64) aWHex)
+                  yUW = if %wlt #200000000 aUW then %wsub aUW #200000000 else #0
+                  yWW = if %wlt #450000000000000000 aWW then %wsub aWW #450000000000000000 else #0
+              in h-out (h-concat
+                   (cons "[HX-BASE-LIVE | MORPHO V2 ERC-4626 ZERO-IL LIVE YIELD STATUS]" (cons (cons #10 nil)
+                   (cons "  Relayer             : " (cons relEip55 (cons (cons #10 nil)
+                   (cons "  Gauntlet USDC (u6)  : " (cons (h-decimal aUW) (cons " (realized_yield=+" (cons (h-decimal yUW) (cons " uUSDC)" (cons (cons #10 nil)
+                   (cons "  Gauntlet WETH (wei) : " (cons (h-digits-onto (toNat #30) aWW nil) (cons " (realized_yield=+" (cons (h-digits-onto (toNat #30) yWW nil) (cons " wei)" (cons (cons #10 nil) nil)))))))))))))))))))))))

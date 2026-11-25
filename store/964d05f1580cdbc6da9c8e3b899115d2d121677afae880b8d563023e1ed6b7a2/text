@@ -1,0 +1,17 @@
+sov-handle-pkt : Word → Word → Word → Word → SovPkt → Step W Word
+sov-handle-pkt port fd buf peer (sov-pkt k sq tg pa pb pc) =
+  let merged = sov-merge-target sov-shard-wave1 (sov-target tg pa pb pc true #0 #0)
+      grad   = if sov-ready-for-foundry merged then #1 else #0
+      line   = sov-wire-json (sov-pkt k sq tg pa pb pc) grad
+      ack    = list-append "ACCEPT:HXSV_AUTH_OK:seq="
+               (list-append (ce-dec sq)
+               (list-append ":min_gates="
+               (list-append (ce-dec (sov-min-w #14 pa))
+               (list-append ":foundry_ready=" (ce-dec grad)))))
+  in scmd (w-file-read-named "/tmp/hx_agent_bus/sovereign_wire.jsonl") (λ prev →
+     scmd (w-file-write-named "/tmp/hx_agent_bus/sovereign_wire.jsonl" (list-append (snd prev) line)) (λ u0 →
+     cli-poke buf ack (λ u1 →
+     scmd (w-sys #44 fd buf (cli-len ack) #0 peer #16) (λ u2 →
+     scmd (w-sys #3 fd #0 #0 #0 #0 #0) (λ u3 →
+     cli-say (list-append "HX-Sovereign-Listen port=" (list-append (ce-dec port) (list-append " rx=32B -> " ack)))
+       (sdone #0))))))

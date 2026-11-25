@@ -1,0 +1,20 @@
+-- Cold proof: signed `int24` tick alignment & ordering on all 3 live Base turbines (`PcsV3 WETH/USDC 1bp`,
+-- `UniV3 VVV/USDC 30bp`, `UniV3 cbBTC/USDC 5bp`), 80%/20% compound + Founder royalty conservation,
+-- and V3 NonfungiblePositionManager 4-byte selectors hold by `refl`!
+bl-thm-whole-field-3turbine-and-80-20-royalty :
+  let bWeth = bl-align-tick-band (true , #202210) #1 #12
+      bVvv  = bl-align-tick-band (false , #244197) #60 #120
+      bBtc  = bl-align-tick-band (true , #63803) #10 #20
+      okW   = andB (bl-tick-le (fst bWeth) (true , #202210)) (bl-tick-le (true , #202210) (snd bWeth))
+      okV   = andB (bl-tick-le (fst bVvv) (false , #244197)) (bl-tick-le (false , #244197) (snd bVvv))
+      okB   = andB (bl-tick-le (fst bBtc) (true , #63803)) (bl-tick-le (true , #63803) (snd bBtc))
+      totF  = #500000
+      royF  = %wdiv totF #5
+      cmpF  = %wsub totF royF
+      okCon = andB (%weq royF #100000) (andB (%weq cmpF #400000) (%weq (%wadd royF cmpF) totF))
+      okSel = andB (h-eq (h-hex (bl-sel4-bytes "mint((address,address,uint24,int24,int24,uint256,uint256,uint256,uint256,address,uint256))")) "88316456")
+              (andB (h-eq (h-hex (bl-sel4-bytes "increaseLiquidity((uint256,uint256,uint256,uint256,uint256,uint256))")) "219f5d17")
+              (andB (h-eq (h-hex (bl-sel4-bytes "decreaseLiquidity((uint256,uint128,uint256,uint256,uint256))")) "0c49ccbe")
+                    (h-eq (h-hex (bl-sel4-bytes "collect((uint256,address,uint128,uint128))")) "fc6f7865")))
+  in andB okW (andB okV (andB okB (andB okCon okSel))) ≡ true
+bl-thm-whole-field-3turbine-and-80-20-royalty = refl

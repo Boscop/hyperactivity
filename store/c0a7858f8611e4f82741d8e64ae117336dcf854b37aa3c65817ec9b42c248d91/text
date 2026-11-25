@@ -1,0 +1,73 @@
+evm-vault-part3 : List Word → List Word → List EvmInst
+evm-vault-part3 founder20 relayer20 =
+  -- Lbl #30: execAtomicFlashArb(borrowPool=cd[4], repayTok=cd[36], minProfit=cd[68], cdLen=cd[100], poolCd=cd[132..])
+  list-append
+    (cons (ev-lbl #30)
+    (cons (ev-op #80)                   -- POP sel
+    -- Require CALLER == relayer20:
+    (cons (ev-op #51)                   -- CALLER
+    (cons (ev-push relayer20)
+    (cons (ev-op #20)                   -- EQ
+    (cons (ev-op #21)                   -- ISZERO
+    (cons (ev-jmpi #99)
+    -- Query preBal = repayToken.balanceOf(this), save at mem[160]:
+    (cons (ev-push (cons #36 nil))
+    (cons (ev-op #53) nil)))))))))      -- CALLDATALOAD(36) = repayToken
+  (list-append (evm-bal-of-this #99)    -- stack: [preBal]
+  (list-append
+    (cons (ev-push (cons #160 nil))
+    (cons (ev-op #82)                   -- MSTORE(160, preBal)
+    -- Lock SSTORE(0, borrowPool = cd[4]):
+    (cons (ev-push (cons #4 nil))
+    (cons (ev-op #53)                   -- borrowPool
+    (cons (ev-push nil)
+    (cons (ev-op #85)                   -- SSTORE(0, borrowPool)
+    -- Copy poolCd `cd[132 .. 132 + cd[100]]` to mem[256..] and CALL borrowPool:
+    (cons (ev-push (cons #100 nil))
+    (cons (ev-op #53)                   -- cdLen
+    (cons (ev-push (cons #132 nil))     -- srcOff = 132
+    (cons (ev-push (cons #1 (cons #0 nil))) -- dstOff = 256 (0x0100)
+    (cons (ev-op #55)                   -- CALLDATACOPY(256, 132, cdLen)
+    (cons (ev-push nil)                 -- retLen = 0
+    (cons (ev-push nil)                 -- retOff = 0
+    (cons (ev-push (cons #100 nil))
+    (cons (ev-op #53)                   -- argsLen = cdLen
+    (cons (ev-push (cons #1 (cons #0 nil))) -- argsOff = 256 (0x0100)
+    (cons (ev-push nil)                 -- value = 0
+    (cons (ev-push (cons #4 nil))
+    (cons (ev-op #53)                   -- borrowPool
+    (cons (ev-op #90)                   -- GAS
+    (cons (ev-op #241)                  -- CALL
+    (cons (ev-op #21)                   -- ISZERO
+    (cons (ev-jmpi #99)
+    -- Clear lock SSTORE(0, 0):
+    (cons (ev-push nil)
+    (cons (ev-push nil)
+    (cons (ev-op #85)                   -- SSTORE(0, 0)
+    -- Query postBal = repayToken.balanceOf(this):
+    (cons (ev-push (cons #36 nil))
+    (cons (ev-op #53) nil))))))))))))))))))))))))))))
+  (list-append (evm-bal-of-this #99)    -- stack: [postBal]
+  (list-append
+    -- Enforce minProfit > 0 AND postBal >= preBal + minProfit:
+    (cons (ev-push (cons #68 nil))
+    (cons (ev-op #53)                   -- minProfit
+    (cons (ev-op #128)                  -- DUP1
+    (cons (ev-op #21)                   -- ISZERO(minProfit)
+    (cons (ev-jmpi #99)                 -- revert if minProfit == 0
+    (cons (ev-push (cons #160 nil))
+    (cons (ev-op #81)                   -- preBal; stack: [preBal, minProfit, postBal]
+    (cons (ev-op #1)                    -- reqBal = preBal + minProfit; stack: [reqBal, postBal]
+    (cons (ev-op #129)                  -- DUP2 -> [postBal, reqBal, postBal]
+    (cons (ev-op #16)                   -- LT(postBal, reqBal) -> 1 if postBal < reqBal!
+    (cons (ev-jmpi #99)                 -- ATOMIC REVERT IF UNPROFITABLE!
+    -- netProfit = postBal - preBal -> sweep 100% to founder20!
+    (cons (ev-push (cons #160 nil))
+    (cons (ev-op #81)                   -- [preBal, postBal]
+    (cons (ev-op #144)                  -- SWAP1 -> [postBal, preBal]
+    (cons (ev-op #3)                    -- SUB -> [postBal - preBal]
+    (cons (ev-push (cons #36 nil))
+    (cons (ev-op #53)                   -- [repayToken, netProfit]
+    (cons (ev-op #144) nil)))))))))))))))))) -- SWAP1 -> [netProfit, repayToken]
+  (list-append (evm-transfer-to-founder founder20 #99)
+    (cons (ev-op #0) nil))))))

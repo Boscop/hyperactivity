@@ -1,0 +1,18 @@
+-- Full Ethereum `ecrecover` (`(yParity, r, s, msgHash32) -> 20-byte sender address`):
+-- Uses p == 3 (mod 4) square root `y = (r^3 + 7)^((p+1)/4) mod p`!
+secp-ecrecover-addr20 : Word → Word → Word → List Word → List Word
+secp-ecrecover-addr20 yParity r s msgHash32 =
+  if orB (%weq r #0) (orB (%weq s #0) (eth-not (eth-le s secp-half-n))) then nil
+  else
+    let rhs  = fp-add (fp-mul r (fp-sqr r)) #7
+        y0   = mod-pow (toNat #256) rhs (%wdiv (%wadd secp-p #1) #4) secp-p
+        ry   = if %weq (%wand y0 #1) yParity then y0 else %wsub secp-p y0
+        rInv = mod-inv r secp-n
+        z    = %wmod (h-be msgHash32) secp-n
+        u1   = %wmod (%wmul rInv s) secp-n
+        u2   = %wmod (%wmul rInv z) secp-n
+        qPt  = jp-to-affine (jp-add (jp-mul (toNat #256) u1 (jp-pt r ry #1))
+                                    (jp-neg (jp-mul (toNat #256) u2 secp-G)))
+    in if secp-on-curve (fst qPt) (snd qPt)
+       then eth-pubkey-to-addr20 (fst qPt) (snd qPt)
+       else nil

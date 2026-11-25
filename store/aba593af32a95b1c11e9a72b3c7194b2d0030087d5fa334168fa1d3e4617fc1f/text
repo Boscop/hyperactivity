@@ -1,0 +1,20 @@
+bl-load-or-gen-key : Proc W Word
+bl-load-or-gen-key =
+  bind (h-read bl-key-path) (λ ex →
+    case ex of
+      inr kh →
+        let clean = h-take (toNat #64) kh
+            priv  = h-be (eth-from-hex clean)
+        in if andB (%wlt #0 priv) (%wlt priv secp-n)
+           then ret {lzero} {W} priv
+           else bind (h-fail "Invalid existing keyfile") (λ u → ret {lzero} {W} #0)
+      inl u →
+        bind (h-mkdir bl-vault-dir) (λ m1 →
+        bind (h-capture (cons "/bin/chmod" (cons "700" (cons bl-vault-dir nil)))) (λ c1 →
+        bind bl-urandom32-hex (λ hex64 →
+          let priv = h-be (eth-from-hex hex64)
+          in if andB (%wlt #0 priv) (%wlt priv secp-n)
+             then bind (h-write bl-key-path (h-line hex64)) (λ w1 →
+                  bind (h-capture (cons "/bin/chmod" (cons "600" (cons bl-key-path nil)))) (λ c2 →
+                  ret {lzero} {W} priv))
+             else bind (h-fail "CSPRNG scalar out of range") (λ u2 → ret {lzero} {W} #0)))))

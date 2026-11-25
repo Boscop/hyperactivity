@@ -1,0 +1,25 @@
+eth-tx1559-sign-raw : Word → Eip1559Tx → List Word × (Word × (Word × Word))
+eth-tx1559-sign-raw priv tx =
+  case tx of
+    mk-tx1559 cid nc prio mfee gas to20 val dat →
+      let unsig = eth-tx1559-unsigned tx
+          shash = keccak256 unsig
+          sig   = secp-ecdsa-sign priv shash
+          yp    = fst sig
+          r     = fst (snd sig)
+          s     = snd (snd sig)
+          raw   = cons #2
+                  (rlp-list
+                    (cons (rlp-uint cid)
+                    (cons (rlp-uint nc)
+                    (cons (rlp-uint prio)
+                    (cons (rlp-uint mfee)
+                    (cons (rlp-uint gas)
+                    (cons (rlp-bytes to20)
+                    (cons (rlp-uint val)
+                    (cons (rlp-bytes dat)
+                    (cons (rlp-list nil)
+                    (cons (rlp-uint yp)
+                    (cons (rlp-uint r)
+                    (cons (rlp-uint s) nil)))))))))))))
+      in (raw , sig)

@@ -1,0 +1,41 @@
+-- Single callback subcall helper: reads `(target=cd[off], len=cd[off+32], data=cd[off+64..off+64+len])`:
+evm-cb-subcall : List EvmInst
+evm-cb-subcall =
+  -- Entry stack: [off]; leaves [nextOff = off + 64 + len]
+  cons (ev-op #128)                     -- [off, off]
+  (cons (ev-op #53)                     -- [target, off]
+  (cons (ev-op #128)                    -- [target, target, off]
+  (cons (ev-op #21)                     -- [target==0, target, off]
+  (cons (ev-jmpi #45)                   -- if target == 0 -> done callback!
+  (cons (ev-push (cons #96 nil))
+  (cons (ev-op #82)                     -- MSTORE(96, target); stack: [off]
+  (cons (ev-op #128)                    -- [off, off]
+  (cons (ev-push (cons #32 nil))
+  (cons (ev-op #1)                      -- [off+32, off]
+  (cons (ev-op #53)                     -- [len, off]
+  (cons (ev-push (cons #128 nil))
+  (cons (ev-op #82)                     -- MSTORE(128, len); stack: [off]
+  (cons (ev-push (cons #64 nil))
+  (cons (ev-op #1)                      -- [dataOff = off+64]
+  (cons (ev-op #128)                    -- [dataOff, dataOff]
+  (cons (ev-push (cons #128 nil))
+  (cons (ev-op #81)                     -- [len, dataOff, dataOff]
+  (cons (ev-op #144)                    -- [dataOff, len, dataOff]
+  (cons (ev-push (cons #1 (cons #0 nil))) -- [256, dataOff, len, dataOff]
+  (cons (ev-op #55)                     -- CALLDATACOPY(256, dataOff, len); stack: [dataOff]
+  (cons (ev-push nil)
+  (cons (ev-push nil)
+  (cons (ev-push (cons #128 nil))
+  (cons (ev-op #81)                     -- argsLen = len
+  (cons (ev-push (cons #1 (cons #0 nil))) -- argsOff = 256
+  (cons (ev-push nil)                   -- value = 0
+  (cons (ev-push (cons #96 nil))
+  (cons (ev-op #81)                     -- target
+  (cons (ev-op #90)                     -- GAS
+  (cons (ev-op #241)                    -- CALL
+  (cons (ev-op #21)
+  (cons (ev-jmpi #99)                   -- revert if subcall failed!
+  (cons (ev-push (cons #128 nil))
+  (cons (ev-op #81)                     -- [len, dataOff]
+  (cons (ev-op #1)                      -- [nextOff = dataOff + len]
+  nil)))))))))))))))))))))))))))))))))))

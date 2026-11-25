@@ -1,0 +1,23 @@
+-- Uploads Gen 0..3 PTX in 1 `scp` batch and runs `ptxas --gpu-name=sm_90a` + 3x H200 `libcuda.so.1`
+-- benchmark + `champion_sm90a.cubin` promotion in 1 `ssh` call:
+ho-bench-all4-h200 : Proc W (List Word)
+ho-bench-all4-h200 =
+  let g0 = the (List Word) (list-append ho-out-dir "/hyperop_gen0.ptx")
+      g1 = the (List Word) (list-append ho-out-dir "/hyperop_gen1.ptx")
+      g2 = the (List Word) (list-append ho-out-dir "/hyperop_gen2.ptx")
+      g3 = the (List Word) (list-append ho-out-dir "/hyperop_gen3.ptx")
+  in bind (h-capture
+       (cons "/usr/bin/scp"
+       (cons "-q" (cons "-o" (cons "BatchMode=yes" (cons "-o" (cons "ConnectTimeout=8"
+       (cons "-o" (cons "StrictHostKeyChecking=no"
+       (cons "-P" (cons "10166"
+       (cons g0 (cons g1 (cons g2 (cons g3
+       (cons "root@213.181.104.219:/tmp/hx_brainnet_asm/" nil)))))))))))))))) (λ rScp →
+     bind (h-capture
+       (cons "/usr/bin/ssh"
+       (cons "-o" (cons "BatchMode=yes" (cons "-o" (cons "ConnectTimeout=10"
+       (cons "-o" (cons "StrictHostKeyChecking=no"
+       (cons "-p" (cons "10166"
+       (cons "root@213.181.104.219"
+       (cons "/tmp/hx_brainnet_asm/run_cubin_3xh200.sh evolve4" nil)))))))))))) (λ rRun →
+       ret {lzero} {W} (if %weq (fst rRun) #0 then snd rRun else bn-empty-bytes)))

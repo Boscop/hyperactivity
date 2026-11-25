@@ -1,0 +1,30 @@
+-- Clean memory-staged ERC-20 `balanceOf(this)` (uses mem[96] for `token` -> ZERO SWAP gymnastics!):
+evm-bal-of-this : Word → List EvmInst
+evm-bal-of-this revLbl =
+  -- Entry stack: [token, ...]; stores token at mem[96], leaves [bal, ...]
+  cons (ev-push (cons #96 nil))
+  (cons (ev-op #82)                     -- MSTORE(96, token); stack: [...]
+  (cons (ev-push (cons #112 (cons #160 (cons #130 (cons #49 nil)))))
+  (cons (ev-push (cons #224 nil))
+  (cons (ev-op #27)                     -- 0x70a08231 << 224
+  (cons (ev-push nil)
+  (cons (ev-op #82)                     -- MSTORE(0, sel)
+  (cons (ev-op #48)
+  (cons (ev-push (cons #4 nil))
+  (cons (ev-op #82)                     -- MSTORE(4, ADDRESS)
+  (cons (ev-push nil)
+  (cons (ev-push (cons #64 nil))
+  (cons (ev-op #82)                     -- MSTORE(64, 0)
+  (cons (ev-push (cons #32 nil))        -- retLen = 32
+  (cons (ev-push (cons #64 nil))        -- retOff = 64
+  (cons (ev-push (cons #36 nil))        -- argsLen = 36
+  (cons (ev-push nil)                   -- argsOff = 0
+  (cons (ev-push (cons #96 nil))
+  (cons (ev-op #81)                     -- MLOAD(96) = token
+  (cons (ev-op #90)                     -- GAS
+  (cons (ev-op #250)                    -- STATICCALL
+  (cons (ev-op #21)                     -- ISZERO
+  (cons (ev-jmpi revLbl)                -- if failed -> revert
+  (cons (ev-push (cons #64 nil))
+  (cons (ev-op #81)                     -- MLOAD(64) = bal
+  nil))))))))))))))))))))))))

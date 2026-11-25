@@ -1,0 +1,42 @@
+-- Subcommand `deploy`: runs eth_estimateGas pre-flight, then signs & broadcasts EIP-1559 Base creation tx!
+bl-cmd-deploy : Proc W Unit
+bl-cmd-deploy =
+  bind bl-load-or-gen-key (λ priv →
+    let rel20    = eth-priv-to-addr20 priv
+        relEip55 = eth-eip55-from-bytes20 rel20
+        vlt20    = eth-create-addr20 rel20 #0
+        vltEip55 = eth-eip55-from-bytes20 vlt20
+        initB    = evm-vault-initcode rel20
+        initHx   = list-append "0x" (h-hex initB)
+        estParam = h-concat (cons "[{" (cons (h-quote "from") (cons ":" (cons (h-quote relEip55) (cons "," (cons (h-quote "data") (cons ":" (cons (h-quote initHx) (cons "}]" nil)))))))))
+    in bind (bl-rpc-call "eth_getCode" (h-concat (cons "[" (cons (h-quote vltEip55) (cons "," (cons (h-quote "latest") (cons "]" nil))))))) (λ rCd →
+       if %wlt #0 (fromNat (list-length (bl-extract-json-hex rCd)))
+       then h-out (h-concat (cons "[HX-BASE-LIVE | VAULT ALREADY DEPLOYED AT " (cons vltEip55 (cons "]" (cons (cons #10 nil) nil)))))
+       else
+         bind (bl-rpc-call "eth_getBalance" (h-concat (cons "[" (cons (h-quote relEip55) (cons "," (cons (h-quote "latest") (cons "]" nil))))))) (λ rBal →
+         bind (bl-rpc-call "eth_getTransactionCount" (h-concat (cons "[" (cons (h-quote relEip55) (cons "," (cons (h-quote "latest") (cons "]" nil))))))) (λ rNc →
+         bind (bl-rpc-call "eth_gasPrice" "[]") (λ rGp →
+         bind (bl-rpc-call "eth_estimateGas" estParam) (λ rEst →
+           let balW = bl-hex-to-word (bl-extract-json-hex rBal)
+               ncW  = bl-hex-to-word (bl-extract-json-hex rNc)
+               gpW  = bl-hex-to-word (bl-extract-json-hex rGp)
+               estW = bl-hex-to-word (bl-extract-json-hex rEst)
+               prio = #1000000
+               mfee = %wadd (%wmul gpW #3) #5000000
+               gasL = if %weq estW #0 then #0 else %wadd estW #50000
+               reqW = %wmul mfee gasL
+           in if %weq estW #0
+              then h-fail (list-append "PREFLIGHT_ESTIMATE_GAS_FAILED: " rEst)
+              else if %wlt balW reqW
+              then h-fail (list-append "AWAITING_BASE_GAS_SEED_AT_" relEip55)
+              else
+                let tx  = mk-tx1559 #8453 ncW prio mfee gasL nil #0 initB
+                    ok  = eth-tx1559-selfcheck priv tx
+                    raw = fst (eth-tx1559-sign-raw priv tx)
+                    rHx = list-append "0x" (h-hex raw)
+                in if eth-not ok then h-fail "ecrecover pre-broadcast check failed"
+                   else bind (bl-rpc-call "eth_sendRawTransaction" (h-concat (cons "[" (cons (h-quote rHx) (cons "]" nil))))) (λ rTx →
+                        h-out (h-concat
+                          (cons "[HX-BASE-LIVE | DEPLOY TX BROADCAST] est_gas=" (cons (h-decimal estW)
+                          (cons " vault=" (cons vltEip55
+                          (cons " rpc=" (cons rTx (cons (cons #10 nil) nil)))))))))))))))

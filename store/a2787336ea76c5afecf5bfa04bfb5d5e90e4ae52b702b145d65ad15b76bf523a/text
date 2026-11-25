@@ -1,0 +1,12 @@
+-- `Hyperoptimizer` Hardware Schedule Mutator Driven Directly by `Hyperprofiler`'s `OptAction`:
+--   * `opt-hyperfactor` : eliminates serial RAW register chain by sharing `%r12,%r13` across 8 independent lanes (`Gen 1`)
+--   * `opt-poly-tile`   : unrolls 16x8 = 128 `lop3.b32` ops/turn & saturates 4224 CTAs (`Gen 3`)
+--   * `opt-erase-dead`  : expands grid saturation to 4224 CTAs (`Gen 2`)
+--   * `opt-inline-ann`  : doubles unroll to 64 ops/turn (`Gen 2`)
+--   * `opt-optimal`     : Pareto fixed point reached (idempotent)
+ho-evolve-genome-by-action : OptAction → KernelGenome → KernelGenome
+ho-evolve-genome-by-action opt-hyperfactor (mk-genome _ _   r blk) = mk-genome #1 true r blk
+ho-evolve-genome-by-action opt-poly-tile   (mk-genome _ un8 _ _)   = mk-genome #3 un8 (toNat #16) #4224
+ho-evolve-genome-by-action opt-erase-dead  (mk-genome _ un8 r _)   = mk-genome #2 un8 r #4224
+ho-evolve-genome-by-action opt-inline-ann  (mk-genome _ un8 _ blk) = mk-genome #2 un8 (toNat #8) blk
+ho-evolve-genome-by-action opt-optimal     g                       = g

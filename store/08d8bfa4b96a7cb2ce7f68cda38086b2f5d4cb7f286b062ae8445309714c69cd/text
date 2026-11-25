@@ -1,0 +1,23 @@
+sov-unpack-pkt : Word → List Word → Sum Unit SovPkt
+sov-unpack-pkt secret bs =
+  if %weq (cli-len bs) #32 then
+    let g0 = sov-get32 bs
+        g1 = sov-get32 (snd g0)
+        g2 = sov-get32 (snd g1)
+        g3 = sov-get32 (snd g2)
+        g4 = sov-get32 (snd g3)
+        g5 = sov-get32 (snd g4)
+        g6 = sov-get32 (snd g5)
+        g7 = sov-get32 (snd g6)
+        mg = fst g0
+        ks = fst g1
+        tg = fst g2
+        a  = fst g3
+        b  = fst g4
+        c  = fst g5
+        gotMac = %wor (%wshl (fst g6) #32) (fst g7)
+        expMac = sov-mac64 secret ks tg a b c
+    in if andB (%weq mg sov-magic) (%weq gotMac expMac)
+       then inr (sov-pkt (sov-kind-decode (%wshr ks #24)) (%wand ks #16777215) tg a b c)
+       else inl unit
+  else inl unit

@@ -1,0 +1,19 @@
+bl-scan-v3-pool : List Word → List Word → Word → Proc W (List Word × (Word × Word))
+bl-scan-v3-pool label factory feeBpsTimes100 =
+  let getPoolCd = h-concat (cons (bl-sel4 "getPool(address,address,uint24)")
+                    (cons bl-weth-hex (cons bl-usdc-hex (cons (h-hex (eth-word-be32 feeBpsTimes100)) nil))))
+  in bind (bl-eth-call factory getPoolCd) (λ pHex →
+     if %wlt (fromNat (list-length pHex)) #64
+     then ret {lzero} {W} ("0x0" , (#0 , #0))
+     else
+       let addr20  = eth-from-hex (kc-drop (toNat #24) (h-take (toNat #64) pHex))
+           poolAdr = eth-eip55-from-bytes20 addr20
+       in if %weq (bl-hex-to-word (h-hex addr20)) #0
+          then ret {lzero} {W} ("0x0" , (#0 , #0))
+          else
+            bind (bl-eth-call poolAdr (bl-sel4 "slot0()")) (λ s0Hex →
+            bind (bl-eth-call poolAdr (bl-sel4 "liquidity()")) (λ liqHex →
+              let sqrtP  = bl-hex-to-word (h-take (toNat #64) s0Hex)
+                  liqW   = bl-hex-to-word (h-take (toNat #64) liqHex)
+                  pxU6   = %wshr (%wmul #1000000000000000000 (%wmul sqrtP sqrtP)) #192
+              in ret {lzero} {W} (poolAdr , (pxU6 , liqW)))))

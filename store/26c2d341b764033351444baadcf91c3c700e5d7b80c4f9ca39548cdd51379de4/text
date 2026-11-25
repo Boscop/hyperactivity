@@ -1,0 +1,30 @@
+-- Subcommand `status`: queries live Base Mainnet balances, nonce, & deployed vault code!
+bl-cmd-status : Proc W Unit
+bl-cmd-status =
+  bind bl-load-or-gen-key (λ priv →
+    let rel20    = eth-priv-to-addr20 priv
+        relEip55 = eth-eip55-from-bytes20 rel20
+        vlt20    = eth-create-addr20 rel20 #0
+        vltEip55 = eth-eip55-from-bytes20 vlt20
+        fndEip55 = eth-eip55-from-bytes20 eth-founder-coinbase-addr20
+    in bind (bl-rpc-call "eth_chainId" "[]") (λ rCid →
+       bind (bl-rpc-call "eth_getBalance" (h-concat (cons "[" (cons (h-quote relEip55) (cons "," (cons (h-quote "latest") (cons "]" nil))))))) (λ rBal →
+       bind (bl-rpc-call "eth_getTransactionCount" (h-concat (cons "[" (cons (h-quote relEip55) (cons "," (cons (h-quote "latest") (cons "]" nil))))))) (λ rNc →
+       bind (bl-rpc-call "eth_getCode" (h-concat (cons "[" (cons (h-quote vltEip55) (cons "," (cons (h-quote "latest") (cons "]" nil))))))) (λ rCd →
+       bind (bl-rpc-call "eth_getBalance" (h-concat (cons "[" (cons (h-quote fndEip55) (cons "," (cons (h-quote "latest") (cons "]" nil))))))) (λ rFnd →
+         let cidW  = bl-hex-to-word (bl-extract-json-hex rCid)
+             balW  = bl-hex-to-word (bl-extract-json-hex rBal)
+             ncW   = bl-hex-to-word (bl-extract-json-hex rNc)
+             cdHex = bl-extract-json-hex rCd
+             cdBytes = %wdiv (fromNat (list-length cdHex)) #2
+             fndW  = bl-hex-to-word (bl-extract-json-hex rFnd)
+         in h-out (h-concat
+              (cons "[HX-BASE-LIVE | LIVE BASE MAINNET RPC STATUS]" (cons (cons #10 nil)
+              (cons "  chain_id=" (cons (h-decimal cidW)
+              (cons " | relayer=" (cons relEip55
+              (cons " (wei=" (cons (h-decimal balW)
+              (cons ", nonce=" (cons (h-decimal ncW)
+              (cons ") | vault=" (cons vltEip55
+              (cons " (code_bytes=" (cons (h-decimal cdBytes)
+              (cons ") | founder=" (cons fndEip55
+              (cons " (wei=" (cons (h-decimal fndW) (cons ")" (cons (cons #10 nil) nil)))))))))))))))))))))))))))

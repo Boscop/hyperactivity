@@ -1,0 +1,19 @@
+sov-listen : Word → Step W Word
+sov-listen port =
+  scmd (w-sys #41 #2 #2 #0 #0 #0 #0) (λ fd →
+  scmd (w-alloc #16) (λ sa →
+  cli-poke sa (cli-sa-lo port) (λ u0 →
+  scmd (w-sys #49 fd sa #16 #0 #0 #0) (λ u1 →
+  scmd (w-alloc #64) (λ buf →
+  scmd (w-alloc #16) (λ peer →
+  scmd (w-sys #45 fd buf #64 #0 peer #0) (λ n →
+  cli-peek buf n (λ raw →
+    case sov-unpack-pkt sov-test-secret raw of
+      inl u2 →
+        let rj = the (List Word) "REJECT:HXSV_MAC_FORGED:dropped=1"
+        in cli-poke buf rj (λ u3 →
+           scmd (w-sys #44 fd buf (cli-len rj) #0 peer #16) (λ u4 →
+           scmd (w-sys #3 fd #0 #0 #0 #0 #0) (λ u5 →
+           cli-say (list-append "HX-Sovereign-Listen port=" (list-append (ce-dec port) (list-append " -> " rj)))
+             (sdone #0))))
+      inr pkt → sov-handle-pkt port fd buf peer pkt))))))))

@@ -1,0 +1,59 @@
+lir-cu2 : List Word → List Word
+lir-cu2 tl =
+  lir-lines
+    (list-append
+      (lir-l8
+        "  uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;"
+        "  uint64_t n = 0xAAAAAAAAAAAAAAAAull ^ ((uint64_t)tid * 0x9E3779B97F4A7C15ull);"
+        "  uint64_t e = 0xCCCCCCCCCCCCCCCCull ^ ((uint64_t)tid * 0xBF58476D1CE4E5B9ull);"
+        "  uint64_t s = 0xF0F0F0F0F0F0F0F0ull ^ gauge_key;"
+        "  uint64_t w = 0xFF00FF00FF00FF00ull ^ (~gauge_key);"
+        "  uint32_t syn = (tid & 0x7FFu) | 1u;"
+        "  uint64_t stokes_err = 0ull;"
+        "  #pragma unroll 16")
+      (lir-l8
+        "  for (uint32_t it = 0; it < iters; it++) {"
+        "    uint64_t cob = (n ^ e) ^ (e ^ s) ^ (s ^ w) ^ (w ^ n);"
+        "    stokes_err |= cob;"
+        "    uint64_t p0 = lux_lop3_cryptic64(n, e, gauge_key);"
+        "    uint64_t p1 = lux_lop3_cryptic64(s, w, p0 ^ gauge_key);"
+        "    n = p0 ^ s; e = p1 ^ w; s = p0 ^ n; w = p1 ^ e;"
+        "    syn = ((syn << 1) & 0x7FFu) ^ ((syn & 0x400u) ? 0x2E3u : 0u);"
+        "    w ^= (uint64_t)syn; }"))
+    (lir-lines
+      (list-append
+        (lir-l8
+          "  if (stokes_err != 0ull || (n == 0x123456789ABCDEF0ull && e == 1ull)) out_sink[blockIdx.x] = stokes_err ^ n ^ w;"
+          "}"
+          "int main(int argc, char** argv) {"
+          "  int ndev = 0; cudaGetDeviceCount(&ndev);"
+          (lir-cstmt "  if (ndev <= 0) { fprintf(stderr, " "NO_CUDA_GPUS" "); return 1; }")
+          "  const uint32_t blocks = 16384u, tpb = 256u, iters = 4096u;"
+          "  uint64_t* d_sink[16]; cudaEvent_t ev0[16], ev1[16];"
+          "  if (ndev > 16) ndev = 16;")
+        (lir-l8
+          "  for (int d = 0; d < ndev; d++) {"
+          "    cudaSetDevice(d); cudaMalloc(&d_sink[d], blocks * sizeof(uint64_t)); cudaMemset(d_sink[d], 0, blocks * sizeof(uint64_t));"
+          "    cudaEventCreate(&ev0[d]); cudaEventCreate(&ev1[d]);"
+          "    hx_lux_lightspeed_kernel<<<blocks, tpb>>>(d_sink[d], 0x87A5BF7891ACB902ull ^ (uint64_t)d, 64u);"
+          "    cudaDeviceSynchronize(); }"
+          "  double t0 = now_s();"
+          "  for (int d = 0; d < ndev; d++) {"
+          "    cudaSetDevice(d); cudaEventRecord(ev0[d]); hx_lux_lightspeed_kernel<<<blocks, tpb>>>(d_sink[d], 0x87A5BF7891ACB902ull ^ (uint64_t)d, iters); cudaEventRecord(ev1[d]); }"))
+      (lir-lines
+        (list-append
+          (lir-l8
+            "  uint64_t err_or = 0ull;"
+            "  for (int d = 0; d < ndev; d++) { cudaSetDevice(d); cudaDeviceSynchronize(); uint64_t h0 = 0ull; cudaMemcpy(&h0, d_sink[d], sizeof(uint64_t), cudaMemcpyDeviceToHost); err_or |= h0; }"
+            "  double dt = now_s() - t0;"
+            "  cudaDeviceProp prop; cudaGetDeviceProperties(&prop, 0);"
+            "  double tot_plaq = (double)ndev * (double)blocks * (double)tpb * (double)iters;"
+            "  double gplaq_s  = tot_plaq / (dt * 1e9);"
+            "  double tbit_s   = (tot_plaq * 64.0 * 6.0) / (dt * 1e12);"
+            (lir-cstmt "  printf(" "HX_LUX_HOPPER_OK gpus=%d model=%s dt_ms=%.3f G_plaquettes_s=%.2f T_bit_interactions_s=%.2f stokes_err=%llu" ", ndev, prop.name, dt*1e3, gplaq_s, tbit_s, (unsigned long long)err_or);"))
+          (lir-l4
+            "  for (int d = 0; d < ndev; d++) { cudaSetDevice(d); cudaFree(d_sink[d]); }"
+            "  return (err_or == 0ull) ? 0 : 2;"
+            "}"
+            ""))
+        tl))

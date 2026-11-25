@@ -1,0 +1,13 @@
+-- Deterministic Keccak-DRBG ECDSA signature `(yParity , (r , s))` with EIP-2 low-S (`s <= n/2`):
+secp-ecdsa-sign-nonce : Word → Word → Word → Word × (Word × Word)
+secp-ecdsa-sign-nonce priv zHash kNonce =
+  let rPt  = jp-to-affine (jp-mul (toNat #256) kNonce secp-G)
+      rx   = fst rPt
+      ry   = snd rPt
+      r    = %wmod rx secp-n
+      kinv = mod-inv kNonce secp-n
+      sRaw = %wmod (%wmul kinv (%wadd zHash (%wmod (%wmul r priv) secp-n))) secp-n
+      yPar = %wand ry #1
+  in if eth-le sRaw secp-half-n
+     then (yPar , (r , sRaw))
+     else (%wxor yPar #1 , (r , %wsub secp-n sRaw))

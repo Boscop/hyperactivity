@@ -1,0 +1,25 @@
+-- Subcommand `keygen`: generates/loads 0600 key, runs cold EIP-1559 + ecrecover self-test on the LIVE key,
+-- computes deterministic Vault address at nonce 0, and prints ONLY public addresses!
+bl-cmd-keygen : Proc W Unit
+bl-cmd-keygen =
+  bind bl-load-or-gen-key (λ priv →
+    let rel20    = eth-priv-to-addr20 priv
+        relEip55 = eth-eip55-from-bytes20 rel20
+        vlt20    = eth-create-addr20 rel20 #0
+        vltEip55 = eth-eip55-from-bytes20 vlt20
+        initB    = evm-vault-initcode rel20
+        testTx   = mk-tx1559 #8453 #0 #1000000 #50000000 #250000 nil #0 initB
+        sigOk    = eth-tx1559-selfcheck priv testTx
+        fndEip55 = eth-eip55-from-bytes20 eth-founder-coinbase-addr20
+    in if eth-not sigOk
+       then h-fail "CRITICAL: Live key EIP-1559 ecrecover self-check failed!"
+       else
+         let summary = h-concat
+               (cons "[HX-BASE-LIVE | CHAIN ID 8453 (BASE MAINNET) SOVEREIGN VAULT READY]" (cons (cons #10 nil)
+               (cons "  1. Gas Deposit / Relayer Address (Base ETH) : " (cons relEip55 (cons (cons #10 nil)
+               (cons "  2. Deterministic Vault Address (at nonce 0) : " (cons vltEip55 (cons (cons #10 nil)
+               (cons "  3. Hardcoded Founder Payout (Coinbase Base) : " (cons fndEip55 (cons (cons #10 nil)
+               (cons "  4. Zero-solc EVM Initcode Size              : " (cons (h-decimal (fromNat (list-length initB)))
+               (cons " bytes (ecrecover_selfcheck=PASS, private_key_mode=0600_VAULT_ONLY)" (cons (cons #10 nil) nil)))))))))))))))
+         in bind (h-write bl-meta-path summary) (λ wm →
+            h-out summary))

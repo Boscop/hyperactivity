@@ -1,0 +1,23 @@
+-- Subcommand `return-gas`: returns remaining ETH on relayer straight back to founder `0x4A50...A26f`!
+bl-cmd-return-gas : Proc W Unit
+bl-cmd-return-gas =
+  bind bl-load-or-gen-key (λ priv →
+    let rel20    = eth-priv-to-addr20 priv
+        relEip55 = eth-eip55-from-bytes20 rel20
+    in bind (bl-rpc-call "eth_getBalance" (h-concat (cons "[" (cons (h-quote relEip55) (cons "," (cons (h-quote "latest") (cons "]" nil))))))) (λ rBal →
+       bind (bl-rpc-call "eth_getTransactionCount" (h-concat (cons "[" (cons (h-quote relEip55) (cons "," (cons (h-quote "latest") (cons "]" nil))))))) (λ rNc →
+       bind (bl-rpc-call "eth_gasPrice" "[]") (λ rGp →
+         let balW = bl-hex-to-word (bl-extract-json-hex rBal)
+             ncW  = bl-hex-to-word (bl-extract-json-hex rNc)
+             gpW  = bl-hex-to-word (bl-extract-json-hex rGp)
+             mfee = %wadd (%wmul gpW #2) #2000000
+             cost = %wmul mfee #25000
+         in if eth-le balW cost
+            then h-fail "Relayer balance below 21000-gas L2 fee"
+            else
+              let sendVal = %wsub balW cost
+                  tx      = mk-tx1559 #8453 ncW #1000000 mfee #21000 eth-founder-coinbase-addr20 sendVal nil
+                  raw     = fst (eth-tx1559-sign-raw priv tx)
+                  rHx     = list-append "0x" (h-hex raw)
+              in bind (bl-rpc-call "eth_sendRawTransaction" (h-concat (cons "[" (cons (h-quote rHx) (cons "]" nil))))) (λ rTx →
+                   h-out (h-concat (cons "[HX-BASE-LIVE | RETURNED GAS TO FOUNDER COINBASE] " (cons rTx (cons (cons #10 nil) nil)))))))))

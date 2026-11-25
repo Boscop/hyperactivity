@@ -1,0 +1,11 @@
+-- Query V2 `getReserves()` (`token0 = WETH`, `token1 = USDC`):
+bl-scan-v2-pool : List Word → Proc W (Word × Word)
+bl-scan-v2-pool poolAdr =
+  bind (bl-eth-call poolAdr (bl-sel4 "getReserves()")) (λ rHex →
+    if %wlt (fromNat (list-length rHex)) #128
+    then ret {lzero} {W} (#0 , #0)
+    else
+      let r0Weth = bl-hex-to-word (h-take (toNat #64) rHex)
+          r1Usdc = bl-hex-to-word (h-take (toNat #64) (kc-drop (toNat #64) rHex))
+          pxU6   = if %weq r0Weth #0 then #0 else %wdiv (%wmul r1Usdc #1000000000000000000) r0Weth
+      in ret {lzero} {W} (pxU6 , r1Usdc))
