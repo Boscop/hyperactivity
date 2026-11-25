@@ -1,0 +1,15 @@
+bn-parse-x402-402 : List Word → List Word × (List Word × Word)
+bn-parse-x402-402 httpRaw =
+  let cJson    = bn-extract-x402-json httpRaw
+      afterAcc = h-after (list-append (h-quote "accepts") ":[") cJson
+      accObj   = bn-find-base-accept (toNat #8) afterAcc
+      amtStr   = h-after (list-append (h-quote "amount") (list-append ":" bn-dq)) accObj
+      amt6     = h-number amtStr
+      payStr   = h-after (list-append (h-quote "payTo") (list-append ":" (list-append bn-dq "0x"))) accObj
+      payTo20  = eth-from-hex (h-take (toNat #40) payStr)
+      astStr   = h-after (list-append (h-quote "asset") (list-append ":" (list-append bn-dq "0x"))) accObj
+      asset20  = eth-from-hex (h-take (toNat #40) astStr)
+  in if andB (h-eq asset20 bn-usdc-base20)
+             (%weq (fromNat (list-length payTo20)) #20)
+     then (accObj , (payTo20 , amt6))
+     else (nil , (nil , #0))

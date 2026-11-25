@@ -1,0 +1,45 @@
+-- Autonomous Live x402 v2 Negotiator & Executor (`402 Probe -> CBF Gate -> EIP-3009 Sign -> Paid POST`):
+-- Hard per-call safety ceiling `maxCallUsdc6 = #5000` (`$0.005 USDC` per call!).
+bn-x402-post-live : Word → List Word → List Word → List Word → Word → Proc W (Word × Word)
+bn-x402-post-live priv url bodyJson outPath maxCallUsdc6 =
+  bind (h-capture
+    (cons "/usr/bin/curl"
+    (cons "-i" (cons "-sS" (cons "--max-time" (cons "12"
+    (cons "-X" (cons "POST"
+    (cons "-H" (cons "Content-Type: application/json"
+    (cons "-d" (cons bodyJson (cons url nil))))))))))))) (λ rProbe →
+    if eth-not (%weq (fst rProbe) #0)
+    then ret {lzero} {W} (#0 , #0)
+    else
+      let parsed  = bn-parse-x402-402 (snd rProbe)
+          accObj  = fst parsed
+          payTo20 = fst (snd parsed)
+          amt6    = snd (snd parsed)
+      in if orB (h-null accObj)
+                (orB (%weq amt6 #0)
+                     (eth-not (bn-admit-budget (toNat maxCallUsdc6) (toNat amt6))))
+         then bind (h-write outPath (snd rProbe)) (λ w0 → ret {lzero} {W} (#0 , #0))
+         else
+           bind time-now (λ tNs →
+             let nowSec  = %wdiv tNs #1000000000
+                 vBefore = %wadd nowSec #115
+                 nSeed   = h-concat (cons (h-decimal tNs) (cons ":" (cons url nil)))
+                 signed  = bn-sign-x402-v2 priv accObj payTo20 amt6 vBefore nSeed
+             in if eth-not (fst signed)
+                then ret {lzero} {W} (#0 , #0)
+                else
+                  let hdr = snd signed
+                  in bind (h-capture
+                       (cons "/usr/bin/curl"
+                       (cons "-i" (cons "-sS" (cons "--max-time" (cons "20"
+                       (cons "-X" (cons "POST"
+                       (cons "-H" (cons "Content-Type: application/json"
+                       (cons "-H" (cons (list-append "PAYMENT-SIGNATURE: " hdr)
+                       (cons "-H" (cons (list-append "X-PAYMENT: " hdr)
+                       (cons "-d" (cons bodyJson (cons url nil))))))))))))))))) (λ rPaid →
+                     bind (h-write outPath (snd rPaid)) (λ w1 →
+                       let http200 = orB (h-infix "HTTP/2 200" (snd rPaid))
+                                         (h-infix "HTTP/1.1 200" (snd rPaid))
+                       in ret {lzero} {W} (if andB (%weq (fst rPaid) #0) http200
+                                           then (#1 , amt6)
+                                           else (#0 , #0))))))

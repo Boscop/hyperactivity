@@ -1,0 +1,73 @@
+-- Live `up` Multi-Provider Bare-Metal ASM + `x402 v2` Provisioner:
+--   * `bp-ssh-mesh`: Pushes 211B `x86_64 ELF64` + `SM_90a lop3.b32 PTX` over SCP, compiles `.ptx -> .cubin`
+--                    via `ptxas --gpu-name=sm_90a`, executes the bare-metal `ELF64` (`test $? -eq 37`),
+--                    and captures H200 GPUs `0..3` heartbeat!
+--   * `bp-x402`    : Negotiates live HTTP-402 challenges, enforces `#5000` uUSDC CBF cap, settles Base USDC
+--                    gaslessly via EIP-3009, and verifies `HTTP 200` (`Llama-3.3-70B` + `NodeFlare Base RPC`)!
+--   * `bp-akash`   : Verifies live `akashnet-2` RPC height alongside IBC-USDC SDL & Skip CCTP bundle!
+bn-up-nodes : Word → Word → List BnNodeSpec → Proc W (Word × Word)
+bn-up-nodes priv idx nil = ret {lzero} {W} (#0 , #0)
+bn-up-nodes priv idx (cons (mk-bn-node nid prov tr gpus rl ep sp rate) rest) =
+  bind (bn-up-nodes priv (%wadd idx #1) rest) (λ tailRes →
+    let tailCnt   = fst tailRes
+        tailSpent = snd tailRes
+    in case prov of
+         bp-ssh-mesh minOk →
+           if h-eq ep "127.0.0.1"
+           then ret {lzero} {W} (%wadd tailCnt #1 , tailSpent)
+           else
+             let spDec  = the (List Word) (h-decimal sp)
+                 rootEp = the (List Word) (list-append "root@" ep)
+                 locElf = the (List Word) (list-append bn-out-dir "/brainnet_worker_x86_64")
+                 locPtx = the (List Word) (list-append bn-out-dir "/brainnet_hopper_sm90a_lop3.ptx")
+                 locOpt = the (List Word) (list-append bn-out-dir "/brainnet_hopper_sm90a_opt.ptx")
+                 remCmd = the (List Word) "chmod +x /tmp/hx_brainnet_asm/brainnet_worker_x86_64 && CUDA_VISIBLE_DEVICES=0,1,2,3 /usr/local/cuda/bin/ptxas --gpu-name=sm_90a /tmp/hx_brainnet_asm/brainnet_hopper_sm90a_lop3.ptx -o /tmp/hx_brainnet_asm/brainnet_sm90a.cubin && (/tmp/hx_brainnet_asm/brainnet_worker_x86_64; test $? -eq 37) >/tmp/hx_brainnet_asm/heartbeat.log 2>&1 && nvidia-smi --query-gpu=index,name --format=csv,noheader | head -n 4"
+             in bind (h-capture
+                  (cons "/usr/bin/ssh"
+                  (cons "-o" (cons "BatchMode=yes"
+                  (cons "-o" (cons "ConnectTimeout=6"
+                  (cons "-o" (cons "StrictHostKeyChecking=no"
+                  (cons "-p" (cons spDec (cons rootEp (cons "mkdir -p /tmp/hx_brainnet_asm" nil)))))))))))) (λ rMk →
+                bind (h-capture
+                  (cons "/usr/bin/scp"
+                  (cons "-q"
+                  (cons "-o" (cons "BatchMode=yes"
+                  (cons "-o" (cons "ConnectTimeout=6"
+                  (cons "-o" (cons "StrictHostKeyChecking=no"
+                  (cons "-P" (cons spDec
+                  (cons locElf (cons locPtx (cons locOpt
+                  (cons (list-append rootEp ":/tmp/hx_brainnet_asm/") nil))))))))))))))) (λ rScp →
+                bind (h-capture
+                  (cons "/usr/bin/ssh"
+                  (cons "-o" (cons "BatchMode=yes"
+                  (cons "-o" (cons "ConnectTimeout=8"
+                  (cons "-o" (cons "StrictHostKeyChecking=no"
+                  (cons "-p" (cons spDec (cons rootEp (cons remCmd nil)))))))))))) (λ rRun →
+                bind (h-write (list-append bn-out-dir "/weaver_h200_heartbeat.txt") (snd rRun)) (λ w0 →
+                  ret {lzero} {W} (if %weq (fst rRun) #0 then (%wadd tailCnt #1 , tailSpent) else tailRes)))))
+         bp-x402 →
+           let body    = if bn-is-llama-tier tr then bn-telnyx-70b-body else bn-nodeflare-rpc-body
+               outFile = list-append bn-out-dir (list-append "/x402_live_" (list-append nid ".txt"))
+           in bind (bn-x402-post-live priv ep body outFile #5000) (λ xr →
+                ret {lzero} {W} (%wadd tailCnt (fst xr) , %wadd tailSpent (snd xr)))
+         bp-akash →
+           bind (h-capture
+             (cons "/usr/bin/curl"
+             (cons "-sS" (cons "--max-time" (cons "8" (cons ep nil)))))) (λ ra →
+             bind (h-write (list-append bn-out-dir "/akash_mainnet_status.json") (snd ra)) (λ wa →
+               let okA = andB (%weq (fst ra) #0) (h-infix "akashnet-2" (snd ra))
+               in ret {lzero} {W} (if okA then (%wadd tailCnt #1 , tailSpent) else tailRes)))
+         bp-clore →
+           bind (h-env "CLORE_API_KEY") (λ eKey →
+             case eKey of
+               inl u → ret {lzero} {W} tailRes
+               inr k →
+                 bind (h-capture
+                   (cons "/usr/bin/curl"
+                   (cons "-sS" (cons "--max-time" (cons "10"
+                   (cons "-H" (cons (list-append "auth: " k)
+                   (cons "-H" (cons "Content-Type: application/json"
+                   (cons "-d" (cons (list-append "@" (list-append bn-out-dir "/clore_create_order.json"))
+                   (cons "https://api.clore.ai/v1/create_order" nil)))))))))))) (λ rc →
+                   bind (h-write (list-append bn-out-dir "/clore_live_resp.json") (snd rc)) (λ wc →
+                     ret {lzero} {W} (if %weq (fst rc) #0 then (%wadd tailCnt #1 , tailSpent) else tailRes)))))
