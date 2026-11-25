@@ -62,6 +62,63 @@ make brunerie                                   # compute Brunerie's number (-2)
 ./build/cubical lib/server.hypercubical 8080    # boot your own local mirror of hyperactivity.ai
 ```
 
+### Collaborator Node & Live Collective Swarm (`rad2520` Quickstart)
+
+1. **Install the shared Gemini swarm key** (`~/.gemini/oracle.env`, `chmod 600`,
+   never committed to Git — run the 1-line installer from Avik or place
+   `GEMINI_API_KEY` + `HX_GEMINI_MODEL` in `~/.gemini/oracle.env`).
+2. **Clone, build the C11 kernel, and launch your synchronized HyperOS Studio node:**
+
+```sh
+git clone https://github.com/avikj/hyperactivity.git && cd hyperactivity && make
+./hyperactive lib/ir/hx-collaborator-node.hypercubical launch rad2520
+```
+
+Opening **`http://localhost:8080/`** boots the 4-pane **Unified HyperOS Studio**:
+- **`1 · INTERACTION NET & WASM`** — Interactive Lafont active-pair canvas, open-hole
+  `?` synthesis, causal scrubber, Kan box, and self-hosted `575 KB` `cubical.wasm`.
+- **`2 · KNOWLEDGE GRAPH`** — Full 785+ module content-addressed explorer (`store/`)
+  with 1-click zero-reload loading into `cubical.wasm` and the net canvas.
+- **`3 · P2P WASM SUPERPROCESSOR`** — Conjugated homeomorphic WASM (`Warrants -> Empty`)
+  and stateless WebRTC peer-to-peer mesh.
+- **`4 · HYPEROS LABS & PORTAL`** — Domain instruments across silicon, physics,
+  chemistry, folding, neuroscience, and sound.
+- **`Cmd/Ctrl+K` (`THIS · SWARM LINK`)** — Programmatic `.hypercubical` drawer
+  powered by your shared `GEMINI_API_KEY`, plus a background `4s` P2P + `16s`
+  `origin/main` auto-sync daemon (`AUTO: ON` hot-loads every new peer module live).
+
+3. **Spawn permissionless collaborative swarm agents (zero prompt whack-a-mole):**
+
+```sh
+agy --dangerously-skip-permissions --mode auto -i \
+  "Read /tmp/hx_agent_bus/autopoietic_primer.md, strap into /tmp/hx_agent_bus/*.hxsv, and execute."
+```
+
+*(To mint the private 1-line `~/.gemini/oracle.env` installer on the primary host:*
+`./hyperactive lib/ir/hx-collaborator-node.hypercubical bundle-key rad2520`*.)*
+
+### Frontier Synthesis & Operating Contract (785+ Modules, 0 Postulates)
+
+- **Pure-Hyperactivity Invariant (`lib/guard.hypercubical`):** Every proof, daemon,
+  compiler, UI, and protocol is authored in `.hypercubical` inside `store/ROOT/root`.
+  C11, WebAssembly, Hopper `SM_90a` PTX/SASS, Apple Metal, SystemVerilog, and Calma
+  GDSII v6.0 exist strictly as verified compilation targets (`lib/ir/`, `lib/silicon/`).
+- **Unbounded Generalized Stokes & Univalent Portals (`lib/portal.hypercubical`,
+  `lib/hx-metacircular-singularity.hypercubical`):** Exact coboundary telescoping
+  ($\int_\Omega df \equiv f|_{\partial\Omega}$, $d \circ d = 0$) collapses interior bulk
+  to boundary evaluation; `IdChain` portals transport invariants across ISAs and domains.
+- **Achromatic Diamond TIR & Homeomorphic Gauge (`lib/hx-diamond.hypercubical`,
+  `lib/crypto/fiber-io.hypercubical`):** Reciprocal Clebsch `srg(16,5,0,2)` + `Golay-23`
+  total internal reflection; keyed wire conjugation $(E_k \circ F \circ D_k)^n$ cancels
+  adjacent codecs in 1-cycle LUTs while proving `Warrants -> Empty` on public WASM.
+- **Endogenous KKT Water-Filling & `HX-HFKE` 32B Bus (`lib/hx-hfke.hypercubical`,
+  `lib/hx-diamond-superopt-flow.hypercubical`):** Binary-search shadow marginal rate
+  $\mu^*$ feeds residual Max-Flow == Min-Cut (`gmf-maxflow-u64`), coordinated across
+  agents via `<150 us` 32-byte MAC-verified `HXSV` capsules in `/tmp/hx_agent_bus/`.
+- **Zero-Collision Multi-Agent Git:** Stage `store/<sha256>/*` + `store/ROOT/root` +
+  `docs/kg-index.json` via per-agent `GIT_INDEX_FILE` (`--index-version 2`), verify
+  `./build/cubical lib/guard.hypercubical` (`rc=0`), and `commit-tree` onto `main`.
+
 ### Table of Contents
 
 1. [The Structural Failure of the 1970s Computing Stack](#1-the-structural-failure-of-the-1970s-computing-stack)
