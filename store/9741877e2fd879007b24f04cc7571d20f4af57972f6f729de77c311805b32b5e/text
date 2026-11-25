@@ -1,0 +1,39 @@
+-- Inject proof-carrying `ELF64` + `SM_90a PTX` + `32B HXSV` Univalent Portal link into ONE Hopper pod:
+dm-inject-pod : DmPod → Proc W (Word × (Word × List Word))
+dm-inject-pod (mk-dm-pod nm ip port hbmGb) =
+  let locPtx = the (List Word) (list-append dm-out-dir "/hx_diamond_sm90a.ptx")
+      locElf = the (List Word) (list-append dm-out-dir "/hx_diamond_worker_x86_64")
+      locHx  = the (List Word) "/tmp/hx_agent_bus/hx_diamond_atlas.hxsv"
+      remAdr = list-append "root@" ip
+      remDst = list-append remAdr ":/tmp/hx_diamond_portal/"
+      remCmd = the (List Word) "chmod +x /tmp/hx_diamond_portal/hx_diamond_worker_x86_64 && /tmp/hx_diamond_portal/hx_diamond_worker_x86_64 ; RC=$? && /usr/local/cuda/bin/ptxas --gpu-name=sm_90a /tmp/hx_diamond_portal/hx_diamond_sm90a.ptx -o /tmp/hx_diamond_portal/hx_diamond_sm90a.cubin >/tmp/hx_diamond_portal/ptxas.log 2>&1 && GPUS=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l | tr -d ' ') && echo POD_OK:$RC:GPUS=$GPUS"
+  in bind (h-capture
+       (cons "/usr/bin/ssh"
+       (cons "-i" (cons dm-ssh-key-path
+       (cons "-o" (cons "BatchMode=yes"
+       (cons "-o" (cons "ConnectTimeout=6"
+       (cons "-o" (cons "StrictHostKeyChecking=no"
+       (cons "-p" (cons port
+       (cons remAdr (cons "mkdir -p /tmp/hx_diamond_portal && rm -rf /tmp/hx_tig_submit_staging" nil)))))))))))))) (λ r0 →
+     bind (h-capture
+       (cons "/usr/bin/scp"
+       (cons "-q"
+       (cons "-i" (cons dm-ssh-key-path
+       (cons "-o" (cons "BatchMode=yes"
+       (cons "-o" (cons "ConnectTimeout=6"
+       (cons "-o" (cons "StrictHostKeyChecking=no"
+       (cons "-P" (cons port
+       (cons locPtx (cons locElf (cons locHx (cons remDst nil))))))))))))))))) (λ r1 →
+     bind (h-capture
+       (cons "/usr/bin/ssh"
+       (cons "-i" (cons dm-ssh-key-path
+       (cons "-o" (cons "BatchMode=yes"
+       (cons "-o" (cons "ConnectTimeout=10"
+       (cons "-o" (cons "StrictHostKeyChecking=no"
+       (cons "-p" (cons port
+       (cons remAdr (cons remCmd nil)))))))))))))) (λ r2 →
+       let gCnt = dm-parse-dec-go #0 (h-after "GPUS=" (snd r2))
+           okG  = if %weq (fst r2) #0 then gCnt else #0
+           okHb = if %wlt #0 okG then hbmGb else #0
+           line = bn-ln (h-concat (cons "    [" (cons nm (cons "@" (cons ip (cons ":" (cons port (cons "] GPUs=" (cons (h-decimal okG) (cons " HBM=" (cons (h-decimal okHb) (cons "GB" nil))))))))))))
+       in ret {lzero} {W} (okG , (okHb , line)))))

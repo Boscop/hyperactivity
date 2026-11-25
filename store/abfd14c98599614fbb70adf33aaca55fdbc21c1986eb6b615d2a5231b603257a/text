@@ -1,0 +1,21 @@
+lc-load-funded-key : Bool → Proc W Word
+lc-load-funded-key requireLive =
+  bind (h-read bl-key-path) (λ mr →
+    case mr of
+      inr kh →
+        let priv = lc-parse-priv-hex kh
+        in if andB (%wlt #0 priv) (%wlt priv secp-n)
+           then ret {lzero} {W} priv
+           else bind (h-fail "Invalid secp256k1 key") (λ u → ret {lzero} {W} #0)
+      inl u0 →
+        bind (h-read lc-backup-key-path) (λ mb →
+          case mb of
+            inr kh2 →
+              let priv2 = lc-parse-priv-hex kh2
+              in if andB (%wlt #0 priv2) (%wlt priv2 secp-n)
+                 then ret {lzero} {W} priv2
+                 else bind (h-fail "Invalid backup secp256k1 key") (λ u1 → ret {lzero} {W} #0)
+            inl u2 →
+              if requireLive
+              then bind (h-fail "Funded keyfile unreadable") (λ u3 → ret {lzero} {W} #0)
+              else ret {lzero} {W} #3))

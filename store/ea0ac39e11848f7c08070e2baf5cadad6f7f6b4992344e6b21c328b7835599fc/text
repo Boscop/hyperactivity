@@ -1,0 +1,45 @@
+dm-daemon-loop : Nat → Word → List Word → Word → Word → List Word → Proc W Unit
+dm-daemon-loop zero    priv rel20 tick fires lastTx = ret {lzero} {W} unit
+dm-daemon-loop (suc r) priv rel20 tick fires lastTx =
+  let pouw20 = eth-from-hex "308b8adae5fb6ea00632d1994c3841ba1a58f967"
+  in bind time-now (λ t0 →
+     bind (dm-read-peer-hxsv "/tmp/hx_agent_bus/hfke_swarm_exchange.hxsv") (λ pHfke →
+     bind (dm-read-peer-hxsv "/tmp/hx_agent_bus/treasury_live.hxsv") (λ pTr →
+     bind (dm-read-peer-hxsv "/tmp/hx_agent_bus/p2p_reactor.hxsv") (λ pPr →
+     bind (dm-read-peer-hxsv "/tmp/hx_agent_bus/phys_collider_live.hxsv") (λ pPc →
+     bind lc-run-live-sieve (λ sieveHx →
+     bind dm-query-hl-mids (λ hlMids →
+     bind (lc-query-usdc6 pouw20) (λ escU6 →
+     bind time-now (λ t1 →
+       let dtMs       = %wdiv (if %wlt t0 t1 then %wsub t1 t0 else #0) #1000000
+           validPeers = %wadd (%wadd (fst pHfke) (fst pTr)) (%wadd (fst pPr) (fst pPc))
+           mUsdcM     = %wdiv (lc-word-at-hex zero sieveHx) #1000000000000
+           mWeth      = %wdiv (lc-word-at-hex (suc zero) sieveHx) #1000000000000000000
+           mCap       = %wadd mUsdcM (%wdiv (%wmul mWeth #1653) #1000000)
+           pxUni6     = lc-sqrtpx96-to-usdc6 (lc-word-at-hex (toNat #2) sieveHx)
+           pxSlip6    = lc-sqrtpx96-to-usdc6 (lc-word-at-hex (toNat #3) sieveHx)
+           hlEth      = fst (snd hlMids)
+           spU6       = dm-abs-diff pxUni6 pxSlip6
+           basU6      = dm-abs-diff hlEth pxUni6
+           optM       = %wdiv spU6 #10000
+           optSurp    = bl-concave-surplus optM optM
+           swarmPool  = %wadd (%wmul validPeers #10000) optSurp
+           wf4        = dm-waterfall4 swarmPool
+           fireNow    = dm-should-actuate spU6 escU6
+           cRoot      = %wxor pxUni6 (%wadd (%wmul spU6 #2654435761) (%wxor hlEth (%wadd tick swarmPool)))
+       in bind (if fireNow then dm-fire-actuator priv rel20 (%wlt #0 escU6) cRoot else ret {lzero} {W} (#0 , lastTx)) (λ actRes →
+            let fires2  = %wadd fires (fst actRes)
+                tx2     = snd actRes
+                hxsvDm  = dm-pack-hxsv32 tick cRoot #40 fires2
+                hxsvHf  = dm-pack-hxsv32 tick cRoot validPeers (fst wf4)
+                rtJson  = dm-fmt-rt-json tick dtMs pxUni6 pxSlip6 spU6 hlEth basU6 mCap escU6 fires2 tx2
+                logLine = bn-ln (h-concat (cons "[HX-DIAMOND-HFKE tick=" (cons (h-decimal tick) (cons " dt=" (cons (h-decimal dtMs) (cons "ms peers=" (cons (h-decimal validPeers) (cons "/4] Base=$" (cons (h-decimal (%wdiv pxUni6 #1000000)) (cons " | spread_uUSD=" (cons (h-decimal spU6) (cons " | opt_surp=" (cons (h-decimal optSurp) (cons " | wf50=" (cons (h-decimal (fst wf4)) (cons " | strikes=" (cons (h-decimal fires2) nil)))))))))))))))))
+                doPulse = orB (%weq tick #1) (%weq (%wand tick #7) #0)
+            in bind (h-write "/tmp/hx_agent_bus/hx_diamond_atlas.hxsv" hxsvDm) (λ w0 →
+               bind (h-write "/tmp/hx_agent_bus/hfke_swarm_exchange.hxsv" hxsvHf) (λ w1 →
+               bind (h-write "/tmp/hx_agent_bus/agent_diamond_hfke_2b7c3400_state.json" rtJson) (λ w2 →
+               bind (h-write (list-append dm-out-dir "/realtime_sensor_actuator.json") rtJson) (λ w3 →
+               bind (if doPulse then h-out logLine else ret {lzero} {W} unit) (λ w4 →
+               bind (if doPulse then dm-http-post-json "https://hyperactivity.ai/api/p2p/signal?id=agent_diamond_hfke_2b7c3400" rtJson else ret {lzero} {W} (the (List Word) nil)) (λ sigResp →
+               bind (if andB doPulse (%wlt #2 (fromNat (list-length sigResp))) then h-write "/tmp/hx_agent_bus/peers_cubical.json" sigResp else ret {lzero} {W} true) (λ w5 →
+               dm-daemon-loop r priv rel20 (%wadd tick #1) fires2 tx2)))))))))))))))))

@@ -1,0 +1,31 @@
+lc-strike-4xh200 : Proc W (Word × List Word)
+lc-strike-4xh200 =
+  let ptxLoc = the (List Word) (list-append lc-out-dir "/lightning_ulop3_sm90a.ptx")
+      remCmd = the (List Word) "rm -rf /tmp/hx_tig_submit_staging && mkdir -p /tmp/hx_lightning && CUDA_VISIBLE_DEVICES=0,1,2,3 /usr/local/cuda/bin/ptxas --gpu-name=sm_90a /tmp/hx_lightning/lightning_ulop3_sm90a.ptx -o /tmp/hx_lightning/lightning_ulop3.cubin && CUDA_VISIBLE_DEVICES=0,1,2,3 /tmp/hx_tig_submission/hx_tower_h200 >/tmp/hx_lightning/h200_strike.log 2>&1 && CUDA_VISIBLE_DEVICES=0,1,2,3 /tmp/hx_tig_submission/hx_solve_h200 >>/tmp/hx_lightning/h200_strike.log 2>&1 && CUDA_VISIBLE_DEVICES=0,1,2,3 /tmp/hx_tig_submission/hx_value_hyperfactor >>/tmp/hx_lightning/h200_strike.log 2>&1 && tail -n 6 /tmp/hx_lightning/h200_strike.log"
+  in bind (h-capture
+       (cons "/usr/bin/ssh"
+       (cons "-o" (cons "BatchMode=yes"
+       (cons "-o" (cons "ConnectTimeout=6"
+       (cons "-o" (cons "StrictHostKeyChecking=no"
+       (cons "-p" (cons "10166"
+       (cons "root@213.181.104.219"
+       (cons "mkdir -p /tmp/hx_lightning" nil)))))))))))) (λ r0 →
+     bind (h-capture
+       (cons "/usr/bin/scp"
+       (cons "-q"
+       (cons "-o" (cons "BatchMode=yes"
+       (cons "-o" (cons "ConnectTimeout=6"
+       (cons "-o" (cons "StrictHostKeyChecking=no"
+       (cons "-P" (cons "10166"
+       (cons ptxLoc
+       (cons "root@213.181.104.219:/tmp/hx_lightning/" nil))))))))))))) (λ r1 →
+     bind (h-capture
+       (cons "/usr/bin/ssh"
+       (cons "-o" (cons "BatchMode=yes"
+       (cons "-o" (cons "ConnectTimeout=25"
+       (cons "-o" (cons "StrictHostKeyChecking=no"
+       (cons "-p" (cons "10166"
+       (cons "root@213.181.104.219"
+       (cons remCmd nil)))))))))))) (λ r2 →
+     bind (h-write (list-append lc-out-dir "/h200_4gpu_strike_tail.txt") (snd r2)) (λ w0 →
+       ret {lzero} {W} ((if %weq (fst r2) #0 then #4 else #0) , snd r2)))))

@@ -1,0 +1,51 @@
+lc-cmd-execute : Bool → Proc W Unit
+lc-cmd-execute isLive =
+  bind (lc-load-funded-key isLive) (λ priv →
+  bind (h-mkdir lc-out-dir) (λ m0 →
+    let rel20    = eth-priv-to-addr20 priv
+        rel55    = eth-eip55-from-bytes20 rel20
+        vault20  = eth-create-addr20 rel20 #0
+        vlt55    = eth-eip55-from-bytes20 vault20
+        fnd55    = eth-eip55-from-bytes20 eth-founder-coinbase-addr20
+        initB    = lc-pouw-initcode vault20
+        rtB      = lc-pouw-runtime vault20
+        ptxUlop3 = lc-emit-sm90a-ulop3-ptx lc-cone13-imm8
+        cdXorHex = list-append "0x" (h-hex (lc-encode-verify-call lc-xor4-spec16 #4 lc-xor4-packed))
+        cdMuxHex = list-append "0x" (h-hex (lc-encode-verify-call lc-mux4-spec16 #4 lc-mux4-packed))
+        cdBadHex = list-append "0x" (h-hex (lc-encode-verify-call lc-xor4-spec16 #3 lc-xor4-packed))
+        cdAncHex = the (List Word) "0x05000005"
+        emptyHx  = the (List Word) "0x"
+        balParam = h-concat (cons "[" (cons (h-quote rel55) (cons "," (cons (h-quote "latest") (cons "]" nil)))))
+    in bind (h-write (list-append lc-out-dir "/HyperactivityLightningPoUW.init.hex") (lc-ln (list-append "0x" (h-hex initB)))) (λ w1 →
+       bind (h-write (list-append lc-out-dir "/HyperactivityLightningPoUW.rt.hex") (lc-ln (list-append "0x" (h-hex rtB)))) (λ w2 →
+       bind (h-write (list-append lc-out-dir "/lightning_ulop3_sm90a.ptx") ptxUlop3) (λ w3 →
+       bind (if isLive
+             then lc-deploy-or-reuse-pouw priv rel20 vault20
+             else ret {lzero} {W} (eth-eip55-from-bytes20 (eth-create-addr20 rel20 #1) , (the (List Word) "PLAN_MODE_NO_TX" , fromNat (list-length rtB)))) (λ depRes →
+         let pouw55  = fst depRes
+             depTx   = fst (snd depRes)
+             rtBytes = snd (snd depRes)
+         in bind (if isLive then bl-eth-call pouw55 cdXorHex else ret {lzero} {W} emptyHx) (λ rXor →
+            bind (if isLive then bl-eth-call pouw55 cdMuxHex else ret {lzero} {W} emptyHx) (λ rMux →
+            bind (if isLive then bl-eth-call pouw55 cdBadHex else ret {lzero} {W} emptyHx) (λ rBad →
+            bind (if isLive then bl-eth-call pouw55 cdAncHex else ret {lzero} {W} emptyHx) (λ rAnc →
+            bind (if isLive then lc-run-live-sieve else ret {lzero} {W} emptyHx) (λ sieveHx →
+            bind (if isLive then lc-strike-4xh200 else ret {lzero} {W} (#0 , the (List Word) nil)) (λ h200Res →
+            bind (if isLive then bl-rpc-call "eth_getBalance" balParam else ret {lzero} {W} emptyHx) (λ rBal →
+            bind (if isLive then lc-query-usdc6 rel20 else ret {lzero} {W} #0) (λ usdc6 →
+              let xorValid    = lc-word-at-hex zero rXor
+                  xorGates    = lc-word-at-hex (suc zero) rXor
+                  muxValid    = lc-word-at-hex zero rMux
+                  badValid    = lc-word-at-hex zero rBad
+                  morphoUsdcM = %wdiv (lc-word-at-hex zero sieveHx) #1000000000000
+                  morphoWeth  = %wdiv (lc-word-at-hex (suc zero) sieveHx) #1000000000000000000
+                  pxUni6      = lc-sqrtpx96-to-usdc6 (lc-word-at-hex (toNat #2) sieveHx)
+                  pxSlip6     = lc-sqrtpx96-to-usdc6 (lc-word-at-hex (toNat #3) sieveHx)
+                  balWei      = bl-hex-to-word (bl-extract-json-hex rBal)
+                  l1          = lc-ln "[HX-LIGHTNING-CONTRACTION | END-TO-END BASE 8453 PoUW + $488M MORPHO + 4xH200 STRIKE]"
+                  l2          = lc-fmt-l2 rel55 vlt55 fnd55
+                  l3          = lc-fmt-l3 pouw55 depTx rtBytes
+                  l4          = lc-fmt-l4 xorValid xorGates muxValid badValid (fromNat (list-length rAnc))
+                  l5          = lc-fmt-l5 morphoUsdcM morphoWeth pxUni6 pxSlip6
+                  l6          = lc-fmt-l6 (fst h200Res) balWei usdc6
+              in h-out (h-concat (cons l1 (cons l2 (cons l3 (cons l4 (cons l5 (cons l6 nil)))))))))))))))))))))

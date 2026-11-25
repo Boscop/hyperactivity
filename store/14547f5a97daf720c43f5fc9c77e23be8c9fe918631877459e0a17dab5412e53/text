@@ -1,0 +1,32 @@
+-- Pipelined Single-HTTP-POST 4-Tx Consecutive-Nonce Base Mainnet (`8453`) Knowledge-Exchange Burst!
+dm-burst-base8453 : Word → List Word → Word → Proc W (Word × List Word)
+dm-burst-base8453 priv rel20 atlasCommit =
+  let rel55   = eth-eip55-from-bytes20 rel20
+      pouw20  = eth-from-hex "308b8adae5fb6ea00632d1994c3841ba1a58f967"
+      commitB = eth-word-be32 atlasCommit
+      cd0     = list-append (lc-encode-verify-call lc-xor4-spec16 #4 lc-xor4-packed) commitB
+      cd1     = list-append (lc-encode-verify-call lc-mux4-spec16 #4 lc-mux4-packed) commitB
+      cd2     = list-append (lc-encode-verify-call #30583 #1 #16) commitB
+      cd3     = list-append (cons #5 (cons #0 (cons #0 (cons #5 nil)))) commitB
+  in bind (bl-rpc-call "eth_getBalance" (h-concat (cons "[" (cons (h-quote rel55) (cons "," (cons (h-quote "latest") (cons "]" nil))))))) (λ rBal →
+     bind (bl-rpc-call "eth_getTransactionCount" (h-concat (cons "[" (cons (h-quote rel55) (cons "," (cons (h-quote "pending") (cons "]" nil))))))) (λ rNc →
+     bind (bl-rpc-call "eth_gasPrice" "[]") (λ rGp →
+       let balW  = bl-hex-to-word (bl-extract-json-hex rBal)
+           nc0   = bl-hex-to-word (bl-extract-json-hex rNc)
+           gpW   = bl-hex-to-word (bl-extract-json-hex rGp)
+           prio  = #1500000
+           mfee  = %wadd (%wmul gpW #3) #5000000
+           gasL  = #85000
+           req4W = %wmul #4 (%wmul mfee gasL)
+           it0   = dm-mk-rpc-tx-item #1 priv nc0            prio mfee gasL pouw20 cd0
+           it1   = dm-mk-rpc-tx-item #2 priv (%wadd nc0 #1) prio mfee gasL pouw20 cd1
+           it2   = dm-mk-rpc-tx-item #3 priv (%wadd nc0 #2) prio mfee gasL pouw20 cd2
+           it3   = dm-mk-rpc-tx-item #4 priv (%wadd nc0 #3) prio mfee gasL pouw20 cd3
+           batch = h-concat (cons "[" (cons it0 (cons "," (cons it1 (cons "," (cons it2 (cons "," (cons it3 (cons "]" nil)))))))))
+       in if orB (%weq gpW #0) (%wlt balW req4W)
+          then ret {lzero} {W} (#0 , the (List Word) "SKIPPED_LOW_GAS")
+          else bind (bl-rpc-post batch) (λ bResp →
+               bind (h-write (list-append dm-out-dir "/base8453_burst4_receipts.json") (bn-ln bResp)) (λ wb →
+                 let tx0 = list-append "0x" (bl-extract-json-hex bResp)
+                     cnt = if h-infix "0x" tx0 then #4 else #0
+                 in ret {lzero} {W} (cnt , tx0))))))

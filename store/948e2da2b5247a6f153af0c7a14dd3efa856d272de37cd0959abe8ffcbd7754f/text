@@ -1,0 +1,38 @@
+lc-deploy-or-reuse-pouw : Word → List Word → List Word → Proc W (List Word × (List Word × Word))
+lc-deploy-or-reuse-pouw priv rel20 vault20 =
+  let rel55     = eth-eip55-from-bytes20 rel20
+      initB     = lc-pouw-initcode vault20
+      initHx    = list-append "0x" (h-hex initB)
+      estParams = h-concat (cons "[{" (cons (h-quote "from") (cons ":" (cons (h-quote rel55) (cons "," (cons (h-quote "data") (cons ":" (cons (h-quote initHx) (cons "}]" nil)))))))))
+      chkParams = h-concat (cons "[" (cons (h-quote lc-live-pouw-addr55) (cons "," (cons (h-quote "latest") (cons "]" nil)))))
+  in bind (bl-rpc-call "eth_getCode" chkParams) (λ rEx →
+     let exHex = fromNat (list-length (bl-extract-json-hex rEx))
+     in if %wlt #1000 exHex
+        then ret {lzero} {W} (lc-live-pouw-addr55 , (lc-live-pouw-tx , %wdiv exHex #2))
+        else
+          bind (bl-rpc-call "eth_getBalance" (h-concat (cons "[" (cons (h-quote rel55) (cons "," (cons (h-quote "latest") (cons "]" nil))))))) (λ rBal →
+          bind (bl-rpc-call "eth_getTransactionCount" (h-concat (cons "[" (cons (h-quote rel55) (cons "," (cons (h-quote "pending") (cons "]" nil))))))) (λ rNc →
+          bind (bl-rpc-call "eth_gasPrice" "[]") (λ rGp →
+          bind (bl-rpc-call "eth_estimateGas" estParams) (λ rEst →
+            let balW   = bl-hex-to-word (bl-extract-json-hex rBal)
+                ncW    = bl-hex-to-word (bl-extract-json-hex rNc)
+                gpW    = bl-hex-to-word (bl-extract-json-hex rGp)
+                estW   = bl-hex-to-word (bl-extract-json-hex rEst)
+                prio   = #1500000
+                mfee   = %wadd (%wmul gpW #3) #5000000
+                gasL   = if %weq estW #0 then #0 else %wadd estW #60000
+                reqW   = %wmul mfee gasL
+                pouw55 = eth-eip55-from-bytes20 (eth-create-addr20 rel20 ncW)
+            in if orB (%weq estW #0) (%wlt balW reqW)
+               then ret {lzero} {W} (pouw55 , (list-append "ESTIMATE_OR_BAL_FAIL:" rEst , #0))
+               else
+                 let tx  = mk-tx1559 #8453 ncW prio mfee gasL nil #0 initB
+                     ok  = eth-tx1559-selfcheck priv tx
+                     raw = fst (eth-tx1559-sign-raw priv tx)
+                     rHx = list-append "0x" (h-hex raw)
+                 in if eth-not ok
+                    then ret {lzero} {W} (pouw55 , (the (List Word) "ECRECOVER_FAIL" , #0))
+                    else bind (bl-rpc-call "eth_sendRawTransaction" (h-concat (cons "[" (cons (h-quote rHx) (cons "]" nil))))) (λ rTx →
+                         let txHash = list-append "0x" (bl-extract-json-hex rTx)
+                         in bind (lc-wait-code (toNat #8) pouw55) (λ codeB →
+                              ret {lzero} {W} (pouw55 , (txHash , codeB)))))))))

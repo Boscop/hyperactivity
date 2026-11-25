@@ -1,0 +1,12 @@
+dm-write-store-blob : List Word → List Word → Proc W (List Word)
+dm-write-store-blob kind content =
+  let tmpP = list-append dm-out-dir (list-append "/tmp_store_" kind)
+  in bind (h-mkdir dm-out-dir) (λ m0 →
+     bind (h-write tmpP content) (λ w0 →
+     bind (h-capture (cons "/usr/bin/shasum" (cons "-a" (cons "256" (cons tmpP nil))))) (λ rS →
+       let hHex = h-take (toNat #64) (snd rS)
+           dirP = list-append "store/" hHex
+           filP = list-append dirP (list-append "/" kind)
+       in bind (h-mkdir dirP) (λ m1 →
+          bind (h-write filP content) (λ w1 →
+            ret {lzero} {W} hHex)))))

@@ -1,0 +1,37 @@
+dm-sync-kg-root : List Word → Proc W Unit
+dm-sync-kg-root recRoot =
+  let rootPath = list-append "store/" (list-append (h-take (toNat #64) recRoot) "/root")
+      kKg      = h-hex "docs/kg-index.json"
+  in bind (h-read rootPath) (λ mr →
+     case mr of
+       inl u0 → h-out (bn-ln "ERR_READ_ROOT")
+       inr rTxt →
+         let oldKgMod = dm-extract-root-hash kKg rTxt
+             kgModP   = list-append "store/" (list-append oldKgMod "/module")
+         in bind (h-read kgModP) (λ mm →
+            case mm of
+              inl u1 → h-out (bn-ln "ERR_READ_KG_MOD")
+              inr mTxt →
+                let oldKgTxtH = h-take (toNat #64) mTxt
+                    kgTxtP    = list-append "store/" (list-append oldKgTxtH "/text")
+                in bind (h-read kgTxtP) (λ mt →
+                   case mt of
+                     inl u2 → h-out (bn-ln "ERR_READ_KG_TXT")
+                     inr kgTxt →
+                       let miss        = dm-collect-missing-kg kgTxt (h-split #10 rTxt)
+                           delimPretty = h-concat (cons "    ]" (cons (cons #10 nil) (cons "  ]," (cons (cons #10 nil) (cons "  " (cons (h-quote "terms") (cons ":" nil)))))))
+                           replPretty  = h-concat (cons "    ]" (cons miss (cons (cons #10 nil) (cons "  ]," (cons (cons #10 nil) (cons "  " (cons (h-quote "terms") (cons ":" nil))))))))
+                           delimComp   = h-concat (cons "]," (cons (h-quote "terms") (cons ":" nil)))
+                           replComp    = h-concat (cons miss (cons "]," (cons (h-quote "terms") (cons ":" nil))))
+                           kg2         = if %weq (fromNat (list-length miss)) #0
+                                         then kgTxt
+                                         else if h-infix delimPretty kgTxt
+                                              then dm-splice-replace delimPretty replPretty kgTxt
+                                              else dm-splice-replace delimComp replComp kgTxt
+                       in bind (dm-write-store-blob "text" kg2) (λ newKgTxtH →
+                          bind (dm-write-store-blob "module" (bn-ln newKgTxtH)) (λ newKgModH →
+                            let oldPair = list-append kKg (list-append " " oldKgMod)
+                                newPair = list-append kKg (list-append " " newKgModH)
+                                newRTxt = dm-splice-replace oldPair newPair rTxt
+                            in bind (dm-write-store-blob "root" newRTxt) (λ finalRootH →
+                               h-out (bn-ln finalRootH)))))))

@@ -1,0 +1,18 @@
+dm-fire-actuator : Word → List Word → Bool → Word → Proc W (Word × List Word)
+dm-fire-actuator priv rel20 hasBounty cRoot =
+  let rel55  = eth-eip55-from-bytes20 rel20
+      pouw20 = eth-from-hex "308b8adae5fb6ea00632d1994c3841ba1a58f967"
+      cd     = if hasBounty
+               then list-append dm-encode-settle-usdc (eth-word-be32 cRoot)
+               else list-append (lc-encode-verify-call lc-xor4-spec16 #4 lc-xor4-packed) (eth-word-be32 cRoot)
+  in bind (bl-rpc-call "eth_getTransactionCount" (h-concat (cons "[" (cons (h-quote rel55) (cons "," (cons (h-quote "pending") (cons "]" nil))))))) (λ rNc →
+     bind (bl-rpc-call "eth_gasPrice" "[]") (λ rGp →
+       let nc = bl-hex-to-word (bl-extract-json-hex rNc)
+           gp = bl-hex-to-word (bl-extract-json-hex rGp)
+           mf = %wadd (%wmul gp #3) #5000000
+           it = dm-mk-rpc-tx-item #1 priv nc #1500000 mf #120000 pouw20 cd
+       in if %weq (fromNat (list-length it)) #0
+          then ret {lzero} {W} (#0 , the (List Word) "SIGN_FAIL")
+          else bind (bl-rpc-post it) (λ resp →
+                 let txH = list-append "0x" (bl-extract-json-hex resp)
+                 in ret {lzero} {W} ((if h-infix "0x" txH then #1 else #0) , txH))))

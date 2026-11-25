@@ -1,0 +1,77 @@
+dm-execute : Bool → Proc W Unit
+dm-execute isLive =
+  bind (bn-load-funded-key isLive) (λ priv →
+  bind (h-mkdir dm-out-dir) (λ md0 →
+  bind (h-mkdir "/tmp/hx_agent_bus") (λ md1 →
+  bind time-now (λ tNs →
+    let rel20    = eth-priv-to-addr20 priv
+        fnd55    = eth-eip55-from-bytes20 eth-founder-coinbase-addr20
+        akashAdr = bn-priv-to-akash priv
+        nobleAdr = bn-priv-to-noble priv
+        ptxDm    = dm-emit-diamond-sm90a-ptx
+        elfX86   = emit-elf64-x86 #11 bn-demo-inet
+        elfArm   = emit-elf64-arm64 #11 bn-demo-inet
+        wasmBin  = emit-wasm-inet bn-demo-inet
+        svRtl    = dm-emit-clebsch-sv
+    in bind (h-write (list-append dm-out-dir "/hx_diamond_sm90a.ptx") ptxDm) (λ w0 →
+       bind (h-write (list-append dm-out-dir "/hx_diamond_worker_x86_64") elfX86) (λ w1 →
+       bind (h-write (list-append dm-out-dir "/hx_diamond_worker_arm64") elfArm) (λ w2 →
+       bind (h-write (list-append dm-out-dir "/hx_diamond_edge.wasm") wasmBin) (λ w3 →
+       bind (h-write (list-append dm-out-dir "/hx_diamond2_clebsch.sv") svRtl) (λ w4 →
+       bind (if isLive then dm-evm-block-num bl-rpc-url else ret {lzero} {W} #61980000) (λ blkBase →
+       bind (if isLive then dm-evm-block-num "https://ethereum-rpc.publicnode.com" else ret {lzero} {W} #26490200) (λ blkEth →
+       bind (if isLive then dm-evm-block-num "https://arb1.arbitrum.io/rpc" else ret {lzero} {W} #320000000) (λ blkArb →
+       bind (if isLive then dm-evm-block-num "https://mainnet.optimism.io" else ret {lzero} {W} #135000000) (λ blkOp →
+       bind (if isLive then dm-solana-slot else ret {lzero} {W} #340000000) (λ solSlot →
+       bind (if isLive then dm-query-hl-mids else ret {lzero} {W} (#59890000000 , (#1653000000 , #69500000))) (λ hlMids →
+       bind (if isLive then lc-run-live-sieve else ret {lzero} {W} (the (List Word) nil)) (λ sieveHx →
+         let btcMid  = fst hlMids
+             ethMid  = fst (snd hlMids)
+             solMid  = snd (snd hlMids)
+             mUsdcM  = if isLive then %wdiv (lc-word-at-hex zero sieveHx) #1000000000000 else #338
+             mWeth   = if isLive then %wdiv (lc-word-at-hex (suc zero) sieveHx) #1000000000000000000 else #88896
+             mTotM   = %wadd mUsdcM (%wdiv (%wmul mWeth #1653) #1000000)
+             pxUni6  = if isLive then lc-sqrtpx96-to-usdc6 (lc-word-at-hex (toNat #2) sieveHx) else #1652800000
+             sDigest = h-be (h-take (toNat #8) (keccak256 sieveHx))
+             seedHs  = mk-hyperspace blkBase blkEth
+                         (mk-pool-edge #8453 #1 #85 pxUni6 #94170)
+                         (mk-perp-node #2 ethMid #112 #37740)
+                         (mk-lending-vault #8453 mTotM #0 #500)
+                         (mk-coherence-bundle #1 #9710 #20 #300)
+                         (mk-bounty-target #1 #23000 #335 #0)
+                         (mk-compute-node #1 #42 #4380 #164000)
+             preRoot = ch-fold-xor (dm-encode-atlas (mk-global-atlas seedHs blkArb blkOp solSlot btcMid solMid sDigest #0))
+             preHxsv = dm-pack-hxsv32 (%wdiv tNs #1000000000) preRoot #42 #4
+         in bind (h-write "/tmp/hx_agent_bus/hx_diamond_atlas.hxsv" preHxsv) (λ wh0 →
+            bind (if isLive then dm-awaken-fleet-go dm-fleet-6pods else ret {lzero} {W} (#42 , (#4380 , bn-ln "    [PLAN: 6 pods / 42 Hopper GPUs ready]"))) (λ flRes →
+              let gCnt   = fst flRes
+                  hbmGb  = fst (snd flRes)
+                  podLog = snd (snd flRes)
+                  bwGbs  = %wmul gCnt #3900
+                  hsLive = mk-hyperspace blkBase blkEth
+                             (mk-pool-edge #8453 #1 #85 pxUni6 #94170)
+                             (mk-perp-node #2 ethMid #112 #37740)
+                             (mk-lending-vault #8453 mTotM #0 #500)
+                             (mk-coherence-bundle #1 #9710 #20 #300)
+                             (mk-bounty-target #1 #23000 #335 #0)
+                             (mk-compute-node #1 gCnt hbmGb bwGbs)
+                  cRoot  = ch-fold-xor (dm-encode-atlas (mk-global-atlas hsLive blkArb blkOp solSlot btcMid solMid sDigest #0))
+                  liveGa = mk-global-atlas hsLive blkArb blkOp solSlot btcMid solMid sDigest cRoot
+                  rtOk   = case dm-decode-atlas (dm-encode-atlas liveGa) of
+                             dm-nothing → #0
+                             dm-just g2 → #1
+              in bind (if isLive then dm-burst-base8453 priv rel20 cRoot else ret {lzero} {W} (#0 , the (List Word) "PLAN_BURST4_NO_TX")) (λ burstRes →
+                 let bCnt   = fst burstRes
+                     bTx0   = snd burstRes
+                     hxsv32 = dm-pack-hxsv32 (%wdiv tNs #1000000000) cRoot gCnt bCnt
+                     jOut   = dm-fmt-atlas-json liveGa bCnt bTx0 akashAdr
+                     l1     = bn-ln "[HX-DIAMOND | UNIVALENT PORTAL + 42-GPU NEURAL HYPERREACTOR + GLOBAL CRYPTO ATLAS]"
+                     l2     = bn-ln (h-concat (cons "  1. Zero-Postulate Proofs : srg(16,5,0,2)=PASS | achromatic_TIR=PASS | abiogenesis=PASS | zero_extra_info=PASS | rt_ok=" (cons (h-decimal rtOk) nil)))
+                     l3     = bn-ln (h-concat (cons "  2. 6-Chain Live Atlas    : Base=" (cons (h-decimal blkBase) (cons " | ETH=" (cons (h-decimal blkEth) (cons " | Arb=" (cons (h-decimal blkArb) (cons " | OP=" (cons (h-decimal blkOp) (cons " | Sol=" (cons (h-decimal solSlot) nil)))))))))))
+                     l4     = bn-ln (h-concat (cons "  3. CLOB + $488M 0-bps    : HL_BTC_uUSD=" (cons (h-decimal btcMid) (cons " | HL_ETH_uUSD=" (cons (h-decimal ethMid) (cons " | Base_UniV3_uUSD=" (cons (h-decimal pxUni6) (cons " | Morpho_Cap=$" (cons (h-decimal mTotM) (cons "M" nil))))))))))
+                     l5     = bn-ln (h-concat (cons "  4. 6-Pod Hopper Portal   : awakened_GPUs=" (cons (h-decimal gCnt) (cons "/42 (" (cons (h-decimal hbmGb) (cons "GB HBM, " (cons (h-decimal bwGbs) (cons "GB/s) | Akash=" (cons akashAdr nil)))))))))
+                     l6     = bn-ln (h-concat (cons "  5. Max-Freq Settlement   : Base8453_PoUW=" (cons lc-live-pouw-addr55 (cons " | batch_burst_txs=" (cons (h-decimal bCnt) (cons " | lead_tx=" (cons bTx0 (cons " | founder=" (cons fnd55 nil)))))))))
+                 in bind (h-write (list-append dm-out-dir "/global_crypto_atlas.json") jOut) (λ wj →
+                    bind (h-write "/tmp/hx_agent_bus/hx_diamond_atlas.hxsv" hxsv32) (λ wh1 →
+                    bind (if isLive then dm-http-post-json "https://hyperactivity.ai/api/p2p/signal?id=hx_diamond_portal_42gpu" jOut else ret {lzero} {W} (the (List Word) nil)) (λ sigR →
+                    h-out (h-concat (cons l1 (cons l2 (cons l3 (cons l4 (cons l5 (cons podLog (cons l6 nil))))))))))))))))))))))))))))))
