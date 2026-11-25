@@ -1,0 +1,16 @@
+-- ---------------------------------------------------------------- #jit plan for Apple Silicon / ARM64
+arm64-jit-plan-at : Word → Code → Lst Rule → Code → Plan
+arm64-jit-plan-at g Tc rules c =
+  let c1 = opt-or (src-of g) c
+      hs = jit-holds g c1
+      s = specialize Tc (sched #64 lnil hs) rules (inline-src hs c1)
+      cs = eta-pairs c-fuel #0 (fst s)
+      p = program-of-at unfold-jit g cs #256
+      ok = code-conv-at Tc (cglob g) cs
+      defs0 = x-forms-all (snd p)
+      defs = x-erase g defs0
+  in case x-verdict (fst p) defs return (λ _ → Plan) of
+       not-fo w at → ((not-fo w at , lnil) , (ok , (snd s , (cs , lnil))))
+       fo q2 → (if x-arity-is defs g (fst (x-split cs))
+                  then ((fo cs , jit-reads g defs0) , (ok , (snd s , (cs , arm64-encode-prog g defs))))
+                  else ((not-fo reflect cs , lnil) , (ok , (snd s , (cs , lnil)))))

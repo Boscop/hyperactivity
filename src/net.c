@@ -4,8 +4,13 @@
 #include <sys/mman.h>
 #include <string.h>
 #include <pthread.h>
-#ifndef __APPLE__
+#ifdef __APPLE__
+#include <sys/qos.h>
+#else
 extern int pthread_getattr_np(pthread_t th, pthread_attr_t *attr);   /* glibc; the thread's stack, for compiled code's stack limit */
+#endif
+#if (defined(__APPLE__) && defined(__aarch64__)) || defined(HY_METAL_MOCK)
+#include <dlfcn.h>
 #endif
 #include <time.h>
 #include <sched.h>
@@ -3448,6 +3453,9 @@ static void idle_wait(int *idle) {
     else { struct timespec ts = { 0, k < 4096 ? 20000 : 200000 }; nanosleep(&ts, NULL); }
 }
 static void *worker(void *arg) {
+#ifdef __APPLE__
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+#endif
     myq = (int)(intptr_t)arg;
     int idle = 0;
     for (;;) {
@@ -3465,19 +3473,25 @@ static void *worker(void *arg) {
     return NULL;
 }
 void net_start(int n) {
+#ifdef __APPLE__
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+#endif
     queues_init(n + 1);
     nworkers = n;
     net_solo = n == 0;   /* stays false when some workers fail to start: the scheduler serves those that did */
     workers = calloc((size_t)n + 1, sizeof(pthread_t));
-    /* a worker that cannot be created (each gets the process's stack size, 1 GB when main raised
-     * it) is not waited for: the run goes on with the workers that started (2026-11-12: the loop
-     * below waited forever for a worker that did not exist) */
+    /* Explicit 16 MiB worker stack: prevents macOS's tiny 512 KiB default pthread stack from
+     * overflowing on deep interaction chains while avoiding Linux's 1 GiB-per-worker virtual stack bloat */
+    pthread_attr_t attr;
+    bool has_attr = pthread_attr_init(&attr) == 0;
+    if (has_attr) pthread_attr_setstacksize(&attr, (size_t)16 << 20);
     int made = 0;
     for (int i = 0; i < n; i++) {
-        int e = pthread_create(&workers[i], NULL, worker, (void *)(intptr_t)(i + 1));
+        int e = pthread_create(&workers[i], has_attr ? &attr : NULL, worker, (void *)(intptr_t)(i + 1));
         if (e) { fprintf(stderr, "warning: %d of %d workers started (pthread_create: %s)\n", made, n, strerror(e)); break; }
         made++;
     }
+    if (has_attr) pthread_attr_destroy(&attr);
     pthread_mutex_lock(&wmu);
     nworkers = made;
     pthread_mutex_unlock(&wmu);
@@ -3485,6 +3499,229 @@ void net_start(int n) {
     while (parked < nworkers) pthread_cond_wait(&pcv, &wmu);
     pthread_mutex_unlock(&wmu);
 }
+
+#if (defined(__APPLE__) && defined(__aarch64__)) || defined(HY_METAL_MOCK)
+/* ---------------- Apple Silicon Zero-Copy Metal Compute Active-Pair Reducer ----------------
+ * Loaded dynamically via dlopen/dlsym (zero Objective-C .m files, zero mandatory framework flags).
+ * Uses MTLResourceStorageModeShared (0) so CPU deques and Apple GPU cores read/write the exact same
+ * unified-memory cache lines with zero PCIe copy. Enabled via CUBICAL_METAL=1 when queue depth >= 256. */
+#define HY_GPU_CAP 4096u
+typedef struct { uint64_t op, a, b, out, status, pad0, pad1, pad2; } HyGpuSlot;
+typedef struct { unsigned long w, h, d; } HyMTLSize;
+static int hy_metal_state;   /* 0: uninit, 1: ready, -1: off/unavailable */
+static void *hy_mtl_dev, *hy_mtl_q, *hy_mtl_pso, *hy_mtl_buf;
+static HyGpuSlot *hy_gpu_slots;
+static void *(*hy_objc_cls)(const char *);
+static void *(*hy_sel_reg)(const char *);
+static void (*hy_objc_msg)(void);
+static void *(*hy_arp_push)(void);
+static void (*hy_arp_pop)(void *);
+static void *hy_s_cmdBuf, *hy_s_compEnc, *hy_s_setPso, *hy_s_setBuf, *hy_s_dispTg, *hy_s_endEnc, *hy_s_commit, *hy_s_wait;
+
+static const char *HY_METAL_SRC =
+    "#include <metal_stdlib>\n"
+    "using namespace metal;\n"
+    "struct Slot { ulong op, a, b, out, status, p0, p1, p2; };\n"
+    "kernel void hy_reduce_batch(device Slot *s [[buffer(0)]], uint gid [[thread_position_in_grid]]) {\n"
+    "    ulong op = s[gid].op;\n"
+    "    if (op == 0ul) return;\n"
+    "    ulong a = s[gid].a, b = s[gid].b, r = 0ul, st = 1ul;\n"
+    "    long ia = as_type<long>(a), ib = as_type<long>(b);\n"
+    "    uint ua = (uint)a, ub = (uint)b;\n"
+    "    const long IMIN = (-9223372036854775807L - 1L);\n"
+    "    switch (op) {\n"
+    "    case 1ul:  case 13ul: r = a + b; break;\n"
+    "    case 2ul:  case 14ul: r = a - b; break;\n"
+    "    case 3ul:  case 15ul: r = a * b; break;\n"
+    "    case 4ul:  r = ib == 0L ? 0ul : (ia == IMIN && ib == -1L) ? a : as_type<ulong>(ia / ib); break;\n"
+    "    case 5ul:  r = ib == 0L ? a : (ia == IMIN && ib == -1L) ? 0ul : as_type<ulong>(ia % ib); break;\n"
+    "    case 6ul:  case 18ul: case 38ul: r = a & b; break;\n"
+    "    case 7ul:  case 19ul: case 39ul: r = a | b; break;\n"
+    "    case 8ul:  case 20ul: case 40ul: r = a ^ b; break;\n"
+    "    case 9ul:  case 21ul: r = a << (b & 63ul); break;\n"
+    "    case 10ul: r = as_type<ulong>(ia >> (long)(b & 63ul)); break;\n"
+    "    case 11ul: r = ia == ib ? 1ul : 0ul; break;\n"
+    "    case 12ul: r = ia < ib ? 1ul : 0ul; break;\n"
+    "    case 16ul: case 36ul: r = b == 0ul ? 0ul : a / b; break;\n"
+    "    case 17ul: case 37ul: r = b == 0ul ? a : a % b; break;\n"
+    "    case 22ul: r = a >> (b & 63ul); break;\n"
+    "    case 23ul: case 30ul: r = a == b ? 1ul : 0ul; break;\n"
+    "    case 24ul: case 31ul: r = a < b ? 1ul : 0ul; break;\n"
+    "    case 25ul: r = (ulong)(uint)(ua + ub); break;\n"
+    "    case 26ul: r = (ulong)(uint)(ua - ub); break;\n"
+    "    case 27ul: r = (ulong)(uint)(ua * ub); break;\n"
+    "    case 28ul: r = ua == ub ? 1ul : 0ul; break;\n"
+    "    case 29ul: r = ua < ub ? 1ul : 0ul; break;\n"
+    "    case 32ul: r = a + b; if (r < a) st = 2ul; break;\n"
+    "    case 33ul: r = a > b ? a : b; break;\n"
+    "    case 34ul: r = a >= b ? a - b : 0ul; break;\n"
+    "    case 35ul: r = a * b; if (mulhi(a, b) != 0ul) st = 2ul; break;\n"
+    "    case 41ul: r = b >= 64ul ? 0ul : (a >> b); break;\n"
+    "    default: st = 2ul; break;\n"
+    "    }\n"
+    "    s[gid].out = r; s[gid].status = st;\n"
+    "}\n";
+
+static bool hy_metal_init(void) {
+    if (hy_metal_state != 0) return hy_metal_state == 1;
+    const char *env = getenv("CUBICAL_METAL");
+    if (!env || !*env || !strcmp(env, "0")) { hy_metal_state = -1; return false; }
+    void *objc = dlopen("/usr/lib/libobjc.A.dylib", RTLD_LAZY | RTLD_GLOBAL);
+    void *fnd  = dlopen("/System/Library/Frameworks/Foundation.framework/Foundation", RTLD_LAZY | RTLD_GLOBAL);
+    void *mtl  = dlopen("/System/Library/Frameworks/Metal.framework/Metal", RTLD_LAZY | RTLD_GLOBAL);
+    if (!objc || !fnd || !mtl) { hy_metal_state = -1; return false; }
+    *(void **)(&hy_objc_cls) = dlsym(objc, "objc_getClass");
+    *(void **)(&hy_sel_reg)  = dlsym(objc, "sel_registerName");
+    *(void **)(&hy_objc_msg) = dlsym(objc, "objc_msgSend");
+    *(void **)(&hy_arp_push) = dlsym(objc, "objc_autoreleasePoolPush");
+    *(void **)(&hy_arp_pop)  = dlsym(objc, "objc_autoreleasePoolPop");
+    void *(*create_dev)(void) = NULL;
+    *(void **)(&create_dev) = dlsym(mtl, "MTLCreateSystemDefaultDevice");
+    if (!hy_objc_cls || !hy_sel_reg || !hy_objc_msg || !create_dev) { hy_metal_state = -1; return false; }
+    void *pool = hy_arp_push ? hy_arp_push() : NULL;
+    hy_mtl_dev = create_dev();
+    if (!hy_mtl_dev) { if (pool && hy_arp_pop) hy_arp_pop(pool); hy_metal_state = -1; return false; }
+    void *nsstr = hy_objc_cls("NSString");
+    void *s_utf8 = hy_sel_reg("stringWithUTF8String:");
+    void *msl = ((void *(*)(void *, void *, const char *))hy_objc_msg)(nsstr, s_utf8, HY_METAL_SRC);
+    void *fn_nm = ((void *(*)(void *, void *, const char *))hy_objc_msg)(nsstr, s_utf8, "hy_reduce_batch");
+    void *err = NULL;
+    void *lib = ((void *(*)(void *, void *, void *, void *, void **))hy_objc_msg)(hy_mtl_dev, hy_sel_reg("newLibraryWithSource:options:error:"), msl, NULL, &err);
+    if (!lib) { if (pool && hy_arp_pop) hy_arp_pop(pool); hy_metal_state = -1; return false; }
+    void *fn = ((void *(*)(void *, void *, void *))hy_objc_msg)(lib, hy_sel_reg("newFunctionWithName:"), fn_nm);
+    if (!fn) { if (pool && hy_arp_pop) hy_arp_pop(pool); hy_metal_state = -1; return false; }
+    hy_mtl_pso = ((void *(*)(void *, void *, void *, void **))hy_objc_msg)(hy_mtl_dev, hy_sel_reg("newComputePipelineStateWithFunction:error:"), fn, &err);
+    hy_mtl_q   = ((void *(*)(void *, void *))hy_objc_msg)(hy_mtl_dev, hy_sel_reg("newCommandQueue"));
+    /* MTLResourceStorageModeShared == 0: unified CPU/GPU zero-copy RAM */
+    hy_mtl_buf = ((void *(*)(void *, void *, unsigned long, unsigned long))hy_objc_msg)(hy_mtl_dev, hy_sel_reg("newBufferWithLength:options:"), (unsigned long)(HY_GPU_CAP * sizeof(HyGpuSlot)), 0ul);
+    hy_gpu_slots = hy_mtl_buf ? (HyGpuSlot *)((void *(*)(void *, void *))hy_objc_msg)(hy_mtl_buf, hy_sel_reg("contents")) : NULL;
+    hy_s_cmdBuf  = hy_sel_reg("commandBuffer");
+    hy_s_compEnc = hy_sel_reg("computeCommandEncoder");
+    hy_s_setPso  = hy_sel_reg("setComputePipelineState:");
+    hy_s_setBuf  = hy_sel_reg("setBuffer:offset:atIndex:");
+    hy_s_dispTg  = hy_sel_reg("dispatchThreadgroups:threadsPerThreadgroup:");
+    hy_s_endEnc  = hy_sel_reg("endEncoding");
+    hy_s_commit  = hy_sel_reg("commit");
+    hy_s_wait    = hy_sel_reg("waitUntilCompleted");
+    if (pool && hy_arp_pop) hy_arp_pop(pool);
+    if (!hy_mtl_pso || !hy_mtl_q || !hy_gpu_slots) { hy_metal_state = -1; return false; }
+    hy_metal_state = 1;
+    return true;
+}
+
+static uint64_t hy_gpu_code(const Cell *o, const Cell *v, int *pt_out, bool *is_bool, Cell **ac_out) {
+    *ac_out = NULL; *is_bool = false; *pt_out = -1;
+    if (o->kind == O_POP2B && v->kind == V_PVAL) {
+        switch ((int)o->x) {
+        case PO_I64ADD: *pt_out = PT_I64; return 1;  case PO_I64SUB: *pt_out = PT_I64; return 2;
+        case PO_I64MUL: *pt_out = PT_I64; return 3;  case PO_I64DIV: *pt_out = PT_I64; return 4;
+        case PO_I64MOD: *pt_out = PT_I64; return 5;  case PO_I64AND: *pt_out = PT_I64; return 6;
+        case PO_I64OR:  *pt_out = PT_I64; return 7;  case PO_I64XOR: *pt_out = PT_I64; return 8;
+        case PO_I64SHL: *pt_out = PT_I64; return 9;  case PO_I64SHR: *pt_out = PT_I64; return 10;
+        case PO_I64EQ:  *is_bool = true;  return 11; case PO_I64LT:  *is_bool = true;  return 12;
+        case PO_U64ADD: *pt_out = PT_U64; return 13; case PO_U64SUB: *pt_out = PT_U64; return 14;
+        case PO_U64MUL: *pt_out = PT_U64; return 15; case PO_U64DIV: *pt_out = PT_U64; return 16;
+        case PO_U64MOD: *pt_out = PT_U64; return 17; case PO_U64AND: *pt_out = PT_U64; return 18;
+        case PO_U64OR:  *pt_out = PT_U64; return 19; case PO_U64XOR: *pt_out = PT_U64; return 20;
+        case PO_U64SHL: *pt_out = PT_U64; return 21; case PO_U64SHR: *pt_out = PT_U64; return 22;
+        case PO_U64EQ:  *is_bool = true;  return 23; case PO_U64LT:  *is_bool = true;  return 24;
+        case PO_U32ADD: *pt_out = PT_U32; return 25; case PO_U32SUB: *pt_out = PT_U32; return 26;
+        case PO_U32MUL: *pt_out = PT_U32; return 27; case PO_U32EQ:  *is_bool = true;  return 28;
+        case PO_U32LT:  *is_bool = true;  return 29;
+        default: return 0;
+        }
+    }
+    if (o->kind == O_WOP2 && v->kind == V_WORD && !v->p && o->port[1] && !is_var(o->port[1]) && PI(o->port[1]) == 0) {
+        Cell *ac = PC(o->port[1]);
+        if (ac->kind == V_WORD && !ac->p) {
+            *ac_out = ac;
+            switch ((int)o->x) {
+            case O_WEQ:  *is_bool = true; return 30; case O_WLT:  *is_bool = true; return 31;
+            case O_WADD: return 32; case O_WMAX: return 33; case O_WSUB: return 34;
+            case O_WMUL: return 35; case O_WDIV: return 36; case O_WMOD: return 37;
+            case O_WAND: return 38; case O_WOR:  return 39; case O_WXOR: return 40;
+            case O_WSHR: return 41;
+            default: return 0;
+            }
+        }
+    }
+    return 0;
+}
+
+static long hy_metal_batch(long max_steps) {
+    if (!hy_metal_init()) return 0;
+    size_t qlen = net_solo ? Rlen : (Q ? Q[myq].bottom - __atomic_load_n(&Q[myq].top, __ATOMIC_ACQUIRE) : 0);
+    if (qlen < 256) return 0;
+    size_t cap = HY_GPU_CAP;
+    if (max_steps > 0 && (size_t)max_steps < cap) cap = (size_t)max_steps;
+    typedef struct { Redex r; Cell *ac; int pt; bool bl; } GpuItem;
+    static __thread GpuItem items[HY_GPU_CAP];
+    size_t gn = 0; long steps_done = 0;
+    for (size_t i = 0; i < cap; i++) {
+        Redex r;
+        if (!(net_solo ? ring_pop(&r) : pop_own(&Q[myq], &r))) break;
+        int pt = -1; bool bl = false; Cell *ac = NULL;
+        uint64_t code = hy_gpu_code(r.op, r.v, &pt, &bl, &ac);
+        if (code) {
+            hy_gpu_slots[gn].op = code;
+            hy_gpu_slots[gn].a = ac ? ac->a : r.op->a;
+            hy_gpu_slots[gn].b = r.v->a;
+            hy_gpu_slots[gn].status = 0;
+            items[gn++] = (GpuItem){ r, ac, pt, bl };
+        } else {
+            rewrite(r); steps_done++;
+        }
+    }
+    if (gn >= 64) {
+        size_t groups = (gn + 63u) / 64u, padded = groups * 64u;
+        for (size_t k = gn; k < padded && k < HY_GPU_CAP; k++) hy_gpu_slots[k].op = 0;
+        void *pool = hy_arp_push ? hy_arp_push() : NULL;
+        void *cb  = ((void *(*)(void *, void *))hy_objc_msg)(hy_mtl_q, hy_s_cmdBuf);
+        void *enc = cb ? ((void *(*)(void *, void *))hy_objc_msg)(cb, hy_s_compEnc) : NULL;
+        if (cb && enc) {
+            ((void (*)(void *, void *, void *))hy_objc_msg)(enc, hy_s_setPso, hy_mtl_pso);
+            ((void (*)(void *, void *, void *, unsigned long, unsigned long))hy_objc_msg)(enc, hy_s_setBuf, hy_mtl_buf, 0ul, 0ul);
+            HyMTLSize ng = { (unsigned long)groups, 1ul, 1ul }, tg = { 64ul, 1ul, 1ul };
+            ((void (*)(void *, void *, HyMTLSize, HyMTLSize))hy_objc_msg)(enc, hy_s_dispTg, ng, tg);
+            ((void (*)(void *, void *))hy_objc_msg)(enc, hy_s_endEnc);
+            ((void (*)(void *, void *))hy_objc_msg)(cb, hy_s_commit);
+            ((void (*)(void *, void *))hy_objc_msg)(cb, hy_s_wait);
+            if (pool && hy_arp_pop) hy_arp_pop(pool);
+            need_bool();
+            Local *l = local();
+            for (size_t k = 0; k < gn; k++) {
+                if (hy_gpu_slots[k].status == 1) {
+                    Cell *o = items[k].r.op, *v = items[k].r.v, *ac = items[k].ac;
+                    uint64_t out = hy_gpu_slots[k].out;
+                    l->steps++; l->kind[o->kind]++;
+                    if (ac) {
+                        Port rp = items[k].bl ? con_build(out ? B_TRUE : B_FALSE, NULL, NULL) : word_of(out);
+                        link(rp, o->port[2]);
+                        cell_free(ac); cell_free(v); cell_free(o);
+                    } else {
+                        Port rp;
+                        if (items[k].bl) rp = con_build(out ? B_TRUE : B_FALSE, NULL, NULL);
+                        else { Cell *c = cell(V_PVAL, 1); c->x = (uint32_t)items[k].pt; c->a = out; rp = P(c, 0); }
+                        link(rp, o->port[1]);
+                        cell_free(o); cell_free(v);
+                    }
+                    retire_boxes(); flush_frees();
+                    if (net_solo) pending--;
+                    else { publish(); finished(); }
+                } else {
+                    rewrite(items[k].r);
+                }
+                steps_done++;
+            }
+            return steps_done;
+        }
+        if (pool && hy_arp_pop) hy_arp_pop(pool);
+    }
+    for (size_t k = 0; k < gn; k++) { rewrite(items[k].r); steps_done++; }
+    return steps_done;
+}
+#endif
+
 static bool observed(Cell *root) {
     if (!root) return false;
     Cell *v = cell_at(sload(&root->port[0]));
@@ -3511,6 +3748,13 @@ bool net_observe(Cell *root, long limit) {
             pthread_mutex_lock(&wmu); __atomic_store_n(&running, 1, __ATOMIC_RELEASE); pthread_cond_broadcast(&wcv); pthread_mutex_unlock(&wmu);
             woke = true;
         }
+#if (defined(__APPLE__) && defined(__aarch64__)) || defined(HY_METAL_MOCK)
+        if (!trace_out) {
+            long rem = limit >= 0 ? limit - n : -1;
+            long gb = hy_metal_batch(rem);
+            if (gb > 0) { n += gb; idle = 0; continue; }
+        }
+#endif
         Redex r;
         if (pop(&r, idle)) { rewrite(r); n++; idle = 0; }
         else { idle_wait(&idle); if (!net_solo && (idle & 63) == 0 && quiescent()) break; }   /* the sums are read now and then: reading them pulls the workers' lines */

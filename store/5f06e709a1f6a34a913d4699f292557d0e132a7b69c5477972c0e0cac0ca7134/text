@@ -1,0 +1,30 @@
+a64-cx-n : Nat → Tbl → XEnv → Word → Code → Lst Word
+a64-cx-n zero tbl env d c = a64-brk
+a64-cx-n (suc k) tbl env d (cvar n) = a64-ld-fp #0 (x-place env n)
+a64-cx-n (suc k) tbl env d (cglob g) = a64-gref (λ e2 d2 c2 → a64-cx-n k tbl e2 d2 c2) tbl env d g lnil
+a64-cx-n (suc k) tbl env d (capp f a) =
+  (let sp = x-spine (capp f a) in
+   case fst sp return (λ _ → Lst Word) of
+     cglob g → a64-gref (λ e2 d2 c2 → a64-cx-n k tbl e2 d2 c2) tbl env d g (snd sp)
+     h → a64-applies (λ e2 d2 c2 → a64-cx-n k tbl e2 d2 c2) tbl env d (a64-cx-n k tbl env d h) (snd sp))
+a64-cx-n (suc k) tbl env d (clet t b) =
+  xcat3 (a64-cx-n k tbl env d t) a64-push-x0 (l-app (a64-cx-n k tbl (lcons (a64-slot d) env) (%wsucc d) b) (a64-drop-slots #1))
+a64-cx-n (suc k) tbl env d (cann t T) = a64-cx-n k tbl env d t
+a64-cx-n (suc k) tbl env d (cpair a b) = a64-cell (λ e2 d2 c2 → a64-cx-n k tbl e2 d2 c2) env d #0 (lcons a (lcons b lnil))
+a64-cx-n (suc k) tbl env d (cfst p) = l-app (a64-cx-n k tbl env d p) (a64-ldr-idx #0 #0 #1)
+a64-cx-n (suc k) tbl env d (csnd p) = l-app (a64-cx-n k tbl env d p) (a64-ldr-idx #0 #0 #2)
+a64-cx-n (suc k) tbl env d (crec dd fs) = a64-cell (λ e2 d2 c2 → a64-cx-n k tbl e2 d2 c2) env d #0 fs
+a64-cx-n (suc k) tbl env d (cproj dd j p) = l-app (a64-cx-n k tbl env d p) (a64-ldr-idx #0 #0 (%wsucc j))
+a64-cx-n (suc k) tbl env d (ccon dd j fs ds) =
+  if %weq dd x-nat-d then a64-nat-con (λ e2 d2 c2 → a64-cx-n k tbl e2 d2 c2) env d fs
+  else (if l-isnil fs then a64-imm64 #0 j else a64-cell (λ e2 d2 c2 → a64-cx-n k tbl e2 d2 c2) env d j fs)
+a64-cx-n (suc k) tbl env d (ccase dd B x) =
+  if %weq dd x-nat-d then a64-nat-case (λ e2 d2 c2 → a64-cx-n k tbl e2 d2 c2) env d B x
+  else a64-case (λ e2 d2 c2 → a64-cx-n k tbl e2 d2 c2) env d dd B x
+a64-cx-n (suc k) tbl env d (cwlit n) = a64-imm64 #0 n
+a64-cx-n (suc k) tbl env d (cplit j b) = a64-imm64 #0 b
+a64-cx-n (suc k) tbl env d (cwsucc a) = l-app (a64-cx-n k tbl env d a) a64-add1-checked
+a64-cx-n (suc k) tbl env d (cwop j a b) = a64-bin (λ e2 d2 c2 → a64-cx-n k tbl e2 d2 c2) env d a b (a64-wop j)
+a64-cx-n (suc k) tbl env d (cprim j as) = a64-prim (λ e2 d2 c2 → a64-cx-n k tbl e2 d2 c2) env d j as
+a64-cx-n (suc k) tbl env d (cwelim w z s mo) = a64-loop (λ e2 d2 c2 → a64-cx-n k tbl e2 d2 c2) env d w z s
+a64-cx-n (suc k) tbl env d c = a64-brk

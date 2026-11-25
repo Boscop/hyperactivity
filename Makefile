@@ -1,5 +1,11 @@
 CC      ?= gcc
-CFLAGS  ?= -std=gnu11 -O2 -g -Wall -Wextra -Wno-unused-parameter
+ARCH    := $(shell uname -m)
+ifeq ($(filter arm64 aarch64,$(ARCH)),)
+NATIVE  ?= $(shell $(CC) -march=native -x c -c /dev/null -o /dev/null 2>/dev/null && echo -march=native)
+else
+NATIVE  ?= $(shell $(CC) -mcpu=native -x c -c /dev/null -o /dev/null 2>/dev/null && echo -mcpu=native)
+endif
+CFLAGS  ?= -std=gnu11 -O3 $(NATIVE) -g -Wall -Wextra -Wno-unused-parameter
 ifeq ($(shell uname -s),Darwin)
 LDFLAGS ?= -Wl,-stack_size,0x10000000
 endif

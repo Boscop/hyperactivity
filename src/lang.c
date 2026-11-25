@@ -16,19 +16,14 @@
 #include <sys/wait.h>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
+#include <sys/sysctl.h>
+#endif
 #define link hy_posix_link
 #include <unistd.h>
 #undef link
-#endif
 #include <sys/resource.h>
 #include <limits.h>
 #include <stdarg.h>
-#ifndef __APPLE__
-extern int access(const char *, int);
-extern int execv(const char *path, char *const argv[]);   /* <unistd.h>, whose link(2) the net's link shadows */
-extern int fork(void); extern int getpid(void);
-extern int dup(int); extern int dup2(int, int); extern int close(int); extern FILE *fdopen(int, const char *);
-#endif
 
 /* grow an array to hold at least n elements */
 #define GROW(arr, cap, n) do { if ((size_t)(n) > (size_t)(cap)) { size_t nc_ = (cap) ? (size_t)(cap) * 2 : 16; while (nc_ < (size_t)(n)) nc_ *= 2; (arr) = realloc((arr), nc_ * sizeof *(arr)); (cap) = nc_; } } while (0)
@@ -4854,10 +4849,16 @@ static int jit_bind(const char *name, int ck, const unsigned char *b, size_t len
         if (i < n && !used[i]) { jt[i] = jt_new(JT_ERASED); continue; }
         jt[i] = jt_of(i < n ? doms[i] : cod, NULL, NULL, 0); if (!jt_crosses(jt[i], 0)) return -3 - i;
     }
+#ifdef __aarch64__
+    if (len < 4 || (len & 3) != 0 || b[0] == 0x55) return -1;
+#elif defined(__x86_64__)
+    if (len >= 4 && b[0] == 0xfd && b[3] == 0xa9) return -1;
+#endif
     void *m = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (m == MAP_FAILED) return -1;
     memcpy(m, b, len);
-    if (mprotect(m, len, PROT_READ | PROT_EXEC) != 0) return -1;
+    if (mprotect(m, len, PROT_READ | PROT_EXEC) != 0) { munmap(m, len); return -1; }
+    __builtin___clear_cache((char *)m, (char *)m + len);
     unsigned char kind[NATIVE_MAXW];
     for (int i = 0; i < n; i++) kind[i] = jt[i]->k == JT_WORD ? 4 : jt[i]->k == JT_PRIM ? 5 : jt[i]->k == JT_ERASED ? 9 : 8;   /* 8: converted by type (jit_in); 9: not read */
     GROW(FFI, capffi, (size_t)nffi + 1);
@@ -5251,11 +5252,26 @@ int main(int argc, char **argv)
         }
     }
     const char *w = getenv("CUBICAL_WORKERS");
+    int nw = 0;
+    if (w && *w) {
+        if (!strcmp(w, "auto") || !strcmp(w, "pcores") || !strcmp(w, "all")) {
+            int pc = 1;
+#ifdef __APPLE__
+            int v = 0; size_t sz = sizeof v;
+            if (strcmp(w, "all") != 0 && sysctlbyname("hw.perflevel0.logicalcpu", &v, &sz, NULL, 0) == 0 && v > 0) pc = v;
+            else if (sysctlbyname("hw.logicalcpu", &v, &sz, NULL, 0) == 0 && v > 0) pc = v;
+#else
+            long c = sysconf(_SC_NPROCESSORS_ONLN);
+            if (c > 0) pc = (int)c;
+#endif
+            nw = pc > 1 ? pc - 1 : 1;
+        } else { nw = atoi(w); if (nw < 0) nw = 0; }
+    }
     signal(SIGPIPE, SIG_IGN);
     prof_on = getenv("CUBICAL_PROFILE") != NULL;
     if (prof_on) signal(SIGTERM, prof_signal);
     prof_enter("(top level)");
-    net_start(w ? atoi(w) : 0);
+    net_start(nw);
     /* the machine's build is part of every module's key */
     { const char *b = __DATE__ " " __TIME__; key_mix(b, strlen(b)); }
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--print")) {

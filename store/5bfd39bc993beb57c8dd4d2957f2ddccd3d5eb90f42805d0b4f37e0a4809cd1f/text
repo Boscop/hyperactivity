@@ -1,0 +1,13 @@
+a64-loop : Enc → XEnv → Word → Code → Code → Code → Lst Word
+a64-loop ce env d w z s =
+  let bnd = a64-slot d
+      ctr = a64-slot (%wsucc d)
+      acc = a64-slot (%wadd d #2)
+      env2 = lcons acc (lcons ctr env)
+      step = xcat4 (ce env2 (%wadd d #3) (x-loop-body s)) (a64-st-fp #0 acc)
+                   (xcat3 (a64-ld-fp #0 ctr) (a64-movz #9 #1 #0) (a64-add #0 #0 #9)) (a64-st-fp #0 ctr)
+      test = xcat3 (a64-ld-fp #0 ctr) (a64-ld-fp #1 bnd) (a64-cmp #0 #1)
+      back = %wadd (l-count test) (%wadd #4 (l-count step))
+      body = l-app step (a64-b-back back)
+      head = xcat6 (ce env d w) a64-push-x0 (a64-movz #0 #0 #0) a64-push-x0 (ce env (%wadd d #2) z) a64-push-x0
+  in xcat5 head test (a64-bcond-skip a64-cc-hs (l-count body)) body (l-app (a64-ld-fp #0 acc) (a64-drop-slots #3))

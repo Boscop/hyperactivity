@@ -1,0 +1,10 @@
+-- Darwin ARM64 WCmd process loop (`Step W A`):
+-- Evaluates entry step in x0; tag 0 (`sdone`) returns 0; WCmd tags perform XNU BSD `svc #0x80` syscalls
+-- (write=4, read=3, open=5, close=6, exit=1, LSE CASAL for w-cas, DMB ISH for w-fence).
+a64-driver : Word → Word → Lst Word
+a64-driver main-off apply-off =
+  let body = xcat5 (a64-ldr-idx #1 #0 #0) (a64-movz #9 #0 #0) (a64-cmp #1 #9)
+                   (a64-bcond-skip a64-cc-eq #16)
+                   (xcat4 (a64-ldr-idx #2 #0 #1) (a64-ldr-idx #0 #2 #1) (a64-movz #16 #1 #0) a64-svc-darwin)
+  in xcat5 a64-stp-fp-lr a64-mov-fp-sp (a64-call-off main-off) body
+           (xcat4 (a64-movz #0 #0 #0) a64-mov-sp-fp a64-ldp-fp-lr a64-ret)

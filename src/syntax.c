@@ -1805,9 +1805,13 @@ static void p_decl_in(void) {
         int ck = checked_index(fn->s); if (ck < 0) x_sem("#build: not a checked definition:", fn);
         Tok *pt = NX(); if (pt->k != X_STR) x_err("#build: the file to write, a string, expected after", fn);
         if (read_only) { ud_form(lst(2, nsym("build"), nsym(fn->s))); printf("build %s: not performed (--read)\n", fn->s); decl_end(); return; }   /* read, not performed */
-        if (checked_index("build-plan") < 0) x_sem("#build: refused: the compiler it calls (build-plan) is not a checked definition; it is called only at the type that states the bytes compute what the code computes; was: needs lib/elf.cub loaded, for", fn);
+        const char *bplan = "build-plan", *bcall = "%%build-plan";
+#ifdef __aarch64__
+        if (checked_index("macho-build-plan") >= 0) { bplan = "macho-build-plan"; bcall = "%%macho-build-plan"; }
+#endif
+        if (checked_index(bplan) < 0) x_sem("#build: refused: the compiler it calls (build-plan) is not a checked definition; it is called only at the type that states the bytes compute what the code computes; was: needs lib/elf.cub loaded, for", fn);
         long steps = 0;
-        char *r = readback(nl2("%%build-plan", wordn(ck)), &steps);
+        char *r = readback(nl2(bcall, wordn(ck)), &steps);
         const char *saved = src; src = r; Node *rn = read_node(); src = saved;
         Node *grp[3]; int ng = 0;
         for (Node *cur = rn; ng < 3; ) {
@@ -1851,12 +1855,16 @@ static void p_decl_in(void) {
                 if (nth < 64) ths[nth++] = tk;
             }
         }
-        if (checked_index("jit-plan") < 0) x_sem("#jit: refused: the compiler it calls (jit-plan) is not a checked definition; it is called only at the type that states the bytes compute what the code computes; was: needs lib/x86.cub loaded, for", fn);
+        const char *jplan = "jit-plan", *jcall = "%%jit-plan";
+#ifdef __aarch64__
+        if (checked_index("arm64-jit-plan") >= 0) { jplan = "arm64-jit-plan"; jcall = "%%arm64-jit-plan"; }
+#endif
+        if (checked_index(jplan) < 0) x_sem("#jit: refused: the compiler it calls (jit-plan) is not a checked definition; it is called only at the type that states the bytes compute what the code computes; was: needs lib/x86.cub loaded, for", fn);
         for (int attempt = 0; attempt < 2; attempt++) {
             int nt = attempt ? 0 : nth;
             Node *rl = nsym("lnil"); for (int i = nt - 1; i >= 0; i--) rl = lst(3, nsym("lcons"), wordn(ths[i]), rl);
             long steps = 0;
-            char *r = readback(nl3("%%jit-plan", wordn(ck), nl2("%%view-of", rl)), &steps);
+            char *r = readback(nl3(jcall, wordn(ck), nl2("%%view-of", rl)), &steps);
             const char *saved = src; src = r; Node *rn = read_node(); src = saved;
             /* the plan's five parts: (pair a (pair b (pair c (pair d e)))) */
             Node *grp[5]; int ng = 0;
