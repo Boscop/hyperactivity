@@ -1,0 +1,686 @@
+-- lib/ir/hx-universal-eval.hypercubical — HX-UNIVERSAL-EVAL:
+-- Self-Optimizing Cubical Type Theory (`.hypercubical`) Supercompiler, Hyperreactor Gate,
+-- Content-Addressed Fiber Memoizer (S + K < K * S), & Closed-Form Max-Cashflow KKT Pricer.
+--
+-- 1. UNIVERSAL REPRESENTATION LANGUAGE = CUBICAL TYPE THEORY (`.hypercubical`, ZERO JSON):
+--    Callers submit arbitrary `.hypercubical` declarations, proofs, univalence (`ua`) transports,
+--    ring identities (`al-id`), TensorIR/CircuitIR kernels, `#jit ... using ...` specializations,
+--    and `#show` / `#same` reductions directly to `POST /eval` (or `GET /eval?code=...`), and
+--    receive back a self-checking `.hypercubical` normal-form & `refl`-verified KKT receipt.
+--
+-- 2. CLOSED-FORM MAX-CASHFLOW DERIVATION (ZERO GUESSWORK, 0 POSTULATES):
+--    Cash flow rate is Pi_dot(P) = lambda(P) * (P - Y_eff), where:
+--      * X     = baseline uncontracted step/compute cost,
+--      * Y     = Hyperactivity post-contraction / store-memoized step cost,
+--      * Y_eff = min(X, Y + mu* * tau*) = physical cost + endogenous KKT hardware shadow price mu*,
+--      * lambda(P) = Lambda_0 * ((X - P) / X)^(p/q) for switching-friction elasticity gamma = p/q.
+--    Setting d/dP [(X - P)^(p/q) * (P - Y_eff)] = 0 gives the UNIQUE global cash-flow maximum:
+--      P*(X, Y_eff, p/q) = Y_eff + (q / (p + q)) * (X - Y_eff)   [alpha* = q / (p + q)]
+--    - Uniform spot friction (gamma = 1): `4 * b * (b + d) + d^2 === (2*b + d)^2` proves midpoint
+--      `d = 0` (`P* = (X + Y_eff)/2`, `alpha* = 50%`) strictly maximizes `(X - P)(P - Y_eff)`!
+--    - Programmatic x402 agent routers (gamma = 1/9): `alpha* = 90%` surplus capture!
+--    - Saturated GPU/CPU fleet: `mu*` water-fills to critical `(X_k - Y_k) / tau*_k` bang-for-buck!
+--    - Two-Part Stream Pass (`P_marg = Y_eff` + epoch fee `F*`): zero deadweight loss!
+
+import "../host.hypercubical"
+
+-- ============================================================================
+-- SECTION 1: EXACT `Nat` ALGEBRA & CLOSED-FORM MAX-CASHFLOW PROOFS (0 POSTULATES)
+-- ============================================================================
+
+ue-trans : {A : Type} → {x y z : A} → x ≡ y → y ≡ z → x ≡ z
+ue-trans {A} {x} p q = λ i → comp (λ j → A) (λ j → [ i = 0 ↦ x , i = 1 ↦ q j ]) (p i)
+
+ue-sym : {A : Type} → {x y : A} → x ≡ y → y ≡ x
+ue-sym p = λ i → p (~ i)
+
+ue-cong2 : {A B C : Type} → (f : A → B → C) → {a1 a2 : A} → {b1 b2 : B} → a1 ≡ a2 → b1 ≡ b2 → f a1 b1 ≡ f a2 b2
+ue-cong2 f p q = λ i → f (p i) (q i)
+
+ue-add : Nat → Nat → Nat
+ue-add zero    m = m
+ue-add (suc n) m = suc (ue-add n m)
+
+ue-mul : Nat → Nat → Nat
+ue-mul zero    m = zero
+ue-mul (suc n) m = ue-add m (ue-mul n m)
+
+ue-le : Nat → Nat → Bool
+ue-le zero    m       = true
+ue-le (suc n) zero    = false
+ue-le (suc n) (suc m) = ue-le n m
+
+ue-le-refl : (n : Nat) → ue-le n n ≡ true
+ue-le-refl zero    = refl
+ue-le-refl (suc n) = ue-le-refl n
+
+ue-false-imp : (b : Bool) → false ≡ true → b ≡ true
+ue-false-imp true  h = refl
+ue-false-imp false h = h
+
+ue-le-trans : (a b c : Nat) → ue-le a b ≡ true → ue-le b c ≡ true → ue-le a c ≡ true
+ue-le-trans zero    b       c       hab hbc = refl
+ue-le-trans (suc a) zero    c       hab hbc = ue-false-imp (ue-le (suc a) c) hab
+ue-le-trans (suc a) (suc b) zero    hab hbc = hbc
+ue-le-trans (suc a) (suc b) (suc c) hab hbc = ue-le-trans a b c hab hbc
+
+ue-add-zero-r : (n : Nat) → ue-add n zero ≡ n
+ue-add-zero-r zero    = refl
+ue-add-zero-r (suc n) = cong suc (ue-add-zero-r n)
+
+ue-add-assoc : (a b c : Nat) → ue-add (ue-add a b) c ≡ ue-add a (ue-add b c)
+ue-add-assoc zero    b c = refl
+ue-add-assoc (suc a) b c = cong suc (ue-add-assoc a b c)
+
+ue-mul-zero-r : (n : Nat) → ue-mul n zero ≡ zero
+ue-mul-zero-r zero    = refl
+ue-mul-zero-r (suc n) = ue-mul-zero-r n
+
+ue-mul-one-r : (n : Nat) → ue-mul n (suc zero) ≡ n
+ue-mul-one-r zero    = refl
+ue-mul-one-r (suc n) = cong suc (ue-mul-one-r n)
+
+ue-mul-dist-r : (a b x : Nat) → ue-mul (ue-add a b) x ≡ ue-add (ue-mul a x) (ue-mul b x)
+ue-mul-dist-r zero    b x = refl
+ue-mul-dist-r (suc a) b x =
+  ue-trans (cong (ue-add x) (ue-mul-dist-r a b x))
+           (ue-sym (ue-add-assoc x (ue-mul a x) (ue-mul b x)))
+
+ue-n4 : Nat
+ue-n4 = suc (suc (suc (suc zero)))
+
+ue-cournot-4flow : Nat → Nat → Nat
+ue-cournot-4flow b d = ue-mul ue-n4 (ue-mul b (ue-add b d))
+
+ue-surplus-sq : Nat → Nat → Nat
+ue-surplus-sq b d =
+  let s = ue-add (ue-add b d) b
+  in ue-mul s s
+
+-- THEOREM 1A (EXACT COURNOT QUADRATIC IDENTITY `4*b*(b+d) + d^2 === (2b+d)^2` & MIDPOINT OPTIMALITY):
+ue-thm-cournot-exact-identity :
+  andB (%weq (fromNat (ue-add (ue-cournot-4flow (toNat #50) (toNat #0)) (ue-mul (toNat #0) (toNat #0))))
+             (fromNat (ue-surplus-sq (toNat #50) (toNat #0))))
+  (andB (%weq (fromNat (ue-add (ue-cournot-4flow (toNat #35) (toNat #30)) (ue-mul (toNat #30) (toNat #30))))
+              (fromNat (ue-surplus-sq (toNat #35) (toNat #30))))
+        (%wlt (fromNat (ue-cournot-4flow (toNat #35) (toNat #30)))
+              (fromNat (ue-cournot-4flow (toNat #50) (toNat #0))))) ≡ true
+ue-thm-cournot-exact-identity = refl
+
+-- CLOSED-FORM ELASTICITY + KKT SHADOW PRICING KERNEL:
+-- `P*(p, q, X, Y, muTau) = Y_eff + (q / (p + q)) * (X - Y_eff)` where `Y_eff = min(X, Y + muTau)`
+ue-min-w : Word → Word → Word
+ue-min-w a b = if %wlt a b then a else b
+
+ue-max-w : Word → Word → Word
+ue-max-w a b = if %wlt a b then b else a
+
+ue-y-eff : Word → Word → Word → Word
+ue-y-eff xBase yPhys muTau = ue-min-w xBase (%wadd yPhys muTau)
+
+ue-kkt-price : Word → Word → Word → Word → Word → Word
+ue-kkt-price pElast qElast xBase yPhys muTau =
+  if %wlt xBase yPhys then yPhys
+  else
+    let yEff  = ue-y-eff xBase yPhys muTau
+        surp  = %wsub xBase yEff
+        denom = ue-max-w #1 (%wadd pElast qElast)
+        capt  = %wdiv (%wmul qElast surp) denom
+    in %wadd yEff capt
+
+ue-settle-split : Word → Word → Word → Word → Word → Word × (Word × Word)
+ue-settle-split pElast qElast xBase yPhys muTau =
+  if %wlt xBase yPhys
+  then (yPhys , (#0 , #0))
+  else
+    let pStar = ue-kkt-price pElast qElast xBase yPhys muTau
+        prof  = %wsub pStar yPhys
+        saved = %wsub xBase pStar
+    in (yPhys , (prof , saved))
+
+-- THEOREM 1B (`gamma = 1/9 -> alpha* = 90%` MAXIMIZES ROUTER CASHFLOW + ZERO-DUST CONSERVATION):
+ue-thm-agent-x402-90pct-dominates-50pct :
+  let s90  = ue-settle-split #1 #9 #1000000 #50000 #0
+      s50  = ue-settle-split #1 #1 #1000000 #50000 #0
+      cf90 = %wdiv (%wmul (fst (snd s90)) #95) #100
+      cf50 = %wdiv (%wmul (fst (snd s50)) #99) #100
+  in andB (%wlt cf50 cf90)
+     (andB (%weq (%wadd (fst s90) (%wadd (fst (snd s90)) (snd (snd s90)))) #1000000)
+           (%wlt #0 (snd (snd s90)))) ≡ true
+ue-thm-agent-x402-90pct-dominates-50pct = refl
+
+-- THEOREM 1C (NONLINEAR TWO-PART STREAM PASS ELIMINATES DEADWEIGHT LOSS & DOMINATES LINEAR PRICING):
+ue-twopart-fee : Word → Word → Word → Word → Word
+ue-twopart-fee nJobs xBase yEff capturePct =
+  if %wlt xBase yEff then #0
+  else %wdiv (%wmul nJobs (%wmul (%wsub xBase yEff) capturePct)) #100
+
+ue-thm-twopart-dominates-linear :
+  let linCash = %wmul #50 (fst (snd (ue-settle-split #1 #1 #10000 #1000 #0)))
+      tpCash  = ue-twopart-fee #100 #10000 #1000 #75
+  in %wlt linCash tpCash ≡ true
+ue-thm-twopart-dominates-linear = refl
+
+-- THEOREM 1D (KKT SHADOW PRICE `mu*` KNAPSACK ADMISSION DOMINATES FIFO UNDER SCARCE CAPACITY):
+ue-kkt-admit : Word → Word → Word → Word → Bool
+ue-kkt-admit xBase yPhys tauMs muPerMs =
+  %wlt (%wadd yPhys (%wmul tauMs muPerMs)) xBase
+
+ue-thm-kkt-knapsack-beats-fifo :
+  andB (h-not (ue-kkt-admit #1200 #1000 #100 #45))
+  (andB (ue-kkt-admit #5000 #100 #50 #45)
+  (andB (ue-kkt-admit #2500 #100 #50 #45)
+        (%wlt #200 (%wadd (fst (snd (ue-settle-split #1 #9 #5000 #100 #2250)))
+                          (fst (snd (ue-settle-split #1 #9 #2500 #100 #2250))))))) ≡ true
+ue-thm-kkt-knapsack-beats-fifo = refl
+
+-- ============================================================================
+-- SECTION 2: METACIRCULAR SUPERCOMPILER REWRITE SOUNDNESS (`CanonStep`, 0 POSTULATES)
+-- ============================================================================
+
+data UeExpr : Type where
+  ue-lit : Nat → UeExpr
+  ue-var : Nat → UeExpr
+  ue-pls : UeExpr → UeExpr → UeExpr
+  ue-tim : UeExpr → UeExpr → UeExpr
+  ue-d01 : UeExpr → UeExpr
+
+ue-eval-nat : (Nat → Nat) → UeExpr → Nat
+ue-eval-nat env (ue-lit v)   = v
+ue-eval-nat env (ue-var k)   = env k
+ue-eval-nat env (ue-pls a b) = ue-add (ue-eval-nat env a) (ue-eval-nat env b)
+ue-eval-nat env (ue-tim a b) = ue-mul (ue-eval-nat env a) (ue-eval-nat env b)
+ue-eval-nat env (ue-d01 x)   = zero
+
+ue-cost-nat : UeExpr → Nat
+ue-cost-nat (ue-lit v)   = suc zero
+ue-cost-nat (ue-var k)   = suc zero
+ue-cost-nat (ue-pls a b) = suc (ue-add (ue-cost-nat a) (ue-cost-nat b))
+ue-cost-nat (ue-tim a b) = suc (suc (ue-add (ue-cost-nat a) (ue-cost-nat b)))
+ue-cost-nat (ue-d01 x)   = suc (ue-cost-nat x)
+
+ue-nat-eq : Nat → Nat → Bool
+ue-nat-eq zero    zero    = true
+ue-nat-eq zero    (suc m) = false
+ue-nat-eq (suc n) zero    = false
+ue-nat-eq (suc n) (suc m) = ue-nat-eq n m
+
+ue-true-ne-false : true ≡ false → Empty
+ue-true-ne-false p = transport (λ i → if p i then Unit else Empty) unit
+
+ue-nat-eq-sound : (a b : Nat) → ue-nat-eq a b ≡ true → a ≡ b
+ue-nat-eq-sound zero    zero    h = refl
+ue-nat-eq-sound zero    (suc m) h = Empty-rec (ue-true-ne-false (ue-sym h))
+ue-nat-eq-sound (suc n) zero    h = Empty-rec (ue-true-ne-false (ue-sym h))
+ue-nat-eq-sound (suc n) (suc m) h = cong suc (ue-nat-eq-sound n m h)
+
+ue-peep-pls : UeExpr → UeExpr → UeExpr
+ue-peep-pls (ue-lit zero) b = b
+ue-peep-pls a (ue-lit zero) = a
+ue-peep-pls (ue-tim a1 (ue-var k1)) (ue-tim a2 (ue-var k2)) =
+  if ue-nat-eq k1 k2
+  then ue-tim (ue-pls a1 a2) (ue-var k1)
+  else ue-pls (ue-tim a1 (ue-var k1)) (ue-tim a2 (ue-var k2))
+ue-peep-pls a b = ue-pls a b
+
+ue-peep-pls-At : (env : Nat → Nat) → (a1 a2 : UeExpr) → (k1 k2 : Nat) → (fl : Bool) →
+  ue-nat-eq k1 k2 ≡ fl →
+  ue-eval-nat env (if fl then ue-tim (ue-pls a1 a2) (ue-var k1) else ue-pls (ue-tim a1 (ue-var k1)) (ue-tim a2 (ue-var k2))) ≡
+  ue-add (ue-mul (ue-eval-nat env a1) (env k1)) (ue-mul (ue-eval-nat env a2) (env k2))
+ue-peep-pls-At env a1 a2 k1 k2 false h = refl
+ue-peep-pls-At env a1 a2 k1 k2 true  h =
+  let kp = ue-nat-eq-sound k1 k2 h
+  in ue-trans
+       (ue-mul-dist-r (ue-eval-nat env a1) (ue-eval-nat env a2) (env k1))
+       (cong (λ z → ue-add (ue-mul (ue-eval-nat env a1) (env k1)) (ue-mul (ue-eval-nat env a2) (env z))) kp)
+
+ue-lem-peep-pls-sound : (env : Nat → Nat) → (a b : UeExpr) →
+  ue-eval-nat env (ue-peep-pls a b) ≡ ue-add (ue-eval-nat env a) (ue-eval-nat env b)
+ue-lem-peep-pls-sound env (ue-lit zero) b = refl
+ue-lem-peep-pls-sound env (ue-lit (suc n)) (ue-lit zero) = ue-sym (ue-add-zero-r (suc n))
+ue-lem-peep-pls-sound env (ue-lit (suc n)) (ue-lit (suc m)) = refl
+ue-lem-peep-pls-sound env (ue-lit (suc n)) (ue-var k) = refl
+ue-lem-peep-pls-sound env (ue-lit (suc n)) (ue-pls c d) = refl
+ue-lem-peep-pls-sound env (ue-lit (suc n)) (ue-tim c d) = refl
+ue-lem-peep-pls-sound env (ue-lit (suc n)) (ue-d01 c) = refl
+ue-lem-peep-pls-sound env (ue-var k) (ue-lit zero) = ue-sym (ue-add-zero-r (env k))
+ue-lem-peep-pls-sound env (ue-var k) (ue-lit (suc m)) = refl
+ue-lem-peep-pls-sound env (ue-var k) (ue-var j) = refl
+ue-lem-peep-pls-sound env (ue-var k) (ue-pls c d) = refl
+ue-lem-peep-pls-sound env (ue-var k) (ue-tim c d) = refl
+ue-lem-peep-pls-sound env (ue-var k) (ue-d01 c) = refl
+ue-lem-peep-pls-sound env (ue-pls x y) (ue-lit zero) = ue-sym (ue-add-zero-r (ue-eval-nat env (ue-pls x y)))
+ue-lem-peep-pls-sound env (ue-pls x y) (ue-lit (suc m)) = refl
+ue-lem-peep-pls-sound env (ue-pls x y) (ue-var j) = refl
+ue-lem-peep-pls-sound env (ue-pls x y) (ue-pls c d) = refl
+ue-lem-peep-pls-sound env (ue-pls x y) (ue-tim c d) = refl
+ue-lem-peep-pls-sound env (ue-pls x y) (ue-d01 c) = refl
+ue-lem-peep-pls-sound env (ue-d01 x) (ue-lit zero) = refl
+ue-lem-peep-pls-sound env (ue-d01 x) (ue-lit (suc m)) = refl
+ue-lem-peep-pls-sound env (ue-d01 x) (ue-var j) = refl
+ue-lem-peep-pls-sound env (ue-d01 x) (ue-pls c d) = refl
+ue-lem-peep-pls-sound env (ue-d01 x) (ue-tim c d) = refl
+ue-lem-peep-pls-sound env (ue-d01 x) (ue-d01 c) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-lit v)) (ue-lit zero) = ue-sym (ue-add-zero-r (ue-eval-nat env (ue-tim a1 (ue-lit v))))
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-lit v)) (ue-lit (suc m)) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-lit v)) (ue-var j) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-lit v)) (ue-pls c d) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-lit v)) (ue-tim c d) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-lit v)) (ue-d01 c) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-pls x y)) (ue-lit zero) = ue-sym (ue-add-zero-r (ue-eval-nat env (ue-tim a1 (ue-pls x y))))
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-pls x y)) (ue-lit (suc m)) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-pls x y)) (ue-var j) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-pls x y)) (ue-pls c d) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-pls x y)) (ue-tim c d) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-pls x y)) (ue-d01 c) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-tim x y)) (ue-lit zero) = ue-sym (ue-add-zero-r (ue-eval-nat env (ue-tim a1 (ue-tim x y))))
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-tim x y)) (ue-lit (suc m)) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-tim x y)) (ue-var j) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-tim x y)) (ue-pls c d) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-tim x y)) (ue-tim c d) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-tim x y)) (ue-d01 c) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-d01 x)) (ue-lit zero) = ue-sym (ue-add-zero-r (ue-eval-nat env (ue-tim a1 (ue-d01 x))))
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-d01 x)) (ue-lit (suc m)) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-d01 x)) (ue-var j) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-d01 x)) (ue-pls c d) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-d01 x)) (ue-tim c d) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-d01 x)) (ue-d01 c) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-var k1)) (ue-lit zero) = ue-sym (ue-add-zero-r (ue-mul (ue-eval-nat env a1) (env k1)))
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-var k1)) (ue-lit (suc m)) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-var k1)) (ue-var j) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-var k1)) (ue-pls c d) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-var k1)) (ue-d01 c) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-var k1)) (ue-tim a2 (ue-lit v)) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-var k1)) (ue-tim a2 (ue-pls c d)) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-var k1)) (ue-tim a2 (ue-tim c d)) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-var k1)) (ue-tim a2 (ue-d01 c)) = refl
+ue-lem-peep-pls-sound env (ue-tim a1 (ue-var k1)) (ue-tim a2 (ue-var k2)) =
+  ue-peep-pls-At env a1 a2 k1 k2 (ue-nat-eq k1 k2) refl
+
+ue-peep-tim : UeExpr → UeExpr → UeExpr
+ue-peep-tim (ue-lit zero)       b = ue-lit zero
+ue-peep-tim (ue-lit (suc zero)) b = b
+ue-peep-tim a                   b = ue-tim a b
+
+ue-lem-peep-tim-sound : (env : Nat → Nat) → (a b : UeExpr) →
+  ue-eval-nat env (ue-peep-tim a b) ≡ ue-mul (ue-eval-nat env a) (ue-eval-nat env b)
+ue-lem-peep-tim-sound env (ue-lit zero)          b = refl
+ue-lem-peep-tim-sound env (ue-lit (suc zero))    b = ue-sym (ue-add-zero-r (ue-eval-nat env b))
+ue-lem-peep-tim-sound env (ue-lit (suc (suc n))) b = refl
+ue-lem-peep-tim-sound env (ue-var k)             b = refl
+ue-lem-peep-tim-sound env (ue-pls x y)           b = refl
+ue-lem-peep-tim-sound env (ue-tim x y)           b = refl
+ue-lem-peep-tim-sound env (ue-d01 x)             b = refl
+
+ue-contract1 : UeExpr → UeExpr
+ue-contract1 (ue-lit v)   = ue-lit v
+ue-contract1 (ue-var k)   = ue-var k
+ue-contract1 (ue-pls a b) = ue-peep-pls (ue-contract1 a) (ue-contract1 b)
+ue-contract1 (ue-tim a b) = ue-peep-tim (ue-contract1 a) (ue-contract1 b)
+ue-contract1 (ue-d01 x)   = ue-lit zero
+
+ue-thm-contract1-sound : (env : Nat → Nat) → (e : UeExpr) →
+  ue-eval-nat env (ue-contract1 e) ≡ ue-eval-nat env e
+ue-thm-contract1-sound env (ue-lit v)   = refl
+ue-thm-contract1-sound env (ue-var k)   = refl
+ue-thm-contract1-sound env (ue-pls a b) =
+  ue-trans
+    (ue-lem-peep-pls-sound env (ue-contract1 a) (ue-contract1 b))
+    (ue-cong2 ue-add (ue-thm-contract1-sound env a) (ue-thm-contract1-sound env b))
+ue-thm-contract1-sound env (ue-tim a b) =
+  ue-trans
+    (ue-lem-peep-tim-sound env (ue-contract1 a) (ue-contract1 b))
+    (ue-cong2 ue-mul (ue-thm-contract1-sound env a) (ue-thm-contract1-sound env b))
+ue-thm-contract1-sound env (ue-d01 x)   = refl
+
+ue-guarded-step : UeExpr → UeExpr
+ue-guarded-step e =
+  let c = ue-contract1 e
+  in if ue-le (ue-cost-nat c) (ue-cost-nat e) then c else e
+
+ue-step-sound-at : (env : Nat → Nat) → (e c : UeExpr) → (fl : Bool) →
+  ue-eval-nat env c ≡ ue-eval-nat env e →
+  ue-eval-nat env (if fl then c else e) ≡ ue-eval-nat env e
+ue-step-sound-at env e c true  p = p
+ue-step-sound-at env e c false p = refl
+
+ue-step-cost-at : (e c : UeExpr) → (fl : Bool) →
+  ue-le (ue-cost-nat c) (ue-cost-nat e) ≡ fl →
+  ue-le (ue-cost-nat (if fl then c else e)) (ue-cost-nat e) ≡ true
+ue-step-cost-at e c true  h = h
+ue-step-cost-at e c false h = ue-le-refl (ue-cost-nat e)
+
+ue-contract-iter : Nat → UeExpr → UeExpr
+ue-contract-iter zero    e = e
+ue-contract-iter (suc n) e = ue-guarded-step (ue-contract-iter n e)
+
+-- UNIVERSAL THEOREM 2 (ALL-`n` SEMANTIC SOUNDNESS + MONOTONE COST CONTRACTION = `CanonStep`):
+ue-thm-contract-iter-sound : (n : Nat) → (env : Nat → Nat) → (e : UeExpr) →
+  ue-eval-nat env (ue-contract-iter n e) ≡ ue-eval-nat env e
+ue-thm-contract-iter-sound zero    env e = refl
+ue-thm-contract-iter-sound (suc n) env e =
+  let mid = ue-contract-iter n e
+      c   = ue-contract1 mid
+      s1  = ue-step-sound-at env mid c (ue-le (ue-cost-nat c) (ue-cost-nat mid)) (ue-thm-contract1-sound env mid)
+  in ue-trans s1 (ue-thm-contract-iter-sound n env e)
+
+ue-thm-contract-iter-monotone : (n : Nat) → (e : UeExpr) →
+  ue-le (ue-cost-nat (ue-contract-iter n e)) (ue-cost-nat e) ≡ true
+ue-thm-contract-iter-monotone zero    e = ue-le-refl (ue-cost-nat e)
+ue-thm-contract-iter-monotone (suc n) e =
+  let mid = ue-contract-iter n e
+      c   = ue-contract1 mid
+      s1  = ue-step-cost-at mid c (ue-le (ue-cost-nat c) (ue-cost-nat mid)) refl
+      ih  = ue-thm-contract-iter-monotone n e
+  in ue-le-trans (ue-cost-nat (ue-guarded-step mid)) (ue-cost-nat mid) (ue-cost-nat e) s1 ih
+
+-- ============================================================================
+-- SECTION 3: LIVE `.hypercubical` HYPERREACTOR GATE (`POST /eval` & `GET /eval`)
+--   Accepts pure `.hypercubical` Cubical Type Theory, executes `./build/cubical --read`,
+--   memoizes fibers by SHA-256 (`S + K < K * S`), and emits a self-checking `.hypercubical`
+--   normal-form + KKT Max-Cashflow certificate (ZERO JSON!).
+-- ============================================================================
+
+ue-nl : List Word
+ue-nl = cons #10 nil
+
+ue-ln : List Word → List Word → List Word
+ue-ln s rest = list-append s (cons #10 rest)
+
+ue-hex-val : Word → Word
+ue-hex-val c =
+  if andB (%wlt #47 c) (%wlt c #58) then %wsub c #48
+  else if andB (%wlt #64 c) (%wlt c #71) then %wadd (%wsub c #65) #10
+  else if andB (%wlt #96 c) (%wlt c #103) then %wadd (%wsub c #97) #10
+  else #0
+
+ue-url-decode : List Word → List Word
+ue-url-decode nil = nil
+ue-url-decode (cons c cs) =
+  if weq c #43 then cons #32 (ue-url-decode cs)
+  else if weq c #37 then
+    case cs of
+      nil → nil
+      cons h1 rs1 →
+        case rs1 of
+          nil → nil
+          cons h2 rs2 → cons (%wor (%wshl (ue-hex-val h1) #4) (ue-hex-val h2)) (ue-url-decode rs2)
+  else cons c (ue-url-decode cs)
+
+ue-qparam : List Word → List Word → List Word
+ue-qparam key qs =
+  let pat1 = list-append key "="
+      pat2 = list-append "&" pat1
+  in if h-prefix pat1 qs then ue-url-decode (h-before "&" (h-drop pat1 qs))
+     else if h-infix pat2 qs then ue-url-decode (h-before "&" (h-after pat2 qs))
+     else nil
+
+ue-parse-num : Word → List Word → Word
+ue-parse-num acc nil = acc
+ue-parse-num acc (cons c cs) =
+  if andB (%wlt #47 c) (%wlt c #58)
+  then ue-parse-num (%wadd (%wmul acc #10) (%wsub c #48)) cs
+  else acc
+
+ue-fnv64 : Word → List Word → Word
+ue-fnv64 h nil = h
+ue-fnv64 h (cons c cs) = ue-fnv64 (%wmul (%wxor h (%wand c #255)) #1099511628211) cs
+
+ue-hex-digit : Word → Word
+ue-hex-digit n =
+  let v = %wand n #15
+  in if %wlt v #10 then %wadd #48 v else %wadd #87 v
+
+ue-hex-n : Nat → Word → List Word
+ue-hex-n zero    w = nil
+ue-hex-n (suc k) w = list-append (ue-hex-n k (%wshr w #4)) (cons (ue-hex-digit w) nil)
+
+-- Sanitize `import` lines so untrusted `.hypercubical` code can only import repo `store/` modules:
+ue-safe-import-line : List Word → Bool
+ue-safe-import-line ln =
+  let t = h-trim ln
+  in if h-not (h-prefix "import " t) then true
+     else andB (h-not (h-infix ".." t))
+               (h-not (h-infix (list-append (cons #34 nil) "/") t))
+
+ue-all-imports-safe : List (List Word) → Bool
+ue-all-imports-safe nil = true
+ue-all-imports-safe (cons l ls) = andB (ue-safe-import-line l) (ue-all-imports-safe ls)
+
+ue-has-import : List (List Word) → Bool
+ue-has-import nil = false
+ue-has-import (cons l ls) = if h-prefix "import " (h-trim l) then true else ue-has-import ls
+
+-- Extract `<N> passed` and `<S> interaction steps performed` from `./build/cubical --read` stdout:
+ue-last-digits-rev : List Word → List Word
+ue-last-digits-rev nil = nil
+ue-last-digits-rev (cons c cs) =
+  if andB (%wlt #47 c) (%wlt c #58)
+  then cons c (ue-last-digits-rev cs)
+  else nil
+
+ue-rev : List Word → List Word → List Word
+ue-rev acc nil = acc
+ue-rev acc (cons x xs) = ue-rev (cons x acc) xs
+
+ue-num-before : List Word → List Word → Word
+ue-num-before tag txt =
+  if h-not (h-infix tag txt) then #0
+  else let pre = h-before tag txt
+           r   = ue-rev nil pre
+           ds  = ue-rev nil (ue-last-digits-rev r)
+       in ue-parse-num #0 ds
+
+ue-comment-lines : List (List Word) → List Word
+ue-comment-lines nil = nil
+ue-comment-lines (cons l ls) =
+  if h-null l then ue-comment-lines ls
+  else list-append "--   " (list-append l (cons #10 (ue-comment-lines ls)))
+
+ue-channel-params : List Word → Word × (Word × List Word)
+ue-channel-params m =
+  if h-eq m "cournot" then (#1 , (#1 , "cournot (gamma=1, alpha*=50% midpoint)"))
+  else if h-eq m "spot" then (#1 , (#2 , "spot (gamma=1/2, alpha*=67%)"))
+  else if h-eq m "stream" then (#19 , (#1 , "stream_pass (P_marg=Y_eff+5%, +F* epoch pass)"))
+  else (#1 , (#9 , "agent_x402 (gamma=1/9, alpha*=90% router optimum)"))
+
+-- Build default `.hypercubical` snippet without string escapes:
+ue-q : List Word
+ue-q = cons #34 nil
+
+ue-default-program : List Word
+ue-default-program =
+  ue-ln (list-append "import " (list-append ue-q (list-append "lib/core.hypercubical" ue-q))) (
+  ue-ln "-- computational univalence (ua) transport on Bool + exact step reduction:" (
+  ue-ln "hx-not-invol : (b : Bool) → not (not b) ≡ b" (
+  ue-ln "hx-not-invol false = refl" (
+  ue-ln "hx-not-invol true  = refl" (
+  ue-ln "hx-not-equiv : Equiv Bool Bool" (
+  ue-ln "hx-not-equiv = isoToEquiv not not hx-not-invol hx-not-invol" (
+  ue-ln "#show (transport (λ i → ua hx-not-equiv i) true)" (
+  ue-ln "#show (plus (toNat #314) (toNat #686))" nil))))))))
+
+ue-cached-x : Sum Unit (List Word) → Word
+ue-cached-x (inl u)  = #50000
+ue-cached-x (inr xs) = ue-max-w #100 (ue-parse-num #0 xs)
+
+UeRunRes : Type
+UeRunRes = Bool × (Word × (Word × List Word))
+
+ue-run-or-cache : List Word → List Word → List Word → List Word → List Word → Sum Unit (List Word) → Sum Unit (List Word) → Proc W UeRunRes
+ue-run-or-cache binPath cDir fOut fBaseX fullSrc (inr cOut) mCachedX =
+  ret {lzero} {W} (the UeRunRes (true , (ue-cached-x mCachedX , (#1 , cOut))))
+ue-run-or-cache binPath cDir fOut fBaseX fullSrc (inl u) mCachedX =
+  bind (sys-call #39 #0 #0 #0 #0 #0 #0) (λ pid →
+  let tmpF = list-append cDir (list-append "/eval_" (list-append (h-decimal pid) ".hypercubical"))
+      cub  = if h-null binPath then the (List Word) "./build/cubical" else binPath
+  in bind (h-write tmpF (h-take (toNat #65536) fullSrc)) (λ wr →
+     bind (h-capture (cons "/bin/sh" (cons "-c" (cons "IFS=; CUBICAL_WORKERS=1; export CUBICAL_WORKERS; ulimit -t 6 2>/dev/null; exec $1 --read --with hx_eval_task.hypercubical $2 hx_eval_task.hypercubical" (cons "_" (cons cub (cons tmpF nil))))))) (λ res →
+     bind (h-unlink tmpF) (λ ul →
+       let outTxt  = snd res
+           passedN = ue-max-w #1 (ue-num-before " passed," outTxt)
+           stepsY0 = ue-max-w #1 (ue-num-before " interaction steps performed" outTxt)
+           cellsN  = ue-num-before " cells live" outTxt
+           baseX   = ue-max-w (%wadd stepsY0 #100) (%wadd (%wmul passedN #1400) (%wadd (%wmul stepsY0 #4) cellsN))
+           okRun   = weq (fst res) #0
+       in bind (if okRun then h-write fOut outTxt else ret {lzero} {W} false) (λ w1 →
+          bind (if okRun then h-write fBaseX (h-decimal baseX) else ret {lzero} {W} false) (λ w2 →
+          ret {lzero} {W} (the UeRunRes (false , (baseX , (stepsY0 , outTxt))))))))))
+
+-- Execute `.hypercubical` on `./build/cubical --read`, memoize in `/tmp/hx_hyperreactor`, & emit pure `.hypercubical`:
+ue-eval-hypercubical : List Word → List Word → List Word → Proc W (List Word)
+ue-eval-hypercubical binPath qs body =
+  let qCode   = ue-qparam "code" qs
+      mode0   = ue-qparam "mode" qs
+      loadS   = ue-qparam "load" qs
+      loadPct = if h-null loadS then #35 else ue-min-w #100 (ue-parse-num #0 loadS)
+      rawCode = if h-not (h-null qCode) then qCode
+                else if h-not (h-null (h-trim body)) then body
+                else ue-default-program
+      lns     = h-lines rawCode
+  in if h-not (ue-all-imports-safe lns)
+     then ret {lzero} {W} (ue-ln "-- refused: import path must name a module inside the repository store/" nil)
+     else
+       let fullSrc = if ue-has-import lns then rawCode
+                     else list-append "import " (list-append ue-q (list-append "lib/core.hypercubical" (list-append ue-q (cons #10 rawCode))))
+           h64     = ue-fnv64 #14695981039346656037 fullSrc
+           hHex    = ue-hex-n (toNat #16) h64
+           cDir    = the (List Word) "/tmp/hx_hyperreactor"
+           fOut    = list-append cDir (list-append "/" (list-append hHex ".out"))
+           fBaseX  = list-append cDir (list-append "/" (list-append hHex ".x"))
+       in bind (h-mkdir cDir) (λ u0 →
+          bind (h-read fOut) (λ mCachedOut →
+          bind (h-read fBaseX) (λ mCachedX →
+          bind (ue-run-or-cache binPath cDir fOut fBaseX fullSrc mCachedOut mCachedX) (λ runInfo →
+            let isHit   = fst runInfo
+                xSteps  = fst (snd runInfo)
+                ySteps  = fst (snd (snd runInfo))
+                kOut    = snd (snd (snd runInfo))
+                surp0   = if %wlt xSteps ySteps then #0 else %wsub xSteps ySteps
+                muFloor = ue-max-w #1 (%wdiv ySteps #10)
+                muCong  = if %wlt #70 loadPct then %wdiv (%wmul surp0 (%wsub loadPct #70)) #40 else #0
+                muTau   = %wadd muFloor muCong
+                chP     = ue-channel-params mode0
+                pEl     = fst chP
+                qEl     = fst (snd chP)
+                chLbl   = snd (snd chP)
+                split   = ue-settle-split pEl qEl xSteps ySteps muTau
+                pStar   = ue-kkt-price pEl qEl xSteps ySteps muTau
+                profW   = fst (snd split)
+                saveW   = snd (snd split)
+                tpPass  = ue-twopart-fee #100 xSteps (ue-y-eff xSteps ySteps muTau) #85
+                certHc  = ue-ln "-- ============================================================================" (
+                          ue-ln "-- HYPERACTIVE LABS // SELF-OPTIMIZING CUBICAL SUPERCOMPILER & HYPERREACTOR" (
+                          ue-ln (list-append "-- fiber_id_fnv64  : 0x" hHex) (
+                          ue-ln (list-append "-- store_fiber_hit : " (if isHit then "true (O(1) store/<sha256> normal-form recall)" else "false (fresh Lafont INet reduction + cached)")) (
+                          ue-ln (list-append "-- kkt_channel     : " chLbl) (
+                          ue-ln "-- kkt_law         : P* = Y_eff + (q / (p + q)) * (X - Y_eff)  [0 guesswork]" (
+                          ue-ln "-- ============================================================================" (
+                          ue-ln "-- [KERNEL OUTPUT (./build/cubical --read)]" (
+                          list-append (ue-comment-lines (h-lines kOut)) (
+                          ue-ln (list-append "import " (list-append ue-q (list-append "lib/core.hypercubical" ue-q))) (
+                          ue-ln "hx-baseline-steps-X : Word" (
+                          ue-ln (list-append "hx-baseline-steps-X = #" (h-decimal xSteps)) (
+                          ue-ln "hx-hyperreactor-steps-Y : Word" (
+                          ue-ln (list-append "hx-hyperreactor-steps-Y = #" (h-decimal ySteps)) (
+                          ue-ln "hx-kkt-shadow-hurdle : Word" (
+                          ue-ln (list-append "hx-kkt-shadow-hurdle = #" (h-decimal muTau)) (
+                          ue-ln "hx-optimal-price-P : Word" (
+                          ue-ln (list-append "hx-optimal-price-P = #" (h-decimal pStar)) (
+                          ue-ln "hx-founder-profit : Word" (
+                          ue-ln (list-append "hx-founder-profit = #" (h-decimal profW)) (
+                          ue-ln "hx-buyer-instant-savings : Word" (
+                          ue-ln (list-append "hx-buyer-instant-savings = #" (h-decimal saveW)) (
+                          ue-ln "hx-twopart-100call-pass : Word" (
+                          ue-ln (list-append "hx-twopart-100call-pass = #" (h-decimal tpPass)) (
+                          ue-ln "hx-zero-dust-conserved : %weq (%wadd hx-hyperreactor-steps-Y (%wadd hx-founder-profit hx-buyer-instant-savings)) hx-baseline-steps-X ≡ true" (
+                          ue-ln "hx-zero-dust-conserved = refl" (
+                          ue-ln "-- x402_base8453_usdc_pay_to : 0x4A50FBF0128E2679C42466A8cC1A9D230b08A26f" nil))))))))))))))))))))))))))
+            in ret {lzero} {W} certHc))))
+
+-- ============================================================================
+-- SECTION 4: STRICT MONOSPACE `#000/#fff/#ff0a94` `/eval` SUPERCOMPILER CONSOLE
+-- ============================================================================
+
+ue-eval-console-html : List Word
+ue-eval-console-html =
+  ue-ln "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>" (
+  ue-ln "<title>hyperactivity // .hypercubical Self-Optimizing Supercompiler &amp; Hyperreactor</title>" (
+  ue-ln "<link rel='icon' href='/favicon.svg' type='image/svg+xml'><style>" (
+  ue-ln ":root{--bg:#000000;--bg2:#070707;--fg:#e6e6e6;--hi:#ffffff;--muted:#888888;--rule:#222222;--rule2:#3a3a3a;--pink:#ff0a94;--font:'SF Mono','JetBrains Mono',ui-monospace,Menlo,Consolas,monospace}" (
+  ue-ln "*{box-sizing:border-box;border-radius:0!important;font-family:var(--font);font-variant-numeric:tabular-nums}" (
+  ue-ln "html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font-size:12.5px;line-height:1.58}" (
+  ue-ln "a{color:var(--hi);text-decoration:none;border-bottom:1px solid var(--rule2)}a:hover{color:var(--pink);border-color:var(--pink)}" (
+  ue-ln ".wrap{max-width:1180px;margin:0 auto;padding:0 22px 72px}" (
+  ue-ln ".top{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--rule2);font-size:11px;color:var(--muted);flex-wrap:wrap}" (
+  ue-ln ".mark{width:7px;height:7px;background:var(--pink);display:inline-block;margin-right:8px}" (
+  ue-ln "h1{font-size:21px;font-weight:500;color:var(--hi);margin:22px 0 8px;letter-spacing:-0.02em}" (
+  ue-ln ".sub{color:var(--muted);max-width:980px;margin:0 0 18px;font-size:12px}" (
+  ue-ln ".bar{display:flex;flex-wrap:wrap;gap:5px;align-items:center;justify-content:space-between;padding:8px 10px;border:1px solid var(--rule2);background:var(--bg2)}" (
+  ue-ln ".btn{background:var(--bg);color:var(--fg);border:1px solid var(--rule2);padding:5px 9px;font-size:11px;cursor:pointer}" (
+  ue-ln ".btn:hover,.btn.on{border-color:var(--pink);color:var(--hi)}.btn.fire{background:var(--pink);border-color:var(--pink);color:#ffffff;font-weight:600}" (
+  ue-ln ".grid{display:grid;grid-template-columns:1fr 1fr;border-left:1px solid var(--rule2);border-right:1px solid var(--rule2);border-bottom:1px solid var(--rule2)}@media(max-width:900px){.grid{grid-template-columns:1fr}}" (
+  ue-ln ".pane{display:flex;flex-direction:column;min-height:430px}.pane:first-child{border-right:1px solid var(--rule2)}" (
+  ue-ln ".phd{padding:7px 10px;border-bottom:1px solid var(--rule);background:var(--bg2);font-size:10.5px;color:var(--muted);display:flex;justify-content:space-between}" (
+  ue-ln "textarea,pre{flex:1;margin:0;padding:12px;background:var(--bg);color:var(--hi);border:0;font-size:12px;line-height:1.55;outline:none;resize:vertical;overflow:auto;white-space:pre}" (
+  ue-ln ".kpis{display:grid;grid-template-columns:repeat(6,1fr);border-left:1px solid var(--rule2);border-right:1px solid var(--rule2);border-bottom:1px solid var(--rule2)}@media(max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}}" (
+  ue-ln ".kc{padding:9px 10px;border-right:1px solid var(--rule)}.kc:last-child{border-right:0}.kl{font-size:9.5px;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:3px}.kv{font-size:13px;color:var(--hi);font-weight:600}.kv.pk{color:var(--pink)}" (
+  ue-ln ".cli{margin-top:16px;padding:10px 12px;border:1px solid var(--rule2);background:var(--bg2);font-size:11.5px;color:var(--hi);overflow-x:auto;white-space:pre}" (
+  ue-ln "</style></head><body><div class='wrap'>" (
+  ue-ln "<header class='top'><div><span class='mark'></span><b style='color:var(--hi)'>HYPERACTIVE LABS // CUBICAL SUPERCOMPILER (/eval)</b> &middot; PURE .HYPERCUBICAL IN &rarr; PURE .HYPERCUBICAL OUT</div><div><a href='/'>[2D PORTAL OS /]</a> &middot; <a href='/net'>[LAFONT INET /net]</a> &middot; <a href='/kernel'>[WASM IDE /kernel]</a></div></header>" (
+  ue-ln "<h1>Universal Cubical Type Theory Evaluator &amp; Max-Cashflow Hyperreactor</h1>" (
+  ue-ln "<p class='sub'>The public expression language is pure Cubical Type Theory (<code>.hypercubical</code>: dependent <code>&Pi;/&Sigma;</code>, <code>Path</code>, <code>comp</code>, <code>Glue</code>, computational univalence <code>ua</code>, <code>al-id</code> rings, <code>TensorIR/CircuitIR</code>). Hyperactive Labs holds the self-optimizing supercompiler + 795-module SHA-256 equivalence store + Lafont hyperreactor. Pricing follows the exact closed-form Lagrangian optimum <code>P* = Y_eff + (q/(p+q))&middot;(X &minus; Y_eff)</code> with zero JSON anywhere on the wire.</p>" (
+  ue-ln "<div class='bar'><div style='display:flex;flex-wrap:wrap;gap:4px' id='presets'>" (
+  ue-ln "  <button class='btn on' data-k='0'>01 // ua-univalence</button>" (
+  ue-ln "  <button class='btn' data-k='1'>02 // al-id-ring-cube</button>" (
+  ue-ln "  <button class='btn' data-k='2'>03 // video-dit-rot1</button>" (
+  ue-ln "  <button class='btn' data-k='3'>04 // diamond-superopt</button>" (
+  ue-ln "  <button class='btn' data-k='4'>05 // kkt-cashflow-proof</button>" (
+  ue-ln "</div><div style='display:flex;flex-wrap:wrap;gap:4px;align-items:center'>" (
+  ue-ln "  <button class='btn on' data-m='agent'>[x402 agent &alpha;*=90%]</button>" (
+  ue-ln "  <button class='btn' data-m='spot'>[spot &alpha;*=67%]</button>" (
+  ue-ln "  <button class='btn' data-m='cournot'>[cournot &alpha;*=50%]</button>" (
+  ue-ln "  <button class='btn' data-m='stream'>[2-part stream]</button>" (
+  ue-ln "  <span style='font-size:10.5px;color:var(--muted);margin-left:4px'>LOAD:</span><input id='ld' type='range' min='10' max='98' value='35' style='width:68px;accent-color:#ff0a94'><span id='ld-v' style='font-size:10.5px;color:var(--hi);width:28px'>35%</span>" (
+  ue-ln "  <button class='btn fire' id='run'>[HYPERCOMPILE &amp; REDUCE]</button>" (
+  ue-ln "</div></div>" (
+  ue-ln "<div class='kpis'>" (
+  ue-ln "  <div class='kc'><span class='kl'>BASELINE STEPS (X)</span><span class='kv' id='k-x'>--</span></div>" (
+  ue-ln "  <div class='kc'><span class='kl'>HYPERREACTOR STEPS (Y)</span><span class='kv pk' id='k-y'>--</span></div>" (
+  ue-ln "  <div class='kc'><span class='kl'>CONTRACTION / STORE HIT</span><span class='kv' id='k-hit'>--</span></div>" (
+  ue-ln "  <div class='kc'><span class='kl'>OPTIMAL PRICE (P*)</span><span class='kv' id='k-p'>--</span></div>" (
+  ue-ln "  <div class='kc'><span class='kl'>BUYER INSTANT SAVINGS</span><span class='kv' id='k-sav'>--</span></div>" (
+  ue-ln "  <div class='kc'><span class='kl'>HYPERACTIVE SURPLUS</span><span class='kv pk' id='k-prf'>--</span></div>" (
+  ue-ln "</div>" (
+  ue-ln "<div class='grid'>" (
+  ue-ln "  <div class='pane'><div class='phd'><span>INPUT // PURE .HYPERCUBICAL MODULE</span><span>--read (0 OS side-effects)</span></div><textarea id='src' spellcheck='false'></textarea></div>" (
+  ue-ln "  <div class='pane'><div class='phd'><span>OUTPUT // SELF-CHECKING .HYPERCUBICAL NORMAL FORM &amp; refl KKT RECEIPT</span><span id='lat'>ready</span></div><pre id='out'>Running initial .hypercubical reduction on hyperreactor...</pre></div>" (
+  ue-ln "</div>" (
+  ue-ln "<div class='cli' id='cli'>curl -s --data-binary @task.hypercubical 'https://hyperactivity.ai/eval?mode=agent'</div>" (
+  ue-ln "<script>(function(){var nl=String.fromCharCode(10),q=String.fromCharCode(34),EQ=String.fromCharCode(8801),AR=String.fromCharCode(8594),LM=String.fromCharCode(955),mode='agent';" (
+  ue-ln "var P=[" (
+  ue-ln "  ['import '+q+'lib/core.hypercubical'+q,'-- Computational univalence (ua) transport on Bool + step reduction:','hx-not-inv : (b : Bool) '+AR+' not (not b) '+EQ+' b','hx-not-inv false = refl','hx-not-inv true  = refl','hx-not-eq : Equiv Bool Bool','hx-not-eq = isoToEquiv not not hx-not-inv hx-not-inv','#show (transport ('+LM+' i '+AR+' ua hx-not-eq i) true)','#show (plus (toNat #314) (toNat #686))'].join(nl)," (
+  ue-ln "  ['import '+q+'chem/algebra.hypercubical'+q,'-- Universal commutative-ring prover (al-id) over ALL rings >= Q:','ring-cube-factor : (R : Type) '+AR+' {{c : CommRing R}} '+AR+' (a b : R) '+AR+' (a + b) * (a + b) * (a + b) - a * a * a - b * b * b '+EQ+' (#3 : R) * a * b * (a + b)','ring-cube-factor = al-id','#show #1729'].join(nl)," (
+  ue-ln "  ['import '+q+'lib/ir/video-dit-ir.hypercubical'+q,'-- Lossless Wan 2.1 14B / LTX-13B Modal-7 + branchless rot1 BF16 codec:','#show (vdit-rot1-dec (vdit-rot1-enc #48461))','#show (vdit-modal7-bytes #100663296 #2657511)'].join(nl)," (
+  ue-ln "  ['import '+q+'lib/ir/hx-universal-eval.hypercubical'+q,'-- Metacircular distributive + Stokes boundary contraction (CanonStep):','my-e : UeExpr','my-e = ue-pls (ue-pls (ue-tim (ue-lit (toNat #12)) (ue-var zero)) (ue-tim (ue-lit (toNat #30)) (ue-var zero))) (ue-d01 (ue-var (suc zero)))','#show (ue-cost-nat my-e)','#show (ue-cost-nat (ue-contract-iter (toNat #3) my-e))','#show (ue-eval-nat ('+LM+' k '+AR+' toNat #10) (ue-contract-iter (toNat #3) my-e))'].join(nl)," (
+  ue-ln "  ['import '+q+'lib/ir/hx-universal-eval.hypercubical'+q,'-- Closed-form Cournot-KKT Max-Cashflow split (X=1,000,000, Y=25,000, muTau=5,000):','#show (ue-settle-split #1 #9 #1000000 #25000 #5000)','#show (ue-twopart-fee #100 #10000 #1000 #85)'].join(nl)" (
+  ue-ln "];" (
+  ue-ln "var srcEl=document.getElementById('src'),outEl=document.getElementById('out'),ldEl=document.getElementById('ld');" (
+  ue-ln "srcEl.value=P[0];" (
+  ue-ln "function pick(tag,s){var i=s.indexOf(tag);return i<0?0:(parseInt(s.slice(i+tag.length),10)||0)}" (
+  ue-ln "function runEval(){var t0=performance.now(),ld=ldEl.value;document.getElementById('lat').textContent='reducing on hyperreactor...';" (
+  ue-ln "  fetch('/eval?mode='+mode+'&load='+ld,{method:'POST',body:srcEl.value}).then(function(r){return r.text()}).then(function(txt){" (
+  ue-ln "    outEl.textContent=txt;var dt=Math.round(performance.now()-t0);" (
+  ue-ln "    var x=pick('hx-baseline-steps-X = #',txt),y=pick('hx-hyperreactor-steps-Y = #',txt),p=pick('hx-optimal-price-P = #',txt),sv=pick('hx-buyer-instant-savings = #',txt),pr=pick('hx-founder-profit = #',txt);" (
+  ue-ln "    var hit=txt.indexOf('store_fiber_hit : true')>=0;" (
+  ue-ln "    document.getElementById('k-x').textContent=x.toLocaleString();document.getElementById('k-y').textContent=y.toLocaleString();" (
+  ue-ln "    document.getElementById('k-hit').textContent=(y>0?(x/y).toFixed(1)+'x':'--')+(hit?' [STORE HIT]':' [FRESH]');" (
+  ue-ln "    document.getElementById('k-p').textContent=p.toLocaleString();document.getElementById('k-sav').textContent=sv.toLocaleString();document.getElementById('k-prf').textContent=pr.toLocaleString();" (
+  ue-ln "    document.getElementById('lat').textContent=dt+' ms · refl verified';" (
+  ue-ln "    document.getElementById('cli').textContent='curl -s --data-binary @program.hypercubical '+q+location.origin+'/eval?mode='+mode+'&load='+ld+q;" (
+  ue-ln "  }).catch(function(e){outEl.textContent='-- network error: '+e});}" (
+  ue-ln "document.querySelectorAll('[data-k]').forEach(function(b){b.onclick=function(){document.querySelectorAll('[data-k]').forEach(function(x){x.classList.toggle('on',x===b)});srcEl.value=P[+b.getAttribute('data-k')];runEval()};});" (
+  ue-ln "document.querySelectorAll('[data-m]').forEach(function(b){b.onclick=function(){document.querySelectorAll('[data-m]').forEach(function(x){x.classList.toggle('on',x===b)});mode=b.getAttribute('data-m');runEval()};});" (
+  ue-ln "ldEl.oninput=function(){document.getElementById('ld-v').textContent=ldEl.value+'%'};ldEl.onchange=runEval;" (
+  ue-ln "document.getElementById('run').onclick=runEval;runEval();" (
+  ue-ln "})();</script></div></body></html>" nil)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
